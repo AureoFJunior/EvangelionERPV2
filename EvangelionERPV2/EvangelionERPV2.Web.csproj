@@ -9,11 +9,17 @@
   <ItemGroup>
     <PackageReference Include="AutoMapper" Version="12.0.1" />
     <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="6.0.25" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="Controllers\" />
+    <Folder Include="FluentValidator\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EvangelionERPV2.Application\EvangelionERPV2.Application.csproj" />
   </ItemGroup>
 
 </Project>
