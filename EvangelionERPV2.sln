@@ -3,7 +3,15 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.7.34018.315
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2", "EvangelionERPV2\EvangelionERPV2.csproj", "{529822C7-82B6-4463-9A0A-1B648FE036BA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.Web", "EvangelionERPV2\EvangelionERPV2.Web.csproj", "{529822C7-82B6-4463-9A0A-1B648FE036BA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.Application", "EvangelionERPV2.Application\EvangelionERPV2.Application.csproj", "{3F134E1C-AA2D-4885-A544-69D14B8131FB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.Domain", "EvangelionERPV2.Domain\EvangelionERPV2.Domain.csproj", "{8E01627A-355C-4395-9063-711440B975E0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.Infra", "EvangelionERPV2.Infra\EvangelionERPV2.Infra.csproj", "{CBFF002C-A8A3-4814-93F8-7370B02DB9A9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.Test", "EvangelionERPV2.Test\EvangelionERPV2.Test.csproj", "{91CB70DE-8DAC-4E35-B83C-AE6B7DBB071B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +23,22 @@ Global
 		{529822C7-82B6-4463-9A0A-1B648FE036BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{529822C7-82B6-4463-9A0A-1B648FE036BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{529822C7-82B6-4463-9A0A-1B648FE036BA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3F134E1C-AA2D-4885-A544-69D14B8131FB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3F134E1C-AA2D-4885-A544-69D14B8131FB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3F134E1C-AA2D-4885-A544-69D14B8131FB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3F134E1C-AA2D-4885-A544-69D14B8131FB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8E01627A-355C-4395-9063-711440B975E0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E01627A-355C-4395-9063-711440B975E0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8E01627A-355C-4395-9063-711440B975E0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E01627A-355C-4395-9063-711440B975E0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CBFF002C-A8A3-4814-93F8-7370B02DB9A9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CBFF002C-A8A3-4814-93F8-7370B02DB9A9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CBFF002C-A8A3-4814-93F8-7370B02DB9A9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CBFF002C-A8A3-4814-93F8-7370B02DB9A9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{91CB70DE-8DAC-4E35-B83C-AE6B7DBB071B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{91CB70DE-8DAC-4E35-B83C-AE6B7DBB071B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{91CB70DE-8DAC-4E35-B83C-AE6B7DBB071B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{91CB70DE-8DAC-4E35-B83C-AE6B7DBB071B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
