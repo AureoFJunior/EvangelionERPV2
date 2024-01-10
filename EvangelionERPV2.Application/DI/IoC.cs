@@ -5,6 +5,9 @@ using EvangelionERPV2.Infra.Context;
 using EvangelionERPV2.Application.Configs;
 using EvangelionERPV2.Domain.Interfaces;
 using EvangelionERPV2.Infra.Repositories;
+using EvangelionERPV2.Domain.Utils;
+using EvangelionERPV2.Domain.Models;
+using Serilog;
 
 namespace EvangelionERPV2.Application.DI
 {
@@ -12,43 +15,51 @@ namespace EvangelionERPV2.Application.DI
     {
         public static void Configure(IServiceCollection services, string conection, IConfiguration configuration)
         {
-            #region DataBase
-            services.AddDbContext<AppDbContext>(options => options.UseMySQL(conection));
+            try
+            {
+                services.AddLogging();
 
-            #endregion
+                #region DataBase
+                services.AddDbContext<AppDbContext>(options => options.UseNpgsql(conection));
 
-            #region Mapper
-            var mapper = MapperConfig.RegisterMaps().CreateMapper();
-            services.AddSingleton(mapper);
-            services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+                #endregion
 
-            #endregion
+                #region Mapper
+                var mapper = MapperConfig.RegisterMaps().CreateMapper();
+                services.AddSingleton(mapper);
+                services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
-            #region Repositorys
-            //services.AddScoped(typeof(IRepository<Employer>), typeof(EmployerRepository));
+                #endregion
 
-
-            #endregion
-
-            #region Services
-            //services.AddScoped(typeof(IEmployerService<Employer>), typeof(EmployerService));
+                #region Repositorys
+                services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+                services.AddScoped(typeof(IRepository<User>), typeof(UserRepository));
 
 
-            #endregion
+                #endregion
 
-            services.AddScoped(typeof(IUnitOfWork<AppDbContext>), typeof(UnitOfWork<AppDbContext>));
-            //FluentValidator here
-            //Serilog here
-            services.AddLogging();
+                #region Services
+                services.AddScoped(typeof(TokenService));
+                services.AddScoped(typeof(IRabbitMQManager), typeof(RabbitMQManager));
+                services.AddScoped(typeof(IUserService<User>), typeof(UserService));
 
-            #region Redis
-            // We'll use it later
-            //services.AddStackExchangeRedisCache(o =>
-            //{
-            //    o.InstanceName = "evaRedis";
-            //    //o.Configuration = configuration.Get;
-            //});
 
+                #endregion
+
+                services.AddScoped(typeof(IUnitOfWork<AppDbContext>), typeof(UnitOfWork<AppDbContext>));
+
+                #region Redis
+                // We'll use it later
+                //services.AddStackExchangeRedisCache(o =>
+                //{
+                //    o.InstanceName = "evaRedis";
+                //    //o.Configuration = configuration.Get;
+                //});
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error($"Error at DI IoC: {ex.Message}", ex);
+            }
             #endregion
         }
     }

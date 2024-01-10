@@ -3,8 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.7.34018.315
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EvangelionERPV2.Web", "EvangelionERPV2\EvangelionERPV2.Web.csproj", "{529822C7-82B6-4463-9A0A-1B648FE036BA}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EvangelionERPV2.Application", "EvangelionERPV2.Application\EvangelionERPV2.Application.csproj", "{3F134E1C-AA2D-4885-A544-69D14B8131FB}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EvangelionERPV2.Domain", "EvangelionERPV2.Domain\EvangelionERPV2.Domain.csproj", "{8E01627A-355C-4395-9063-711440B975E0}"
@@ -13,16 +11,14 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EvangelionERPV2.Infra", "Ev
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EvangelionERPV2.Test", "EvangelionERPV2.Test\EvangelionERPV2.Test.csproj", "{91CB70DE-8DAC-4E35-B83C-AE6B7DBB071B}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EvangelionERPV2.Web", "EvangelionERPV2.Web\EvangelionERPV2.Web.csproj", "{727D7D4F-9D9E-450B-9AAD-6F7A1148892B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{529822C7-82B6-4463-9A0A-1B648FE036BA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{529822C7-82B6-4463-9A0A-1B648FE036BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{529822C7-82B6-4463-9A0A-1B648FE036BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{529822C7-82B6-4463-9A0A-1B648FE036BA}.Release|Any CPU.Build.0 = Release|Any CPU
 		{3F134E1C-AA2D-4885-A544-69D14B8131FB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{3F134E1C-AA2D-4885-A544-69D14B8131FB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3F134E1C-AA2D-4885-A544-69D14B8131FB}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -39,6 +35,10 @@ Global
 		{91CB70DE-8DAC-4E35-B83C-AE6B7DBB071B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{91CB70DE-8DAC-4E35-B83C-AE6B7DBB071B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{91CB70DE-8DAC-4E35-B83C-AE6B7DBB071B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{727D7D4F-9D9E-450B-9AAD-6F7A1148892B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{727D7D4F-9D9E-450B-9AAD-6F7A1148892B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{727D7D4F-9D9E-450B-9AAD-6F7A1148892B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{727D7D4F-9D9E-450B-9AAD-6F7A1148892B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
