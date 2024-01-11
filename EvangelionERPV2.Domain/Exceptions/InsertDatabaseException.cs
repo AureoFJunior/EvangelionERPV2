@@ -1,4 +1,4 @@
-﻿namespace EvangelionERPV2.Domain.Utils
+﻿namespace EvangelionERPV2.Domain.Exceptions
 {
     public class InsertDatabaseException : Exception
     {

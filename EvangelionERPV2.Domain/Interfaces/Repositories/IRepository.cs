@@ -1,4 +1,4 @@
-namespace EvangelionERPV2.Domain.Interfaces
+namespace EvangelionERPV2.Domain.Interfaces.Repositories
 {
     public interface IRepository<TEntity> where TEntity : class
     {

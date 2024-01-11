@@ -1,6 +1,6 @@
-
-using EvangelionERPV2.Domain.Interfaces;
-using EvangelionERPV2.Domain.Utils;
+using EvangelionERPV2.Domain.Exceptions;
+using EvangelionERPV2.Domain.Interfaces.Repositories;
+using EvangelionERPV2.Domain.Interfaces.Services;
 
 namespace EvangelionERPV2.Domain.Models
 {

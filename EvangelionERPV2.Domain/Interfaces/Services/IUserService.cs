@@ -1,6 +1,6 @@
 using EvangelionERPV2.Domain.Models;
 
-namespace EvangelionERPV2.Domain.Interfaces
+namespace EvangelionERPV2.Domain.Interfaces.Services
 {
     public interface IUserService<TEntity> where TEntity : class
     {

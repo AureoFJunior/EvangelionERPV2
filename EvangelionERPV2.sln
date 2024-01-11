@@ -12,6 +12,10 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EvangelionERPV2.Test", "EvangelionERPV2.Test\EvangelionERPV2.Test.csproj", "{91CB70DE-8DAC-4E35-B83C-AE6B7DBB071B}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EvangelionERPV2.Web", "EvangelionERPV2.Web\EvangelionERPV2.Web.csproj", "{727D7D4F-9D9E-450B-9AAD-6F7A1148892B}"
+	ProjectSection(ProjectDependencies) = postProject
+		{8E01627A-355C-4395-9063-711440B975E0} = {8E01627A-355C-4395-9063-711440B975E0}
+		{CBFF002C-A8A3-4814-93F8-7370B02DB9A9} = {CBFF002C-A8A3-4814-93F8-7370B02DB9A9}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

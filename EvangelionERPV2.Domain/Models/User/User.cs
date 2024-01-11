@@ -1,10 +1,12 @@
+using Microsoft.EntityFrameworkCore;
 using System;
 
 namespace EvangelionERPV2.Domain.Models
 {
+    [Index(nameof(UserName), nameof(Password))]
     public class User : BaseEntity
     {
-        public User(){}
+        public User() { }
 
         public User(string firstName, string lastName, string userName, string password, string email, DateTime birthDate, string profilePicture = "", short? isLogged = 0, short actualTheme = 0)
         {

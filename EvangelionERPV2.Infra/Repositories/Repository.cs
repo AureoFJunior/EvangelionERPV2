@@ -1,5 +1,5 @@
 using System.Linq.Expressions;
-using EvangelionERPV2.Domain.Interfaces;
+using EvangelionERPV2.Domain.Interfaces.Repositories;
 using EvangelionERPV2.Domain.Models;
 using EvangelionERPV2.Infra.Context;
 using Microsoft.EntityFrameworkCore;

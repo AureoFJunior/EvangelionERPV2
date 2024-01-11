@@ -7,7 +7,6 @@ namespace EvangelionERPV2.Web.Controllers
     {
         public IActionResult Index()
         {
-            Log.Logger.Information("Index working");
             return View();
         }
     }

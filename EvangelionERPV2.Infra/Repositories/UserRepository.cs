@@ -1,3 +1,4 @@
+using EvangelionERPV2.Domain.Exceptions;
 using EvangelionERPV2.Domain.Models;
 using EvangelionERPV2.Domain.Utils;
 using EvangelionERPV2.Infra.Context;

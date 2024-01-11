@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Security.Claims;
 using System.Text;
 
-namespace EvangelionERPV2.Domain.Models
+namespace EvangelionERPV2.Domain.Models.Token
 {
     public class TokenService
     {

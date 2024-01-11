@@ -6,21 +6,24 @@ using EvangelionERPV2.Application.Configs;
 using EvangelionERPV2.Domain.Interfaces;
 using EvangelionERPV2.Infra.Repositories;
 using EvangelionERPV2.Domain.Utils;
-using EvangelionERPV2.Domain.Models;
 using Serilog;
+using EvangelionERPV2.Domain.Models;
+using EvangelionERPV2.Domain.Interfaces.Services;
+using EvangelionERPV2.Domain.Interfaces.Repositories;
+using EvangelionERPV2.Domain.Models.Token;
 
 namespace EvangelionERPV2.Application.DI
 {
     public class IoC
     {
-        public static void Configure(IServiceCollection services, string conection, IConfiguration configuration)
+        public static void Configure(IServiceCollection services, string connection, IConfiguration configuration)
         {
             try
             {
                 services.AddLogging();
 
                 #region DataBase
-                services.AddDbContext<AppDbContext>(options => options.UseNpgsql(conection));
+                services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connection));
 
                 #endregion
 

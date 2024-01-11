@@ -21,6 +21,7 @@ try
     IoC.Configure(builder.Services, builder.Configuration.GetConnectionString("DefaultConnection"), builder.Configuration);
     LogConfig.Configure();
 
+    Log.Logger.Information("Starting Controllers");
     builder.Services.AddControllers()
         .AddFluentValidation(options =>
         {
@@ -30,9 +31,10 @@ try
         .AddJsonOptions(options =>
             options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
-
+    Log.Logger.Information("Starting CORS");
     builder.Services.AddCors();
 
+    Log.Logger.Information("Starting API Versioning");
     builder.Services.AddApiVersioning(opt =>
     {
         opt.DefaultApiVersion = new Microsoft.AspNetCore.Mvc.ApiVersion(1, 0);
@@ -43,9 +45,10 @@ try
                                                         new MediaTypeApiVersionReader("x-api-version"));
     });
 
+    Log.Logger.Information("Starting Swagger");
     builder.Services.AddSwaggerGen(c =>
     {
-        c.SwaggerDoc("v1.0", new OpenApiInfo { Title = "EvangelionERP-V2", Version = "v1.0" });
+        c.SwaggerDoc("v1", new OpenApiInfo { Title = "EvangelionERP-V2", Version = "v1" });
 
         c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme()
         {
@@ -71,12 +74,9 @@ try
                          new string[] {}
                     }
                     });
-
-        var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
-        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-        c.IncludeXmlComments(xmlPath);
     });
 
+    Log.Logger.Information("Starting JWT");
     var key = Encoding.ASCII.GetBytes("f0f228f0-4f22-45bc-bed8-bea3c97d463d");
     builder.Services.AddAuthentication(x =>
     {
@@ -101,13 +101,16 @@ try
     #region App
     var app = builder.Build();
 
+    Log.Logger.Information("Starting App Builder");
+
     // Configure the HTTP request pipeline.
     if (app.Environment.IsDevelopment())
     {
+        Log.Logger.Information("In Dev ENV");
         app.UseSwagger();
         app.UseSwaggerUI(c =>
         {
-            c.SwaggerEndpoint("/swagger/v1/swagger.json", "EvangelionERP-V2");
+            c.SwaggerEndpoint("/swagger/v1/swagger.json", "EvangelionERPV2");
             c.RoutePrefix = "swagger";
         });
     }
@@ -123,10 +126,11 @@ try
 
     app.MapControllers();
 
+    Log.Logger.Information("Starting App Run");
     app.Run();
 }
 catch(Exception ex)
 {
-    Log.Logger.Error(ex.Message);
+    Log.Logger.Error(ex.Message + ex.StackTrace);
 }
 #endregion
