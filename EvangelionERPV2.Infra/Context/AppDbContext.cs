@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using EvangelionERPV2.Domain.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace EvangelionERPV2.Infra.Context
 {
@@ -14,7 +15,7 @@ namespace EvangelionERPV2.Infra.Context
         }
 
         #region DbSets
-        //public DbSet<Employer> Employer { get; set; }
+        public DbSet<User> User { get; set; }
         #endregion
     }
 }
