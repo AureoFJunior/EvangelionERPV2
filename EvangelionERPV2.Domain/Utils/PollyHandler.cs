@@ -15,6 +15,12 @@ namespace EvangelionERPV2.Domain.Utils
                 {
                     Console.WriteLine("Retrying...");
                 });
+
+            AsyncTestePolicy = Policy.Handle<Exception>().WaitAndRetryAsync(3, retry => TimeSpan.FromSeconds(1),
+                (ex, timestamp) =>
+                {
+                    Console.WriteLine("Retrying async...");
+                });
         }
     }
 }

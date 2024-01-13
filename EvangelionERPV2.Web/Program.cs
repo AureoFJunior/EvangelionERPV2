@@ -9,6 +9,8 @@ using FluentValidation.AspNetCore;
 using EvangelionERPV2.Web.FluentValidator;
 using EvangelionERPV2.Web.Logging;
 using Serilog;
+using EvangelionERPV2.Domain.Models;
+using FluentValidation;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +32,10 @@ try
         })
         .AddJsonOptions(options =>
             options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
+    #region Validator
+    builder.Services.AddTransient<IValidator<User>, UserValidator>();
+    #endregion
 
     Log.Logger.Information("Starting CORS");
     builder.Services.AddCors();

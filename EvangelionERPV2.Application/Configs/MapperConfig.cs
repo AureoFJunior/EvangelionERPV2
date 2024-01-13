@@ -1,4 +1,6 @@
 ﻿using AutoMapper;
+using EvangelionERPV2.Domain.DTOs;
+using EvangelionERPV2.Domain.Models;
 
 namespace EvangelionERPV2.Application.Configs
 {
@@ -8,7 +10,7 @@ namespace EvangelionERPV2.Application.Configs
         {
             var mappingsConfigs = new MapperConfiguration(config =>
             {
-                //config.CreateMap<Roles, RolesDTO>().ReverseMap();
+                config.CreateMap<User, UserDTO>().ReverseMap();
             });
 
             return mappingsConfigs;

@@ -88,6 +88,8 @@ namespace EvangelionERPV2.Web.Controllers
         [HttpGet]
         public async Task<IActionResult> GetUsers()
         {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
             IEnumerable<User> users = await _userRepository.GetAllAsync();
             if (users == null)
                 return NoContent();
@@ -136,6 +138,8 @@ namespace EvangelionERPV2.Web.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> AddUser([FromBody] User user)
         {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
             User createdUser = await _userService.CreateAsync(user);
             return Ok(createdUser);
         }
@@ -148,7 +152,8 @@ namespace EvangelionERPV2.Web.Controllers
         [HttpPut]
         public async Task<IActionResult> UpdateUser([FromBody] User user)
         {
-            
+            if(!ModelState.IsValid) return BadRequest(ModelState);
+
             User updatedUser = _userService.Update(user);
 
             if (updatedUser == null)
@@ -165,6 +170,8 @@ namespace EvangelionERPV2.Web.Controllers
         [HttpDelete]
         public async Task<IActionResult> DeleteUser(Guid id)
         {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
             User user = _userService.Delete(id);
             if (user == null)
                 return NoContent();

@@ -11,6 +11,8 @@ using EvangelionERPV2.Domain.Models;
 using EvangelionERPV2.Domain.Interfaces.Services;
 using EvangelionERPV2.Domain.Interfaces.Repositories;
 using EvangelionERPV2.Domain.Models.Token;
+using EvangelionERPV2.Domain.Models.RabbitMQ;
+using FluentValidation;
 
 namespace EvangelionERPV2.Application.DI
 {
@@ -43,13 +45,20 @@ namespace EvangelionERPV2.Application.DI
 
                 #region Services
                 services.AddScoped(typeof(TokenService));
-                services.AddScoped(typeof(IRabbitMQManager), typeof(RabbitMQManager));
                 services.AddScoped(typeof(IUserService<User>), typeof(UserService));
 
 
                 #endregion
 
                 services.AddScoped(typeof(IUnitOfWork<AppDbContext>), typeof(UnitOfWork<AppDbContext>));
+
+                #region RabbitMQ
+                services.Configure<RabbitMQSettings>(opt => configuration.GetSection("RabbitMQSettings").Bind(opt));
+                services.Configure<OrderChannelSettings>(opt => configuration.GetSection("OrderChannelSettings").Bind(opt));
+                services.Configure<BaseChannelSettings>(opt => configuration.GetSection("BaseChannelSettings").Bind(opt));
+                services.AddScoped(typeof(IRabbitMQManager), typeof(RabbitMQManager));
+
+                #endregion
 
                 #region Redis
                 // We'll use it later
@@ -58,12 +67,13 @@ namespace EvangelionERPV2.Application.DI
                 //    o.InstanceName = "evaRedis";
                 //    //o.Configuration = configuration.Get;
                 //});
+                #endregion
             }
             catch (Exception ex)
             {
                 Log.Logger.Error($"Error at DI IoC: {ex.Message}", ex);
             }
-            #endregion
+            
         }
     }
 }
