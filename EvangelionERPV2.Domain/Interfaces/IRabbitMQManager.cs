@@ -1,19 +1,21 @@
-﻿using RabbitMQ.Client;
+﻿using EvangelionERPV2.Domain.Models.RabbitMQ;
+using RabbitMQ.Client;
 
 namespace EvangelionERPV2.Domain.Interfaces
 {
     public interface IRabbitMQManager
     {
-        Task<T> Dequeue<T>(string queueName);
-        Task<T> DequeueAndProcess<T>(string queueName);
-        Task<T> DequeueAndProcessAsync<T>(string queueName);
-        Task<T> DequeueAsync<T>(string queueName);
-        Task<IEnumerable<T>> DequeueList<T>(string queueName);
-        Task<IEnumerable<T>> DequeueListAsync<T>(string queueName);
-        void Enqueue<T>(IEnumerable<T> obj, string queueName);
-        void Enqueue<T>(T obj, string queueName);
-        Task EnqueueAsync<T>(IEnumerable<T> obj, string queueName);
-        Task EnqueueAsync<T>(T obj, string queueName);
-        IModel? GetChannel(string queueName);
+        void DeclareQueue(BaseChannelSettings channelSettings, bool durable = true, bool exclusive = false, bool autoDelete = false);
+        Task<T> Dequeue<T>(BaseChannelSettings channelSettings);
+        Task<T> DequeueAndProcess<T>(BaseChannelSettings channelSettings);
+        Task<T> DequeueAndProcessAsync<T>(BaseChannelSettings channelSettings);
+        Task<T> DequeueAsync<T>(BaseChannelSettings channelSettings);
+        Task<IEnumerable<T>> DequeueList<T>(BaseChannelSettings channelSettings);
+        Task<IEnumerable<T>> DequeueListAsync<T>(BaseChannelSettings channelSettings);
+        void Enqueue<T>(IEnumerable<T> obj, BaseChannelSettings channelSettings);
+        void Enqueue<T>(T obj, BaseChannelSettings channelSettings);
+        Task EnqueueAsync<T>(IEnumerable<T> obj, BaseChannelSettings channelSettings);
+        Task EnqueueAsync<T>(T obj, BaseChannelSettings channelSettings);
+        IModel? GetChannel(BaseChannelSettings channelSettings);
     }
 }

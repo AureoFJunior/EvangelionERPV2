@@ -4,89 +4,86 @@ using RabbitMQ.Client;
 using System.Text;
 using System.Text.Json;
 using EvangelionERPV2.Domain.Interfaces;
+using EvangelionERPV2.Domain.Models.RabbitMQ;
+using Serilog;
+using Microsoft.Extensions.Options;
 
 namespace EvangelionERPV2.Domain.Utils
 {
     public class RabbitMQManager : IRabbitMQManager
     {
         public readonly IConfiguration _configuration;
+        public readonly IConnection _connection;
+        public readonly RabbitMQSettings _rabbitMQSettings;
+        private IModel? _channel;
 
-        public RabbitMQManager(IConfiguration configuration)
+        public RabbitMQManager(IConfiguration configuration, IOptions<RabbitMQSettings> rabbitMQSettings)
         {
             _configuration = configuration;
+            _rabbitMQSettings = rabbitMQSettings.Value;
+
+            Log.Logger.Information($"Building conn factory");
+            var factory = new ConnectionFactory
+            {
+                HostName = _rabbitMQSettings.HostName,
+                UserName = _rabbitMQSettings.UserName,
+                Password = _rabbitMQSettings.Password,
+                VirtualHost = _rabbitMQSettings.VirtualHost,
+                Port = _rabbitMQSettings.Port,
+                Uri = new Uri(_rabbitMQSettings.Uri)
+            };
+
+            _connection = factory.CreateConnection();
         }
 
         #region RabbitMQ
-        public void Enqueue<T>(T obj, string queueName)
+        public void Enqueue<T>(T obj, BaseChannelSettings channelSettings)
         {
-            //RabbitMQConfiguration rabbitMQConfiguration = new RabbitMQConfiguration(_configuration);
-            //var factory = new ConnectionFactory()
-            //{
-            //    HostName = rabbitMQConfiguration.QueueHostName,
-            //    DispatchConsumersAsync = true
+            Log.Logger.Information($"Publishing message");
+            using var channel = GetChannel(channelSettings);
 
-            //};
-            //var connection = factory.CreateConnection();
+            string message = JsonSerializer.Serialize(obj);
+            var body = Encoding.UTF8.GetBytes(message);
 
-            //var channel = GetChannel(queueName);
+            channel.BasicPublish(exchange: channelSettings.ExchangeName,
+                                 routingKey: channelSettings.RoutingKeyDLQ,
+                                 basicProperties: null,
+                                 body: body);
 
-            //string message = JsonSerializer.Serialize(obj);
-            //var body = Encoding.UTF8.GetBytes(message);
+            channel.WaitForConfirmsOrDie(TimeSpan.FromSeconds(5));
+        }
 
-            //channel.BasicPublish(exchange: "",
-            //                     routingKey: queueName,
-            //                     basicProperties: null,
-            //                     body: body);
+        public void Enqueue<T>(IEnumerable<T> obj, BaseChannelSettings channelSettings)
+        {
+            Log.Logger.Information($"Publishing message");
+            using var channel = GetChannel(channelSettings);
 
-            //channel.Close();
-            //connection.Close();
+            string message = JsonSerializer.Serialize(obj);
+            var body = Encoding.UTF8.GetBytes(message);
+
+            channel.BasicPublish(exchange: channelSettings.ExchangeName,
+                                 routingKey: channelSettings.QueueName,
+                                 basicProperties: null,
+                                 body: body);
+
+            channel.WaitForConfirmsOrDie(TimeSpan.FromSeconds(5));
 
         }
 
-        public void Enqueue<T>(IEnumerable<T> obj, string queueName)
+        public Task EnqueueAsync<T>(T obj, BaseChannelSettings channelSettings)
         {
-            //RabbitMQConfiguration rabbitMQConfiguration = new RabbitMQConfiguration(_configuration);
-            //var factory = new ConnectionFactory()
-            //{
-            //    HostName = rabbitMQConfiguration.QueueHostName,
-            //    DispatchConsumersAsync = true
-
-            //};
-            //using (var connection = factory.CreateConnection())
-            //using (var channel = connection.CreateModel())
-            //{
-            //    channel.QueueDeclare(queue: queueName,
-            //                         durable: false,
-            //                         exclusive: false,
-            //                         autoDelete: false,
-            //                         arguments: null);
-
-            //    string message = JsonSerializer.Serialize(obj);
-            //    var body = Encoding.UTF8.GetBytes(message);
-
-            //    channel.BasicPublish(exchange: "",
-            //                         routingKey: queueName,
-            //                         basicProperties: null,
-            //                         body: body);
-
-            //    channel.Close();
-            //    connection.Close();
-            //}
+            return Task.Run(() => Enqueue(obj, channelSettings));
         }
 
-        public Task EnqueueAsync<T>(T obj, string queueName)
+        public Task EnqueueAsync<T>(IEnumerable<T> obj, BaseChannelSettings channelSettings)
         {
-            return Task.Run(() => Enqueue(obj, queueName));
+            return Task.Run(() => Enqueue(obj, channelSettings));
         }
 
-        public Task EnqueueAsync<T>(IEnumerable<T> obj, string queueName)
+        public async Task<T> Dequeue<T>(BaseChannelSettings channelSettings)
         {
-            return Task.Run(() => Enqueue(obj, queueName));
-        }
-
-        public async Task<T> Dequeue<T>(string queueName)
-        {
-            var channel = GetChannel(queueName);
+            Log.Logger.Information($"Consuming message");
+            using var channel = GetChannel(channelSettings);
             T obj = default(T);
             var consumer = new AsyncEventingBasicConsumer(channel);
             var tcs = new TaskCompletionSource<T>();
@@ -103,54 +100,95 @@ namespace EvangelionERPV2.Domain.Utils
                 }
                 catch (Exception ex)
                 {
+                    Log.Logger.Error($"Error when consuming message: {ex.Message}", ex);
                     channel.BasicNack(ea.DeliveryTag, false, true);
                 }
 
             };
 
-            channel.BasicConsume(queue: queueName,
+            channel.BasicConsume(queue: channelSettings.QueueName,
                                  autoAck: true,
                                  consumer: consumer);
             return await tcs.Task;
         }
 
-        public IModel? GetChannel(string queueName)
+        public void DeclareQueue(BaseChannelSettings channelSettings, bool durable = true, bool exclusive = false, bool autoDelete = false)
         {
-            //RabbitMQConfiguration rabbitMQConfiguration = new RabbitMQConfiguration(_configuration);
-            //var factory = new ConnectionFactory()
-            //{
-            //    HostName = rabbitMQConfiguration.QueueHostName,
-            //    DispatchConsumersAsync = true
+            try
+            {
+                Log.Logger.Information($"Starting queue declare");
+                var factory = new ConnectionFactory()
+                {
+                    HostName = _rabbitMQSettings.HostName,
+                    DispatchConsumersAsync = true
+                };
 
-            //};
+                var connection = factory.CreateConnection();
+                var channel = connection.CreateModel();
 
-            //var connection = factory.CreateConnection();
-            //var channel = connection.CreateModel();
+                Log.Logger.Information($"Declaring exchange [{channelSettings.ExchangeName}]");
+                Log.Logger.Information($"Declaring queue [{channelSettings.QueueName}]");
+                Log.Logger.Information($"Declaring routing key [{channelSettings.RoutingKey}]");
 
-            //channel.ExchangeDeclare();
-            //channel.QueueDeclare(queue: queueName,
-            //                     durable: false,
-            //                     exclusive: false,
-            //                     autoDelete: false,
-            //arguments: null);
-            //channel.ExchangeBind();
-            //channel.ConfirmSelect();
+                channel.ExchangeDeclare(channelSettings.ExchangeName, "topic");
+                channel.QueueDeclare(queue: channelSettings.QueueName, durable, exclusive, autoDelete, arguments: null);
+                channel.QueueBind(channelSettings.QueueName, channelSettings.ExchangeName, channelSettings.RoutingKey, null);
+                channel.ConfirmSelect();
 
-            //return channel;
-            return null;
+                var queueArgs = new Dictionary<string, object>
+                {
+                { "x-dead-letter-exchange", channelSettings.ExchangeName},
+                { "x-dead-letter-routing-key", channelSettings.RoutingKey},
+                { "x-message-ttl", "60000"},
+                { "x-max-retries", "3"}
+                };
+
+                Log.Logger.Information($"Declaring DLQ [{channelSettings.QueueNameDLQ}]");
+                channel.ExchangeDeclare(channelSettings.ExchangeNameDLQ, "direct");
+                channel.QueueDeclare(queue: channelSettings.QueueNameDLQ, durable, exclusive, autoDelete, queueArgs);
+                channel.QueueBind(channelSettings.QueueNameDLQ, channelSettings.ExchangeNameDLQ, channelSettings.RoutingKeyDLQ, null);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error($"Error at queue declare: {ex.Message}", ex);
+                throw;
+            }
         }
 
-        public async Task<T> DequeueAsync<T>(string queueName)
+        public IModel? GetChannel(BaseChannelSettings channelSettings)
         {
-            var dequeuedObject = await Dequeue<T>(queueName);
+            try
+            {
+                if (_channel == null || _channel.IsClosed)
+                {
+                    _channel = _connection?.CreateModel();
+
+                    if (_channel == null)
+                        Log.Logger.Error("Could not create channel.");
+                    else
+                        DeclareQueue(channelSettings);
+                }
+
+                return _channel;
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error($"Error creating channel: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<T> DequeueAsync<T>(BaseChannelSettings channelSettings)
+        {
+            var dequeuedObject = await Dequeue<T>(channelSettings);
             return dequeuedObject;
         }
 
-        public async Task<IEnumerable<T>> DequeueList<T>(string queueName)
+        public async Task<IEnumerable<T>> DequeueList<T>(BaseChannelSettings channelSettings)
         {
-
+            Log.Logger.Information($"Consuming message");
             IEnumerable<T> obj = default(IEnumerable<T>);
-            var channel = GetChannel(queueName);
+            using var channel = GetChannel(channelSettings);
 
             var consumer = new AsyncEventingBasicConsumer(channel);
             var tcs = new TaskCompletionSource<bool>();
@@ -168,28 +206,29 @@ namespace EvangelionERPV2.Domain.Utils
                 }
                 catch (Exception ex)
                 {
+                    Log.Logger.Error($"Error when consuming message: {ex.Message}", ex);
                     channel.BasicNack(ea.DeliveryTag, false, true);
                 }
 
             };
 
-            channel.BasicConsume(queueName, true, consumer);
+            channel.BasicConsume(channelSettings.QueueName, true, consumer);
             await tcs.Task;
             return obj;
 
         }
 
-        public async Task<IEnumerable<T>> DequeueListAsync<T>(string queueName)
+        public async Task<IEnumerable<T>> DequeueListAsync<T>(BaseChannelSettings channelSettings)
         {
-            var dequeuedObject = await Dequeue<IEnumerable<T>>(queueName);
+            var dequeuedObject = await Dequeue<IEnumerable<T>>(channelSettings);
             return dequeuedObject;
         }
 
-        public async Task<T> DequeueAndProcess<T>(string queueName)
+        public async Task<T> DequeueAndProcess<T>(BaseChannelSettings channelSettings)
         {
-
+            Log.Logger.Information($"Consuming message");
             T obj = default(T);
-            var channel = GetChannel(queueName);
+            using var channel = GetChannel(channelSettings);
 
             var consumer = new AsyncEventingBasicConsumer(channel);
             var tcs = new TaskCompletionSource<T>();
@@ -210,16 +249,16 @@ namespace EvangelionERPV2.Domain.Utils
 
             };
 
-            channel.BasicConsume(queueName, true, consumer);
+            channel.BasicConsume(channelSettings.QueueName, true, consumer);
 
             await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(2)));
             return obj;
 
         }
 
-        public async Task<T> DequeueAndProcessAsync<T>(string queueName)
+        public async Task<T> DequeueAndProcessAsync<T>(BaseChannelSettings channelSettings)
         {
-            var dequeuedObject = await DequeueAndProcess<T>(queueName);
+            var dequeuedObject = await DequeueAndProcess<T>(channelSettings);
             return dequeuedObject;
         }
         #endregion
