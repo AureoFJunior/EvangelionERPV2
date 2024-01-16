@@ -6,6 +6,7 @@ using EvangelionERPV2.Domain.Models;
 using EvangelionERPV2.Domain.Interfaces.Services;
 using EvangelionERPV2.Domain.Interfaces.Repositories;
 using EvangelionERPV2.Domain.Models.Token;
+using Serilog;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -37,41 +38,42 @@ namespace EvangelionERPV2.Web.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> LogInto(string userName, string password)
         {
-            List<User> users = _userRepository.GetAll().ToList();
-            if (users == null)
-                return NoContent();
-
-            foreach (User userUpdate in users)
+            try
             {
-                userUpdate.IsLogged = 0;
-                _userService.Update(userUpdate);
+                User? user = _userRepository.GetByCondition(x => x != null && x.UserName == userName && x.Password == password).FirstOrDefault();
+                if (user == null)
+                    return NoContent();
+
+                user.IsLogged = 1;
+                _userService.Update(user);
+
+                string token, refreshToken;
+                GenerateToken(user, out token, out refreshToken);
+
+                if (String.IsNullOrEmpty(token) || String.IsNullOrEmpty(refreshToken))
+                    throw new Exception();
+
+                user.IsLogged = 1;
+                _userService.Update(user);
+
+                UserDTO loggedUser = new UserDTO()
+                {
+                    Id = user.Id,
+                    FirstName = user.FirstName,
+                    LastName = user.LastName,
+                    Email = user.Email,
+                    BirthDate = user.BirthDate,
+                    Token = token,
+                    RefreshToken = refreshToken
+                };
+
+                return Ok(loggedUser);
             }
-
-            User? user = users.Where(x => x != null && x.UserName == userName && x.Password == password).FirstOrDefault();
-            if (users == null)
-                return NoContent();
-
-            string token, refreshToken;
-            GenerateToken(user, out token, out refreshToken);
-
-            if (String.IsNullOrEmpty(token) || String.IsNullOrEmpty(refreshToken))
-                throw new Exception();
-
-            user.IsLogged = 1;
-            _userService.Update(user);
-
-            UserDTO loggedUser = new UserDTO()
+            catch(Exception ex)
             {
-                Id = user.Id,
-                FirstName = user.FirstName,
-                LastName =  user.LastName,
-                Email = user.Email,
-                BirthDate = user.BirthDate,
-                Token = token,
-                RefreshToken = refreshToken
-            };
-
-            return Ok(loggedUser);
+                Log.Logger.Error("Error when logging", ex);
+                return Problem("Error when logging");
+            }
         }
 
         private static void GenerateToken(User user, out string token, out string refreshToken)

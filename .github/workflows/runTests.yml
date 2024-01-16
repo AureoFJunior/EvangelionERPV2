@@ -1,0 +1,25 @@
+name: Run Tests
+
+on:
+  pull_request:
+    branches:
+      - release
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: '7'
+
+    - name: Build and test 
+      run: |
+        dotnet restore
+        dotnet build
+        dotnet test EvangelionERPV2.Test/EvangelionERPV2.Test.csproj # Running  Project Unit Tests
