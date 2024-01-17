@@ -44,6 +44,16 @@ namespace EvangelionERPV2.Infra.Repositories
             return new List<TEntity>();
         }
 
+        public virtual IEnumerable<TEntity> GetByCondition(Func<TEntity, bool> condition)
+        {
+            var query = _context.Set<TEntity>().AsNoTracking().Where(condition);
+
+            if (query.Any())
+                return query.ToList();
+
+            return new List<TEntity>();
+        }
+
         public virtual TEntity Create(TEntity entity)
         {
             _context.Set<TEntity>().Add(entity);

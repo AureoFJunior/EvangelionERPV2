@@ -1,0 +1,21 @@
+name: Terraform Setup
+
+on:
+  workflow_run:
+    workflows: ["runTests"] # Run after tests run successfully
+    types:
+      - completed # Wait for the previous workflow
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Terraform code
+      uses: actions/checkout@v2
+
+    - name: Initialize Terraform
+      run: terraform init
+
+    - name: Apply Terraform
+      run: terraform apply -auto-approve

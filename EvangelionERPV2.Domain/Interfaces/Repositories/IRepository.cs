@@ -21,6 +21,7 @@ namespace EvangelionERPV2.Domain.Interfaces.Repositories
         Task<IEnumerable<TEntity>> GetAllAsync();
         Task<TEntity> CreateAsync(TEntity entity);
         Task<IEnumerable<TEntity>> CreateRangeAsync(IEnumerable<TEntity> entitys);
+        IEnumerable<TEntity> GetByCondition(Func<TEntity, bool> condition);
         #endregion
     }
 }
