@@ -8,6 +8,7 @@
 
 ### Constructed with kind techs like C#/.NET 6, Entity Framework Core, with POSTGRESQL, AWS Cloud, GitActions, Angular 13+, Angular Material and Bootstrap and using good design patterns, TDD, DDD, CleanArch, Unit Tests, Automatized Tests (Cypress), good pratices of clean code and much more!.
 
+
 <div class="back">
   <img src="https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=c-sharp&logoColor=white%22%3E">
   <img src="https://img.shields.io/badge/.NET-5C2D91?style=for-the-badge&logo=.net&logoColor=white%22%3E">
