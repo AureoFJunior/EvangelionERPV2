@@ -5,6 +5,8 @@ on:
     workflows: ["runTests"] # Run after tests run successfully
     types:
       - completed # Wait for the previous workflow
+    branches:
+      - develop
 
 jobs:
   terraform:
