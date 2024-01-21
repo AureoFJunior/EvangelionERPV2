@@ -27,15 +27,21 @@ jobs:
         docker-compose build
         docker-compose push
 
+    - name: Get ECR registry URL
+      id: ecr
+      run: |
+        ECR_REGISTRY=$(aws ecr describe-repositories --repository-names "${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}" --region ${{ secrets.AWS_REGION }} --output json | jq -r '.repositories[0].repositoryUri')
+        echo "::set-output name=registry_url::$ECR_REGISTRY"
+
     - name: Login to "evangelionerpv2" ECR
       run: |
-        aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.ECR_EVANGELIONERPV2_REGISTRY }}
+        aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.ecr.outputs.registry_url }}
 
     - name: Tag and Push Docker image to "evangelionerpv2" ECR
       run: |
         IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
-        docker tag $(docker-compose images -q) ${{ secrets.ECR_EVANGELIONERPV2_REGISTRY }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
-        docker push ${{ secrets.ECR_EVANGELIONERPV2_REGISTRY }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
+        docker tag $(docker-compose images -q) ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
+        docker push ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
 
   deploy_to_ecs:
     runs-on: ubuntu-latest

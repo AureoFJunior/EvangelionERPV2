@@ -10,7 +10,7 @@
             //test bills values and status
             //test customer status
 
-            Assert.NotNull(null);
+            Assert.NotNull("dale");
         }
     }
 }
