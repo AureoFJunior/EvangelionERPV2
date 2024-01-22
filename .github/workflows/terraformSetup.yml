@@ -2,9 +2,11 @@ name: Terraform Setup
 
 on:
   workflow_run:
-    workflows: ["runTests"] # Run after tests run successfully
+    workflows: [Run Tests]
     types:
-      - completed # Wait for the previous workflow
+      - completed
+    branches:
+      - develop
 
 jobs:
   terraform:
@@ -18,4 +20,4 @@ jobs:
       run: terraform init
 
     - name: Apply Terraform
-      run: terraform apply -auto-approve
+      run: terraform apply -var="aws_region=us-east-1" -auto-approve

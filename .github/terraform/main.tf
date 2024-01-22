@@ -35,9 +35,4 @@ resource "aws_ecs_service" "evangelionerpv2_service" {
   task_definition = aws_ecs_task_definition.evangelionerpv2_task_definition.arn
   launch_type     = "FARGATE"
   desired_count   = 1
-
-  network_configuration {
-    subnets = var.subnets
-    security_groups = var.security_groups
-  }
 }

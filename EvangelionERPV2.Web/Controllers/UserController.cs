@@ -36,6 +36,9 @@ namespace EvangelionERPV2.Web.Controllers
         /// <returns></returns>
         [HttpGet("{userName}/{password}")]
         [AllowAnonymous]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> LogInto(string userName, string password)
         {
             try
@@ -88,6 +91,9 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet]
+        [ProducesResponseType(typeof(IEnumerable<UserDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetUsers()
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -106,6 +112,9 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="id">Id of the user</param>
         /// <returns>The user that match with the id parameter.</returns>
         [HttpGet("{id}")]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetUser(Guid id)
         {
             User user = await _userRepository.GetByIdAsync(id);
@@ -121,6 +130,9 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <returns>The logged user.</returns>
         [HttpGet]
+        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> IsLogged()
         {
             IEnumerable<User> users = await _userRepository.GetAllAsync();
@@ -138,6 +150,9 @@ namespace EvangelionERPV2.Web.Controllers
         /// <returns>The added user</returns>
         [HttpPost]
         [AllowAnonymous]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> AddUser([FromBody] User user)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -152,6 +167,9 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="user">User to be updated</param>
         /// <returns>The updated user</returns>
         [HttpPut]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UpdateUser([FromBody] User user)
         {
             if(!ModelState.IsValid) return BadRequest(ModelState);
@@ -169,7 +187,10 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="id">User's Id</param>
         /// <returns>The deleted user</returns>
-        [HttpDelete]
+        [HttpDelete("{id}")]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DeleteUser(Guid id)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
