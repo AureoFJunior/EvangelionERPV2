@@ -45,9 +45,6 @@ jobs:
     - name: Checkout Terraform code
       uses: actions/checkout@v2
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v1
-
     - name: Initialize Terraform
       id: init
       run: terraform init
