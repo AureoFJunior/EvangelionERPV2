@@ -39,14 +39,11 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: "./EvangelionERPV2.Web/terraform"
+        working-directory: "./terraform"
 
     steps:
     - name: Checkout Terraform code
       uses: actions/checkout@v2
-
-    - name: Change to Terraform directory
-      run: cd ./EvangelionERPV2.Web/terraform
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v1
