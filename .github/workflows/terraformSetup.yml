@@ -1,12 +1,12 @@
 name: Terraform Setup
 
 on:
-  workflow_run:
-    workflows: ["Run Tests"] # Run after tests run successfully
+  check_suite:
     types:
-      - completed # Wait for the previous workflow
+      - completed
     branches:
       - develop
+
 jobs:
   terraform:
     runs-on: ubuntu-latest
