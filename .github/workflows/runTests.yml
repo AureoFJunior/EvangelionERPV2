@@ -30,12 +30,26 @@ jobs:
 
     needs: setup-and-test
 
+    name: 'apply'
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    environment: apply
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: "EvangelionERPV2.Web/terraform"
+
     steps:
     - name: Checkout Terraform code
       uses: actions/checkout@v2
 
     - name: Change to Terraform directory
       run: cd EvangelionERPV2.Web/terraform
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v1
 
     - name: Initialize Terraform
       id: init
