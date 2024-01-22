@@ -7,7 +7,7 @@ on:
       - release
 
 jobs:
-  test:
+  setup-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,4 +23,19 @@ jobs:
       run: |
         dotnet restore
         dotnet build
-        dotnet test EvangelionERPV2.Test/EvangelionERPV2.Test.csproj # Running  Project Unit Tests
+        dotnet test EvangelionERPV2.Test/EvangelionERPV2.Test.csproj # Running Project Unit Tests
+
+  terraform:
+    runs-on: ubuntu-latest
+
+    needs: setup-and-test
+
+    steps:
+    - name: Checkout Terraform code
+      uses: actions/checkout@v2
+
+    - name: Initialize Terraform
+      run: terraform init
+
+    - name: Apply Terraform
+      run: terraform apply -var="aws_region=us-east-1" -auto-approve
