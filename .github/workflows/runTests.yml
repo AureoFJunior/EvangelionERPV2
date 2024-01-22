@@ -38,7 +38,12 @@ jobs:
       run: cd ./terraform
 
     - name: Initialize Terraform
+      id: init
       run: terraform init
 
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate -no-color
+
     - name: Apply Terraform
-      run: terraform apply -var="aws_region=us-east-1" -auto-approve
+      run: terraform apply -auto-approve
