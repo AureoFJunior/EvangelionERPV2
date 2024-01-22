@@ -1,11 +1,6 @@
 name: Terraform Setup
 
-on:
-  check_suite:
-    types:
-      - completed
-    branches:
-      - develop
+on: [workflow_dispatch]
 
 jobs:
   terraform:
