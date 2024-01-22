@@ -39,7 +39,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: "./terraform"
+        working-directory: "EvangelionERPV2.Web/terraform"
 
     steps:
     - name: Checkout Terraform code
