@@ -2,9 +2,9 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Create an Amazon ECR repository
-resource "aws_ecr_repository" "evangelionerpv2_repository" {
-  name = "evangelionerpv2-repository"
+# Create an ECS cluster
+resource "aws_ecs_cluster" "evangelionerpv2_cluster" {
+  name = "evangelionerpv2-cluster"
 }
 
 # Attach the AmazonECSTaskExecutionRolePolicy policy to the IAM role
