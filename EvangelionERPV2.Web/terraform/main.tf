@@ -16,24 +16,24 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_attachment" {
 # Create an ECS task definition
 resource "aws_ecs_task_definition" "evangelionerpv2_task_definition" {
   family                   = "evangelionerpv2-task-family"
-  network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
   memory                   = "512"
   
-  execution_role_arn = var.aws_iam_role_arn
+  execution_role_arn = aws_iam_role.ecs_task_execution_role.arn
 
   container_definitions = jsonencode([{
     name  = "evangelionerpv2-container"
-    image = "${var.aws_ecr_repository_repository_url}:latest"
+    image = "${aws_ecr_repository.evangelionerpv2_repository.repository_url}:latest"
     cpu   = 256
     memory = 512
-  }
-   network_configuration {
-    subnets = ["subnet-0003c61110d0f854a", "subnet-subnet-053500b7cbfec64ab"] 
-    security_groups = ["sg-047e646753efd8eae"]
-  }
-  ])
+    network_mode = "awsvpc"
+
+    network_configuration {
+      subnets = ["subnet-0003c61110d0f854a", "subnet-053500b7cbfec64ab"]
+      security_groups = ["sg-047e646753efd8eae"]
+    }
+  }])
 }
 
 # Create an ECS service
