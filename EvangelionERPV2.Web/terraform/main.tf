@@ -10,7 +10,7 @@ resource "aws_ecs_cluster" "evangelionerpv2_cluster" {
 # Attach the AmazonECSTaskExecutionRolePolicy policy to the IAM role
 resource "aws_iam_role_policy_attachment" "ecs_task_execution_attachment" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-  role       = var.aws_ecr_repository_id
+  role       = var.aws_iam_role_name
 }
 
 # Create an ECS task definition
