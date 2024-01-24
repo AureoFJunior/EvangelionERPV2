@@ -27,11 +27,10 @@ resource "aws_ecs_task_definition" "evangelionerpv2_task_definition" {
     image = "${aws_ecr_repository.evangelionerpv2_repository.repository_url}:latest"
     cpu   = 256
     memory = 512
-    network_mode = "awsvpc"
-
-    network_configuration {
+    networkMode = "awsvpc"
+    networkConfiguration = {
       subnets = ["subnet-0003c61110d0f854a", "subnet-053500b7cbfec64ab"]
-      security_groups = ["sg-047e646753efd8eae"]
+      securityGroups = ["sg-047e646753efd8eae"]
     }
   }])
 }
