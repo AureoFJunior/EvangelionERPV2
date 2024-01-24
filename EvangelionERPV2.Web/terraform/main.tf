@@ -16,6 +16,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_attachment" {
 # Create an ECS task definition
 resource "aws_ecs_task_definition" "evangelionerpv2_task_definition" {
   family                   = "evangelionerpv2-task-family"
+  network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
   memory                   = "512"
@@ -28,6 +29,12 @@ resource "aws_ecs_task_definition" "evangelionerpv2_task_definition" {
     cpu   = 256
     memory = 512
   }])
+
+  network_configuration {
+    subnets = ["subnet-0003c61110d0f854a", "subnet-subnet-053500b7cbfec64ab"] 
+    security_groups = ["sg-047e646753efd8eae"]
+  }
+
 }
 
 # Create an ECS service
