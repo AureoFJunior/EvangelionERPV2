@@ -20,11 +20,11 @@ resource "aws_ecs_task_definition" "evangelionerpv2_task_definition" {
   cpu                      = "256"
   memory                   = "512"
   
-  execution_role_arn = aws_iam_role.ecs_task_execution_role.arn
+  execution_role_arn = var.aws_iam_role_arn
 
   container_definitions = jsonencode([{
     name  = "evangelionerpv2-container"
-    image = "${aws_ecr_repository.evangelionerpv2_repository.repository_url}:latest"
+    image = "${var.aws_ecr_repository_repository_url}:latest"
     cpu   = 256
     memory = 512
     networkMode = "awsvpc"
