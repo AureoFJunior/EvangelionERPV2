@@ -46,6 +46,6 @@ resource "aws_ecs_service" "evangelionerpv2_service" {
 
   network_configuration {
       subnets = ["subnet-0003c61110d0f854a", "subnet-053500b7cbfec64ab"]
-      securityGroups = ["sg-047e646753efd8eae"]
+      security_groups = ["sg-047e646753efd8eae"]
   }
 }
