@@ -5,6 +5,10 @@ provider "aws" {
 # Create an Amazon ECR repository
 resource "aws_ecr_repository" "evangelionerpv2_repository" {
   name = "evangelionerpv2-repository"
+
+  lifecycle {
+    ignore_changes = [image_scanning_configuration, image_tag_mutability] # Skip and ignore if already exists
+  }
 }
 
 # Create an ECS cluster
@@ -52,6 +56,10 @@ resource "aws_ecs_task_definition" "evangelionerpv2_task_definition" {
     cpu   = 256
     memory = 512
   }])
+
+   lifecycle {
+    ignore_changes = [execution_role_arn, container_definitions]  # Add other attributes as needed
+  }
 }
 
 # Create an ECS service
@@ -61,4 +69,8 @@ resource "aws_ecs_service" "evangelionerpv2_service" {
   task_definition = aws_ecs_task_definition.evangelionerpv2_task_definition.arn
   launch_type     = "FARGATE"
   desired_count   = 1
+
+  lifecycle {
+    ignore_changes = [name, cluster, task_definition, launch_type, desired_count]  # Skip and ignore if already exists
+  }
 }
