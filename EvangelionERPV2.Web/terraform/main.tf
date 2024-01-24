@@ -23,11 +23,6 @@ resource "aws_ecs_task_definition" "evangelionerpv2_task_definition" {
   
   execution_role_arn = var.aws_iam_role_arn
 
-  network_configuration    = {
-      subnets = ["subnet-0003c61110d0f854a", "subnet-053500b7cbfec64ab"]
-      securityGroups = ["sg-047e646753efd8eae"]
-  }
-
   container_definitions = jsonencode([{
     name  = "evangelionerpv2-container"
     image = "${var.aws_ecr_repository_repository_url}:latest"
@@ -48,4 +43,9 @@ resource "aws_ecs_service" "evangelionerpv2_service" {
   task_definition = aws_ecs_task_definition.evangelionerpv2_task_definition.arn
   launch_type     = "FARGATE"
   desired_count   = 1
+
+  network_configuration {
+      subnets = ["subnet-0003c61110d0f854a", "subnet-053500b7cbfec64ab"]
+      securityGroups = ["sg-047e646753efd8eae"]
+  }
 }
