@@ -28,13 +28,13 @@ resource "aws_ecs_task_definition" "evangelionerpv2_task_definition" {
     image = "${var.aws_ecr_repository_repository_url}:latest"
     cpu   = 256
     memory = 512
-  }])
-
-  network_configuration {
+  }]
+  
+    network_configuration {
     subnets = ["subnet-0003c61110d0f854a", "subnet-subnet-053500b7cbfec64ab"] 
     security_groups = ["sg-047e646753efd8eae"]
   }
-
+  )
 }
 
 # Create an ECS service
