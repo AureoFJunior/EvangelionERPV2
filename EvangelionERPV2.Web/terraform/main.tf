@@ -7,6 +7,11 @@ resource "aws_ecr_repository" "evangelionerpv2_repository" {
   name = "evangelionerpv2-repository"
 }
 
+# Create an ECS cluster
+resource "aws_ecs_cluster" "evangelionerpv2_cluster" {
+  name = "evangelionerpv2-cluster"
+}
+
 # IAM role for ECS task execution
 resource "aws_iam_role" "ecs_task_execution_role" {
   name = "ecs_task_execution_role"
