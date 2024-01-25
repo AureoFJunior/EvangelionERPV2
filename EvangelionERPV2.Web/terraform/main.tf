@@ -35,17 +35,3 @@ resource "aws_ecs_task_definition" "evangelionerpv2_task_definition" {
     }
   }])
 }
-
-# Create an ECS service
-resource "aws_ecs_service" "evangelionerpv2_service" {
-  name            = "evangelionerpv2-service"
-  cluster         = aws_ecs_cluster.evangelionerpv2_cluster.id
-  task_definition = aws_ecs_task_definition.evangelionerpv2_task_definition.arn
-  launch_type     = "FARGATE"
-  desired_count   = 1
-
-  network_configuration {
-      subnets = ["subnet-0003c61110d0f854a", "subnet-053500b7cbfec64ab"]
-      security_groups = ["sg-047e646753efd8eae"]
-  }
-}
