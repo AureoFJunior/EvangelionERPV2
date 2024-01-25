@@ -59,8 +59,9 @@ jobs:
         echo "Registry URL: ${{ steps.ecr.outputs.registry_url }}"
         echo "Repository: ${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}"
 
-        # Get the image ID directly from the output of docker-compose images
-        IMAGE_ID=$(docker-compose images -q --no-trunc | head -n 1)
+        # Get the image ID directly using docker inspect
+        IMAGE_ID=$(docker inspect -f '{{.Id}}' $(docker-compose ps -q))
+
 
         echo "IMAGE_ID: $IMAGE_ID"
 
