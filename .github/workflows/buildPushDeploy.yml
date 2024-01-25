@@ -59,8 +59,12 @@ jobs:
         echo "Registry URL: ${{ steps.ecr.outputs.registry_url }}"
         echo "Repository: ${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}"
 
-        docker tag evangelionerpv2_web ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
-        docker push ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
+        # Tag the services defined in docker-compose.yml
+        docker-compose tag evangelionerpv2 ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
+        docker-compose tag nginx ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
+
+        # Push the tagged images
+        docker-compose push
 
   deploy_to_ecs:
     runs-on: ubuntu-latest
