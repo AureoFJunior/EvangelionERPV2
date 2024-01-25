@@ -53,7 +53,8 @@ jobs:
     - name: Tag and Push Docker image to "evangelionerpv2" ECR
       run: |
         IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
-        docker tag $(docker-compose images -q) ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
+        IMAGE_ID=$(docker-compose images -q)
+        docker tag $IMAGE_ID ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
         docker push ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:$IMAGE_TAG
 
   deploy_to_ecs:
