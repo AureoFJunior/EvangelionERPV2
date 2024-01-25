@@ -8,7 +8,7 @@ COPY ["EvangelionERPV2.Domain/EvangelionERPV2.Domain.csproj", "EvangelionERPV2.D
 COPY ["EvangelionERPV2.Infra/EvangelionERPV2.Infra.csproj", "EvangelionERPV2.Infra/"]
 RUN dotnet restore "EvangelionERPV2.Web/EvangelionERPV2.Web.csproj"
 COPY . .
-WORKDIR "/src/EvangelionERPV2.Web"
+WORKDIR "./EvangelionERPV2.Web"
 RUN dotnet build "EvangelionERPV2.Web.csproj" -c Release -o /app/build
 
 # Publish stage
