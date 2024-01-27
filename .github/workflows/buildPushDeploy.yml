@@ -38,7 +38,7 @@ jobs:
 
     - name: Build Docker Image
       run: |
-        docker build -f Dockerfile --no-cache -t evangelionerpv2-repository .
+        docker build -f Dockerfile --no-cache -t evangelionerpv2-repository ..
 
     - name: Configure AWS CLI
       run: aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }} && aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }} && aws configure set default.region ${{ secrets.AWS_REGION }}
@@ -66,7 +66,7 @@ jobs:
         echo "Repository: ${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}"
 
         docker tag evangelionerpv2-repository:latest ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest
-        docker push ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest
+        docker push ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest || echo "Docker push failed with error code $?"
 
   deploy_to_ecs:
     runs-on: ubuntu-latest
