@@ -65,7 +65,7 @@ jobs:
         echo "Registry URL: ${{ steps.ecr.outputs.registry_url }}"
         echo "Repository: ${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}"
 
-        docker tag evangelionerpv2-repository ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest
+        docker tag evangelionerpv2-repository:latest ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest
         docker push ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest
 
   deploy_to_ecs:
