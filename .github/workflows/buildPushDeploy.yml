@@ -66,7 +66,7 @@ jobs:
         echo "Repository: ${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}"
 
         docker tag evangelionerpv2-repository:latest ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest
-        docker push -D ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest
+        docker push ${{ steps.ecr.outputs.registry_url }}/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest
 
   deploy_to_ecs:
     runs-on: ubuntu-latest
