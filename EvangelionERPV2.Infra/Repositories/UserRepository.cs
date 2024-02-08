@@ -1,6 +1,5 @@
 using EvangelionERPV2.Domain.Exceptions;
 using EvangelionERPV2.Domain.Models;
-using EvangelionERPV2.Domain.Utils;
 using EvangelionERPV2.Infra.Context;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,11 +26,11 @@ namespace EvangelionERPV2.Infra.Repositories
             catch (Exception ex) { throw; }
         }
 
-        public async override Task<IEnumerable<User>> GetAllAsync()
+        public async override Task<IEnumerable<User>> GetAllAsync(Func<User, bool> predicate)
         {
             try
             {
-                var query = _context.Set<User>().AsNoTracking();
+                var query = _context.Set<User>().AsNoTracking().Where(predicate).AsQueryable();
 
                 if (await query.AnyAsync())
                     return await query.ToListAsync();

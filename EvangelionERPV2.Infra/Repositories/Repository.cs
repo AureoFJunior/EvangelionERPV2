@@ -119,12 +119,28 @@ namespace EvangelionERPV2.Infra.Repositories
             return null;
         }
 
-        public virtual async Task<IEnumerable<TEntity>> GetAllAsync()
+        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(Func<TEntity, bool> predicate = null)
         {
-            var query = _context.Set<TEntity>().AsNoTracking();
+            var query = _context.Set<TEntity>().AsNoTracking().Where(predicate).AsQueryable();
 
             if (await query.AnyAsync())
                 return await query.ToListAsync();
+
+            return new List<TEntity>();
+        }
+
+        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Func<TEntity, bool> predicate = null)
+        {
+            var query = _context.Set<TEntity>().AsNoTracking().Where(predicate).AsQueryable();
+
+            int? skip = (pageNumber - 1) * pageSize ?? 1;
+            List<TEntity>? result = null;
+
+            if (await query.AnyAsync())
+                result = await query.Skip(skip ?? 0).Take(pageSize ?? 0).ToListAsync();
+
+            if (result?.Any() == false)
+                return result;
 
             return new List<TEntity>();
         }

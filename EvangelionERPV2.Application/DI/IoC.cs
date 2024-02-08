@@ -39,6 +39,7 @@ namespace EvangelionERPV2.Application.DI
                 #region Repositorys
                 services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
                 services.AddScoped(typeof(IRepository<User>), typeof(UserRepository));
+                services.AddScoped(typeof(IRepository<Enterprise>), typeof(EnterpriseRepository));
 
 
                 #endregion
@@ -46,6 +47,7 @@ namespace EvangelionERPV2.Application.DI
                 #region Services
                 services.AddScoped(typeof(TokenService));
                 services.AddScoped(typeof(IUserService<User>), typeof(UserService));
+                services.AddScoped(typeof(IEnterpriseService<Enterprise>), typeof(EnterpriseService));
 
 
                 #endregion

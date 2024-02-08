@@ -1,4 +1,5 @@
 ﻿using EvangelionERPV2.Domain.Models;
+using EvangelionERPV2.Domain.Models;
 using FluentValidation;
 
 namespace EvangelionERPV2.Web.FluentValidator
@@ -8,8 +9,8 @@ namespace EvangelionERPV2.Web.FluentValidator
         public UserValidator() 
         {
             RuleFor(user => user.FirstName)
-            .NotEmpty().WithMessage("FirstName must not be empty")
-            .Must(firstName => !string.IsNullOrEmpty(firstName)).WithMessage("FirstName must not be empty");
+            .NotEmpty().WithMessage("FirstName must be not empty")
+            .Must(firstName => !string.IsNullOrEmpty(firstName)).WithMessage("FirstName must be not empty");
         }
     }
 }
