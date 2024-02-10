@@ -2,7 +2,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
 WORKDIR /src
 
-COPY ["EvangelionERPV2.Web/EvangelionERPV2.Web.csproj", "EvangelionERPV2.Web/"]
+COPY ["EvangelionERPV2.Web.csproj", "EvangelionERPV2.Web/"]
 COPY ["EvangelionERPV2.Application/EvangelionERPV2.Application.csproj", "EvangelionERPV2.Application/"]
 COPY ["EvangelionERPV2.Domain/EvangelionERPV2.Domain.csproj", "EvangelionERPV2.Domain/"]
 COPY ["EvangelionERPV2.Infra/EvangelionERPV2.Infra.csproj", "EvangelionERPV2.Infra/"]
