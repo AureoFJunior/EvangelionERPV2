@@ -1,6 +1,7 @@
 using EvangelionERPV2.Domain.Exceptions;
 using EvangelionERPV2.Domain.Interfaces.Repositories;
 using EvangelionERPV2.Domain.Interfaces.Services;
+using EvangelionERPV2.Domain.Utils;
 
 namespace EvangelionERPV2.Domain.Models
 {
@@ -20,6 +21,7 @@ namespace EvangelionERPV2.Domain.Models
 
             if (existentUser == null)
             {
+                user.Password = SharedFunctions.Encrypt(user.Password);
                 includedUser = await _userRepository.CreateAsync(user);
                 await _userRepository.CommitAsync();
                 return includedUser;
@@ -34,6 +36,7 @@ namespace EvangelionERPV2.Domain.Models
 
             if (existentUser != null)
             {
+                user.Password = SharedFunctions.Encrypt(user.Password);
                 updatedUser = _userRepository.Update(user);
                 _userRepository.Commit();
                 return updatedUser;

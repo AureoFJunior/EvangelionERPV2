@@ -7,6 +7,7 @@ using EvangelionERPV2.Domain.Interfaces.Services;
 using EvangelionERPV2.Domain.Interfaces.Repositories;
 using EvangelionERPV2.Domain.Models.Token;
 using Serilog;
+using EvangelionERPV2.Domain.Utils;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -43,7 +44,7 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                User? user = _userRepository.GetByCondition(x => x != null && x.UserName == userName && x.Password == password).FirstOrDefault();
+                User? user = _userRepository.GetByCondition(x => x != null && x.UserName == userName && SharedFunctions.Decrypt(x.Password) == password).FirstOrDefault();
                 if (user == null)
                     return NoContent();
 
@@ -92,6 +93,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <returns></returns>
         [HttpGet]
         [ProducesResponseType(typeof(IEnumerable<UserDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetUsers()
@@ -151,6 +153,7 @@ namespace EvangelionERPV2.Web.Controllers
         [HttpPost]
         [AllowAnonymous]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> AddUser([FromBody] User user)
@@ -168,6 +171,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <returns>The updated user</returns>
         [HttpPut]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UpdateUser([FromBody] User user)

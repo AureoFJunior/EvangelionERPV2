@@ -34,6 +34,10 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="pageSize">Size of the desired page</param>
         /// <returns></returns>
         [HttpGet("{pageNumber}/{pageSize}")]
+        [ProducesResponseType(typeof(IEnumerable<EnterpriseDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetEnterprises(int? pageNumber = null, int? pageSize = null)
         {
             try
@@ -60,6 +64,9 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="id">Id of the enterprise</param>
         /// <returns>The enterprise that match with the id parameter.</returns>
         [HttpGet("{id}")]
+        [ProducesResponseType(typeof(EnterpriseDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetEnterprise(Guid id)
         {
             try
@@ -84,6 +91,10 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="enterprise">Enterprise to be added</param>
         /// <returns>The added enterprise</returns>
         [HttpPost]
+        [ProducesResponseType(typeof(EnterpriseDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> AddEnterprise([FromBody] Enterprise enterprise)
         {
             try
@@ -106,6 +117,10 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="enterprise">Enterprise to be updated</param>
         /// <returns>The updated enterprise</returns>
         [HttpPut]
+        [ProducesResponseType(typeof(EnterpriseDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> UpdateEnterprise([FromBody] Enterprise enterprise)
         {
             try
@@ -132,6 +147,9 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="id">Enterprise's Id</param>
         /// <returns>The deleted enterprise</returns>
         [HttpDelete]
+        [ProducesResponseType(typeof(EnterpriseDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DeleteEnterprise(Guid id)
         {
             try

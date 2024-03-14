@@ -65,7 +65,7 @@ namespace EvangelionERPV2.Domain.Models
         /// </summary>
         public void SendMonthlyBilling(DateTime initialDate, DateTime endDate)
         {
-            // verify if have email and billing module active
+            // verify if have email and billing module is active
 
             // if is automatic - get the bills of the current month
             // else - get the biils in the range
