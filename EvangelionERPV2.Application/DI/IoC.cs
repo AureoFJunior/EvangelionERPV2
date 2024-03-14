@@ -12,7 +12,6 @@ using EvangelionERPV2.Domain.Interfaces.Services;
 using EvangelionERPV2.Domain.Interfaces.Repositories;
 using EvangelionERPV2.Domain.Models.Token;
 using EvangelionERPV2.Domain.Models.RabbitMQ;
-using FluentValidation;
 
 namespace EvangelionERPV2.Application.DI
 {
@@ -39,6 +38,7 @@ namespace EvangelionERPV2.Application.DI
                 #region Repositorys
                 services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
                 services.AddScoped(typeof(IRepository<User>), typeof(UserRepository));
+                services.AddScoped(typeof(IRepository<Enterprise>), typeof(EnterpriseRepository));
 
 
                 #endregion
@@ -46,6 +46,7 @@ namespace EvangelionERPV2.Application.DI
                 #region Services
                 services.AddScoped(typeof(TokenService));
                 services.AddScoped(typeof(IUserService<User>), typeof(UserService));
+                services.AddScoped(typeof(IEnterpriseService<Enterprise>), typeof(EnterpriseService));
 
 
                 #endregion
@@ -55,9 +56,14 @@ namespace EvangelionERPV2.Application.DI
                 #region RabbitMQ
                 services.Configure<RabbitMQSettings>(opt => configuration.GetSection("RabbitMQSettings").Bind(opt));
                 services.Configure<OrderChannelSettings>(opt => configuration.GetSection("OrderChannelSettings").Bind(opt));
+                services.Configure<EmailChannelSettings>(opt => configuration.GetSection("EmailChannelSettings").Bind(opt));
                 services.Configure<BaseChannelSettings>(opt => configuration.GetSection("BaseChannelSettings").Bind(opt));
                 services.AddScoped(typeof(IRabbitMQManager), typeof(RabbitMQManager));
 
+                #endregion
+
+                #region Settings
+                services.Configure<EmailSettings>(opt => configuration.GetSection("EmailSettings").Bind(opt));
                 #endregion
 
                 #region Redis

@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using EvangelionERPV2.Domain.Utils;
+using Microsoft.Extensions.Configuration;
 using System;
 
 namespace EvangelionERPV2.Domain.Models.RabbitMQ
@@ -21,7 +22,7 @@ namespace EvangelionERPV2.Domain.Models.RabbitMQ
             UserName = configurationSection["UserName"];
             Password = configurationSection["Password"];
             VirtualHost = configurationSection["VirtualHost"];
-            Port = Convert.ToInt32(configurationSection["Port"]);
+            Port = SharedFunctions.SafeConvertToNumber<Int32>(configurationSection["Port"]);
             Uri = configurationSection["Uri"];
         }
 

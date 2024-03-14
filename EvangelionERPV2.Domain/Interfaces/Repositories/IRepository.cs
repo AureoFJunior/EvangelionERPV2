@@ -18,7 +18,8 @@ namespace EvangelionERPV2.Domain.Interfaces.Repositories
         Task CommitAsync(CancellationToken cancellation = default);
         Task<Guid> GetLastId();
         Task<TEntity> GetByIdAsync(Guid id);
-        Task<IEnumerable<TEntity>> GetAllAsync();
+        Task<IEnumerable<TEntity>> GetAllAsync(Func<TEntity, bool> predicate = null);
+        Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Func<TEntity, bool> predicate = null);
         Task<TEntity> CreateAsync(TEntity entity);
         Task<IEnumerable<TEntity>> CreateRangeAsync(IEnumerable<TEntity> entitys);
         IEnumerable<TEntity> GetByCondition(Func<TEntity, bool> condition);

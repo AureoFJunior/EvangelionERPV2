@@ -29,12 +29,14 @@ try
         {
             // Automatic registration of validators in assembly
             options.RegisterValidatorsFromAssemblyContaining<UserValidator>();
+            options.RegisterValidatorsFromAssemblyContaining<EnterpriseValidator>();
         })
         .AddJsonOptions(options =>
             options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
     #region Validator
     builder.Services.AddTransient<IValidator<User>, UserValidator>();
+    builder.Services.AddTransient<IValidator<Enterprise>, EnterpriseValidator>();
     #endregion
 
     Log.Logger.Information("Starting CORS");

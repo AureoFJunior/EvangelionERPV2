@@ -11,6 +11,7 @@ namespace EvangelionERPV2.Application.Configs
             var mappingsConfigs = new MapperConfiguration(config =>
             {
                 config.CreateMap<User, UserDTO>().ReverseMap();
+                config.CreateMap<Enterprise, EnterpriseDTO>().ReverseMap();
             });
 
             return mappingsConfigs;

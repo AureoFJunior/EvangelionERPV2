@@ -12,5 +12,15 @@
 
             Assert.NotNull("dale");
         }
+
+        [Theory]
+        [InlineData()]
+        public async Task EnterpriseService_SendMonthlyBilling()
+        {
+            //test bill isActive
+            //test email send process
+
+            Assert.NotNull(null);
+        }
     }
 }

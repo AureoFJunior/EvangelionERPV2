@@ -12,6 +12,10 @@ namespace EvangelionERPV2.Web.Logging
                 .MinimumLevel.Override("Microsoft", LogEventLevel.Information)  // Adjust the log level for Microsoft logs
                 .Enrich.FromLogContext()
                 .WriteTo.Console()
+                .WriteTo.File(path: @"c:\evaerpv2\logs\evarpv2.log",
+                    rollingInterval: RollingInterval.Day,
+                    rollOnFileSizeLimit: true,
+                    fileSizeLimitBytes: 50000)
                 // Add more configuration as needed, such as additional sinks, file logging, etc.
                 .CreateLogger();
         }
