@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>0a9e218c-d778-48e4-a0e0-1b4872f64743</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AutoMapper" Version="13.0.1" />
+    <PackageReference Include="FluentValidation" Version="11.9.2" />
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.8" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning" Version="5.1.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="8.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="8.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="8.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.8">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.8">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.0" />
+    <PackageReference Include="Serilog" Version="4.0.1" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.7.1" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Worker\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EvangelionERPV2.Customer.Application\EvangelionERPV2.CustomerModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Customer.Domain\EvangelionERPV2.CustomerModule.Domain.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Customer.Infra\EvangelionERPV2.CustomerModule.Infra.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Email.Application\EvangelionERPV2.EmailModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Email.Domain\EvangelionERPV2.EmailModule.Domain.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Email.Infra\EvangelionERPV2.EmailModule.Infra.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Enterprise.Application\EvangelionERPV2.EnterpriseModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Enterprise.Domain\EvangelionERPV2.EnterpriseModule.Domain.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Enterprise.Infra\EvangelionERPV2.EnterpriseModule.Infra.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Order.Application\EvangelionERPV2.OrderModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Order.Domain\EvangelionERPV2.OrderModule.Domain.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Order.Infra\EvangelionERPV2.OrderModule.Infra.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Product.Application\EvangelionERPV2.ProductModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Product.Domain\EvangelionERPV2.ProductModule.Domain.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Product.Infra\EvangelionERPV2.ProductModule.Infra.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Shared\EvangelionERPV2.Shared.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.User.Application\EvangelionERPV2.UserModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.User.Application\EvangelionERPV2.UserModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.User.Domain\EvangelionERPV2.UserModule.Domain.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.User.Infra\EvangelionERPV2.UserModule.Infra.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Worker.Email\EvangelionERPV2.Worker.Email.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Worker.Order\EvangelionERPV2.Worker.Order.csproj" />
+  </ItemGroup>
+
+</Project>

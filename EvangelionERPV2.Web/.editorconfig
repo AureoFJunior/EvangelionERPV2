@@ -1,0 +1,35 @@
+﻿# .editorconfig for a .NET project
+# top-most EditorConfig file
+root = true
+
+# All files
+[*]
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+charset = utf-8
+trim_trailing_whitespace = true
+
+# C# files
+[*.cs]
+dotnet_sort_system_directives_first = true
+dotnet_style_qualification_for_field = false
+dotnet_style_qualification_for_property = false
+dotnet_style_qualification_for_method = false
+dotnet_style_qualification_for_event = false
+dotnet_style_prefer_auto_properties = true
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true
+csharp_new_line_before_open_brace = all
+csharp_indent_case_contents = true
+csharp_space_after_cast = true
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_space_between_method_call_parameter_list_parentheses = false
+csharp_style_expression_bodied_methods = false
+csharp_style_expression_bodied_properties = false
+csharp_style_expression_bodied_constructors = false
+csharp_style_inlined_variable_declaration = true
+csharp_prefer_simple_default_expression = true
+
+# C# 10+ Files
+[*.{cs,vb}]
+dotnet_style_unused_value_assignment_preference = discard_variable

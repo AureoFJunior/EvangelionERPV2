@@ -1,0 +1,41 @@
+name: SonarCloud analysis
+
+on:
+  push:
+    branches: [ "develop", "release" ]
+  pull_request:
+    branches: [ "develop", "release" ]
+  workflow_dispatch:
+
+
+permissions:
+  pull-requests: read # Allows SonarCloud to decorate PRs with analysis results
+
+jobs:
+  Analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Checkout the code
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Step 2: Install .NET SDK
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
+
+    # Step 3: Build the project
+    - name: Build the project
+      run: dotnet build --configuration Release
+
+    # Step 4: SonarCloud analysis
+    - name: Analyze with SonarCloud
+      uses: SonarSource/sonarcloud-github-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      with:
+        args: >
+          -Dsonar.projectKey=AureoFJunior_EvangelionERPV2 -Dsonar.organization=aureofjunior -Dsonar.host.url=https://sonarcloud.io
