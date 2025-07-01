@@ -13,10 +13,10 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class EmailController : Controller
     {
-        private readonly IEmailService<Email> _emailService;
+        private readonly IEmailService<EmailStructure> _emailService;
         private readonly IMapper _mapper;
 
-        public EmailController(IEmailService<Email> emailService,
+        public EmailController(IEmailService<EmailStructure> emailService,
             IMapper mapper)
         {
             _emailService = emailService;
@@ -34,7 +34,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> SendManualEmail([FromBody] Email email, [FromBody] Enterprise enterprise)
+        public async Task<IActionResult> SendManualEmail([FromBody] EmailStructure email, [FromBody] Enterprise enterprise)
         {
             try
             {
@@ -96,6 +96,33 @@ namespace EvangelionERPV2.Web.Controllers
                 await _emailService.SendMonthEmail();
 
                 return Ok("Monthly Emails sent");
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("Error when sending Emails", ex);
+                return Problem(ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Create Email.
+        /// </summary>
+        /// <param name="email">Add the email to be used for sending notifications.</param>
+        /// <returns></returns>
+        [HttpPost]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> AddEmail([FromBody] Email email)
+        {
+            try
+            {
+                if (!ModelState.IsValid) return BadRequest(ModelState);
+
+                await _emailService.CreateAsync(email);
+
+                return Ok("Email created successfully");
             }
             catch (Exception ex)
             {

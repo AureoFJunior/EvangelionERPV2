@@ -2,8 +2,6 @@
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using Moq;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.OrderModule.Test.Bills
 {
@@ -54,6 +52,198 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             }
         }
 
+        [Fact]
+        public async Task CreateAsync_ValidOrder_ReturnsOrder()
+        {
+            // Arrange
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+                    new OrderedProduct
+                    {
+                        CreatedAt = DateTime.Now,
+                        UpdatedAt = DateTime.Now,
+                        IsActive = true,
+                        Quantity = 2,
+                        Value = 50,
+                        ProductId = Guid.NewGuid()
+                    }
+                });
+
+            _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
+
+            // Act
+            var result = await _orderService.CreateAsync(order);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal(order, result);
+        }
+
+        [Theory]
+        [MemberData(nameof(GetInvalidOrders))]
+        public async Task CreateAsync_InvalidOrder_ThrowsInsertDatabaseException(Order invalidOrder)
+        {
+            // Act & Assert
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(invalidOrder));
+        }
+
+        public static IEnumerable<object[]> GetInvalidOrders()
+        {
+            // Negative quantity
+            yield return new object[] { new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+                    new OrderedProduct
+                    {
+                        CreatedAt = DateTime.Now,
+                        UpdatedAt = DateTime.Now,
+                        IsActive = true,
+                        Quantity = -1,
+                        Value = 50,
+                        ProductId = Guid.NewGuid()
+                    }
+                })};
+
+            // Zero value
+            yield return new object[] { new Order(DateTime.Now, DateTime.Now.AddDays(1), 0, Guid.NewGuid(), Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+                    new OrderedProduct
+                    {
+                        CreatedAt = DateTime.Now,
+                        UpdatedAt = DateTime.Now,
+                        IsActive = true,
+                        Quantity = 1,
+                        Value = 0,
+                        ProductId = Guid.NewGuid()
+                    }
+                })};
+        }
+
+        [Fact]
+        public void VerifyValidValues_ValidOrder_DoesNotThrow()
+        {
+            // Arrange
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+                    new OrderedProduct
+                    {
+                        CreatedAt = DateTime.Now,
+                        UpdatedAt = DateTime.Now,
+                        IsActive = true,
+                        Quantity = 1,
+                        Value = 100,
+                        ProductId = Guid.NewGuid()
+                    }
+                });
+
+            // Act & Assert
+            var refOrder = order;
+            _orderService.VerifyValidValues(ref refOrder);
+        }
+
+        [Fact]
+        public void Update_ValidOrder_ReturnsUpdatedOrder()
+        {
+            // Arrange
+            var orderId = Guid.NewGuid();
+            var originalOrder = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+            new OrderedProduct
+            {
+                CreatedAt = DateTime.Now,
+                UpdatedAt = DateTime.Now,
+                IsActive = true,
+                Quantity = 1,
+                Value = 100,
+                ProductId = Guid.NewGuid()
+            }
+                });
+
+            // Simulate the order already exists in the repository
+            _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns(originalOrder);
+
+            // Simulate updating the order
+            var updatedOrder = new Order(originalOrder.Payday, originalOrder.PaymentScheduledDate, 200, originalOrder.EnterpriseId, originalOrder.CustomerId, originalOrder.OrderedProduct)
+            {
+                // Set the same ID as the original
+                Id = orderId
+            };
+
+            _mockIOrderRepository.Setup(r => r.Update(It.IsAny<Order>())).Returns(updatedOrder);
+
+            // Act
+            var result = _orderService.Update(updatedOrder);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal(200, result.TotalValue);
+            Assert.Equal(orderId, result.Id);
+        }
+
+        #endregion
+
+        #region Edge Cases
+        // Order with No OrderedProducts
+        [Fact]
+        public async Task CreateAsync_OrderWithNoOrderedProducts_ThrowsInsertDatabaseException()
+        {
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(), new List<OrderedProduct>());
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
+        }
+
+        // Order with Null OrderedProducts
+        [Fact]
+        public async Task CreateAsync_OrderWithNullOrderedProducts_ThrowsInsertDatabaseException()
+        {
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(), null);
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
+        }
+         
+        [Fact]
+        public async Task CreateAsync_OrderWithDuplicateProducts_ThrowsInsertDatabaseException()
+        {
+            var productId = Guid.NewGuid();
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+            new OrderedProduct { CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now, IsActive = true, Quantity = 1, Value = 50, ProductId = productId },
+            new OrderedProduct { CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now, IsActive = true, Quantity = 2, Value = 50, ProductId = productId }
+                });
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
+        }
+
+        // Order with Extremely Large Quantities/Values
+        [Fact]
+        public async Task CreateAsync_OrderWithLargeQuantityOrValue_ThrowsInsertDatabaseException()
+        {
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), double.MaxValue, Guid.NewGuid(), Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+            new OrderedProduct { CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now, IsActive = true, Quantity = double.MaxValue, Value = double.MaxValue, ProductId = Guid.NewGuid() }
+                });
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
+        }
+
+        // Order Update with Nonexistent Order
+        [Fact]
+        public void Update_NonexistentOrder_ThrowsException()
+        {
+            var orderId = Guid.NewGuid();
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+            new OrderedProduct { CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now, IsActive = true, Quantity = 1, Value = 100, ProductId = Guid.NewGuid() }
+                })
+            { Id = orderId };
+
+            _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns((Order)null);
+
+            Assert.Throws<NotFoundDatabaseException>(() => _orderService.Update(order));
+        }
         #endregion
 
         #region Data Pull
@@ -142,63 +332,5 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         }
 
         #endregion
-
-        [Fact]
-        public void TestIt()
-        {
-            try
-            {
-              var list = new List<OrderedProduct> { new OrderedProduct
-                    {
-                        CreatedAt = DateTime.Now,
-                        UpdatedAt = DateTime.Now,
-                        IsActive = true,
-                        Quantity = 2,
-                        Value = 0,
-                        ProductId = Guid.NewGuid()
-                    }, new OrderedProduct
-                    {
-                        CreatedAt = DateTime.Now,
-                        UpdatedAt = DateTime.Now,
-                        IsActive = true,
-                        Quantity = 10,
-                        Value = 0,
-                        ProductId = Guid.NewGuid()
-                    } };
-
-
-                var test = $"teste {list.Count(x => x.Quantity > 1)}";
-                Console.WriteLine($"teste {list.Select(x => x).ToList()}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
-        }
-
-        [Fact]
-        public void TestIt2()
-        {
-            try
-            {
-
-                var options = new JsonSerializerOptions
-                {
-                    ReferenceHandler = ReferenceHandler.Preserve,
-                    PropertyNameCaseInsensitive = true,
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    WriteIndented = true
-                }; 
-
-                var obj = JsonSerializer.Deserialize<Order>(
-                    "{\r\n\t  \"id\": \"ced34b08-e6d3-4ddc-8d83-7c03ec293335\",\r\n  \"createdAt\": \"2024-04-25T00:06:47.618Z\",\r\n  \"updatedAt\": \"2024-04-25T00:06:47.618Z\",\r\n  \"isActive\": true,\r\n  \"payday\": \"2024-04-28T00:06:47.618Z\",\r\n  \"paymentScheduledDate\": \"2024-04-27T00:06:47.618Z\",\r\n  \"totalValue\": 0.00,\r\n  \"enterpriseId\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\r\n  \"customerId\": \"8a090fee-5b1c-4935-90e2-08dcae91adaf\",\r\n  \"orderedProduct\": [\r\n    {\r\n      \"createdAt\": \"2024-04-25T00:06:47.619Z\",\r\n      \"updatedAt\": \"2024-04-25T00:06:47.619Z\",\r\n      \"isActive\": true,\r\n      \"quantity\": 2,\r\n      \"value\": 30.00,\r\n      \"productId\": \"18e9cdf4-ade2-4629-6f7c-08dc9bbf46c2\",\r\n\t\t\t  \"OrderId\": \"ced34b08-e6d3-4ddc-8d83-7c03ec293335\"\r\n    }\r\n  ]\r\n}",
-                    options);
-                obj.TotalValue = 10;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
-        }
     }
 }
