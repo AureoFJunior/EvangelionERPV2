@@ -68,6 +68,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             order.TotalValue = order.OrderedProduct.Where(x => x.Value > 0 && x.Quantity > 0).Select(x => x.Value * x.Quantity).FirstOrDefault();
 
             if (order.TotalValue == null || order.TotalValue <= 0) { throw new InsertDatabaseException($"{nameof(Order)} has value/quantity null or negative"); }
+            if (order.OrderedProduct?.DistinctBy(x => x.ProductId).Count() != order.OrderedProduct?.Count()) { throw new InsertDatabaseException($"{nameof(Order)} has duplicated items"); }
+            if (order.OrderedProduct == null || !order.OrderedProduct.Any()) { throw new InsertDatabaseException($"{nameof(Order)} has no products"); }
+            if (order.OrderedProduct?.Any(x => x.Quantity <= 0 || x.Value <= 0) ?? false) { throw new InsertDatabaseException($"{nameof(Order)} has products with quantity or value less than or equal to zero"); }
+            if (order.OrderedProduct?.Any(x => x.Quantity == double.MaxValue || x.Value == double.MaxValue) ?? false) { throw new InsertDatabaseException($"{nameof(Order)} has products with extremely large values"); }
         }
 
         public Order Update(Order order)

@@ -31,4 +31,9 @@
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\EvangelionERPV2.Email.Infra\EvangelionERPV2.EmailModule.Infra.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Shared\EvangelionERPV2.Shared.csproj" />
+  </ItemGroup>
+
 </Project>
