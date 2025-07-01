@@ -9,10 +9,11 @@ namespace EvangelionERPV2.EmailModule.Application.Interface
         #endregion
 
         #region Async
-        #endregion
-        Task<MimeMessage> CreateEmail(Email email);
+        Task<Email> CreateAsync(Email email);
+        Task<MimeMessage> CreateEmail(EmailStructure email);
         Task SendEmail(MimeMessage message);
-        Task SendManualEmail(Email email, Enterprise enterprise);
+        Task SendManualEmail(EmailStructure email, Enterprise enterprise);
         Task SendMonthEmail(Guid? enterpriseId = null);
+        #endregion
     }
 }

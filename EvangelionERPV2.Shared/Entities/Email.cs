@@ -1,18 +1,24 @@
+using Microsoft.EntityFrameworkCore;
+
 namespace EvangelionERPV2.Shared.Entities
 {
-    public class Email
+    [Index(nameof(CreatedAt), nameof(UpdatedAt), nameof(IsActive), nameof(UserName))]
+    [Index(nameof(UserName))]
+    public class Email : BaseEntity
     {
         public Email() { }
 
-        public Email(string body, string subject, IEnumerable<string> recipientEmails)
+        public Email(string hostname, string username, string password, int port)
         {
-            Body = body;
-            Subject = subject;
-            RecipientEmails = recipientEmails;
+           HostName = hostname;
+           UserName = username;
+           Password = password;
+           Port = port;
         }
 
-        public string Body { get; set; }
-        public string Subject { get; set; }
-        public IEnumerable<string> RecipientEmails { get; set; }
+        public string HostName { get; set; }
+        public string UserName { get; set; }
+        public string Password { get; set; }
+        public int Port { get; set; }
     }
 }

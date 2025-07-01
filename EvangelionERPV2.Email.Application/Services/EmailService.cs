@@ -2,11 +2,8 @@ using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.EnterpriseModule.Domain.Interface;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
-using EvangelionERPV2.Shared.Entities.RabbitMQ;
 using EvangelionERPV2.Shared.Exceptions;
-using EvangelionERPV2.Shared.Interfaces;
 using EvangelionERPV2.Shared.Utils;
-using Microsoft.Extensions.Options;
 using MimeKit;
 using MimeKit.Text;
 using Serilog;
@@ -14,34 +11,58 @@ using System.Net.Mail;
 
 namespace EvangelionERPV2.EmailModule.Application.Services
 {
-    public class EmailService : IEmailService<Email>
+    public class EmailService : IEmailService<EmailStructure>
     {
         private readonly IRepository<Enterprise> _enterpriseRepository;
-        public readonly EmailSettings _emailSettings;
+        private readonly Domain.Interface.IRepository<Email> _emailRepository;
         public readonly IEmailRabbitMQManager _rabbitMQManager;
         public readonly IOrderService<Order> _orderService;
 
         private bool disposed;
 
-        public EmailService(IOptions<EmailSettings> emailSettings,
+        public EmailService(
             IEmailRabbitMQManager rabbitMQManager,
             IRepository<Enterprise> enterpriseRepository,
-            IOrderService<Order> orderService)
+            IOrderService<Order> orderService,
+            Domain.Interface.IRepository<Email> emailRepository)
         {
-            _emailSettings = emailSettings.Value;
             _rabbitMQManager = rabbitMQManager;
             _enterpriseRepository = enterpriseRepository;
             _orderService = orderService;
+            _emailRepository = emailRepository;
         }
 
-        public async Task<MimeMessage> CreateEmail(Email email)
+        public async Task<Email> CreateAsync(Email email)
+        {
+            try
+            {
+                var existentEmail = _enterpriseRepository.GetById(email.Id);
+                Email includedEmail= new Email();
+
+                if (existentEmail!= null)
+                    throw new InsertDatabaseException($"{nameof(Email)} already has an register in database");
+
+                includedEmail= await _emailRepository.CreateAsync(email);
+                await _emailRepository.CommitAsync();
+                return includedEmail;
+
+            }
+            catch (Exception ex)
+            {
+                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+            }
+        }
+
+        public async Task<MimeMessage> CreateEmail(EmailStructure email)
         {
             try
             {
                 // Create the Email object
 
                 var message = new MimeMessage();
-                message.From.Add(new MailboxAddress(_emailSettings.Username, _emailSettings.HostName));
+                IEnumerable<Email> emailsSettings = await _emailRepository.GetAllAsync();
+                Email emailSettings = emailsSettings?.FirstOrDefault();
+                message.From.Add(new MailboxAddress(emailSettings?.UserName, emailSettings?.HostName));
 
                 foreach (var recipientEmail in email.RecipientEmails)
                 {
@@ -68,10 +89,13 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         {
             try
             {
+                IEnumerable<Email> emailsSettings = await _emailRepository.GetAllAsync();
+                Email emailSettings = emailsSettings?.FirstOrDefault();
+
                 // Send Email
-                using var smtpClient = new SmtpClient(_emailSettings.HostName, _emailSettings.Port);
+                using var smtpClient = new SmtpClient(emailSettings?.HostName, emailSettings?.Port ?? 0);
                 smtpClient.EnableSsl = true;
-                smtpClient.Credentials = new System.Net.NetworkCredential(_emailSettings.Username, _emailSettings.Password);
+                smtpClient.Credentials = new System.Net.NetworkCredential(emailSettings?.UserName, emailSettings?.Password);
 
                 Log.Logger.Information("Sending emails");
                 smtpClient.Send(message.From.ToString(),
@@ -86,7 +110,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
         }
 
-        public async Task SendManualEmail(Email email, Enterprise enterprise)
+        public async Task SendManualEmail(EmailStructure email, Enterprise enterprise)
         {
             try
             {
@@ -126,7 +150,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                     {
                         List<string> recipientEmails = new List<string>() { enterprise.Email };
 
-                        var email = new Email(body.ToString(), "Monthly Email", recipientEmails);
+                        var email = new EmailStructure(body.ToString(), "Monthly Email", recipientEmails);
                         await SendManualEmail(email, enterprise);
                     }
                 }
@@ -142,7 +166,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
         }
 
-        private async Task<bool> ShouldSendEmail(Email email, Enterprise enterprise)
+        private async Task<bool> ShouldSendEmail(EmailStructure email, Enterprise enterprise)
         {
             // Validate the Email
 
@@ -180,7 +204,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 if (disposing)
                 {
                     // Dispose managed resources here.
-                    (_emailSettings as IDisposable)?.Dispose();
+                    (_emailRepository as IDisposable)?.Dispose();
                     (_enterpriseRepository as IDisposable)?.Dispose();
                     (_orderService as IDisposable)?.Dispose();
                     (_rabbitMQManager as IDisposable)?.Dispose();

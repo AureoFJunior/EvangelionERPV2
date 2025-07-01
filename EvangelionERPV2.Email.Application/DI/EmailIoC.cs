@@ -8,12 +8,13 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.EnterpriseModule.Domain.Interface;
 using EvangelionERPV2.EmailModule.Application.Services;
 using EvangelionERPV2.EmailModule.Application.Interface;
-using EvangelionERPV2.EnterpriseModule.Domain.Repositories;
-using EvangelionERPV2.EnterpriseModule.Infra.Context;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.OrderModule.Application.Services;
 using EvangelionERPV2.Shared.Utils;
 using Amazon.SecretsManager;
+using EvangelionERPV2.EmailModule.Domain.Repositories;
+using EvangelionERPV2.EmailModule.Infra.Context;
+using EvangelionERPV2.EnterpriseModule.Infra.Context;
 
 namespace EvangelionERPV2.EmailModule.Application.DI
 {
@@ -38,8 +39,7 @@ namespace EvangelionERPV2.EmailModule.Application.DI
                 services.AddLogging();
 
                 #region DataBase
-                services.AddDbContext<EnterpriseModuleDbContext>(options => options.UseSqlServer(kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty)));
-
+                services.AddDbContext<EmailModuleDbContext>(options => options.UseSqlServer(kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty)));
                 #endregion
 
                 #region Mapper
@@ -50,29 +50,26 @@ namespace EvangelionERPV2.EmailModule.Application.DI
                 #endregion
 
                 #region Repositorys
-                services.AddTransient(typeof(IRepository<Enterprise>), typeof(EnterpriseRepository));
+                services.AddTransient(typeof(IRepository<Enterprise>), typeof(EnterpriseModule.Domain.Repositories.EnterpriseRepository));
+                services.AddTransient(typeof(Domain.Interface.IRepository<Email>), typeof(Domain.Repositories.Repository<Email>));
 
 
                 #endregion
 
                 #region Services
-                services.AddScoped(typeof(IEmailService<Email>), typeof(EmailService));
+                services.AddScoped(typeof(IEmailService<EmailStructure>), typeof(EmailService));
                 services.AddScoped(typeof(IOrderService<Order>), typeof(OrderService));
 
 
                 #endregion
 
-                services.AddScoped(typeof(IUnitOfWork<EnterpriseModuleDbContext>), typeof(UnitOfWork<EnterpriseModuleDbContext>));
+                services.AddScoped(typeof(Domain.Interface.IUnitOfWork<EmailModuleDbContext>), typeof(UnitOfWork<EmailModuleDbContext>));
 
                 #region RabbitMQ
                 services.Configure<RabbitMQSettings>(opt => configuration.GetSection("RabbitMQSettings").Bind(opt));
                 services.Configure<EmailChannelSettings>(opt => configuration.GetSection("EmailChannelSettings").Bind(opt));
                 services.AddSingleton<IEmailRabbitMQManager, EmailRabbitMQManager>();
 
-                #endregion
-
-                #region Settings
-                services.Configure<EmailSettings>(opt => configuration.GetSection("EmailSettings").Bind(opt));
                 #endregion
             }
             catch (Exception ex)
