@@ -141,7 +141,7 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             if (predicate != null)
                 query = query.Where(entity => predicate(entity));
 
-            if (await query?.AnyAsync())
+            if (await query.AnyAsync())
                 return await query.ToListAsync();
 
             return new List<TEntity>();

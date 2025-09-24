@@ -36,15 +36,15 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                             var rabbitMQManager = scope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
 
                             // Get from Email Queue and send
-                            var message = await rabbitMQManager.DequeueAndProcessAsync<MimeMessage>();
+                            var rawMessage = await rabbitMQManager.DequeueAndProcessAsync<string>();
 
-                            if (message != null)
+                            if (!string.IsNullOrEmpty(rawMessage))
                             {
                                 _kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
                                 key = _kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
                                 Log.Logger.Information($"Sending Email at: {DateTime.UtcNow}");
                                 var user = await SharedFunctions.GetAsync<UserDTO>("User/LogInto", key);
-                                await SharedFunctions.PostAsync<object>("Email/SendEmail", message, user.Token.ToString());
+                                await SharedFunctions.PostAsync<object>("Email/SendEmail", rawMessage, user.Token.ToString());
                             }
 
                             Log.Logger.Information($"Email Consumer Worker running at: {DateTime.UtcNow}");
@@ -61,7 +61,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                     }
                 }
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Log.Logger.Error($"Email Consumer With Scope error: {ex.Message}", ex.Message, ex.InnerException);
             }
