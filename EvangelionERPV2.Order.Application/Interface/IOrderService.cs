@@ -13,7 +13,6 @@ namespace EvangelionERPV2.OrderModule.Application.Interface
 
         #region Async
         Task<Order> CreateAsync(Order order);
-        Task<IList<TEntity>> GetMonthlyBillingOrders(Enterprise enterprise);
         Task<string> GetOrdersBodyAsync(Enterprise? enterprise);
         Task InsertOrderInQueue(Order order);
         #endregion

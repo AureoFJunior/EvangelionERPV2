@@ -13,6 +13,7 @@ namespace EvangelionERPV2.OrderModule.Domain.Interface
         int? pageNumber,
         int? pageSize,
         Order order);
+        Task<IEnumerable<Order>> GetAllAsyncWithOrderedProductsByEnterprise(Enterprise? enterprise);
         #endregion
     }
 }

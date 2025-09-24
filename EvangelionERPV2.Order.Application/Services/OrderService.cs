@@ -13,6 +13,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
     public class OrderService : IOrderService<Order>, IDisposable
     {
         private readonly IRepository<Order> _orderRepository;
+        private readonly IOrderRepository<Order> _orderRepositoryCustom;
         private readonly IRepository<Product> _productRepository;
         private readonly IRepository<OrderedProduct> _orderedProductRepository;
         private readonly IProductService<Product> _productService;
@@ -21,6 +22,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         private bool disposed;
 
         public OrderService(IRepository<Order> orderRepository,
+            IOrderRepository<Order> orderRepositoryCustom,
             IRepository<Product> productRepository,
             IRepository<OrderedProduct> orderedProductRepository,
             IProductService<Product> productService,
@@ -28,6 +30,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             )
         {
             _orderRepository = orderRepository;
+            _orderRepositoryCustom = orderRepositoryCustom;
             _productRepository = productRepository;
             _orderedProductRepository = orderedProductRepository;
             _productService = productService;
@@ -148,43 +151,24 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// </summary>
         public async Task<string> GetOrdersBodyAsync(Enterprise? enterprise)
         {
-            if (!DateTime.UtcNow.IsLastMonthDay())
-                return null;
+            //if (!DateTime.UtcNow.IsLastMonthDay())
+                //return null;
 
             if (enterprise == null)
                 throw new Exception("The enterprise is null or empty");
 
-            IList<Order> orders = await GetMonthlyBillingOrders(enterprise);
+            IEnumerable<Order> orders = await _orderRepositoryCustom.GetAllAsyncWithOrderedProductsByEnterprise(enterprise);
+
             if (orders == null || orders?.Any() == false)
-                return null;
-
-            foreach (var order in orders)
-                order.OrderedProduct = await _orderedProductRepository.GetAllAsync(x => x.OrderId == order.Id);
-
-            return await BuildOrdersBody(orders, enterprise);
-        }
-
-        public async Task<IList<Order>> GetMonthlyBillingOrders(Enterprise enterprise)
-        {
-            try
-            {
-                // Get the orders applying the rules for it
-                List<Order> orders = new List<Order>();
-                orders.AddRange(await _orderRepository.GetAllAsync());
-
-                return orders.Where(x => x.IsActive ?? false && (x.PaymentScheduledDate.IsDateBetween(SharedFunctions.GetFirstDayOfMonth(), SharedFunctions.GetLastDayOfMonth())
-                    || x.Payday != null && x.Payday.IsDateBetween(SharedFunctions.GetFirstDayOfMonth(), SharedFunctions.GetLastDayOfMonth()))
-                    && (x.EnterpriseId != null && enterprise.Id == (x.EnterpriseId ?? new Guid()))
-                    ).ToList();
-            }
-            catch (Exception ex)
             {
                 Log.Logger.Warning($"Doesn't have any orders to be billed for {enterprise.Name}");
                 return null;
             }
+
+            return await BuildOrdersBody(orders, enterprise);
         }
 
-        private async Task<string> BuildOrdersBody(IList<Order> orders, Enterprise enterprise)
+        private async Task<string> BuildOrdersBody(IEnumerable<Order> orders, Enterprise enterprise)
         {
             var body = new StringBuilder();
 
