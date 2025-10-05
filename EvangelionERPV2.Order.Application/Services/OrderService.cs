@@ -13,25 +13,31 @@ namespace EvangelionERPV2.OrderModule.Application.Services
     public class OrderService : IOrderService<Order>, IDisposable
     {
         private readonly IRepository<Order> _orderRepository;
+        private readonly IOrderRepository<Order> _orderRepositoryCustom;
         private readonly IRepository<Product> _productRepository;
         private readonly IRepository<OrderedProduct> _orderedProductRepository;
         private readonly IProductService<Product> _productService;
         public readonly IOrderRabbitMQManager _rabbitMQManager;
+        public readonly IOrderReportGeneratorService _orderReportGeneratorService;
 
         private bool disposed;
 
         public OrderService(IRepository<Order> orderRepository,
+            IOrderRepository<Order> orderRepositoryCustom,
             IRepository<Product> productRepository,
             IRepository<OrderedProduct> orderedProductRepository,
             IProductService<Product> productService,
-            IOrderRabbitMQManager rabbitMQManager
+            IOrderRabbitMQManager rabbitMQManager,
+            IOrderReportGeneratorService orderReportGeneratorService
             )
         {
             _orderRepository = orderRepository;
+            _orderRepositoryCustom = orderRepositoryCustom;
             _productRepository = productRepository;
             _orderedProductRepository = orderedProductRepository;
             _productService = productService;
             _rabbitMQManager = rabbitMQManager;
+            _orderReportGeneratorService = orderReportGeneratorService;
         }
 
         #region Persistence
@@ -148,92 +154,23 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// </summary>
         public async Task<string> GetOrdersBodyAsync(Enterprise? enterprise)
         {
-            if (!DateTime.UtcNow.IsLastMonthDay())
-                return null;
+            //if (!DateTime.UtcNow.IsLastMonthDay())
+            //    return null;
 
             if (enterprise == null)
                 throw new Exception("The enterprise is null or empty");
 
-            IList<Order> orders = await GetMonthlyBillingOrders(enterprise);
+            IEnumerable<Order> orders = await _orderRepositoryCustom.GetAllAsyncWithOrderedProductsByEnterprise(enterprise);
+
             if (orders == null || orders?.Any() == false)
-                return null;
-
-            foreach (var order in orders)
-                order.OrderedProduct = await _orderedProductRepository.GetAllAsync(x => x.OrderId == order.Id);
-
-            return await BuildOrdersBody(orders, enterprise);
-        }
-
-        public async Task<IList<Order>> GetMonthlyBillingOrders(Enterprise enterprise)
-        {
-            try
-            {
-                // Get the orders applying the rules for it
-                List<Order> orders = new List<Order>();
-                orders.AddRange(await _orderRepository.GetAllAsync());
-
-                return orders.Where(x => x.IsActive ?? false && (x.PaymentScheduledDate.IsDateBetween(SharedFunctions.GetFirstDayOfMonth(), SharedFunctions.GetLastDayOfMonth())
-                    || x.Payday != null && x.Payday.IsDateBetween(SharedFunctions.GetFirstDayOfMonth(), SharedFunctions.GetLastDayOfMonth()))
-                    && (x.EnterpriseId != null && enterprise.Id == (x.EnterpriseId ?? new Guid()))
-                    ).ToList();
-            }
-            catch (Exception ex)
             {
                 Log.Logger.Warning($"Doesn't have any orders to be billed for {enterprise.Name}");
                 return null;
             }
+
+            return await _orderReportGeneratorService.GenerateMonthlyBillingReportAsync(enterprise, orders);
         }
 
-        private async Task<string> BuildOrdersBody(IList<Order> orders, Enterprise enterprise)
-        {
-            var body = new StringBuilder();
-
-            // Add header
-            body.AppendLine("<h2>Monthly Billing</h2>");
-            body.AppendLine($"<h3>{enterprise.Name}</h3>");
-            body.AppendLine("<table border='1'>");
-            body.AppendLine("<thead>");
-            body.AppendLine("<tr>");
-            body.AppendLine("<th>Product</th>");
-            body.AppendLine("<th>Quantity</th>");
-            body.AppendLine("<th>Value</th>");
-            body.AppendLine("</tr>");
-            body.AppendLine("</thead>");
-            body.AppendLine("<tbody>");
-
-            // Add order details
-            double totalQuantity = 0;
-            double totalValue = 0;
-            foreach (var order in orders)
-            {
-                foreach (var orderedProduct in order.OrderedProduct)
-                {
-                    var product = await _productRepository.GetByIdAsync(orderedProduct.Id) ?? new Product();
-
-                    // Build product info
-                    body.AppendLine("<tr>");
-                    body.AppendLine($"<td>{product?.Name}</td>");
-                    body.AppendLine($"<td>{orderedProduct.Quantity}</td>");
-                    body.AppendLine($"<td>{orderedProduct.Value:C}</td>");
-                    body.AppendLine("</tr>");
-                }
-                totalQuantity += order.OrderedProduct.Sum(x => x.Quantity);
-                totalValue += order.TotalValue;
-            }
-
-            // Add totals
-            body.AppendLine("<tr>");
-            body.AppendLine($"<td><b>Total</b></td>");
-            body.AppendLine($"<td><b>Itens Count: {totalQuantity}</b></td>");
-            body.AppendLine($"<td><b>Total Value: {totalValue:C}</b></td>");
-            body.AppendLine("</tr>");
-
-            body.AppendLine("</tbody>");
-            body.AppendLine("</table>");
-
-            return body.ToString();
-
-        }
         #endregion
 
         #region Dispose Pattern
