@@ -1,4 +1,5 @@
-﻿using EvangelionERPV2.OrderModule.Application.Services;
+﻿using EvangelionERPV2.OrderModule.Application.Interface;
+using EvangelionERPV2.OrderModule.Application.Services;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using Moq;
@@ -13,6 +14,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         private readonly Mock<OrderModule.Domain.Interface.IRepository<OrderedProduct>> _mockIOrderedProductRepository;
         private readonly Mock<ProductModule.Application.Interface.IProductService<Product>> _mockIProductService;
         private readonly OrderService _orderService;
+        private readonly OrderReportGeneratorService _orderReportGeneratorService;
 
         public OrdersTest()
         {
@@ -22,13 +24,16 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIOrderedProductRepository = new Mock<OrderModule.Domain.Interface.IRepository<OrderedProduct>>();
             _mockIProductService = new Mock<ProductModule.Application.Interface.IProductService<Product>>();
 
+            _orderReportGeneratorService = new OrderReportGeneratorService(_mockIProductRepository.Object);
+
             // Build OrderService with mocked parameters
             _orderService = new OrderService(_mockIOrderRepository.Object,
                 _mockIOrderRepositoryCustom.Object,
                 _mockIProductRepository.Object,
                 _mockIOrderedProductRepository.Object,
                 _mockIProductService.Object,
-                null);
+                null,
+                _orderReportGeneratorService);
         }
 
 
