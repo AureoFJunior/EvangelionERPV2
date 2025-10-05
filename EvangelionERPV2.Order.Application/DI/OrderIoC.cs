@@ -62,6 +62,7 @@ namespace EvangelionERPV2.OrderModule.Application.DI
 
                 #region Services
                 services.AddScoped(typeof(IOrderService<Order>), typeof(OrderService));
+                services.AddScoped(typeof(IOrderReportGeneratorService), typeof(OrderReportGeneratorService));
 
 
                 #endregion

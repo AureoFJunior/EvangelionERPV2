@@ -61,13 +61,17 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> SendEmail([FromBody] MimeMessage email)
+        public async Task<IActionResult> SendEmail([FromBody] string email)
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                MimeMessage message;
+                using (var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(email)))
+                {
+                    message = MimeMessage.Load(stream);
+                }
 
-                await _emailService.SendEmail(email);
+                await _emailService.SendEmail(message);
 
                 return Ok("Emails sent");
             }

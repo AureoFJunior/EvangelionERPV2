@@ -7,7 +7,10 @@ using EvangelionERPV2.Shared.Utils;
 using MimeKit;
 using MimeKit.Text;
 using Serilog;
-using System.Net.Mail;
+using MailKit.Security;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Util.Store;
+using Microsoft.Extensions.Configuration;
 
 namespace EvangelionERPV2.EmailModule.Application.Services
 {
@@ -17,32 +20,40 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         private readonly Domain.Interface.IRepository<Email> _emailRepository;
         public readonly IEmailRabbitMQManager _rabbitMQManager;
         public readonly IOrderService<Order> _orderService;
-
+        private readonly AWSKMSKeyProvider _kmsProvider;
+        private readonly IConfiguration _configuration;
         private bool disposed;
 
         public EmailService(
             IEmailRabbitMQManager rabbitMQManager,
             IRepository<Enterprise> enterpriseRepository,
             IOrderService<Order> orderService,
-            Domain.Interface.IRepository<Email> emailRepository)
+            Domain.Interface.IRepository<Email> emailRepository,
+            AWSKMSKeyProvider kmsProvider,
+            IConfiguration configuration)
         {
             _rabbitMQManager = rabbitMQManager;
             _enterpriseRepository = enterpriseRepository;
             _orderService = orderService;
             _emailRepository = emailRepository;
+            _kmsProvider = kmsProvider;
+            _configuration = configuration;
         }
 
         public async Task<Email> CreateAsync(Email email)
         {
             try
             {
+                email.Password = SharedFunctions.Encrypt(email.Password);
+
                 var existentEmail = _enterpriseRepository.GetById(email.Id);
                 Email includedEmail= new Email();
 
                 if (existentEmail!= null)
                     throw new InsertDatabaseException($"{nameof(Email)} already has an register in database");
 
-                includedEmail= await _emailRepository.CreateAsync(email);
+                
+                includedEmail = await _emailRepository.CreateAsync(email);
                 await _emailRepository.CommitAsync();
                 return includedEmail;
 
@@ -62,7 +73,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 var message = new MimeMessage();
                 IEnumerable<Email> emailsSettings = await _emailRepository.GetAllAsync();
                 Email emailSettings = emailsSettings?.FirstOrDefault();
-                message.From.Add(new MailboxAddress(emailSettings?.UserName, emailSettings?.HostName));
+                message.From.Add(new MailboxAddress(emailSettings?.UserName, emailSettings?.UserName));
 
                 foreach (var recipientEmail in email.RecipientEmails)
                 {
@@ -92,16 +103,24 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 IEnumerable<Email> emailsSettings = await _emailRepository.GetAllAsync();
                 Email emailSettings = emailsSettings?.FirstOrDefault();
 
-                // Send Email
-                using var smtpClient = new SmtpClient(emailSettings?.HostName, emailSettings?.Port ?? 0);
-                smtpClient.EnableSsl = true;
-                smtpClient.Credentials = new System.Net.NetworkCredential(emailSettings?.UserName, emailSettings?.Password);
+                // Get the access token (cache and refresh as needed in production)
+                string clientId = _kmsProvider.GetKMSKey(_configuration.GetSection("GoogleSettings")["ClientId"]);
+                string clientSecret = _kmsProvider.GetKMSKey(_configuration.GetSection("GoogleSettings")["ClientSecret"]);
+                string userEmail = emailSettings?.UserName;
+                string accessToken = await GetGmailAccessTokenAsync(clientId, clientSecret, userEmail);
+
+                using var smtpClient = new MailKit.Net.Smtp.SmtpClient();
+                await smtpClient.ConnectAsync(emailSettings?.HostName, emailSettings?.Port ?? 587, SecureSocketOptions.StartTls);
+
+                // Authenticate using OAuth2
+                var oauth2 = new SaslMechanismOAuth2(userEmail, accessToken);
+                await smtpClient.AuthenticateAsync(oauth2);
 
                 Log.Logger.Information("Sending emails");
-                smtpClient.Send(message.From.ToString(),
-                    string.Join(',', message.GetRecipients(true).Select(x => x.Address.ToString())),
-                    message.Subject,
-                    message.Body.ToString());
+
+                await smtpClient.SendAsync(message);
+                await smtpClient.DisconnectAsync(true);
+
                 Log.Logger.Information("Emails has been sent");
             }
             catch (Exception ex)
@@ -123,9 +142,24 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                 var message = await CreateEmail(email);
 
+                var messageSummary = new
+                {
+                    Subject = message.Subject,
+                    From = message.From.ToString(),
+                    To = message.To.ToString(),
+                    TextBody = message.TextBody,
+                    HtmlBody = message.HtmlBody,
+                    Date = message.Date
+                };
+
                 // Put in the Email Queue
                 Log.Logger.Information("Sending email to the Queue");
-                await _rabbitMQManager.EnqueueAsync<MimeMessage>(message);
+                using (var stream = new MemoryStream())
+                {
+                    message.WriteTo(stream);
+                    var rawMessage = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+                    await _rabbitMQManager.EnqueueAsync<string>(rawMessage);
+                }
                 Log.Logger.Information("Email has been enqueued");
             }
             catch (Exception ex)
@@ -189,6 +223,32 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
             return email.RecipientEmails.Any();
         }
+
+        private async Task<string> GetGmailAccessTokenAsync(string clientId, string clientSecret, string userEmail)
+        {
+            var secrets = new ClientSecrets
+            {
+                ClientId = clientId,       // OAuth Desktop App
+                ClientSecret = clientSecret
+            };
+
+            var scopes = new[] { "https://mail.google.com/" };
+
+            // Porta fixa + Edge InPrivate
+            var receiver = new FixedPortEdgeReceiver(54373);
+
+            var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                secrets,
+                scopes,
+                userEmail,
+                CancellationToken.None,
+                new FileDataStore("GmailOAuth2TokenStore", true),
+                receiver
+            );
+
+            return await credential.GetAccessTokenForRequestAsync();
+        }
+
 
         #region Dispose Pattern
         public void Dispose()

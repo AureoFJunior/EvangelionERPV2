@@ -29,10 +29,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                     {
                         Log.Logger.Information($"Sending Emails at: {DateTime.UtcNow}");
                         var user = await SharedFunctions.GetAsync<UserDTO>("User/LogInto", "admin/1234");
-                        polly?.AsyncPolicyWrap.ExecuteAsync(async () =>
-                        {
-                            await SharedFunctions.PostAsync<object>("Email/SendMonthEmail", new object() { }, user.Token.ToString());
-                        });
+                        await SharedFunctions.PostAsync<object>("Email/SendMonthEmail", new object() { }, user.Token.ToString());
 
                         Log.Logger.Information($"Email Sender Worker running at: {DateTime.UtcNow}");
                         await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);

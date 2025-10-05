@@ -2,6 +2,7 @@ using EvangelionERPV2.OrderModule.Domain.Interface;
 using EvangelionERPV2.OrderModule.Infra.Context;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
+using EvangelionERPV2.Shared.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
@@ -73,6 +74,26 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             int skip = (pageNumber - 1) * pageSize ?? 1;
 
             result = await query.Skip(skip).Take(pageSize ?? 0).ToListAsync();
+            if (result?.Any() == true)
+                return result;
+
+            throw new NotFoundDatabaseException();
+        }
+
+        public async Task<IEnumerable<Order>> GetAllAsyncWithOrderedProductsByEnterprise(Enterprise? enterprise)
+        {
+            IEnumerable<Order> result = Enumerable.Empty<Order>();
+
+            var query = _context.Set<Order>()
+                .Include(o => o.OrderedProduct)
+                .Where(x => x.IsActive ?? false 
+                    && (x.PaymentScheduledDate.IsDateBetween(SharedFunctions.GetFirstDayOfMonth(), SharedFunctions.GetLastDayOfMonth())
+                    || x.Payday != null && x.Payday.IsDateBetween(SharedFunctions.GetFirstDayOfMonth(), SharedFunctions.GetLastDayOfMonth()))
+                    && (x.EnterpriseId != null && enterprise.Id == (x.EnterpriseId ?? new Guid())))
+                .AsNoTracking();
+
+            result = await query.ToListAsync();
+
             if (result?.Any() == true)
                 return result;
 

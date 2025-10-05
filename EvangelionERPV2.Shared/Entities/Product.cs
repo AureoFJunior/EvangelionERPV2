@@ -1,3 +1,5 @@
+using EvangelionERPV2.Shared.Enums;
+
 namespace EvangelionERPV2.Shared.Entities
 {
     public class Product : BaseEntity
@@ -18,6 +20,7 @@ namespace EvangelionERPV2.Shared.Entities
         public string Description { get; set; } = "";
         public double DefaultValue { get; set; } = 0;
         public double StorageQuantity { get; set; } = 0;
+        public string UnitOfMeasure { get; set; } = nameof(EnumUnitOfMeasure.Unit);
         public bool IsExternal { get; set; } = false;
         public bool IsService { get; set; } = false;
         public string? PictureAdress { get; set; }

@@ -59,6 +59,7 @@ namespace EvangelionERPV2.EmailModule.Application.DI
                 #region Services
                 services.AddScoped(typeof(IEmailService<EmailStructure>), typeof(EmailService));
                 services.AddScoped(typeof(IOrderService<Order>), typeof(OrderService));
+                services.AddScoped(typeof(IOrderReportGeneratorService), typeof(OrderReportGeneratorService));
 
 
                 #endregion
