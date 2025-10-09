@@ -8,7 +8,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
 {
     public class TokenService
     {
-        private static readonly string secret = "f0f228f0-4f22-45bc-bed8-bea3c97d463d";
+        private static readonly string secret = "f0f228f0-4f22-45bc-bed8-bea3c97d463d"; // TODO: Remove secret and store in Amazon Secret Manager
 
         public TokenService()
         {
@@ -22,9 +22,13 @@ namespace EvangelionERPV2.UserModule.Application.Token
             {
                 Subject = new ClaimsIdentity(new[]
                 {
-                    new Claim(ClaimTypes.Name, user.FirstName),
+                    new Claim(ClaimTypes.Name, $"{user.FirstName}-{user.LastName}-{user.UserName}"),
+                    new Claim(ClaimTypes.GivenName, user.FirstName),
+                    new Claim(ClaimTypes.Surname, user.LastName),
+                    new Claim(ClaimTypes.NameIdentifier, user.UserName),
+                    new Claim(ClaimTypes.GroupSid, user?.EnterpriseId?.ToString())
                 }),
-                Expires = DateTime.UtcNow.AddHours(2),
+                Expires = DateTime.UtcNow.AddHours(1),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
             };
 
@@ -39,7 +43,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Subject = new ClaimsIdentity(claims),
-                Expires = DateTime.UtcNow.AddHours(2),
+                Expires = DateTime.UtcNow.AddHours(1),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
             };
 

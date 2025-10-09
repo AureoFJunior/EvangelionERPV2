@@ -22,11 +22,253 @@ namespace EvangelionERPV2.UserModule.Infra.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Customer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Adress")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId");
+
+                    b.HasIndex("Name");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "Name");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("Customer");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Enterprise", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Adress")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("ShouldSendMonthlyBilling")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "Name");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Order", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("Payday")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("PaymentScheduledDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<double>("TotalValue")
+                        .HasColumnType("float");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("EnterpriseId");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("Order");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.OrderedProduct", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("OrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<double>("Quantity")
+                        .HasColumnType("float");
+
+                    b.Property<string>("UnitOfMeasure")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<double>("Value")
+                        .HasColumnType("float");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("OrderedProduct");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<double>("DefaultValue")
+                        .HasColumnType("float");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsExternal")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsService")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PictureAdress")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<double>("StorageQuantity")
+                        .HasColumnType("float");
+
+                    b.Property<string>("UnitOfMeasure")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("Product");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<short>("AccessLevel")
+                        .HasColumnType("smallint");
 
                     b.Property<short>("ActualTheme")
                         .HasColumnType("smallint");
@@ -40,6 +282,9 @@ namespace EvangelionERPV2.UserModule.Infra.Migrations
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("FirstName")
                         .IsRequired()
@@ -72,6 +317,8 @@ namespace EvangelionERPV2.UserModule.Infra.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("EnterpriseId");
+
                     b.HasIndex("UserName", "Password");
 
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt");
@@ -79,6 +326,91 @@ namespace EvangelionERPV2.UserModule.Infra.Migrations
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("User");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Customer", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany("Customer")
+                        .HasForeignKey("EnterpriseId");
+
+                    b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Order", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Customer", "Customer")
+                        .WithMany("Order")
+                        .HasForeignKey("CustomerId");
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany("Order")
+                        .HasForeignKey("EnterpriseId");
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.OrderedProduct", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Order", "Order")
+                        .WithMany("OrderedProduct")
+                        .HasForeignKey("OrderId");
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Product", "Product")
+                        .WithMany("OrderedProduct")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany("Product")
+                        .HasForeignKey("EnterpriseId");
+
+                    b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.User", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany("User")
+                        .HasForeignKey("EnterpriseId");
+
+                    b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Customer", b =>
+                {
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Enterprise", b =>
+                {
+                    b.Navigation("Customer");
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Order", b =>
+                {
+                    b.Navigation("OrderedProduct");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
+                {
+                    b.Navigation("OrderedProduct");
                 });
 #pragma warning restore 612, 618
         }

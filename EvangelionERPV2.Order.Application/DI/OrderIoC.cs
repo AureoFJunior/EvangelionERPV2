@@ -14,6 +14,7 @@ using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.OrderModule.Application.Services;
 using EvangelionERPV2.ProductModule.Domain.Repositories;
 using EvangelionERPV2.ProductModule.Domain.Interface;
+using EvangelionERPV2.Shared.Hubs;
 
 namespace EvangelionERPV2.OrderModule.Application.DI
 {
@@ -78,6 +79,7 @@ namespace EvangelionERPV2.OrderModule.Application.DI
 
                 #region SingnalR
                 services.AddSignalR();
+                services.AddScoped(typeof(OrderHub), typeof(OrderHub));
                 #endregion
 
                 #region Redis

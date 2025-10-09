@@ -1,12 +1,13 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 using AutoMapper;
-using Serilog;
 using EvangelionERPV2.CustomerModule.Application.Interface;
 using EvangelionERPV2.CustomerModule.Domain.Interface;
-using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Serilog;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -48,7 +49,9 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
 
-                IEnumerable<Customer> customers = await _repository.GetAllAsync(pageNumber, pageSize);
+                Guid enterpriseId = Guid.Parse(User.FindFirst(ClaimTypes.GroupSid)?.Value);
+
+                IEnumerable<Customer> customers = await _repository.GetAllAsync(pageNumber, pageSize, x => x.EnterpriseId != null && (x.EnterpriseId != default(Guid) && x.EnterpriseId == enterpriseId));
                 if (customers == null)
                     return NoContent();
 
@@ -84,6 +87,8 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                customer.EnterpriseId = Guid.Parse(User.FindFirst(ClaimTypes.GroupSid)?.Value);
+
                 IEnumerable<Customer> customers = await _customerRepository.GetAllAsyncFiltering(descending, pageNumber, pageSize, customer);
                 if (customers == null)
                     return NoContent();

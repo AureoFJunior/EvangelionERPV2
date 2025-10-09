@@ -169,6 +169,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
         }
 
+        #region Monthly Order Email
         public async Task SendMonthEmail(Guid? enterpriseId = null)
         {
             try
@@ -199,6 +200,14 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 throw;
             }
         }
+
+        #endregion
+
+        #region Order Status Email
+        #endregion
+
+        #region Stock Email
+        #endregion
 
         private async Task<bool> ShouldSendEmail(EmailStructure email, Enterprise enterprise)
         {

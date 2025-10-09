@@ -40,10 +40,11 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 
                             if (!string.IsNullOrEmpty(rawMessage))
                             {
-                                _kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-                                key = _kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+                                UserDTO? user;
+                                user = await GetAPIToken(scope);
+
                                 Log.Logger.Information($"Sending Email at: {DateTime.UtcNow}");
-                                var user = await SharedFunctions.GetAsync<UserDTO>("User/LogInto", key);
+
                                 await SharedFunctions.PostAsync<object>("Email/SendEmail", rawMessage, user.Token.ToString());
                             }
 
@@ -66,6 +67,15 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                 Log.Logger.Error($"Email Consumer With Scope error: {ex.Message}", ex.Message, ex.InnerException);
             }
         }
-    }
 
+        private async Task<UserDTO?> GetAPIToken(IServiceScope scope)
+        {
+            string key = string.Empty;
+
+            _kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
+            key = _kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+
+            return await SharedFunctions.GetAsync<UserDTO>("User/LogInto", key);
+        }
+    }
 }

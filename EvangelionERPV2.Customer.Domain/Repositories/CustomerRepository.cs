@@ -31,10 +31,15 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
         {
             try
             {
-                IQueryable<Customer> query = _context.Set<Customer>().AsNoTracking();
+                IQueryable<Customer> query = _context.Set<Customer>()
+                    .Include(o => o.Enterprise)
+                    .AsNoTracking();
 
                 if (predicate != null)
-                    return _context.Set<Customer>().AsNoTracking().Where(predicate);
+                    return _context.Set<Customer>()
+                        .Include(o => o.Enterprise)
+                        .AsNoTracking()
+                        .Where(predicate);
 
                 if (await query.AnyAsync())
                     return await query.ToListAsync();
@@ -51,11 +56,13 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
                 if (pageNumber == null || pageSize == null)
                     return await GetAllAsync(predicate);
 
-                IQueryable<Customer> query = _context.Set<Customer>().AsNoTracking();
+                IQueryable<Customer> query = _context.Set<Customer>()
+                    .Include(o => o.Enterprise)
+                    .AsNoTracking();
                 int skip = (pageNumber - 1) * pageSize ?? 1;
 
                 if (predicate != null)
-                    return _context.Set<Customer>().AsNoTracking().Where(predicate).Skip(skip).Take(pageSize ?? 0);
+                    return _context.Set<Customer>().Include(o => o.Enterprise).AsNoTracking().Where(predicate).Skip(skip).Take(pageSize ?? 0);
 
                 List<Customer>? result = null;
 
@@ -90,8 +97,8 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
                 pageNumber,
                 pageSize,
                 x =>
-                string.IsNullOrEmpty(customer.Name) || x.Name == customer.Name ||
                 customer.EnterpriseId == Guid.Empty || x.EnterpriseId == customer.EnterpriseId
+                && string.IsNullOrEmpty(customer.Name) || x.Name == customer.Name 
                 ||
                 (string.IsNullOrEmpty(customer.Name) || x.Name == customer.Name) && (customer.EnterpriseId == Guid.Empty || x.EnterpriseId == customer.EnterpriseId)
                 ,

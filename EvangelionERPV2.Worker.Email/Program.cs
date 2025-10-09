@@ -51,7 +51,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                         hostContext.Configuration.GetSection("RabbitMQSettings"));
                     services.AddSingleton(typeof(IRabbitMQManager), typeof(RabbitMQManager));
                     services.AddHostedService<EmailConsumerWorker>();
-                    services.AddHostedService<EmailSenderWorker>();
+                    services.AddHostedService<EmailMonthlyOrderSenderWorker>();
                 });
     }
 }

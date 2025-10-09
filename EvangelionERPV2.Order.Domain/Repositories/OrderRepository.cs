@@ -89,7 +89,7 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
                 .Where(x => x.IsActive ?? false 
                     && (x.PaymentScheduledDate.IsDateBetween(SharedFunctions.GetFirstDayOfMonth(), SharedFunctions.GetLastDayOfMonth())
                     || x.Payday != null && x.Payday.IsDateBetween(SharedFunctions.GetFirstDayOfMonth(), SharedFunctions.GetLastDayOfMonth()))
-                    && (x.EnterpriseId != null && enterprise.Id == (x.EnterpriseId ?? new Guid())))
+                    && (x.EnterpriseId != null && (enterprise.Id == x.EnterpriseId && x.EnterpriseId != default(Guid))))
                 .AsNoTracking();
 
             result = await query.ToListAsync();

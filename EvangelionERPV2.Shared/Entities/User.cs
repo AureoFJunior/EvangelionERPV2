@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Shared.Entities
 {
@@ -7,7 +9,9 @@ namespace EvangelionERPV2.Shared.Entities
     {
         public User() { }
 
-        public User(string firstName, string lastName, string userName, string password, string email, DateTime birthDate, string profilePicture = "", short? isLogged = 0, short actualTheme = 0)
+        public User(string firstName, string lastName, string userName, string password, string email, 
+            DateTime birthDate, string profilePicture = "", short? isLogged = 0, short actualTheme = 0,
+            Guid enterpriseId = default(Guid), short accessLevel = 3)
         {
             FirstName = firstName;
             LastName = lastName;
@@ -18,6 +22,8 @@ namespace EvangelionERPV2.Shared.Entities
             IsLogged = isLogged;
             ProfilePicture = profilePicture;
             ActualTheme = actualTheme;
+            EnterpriseId = enterpriseId;
+            AccessLevel = accessLevel;
         }
 
         public string FirstName { get; set; }
@@ -29,5 +35,11 @@ namespace EvangelionERPV2.Shared.Entities
         public short? IsLogged { get; set; }
         public short ActualTheme { get; set; }
         public string ProfilePicture { get; set; }
+
+        [ForeignKey(nameof(Enterprise))]
+        public Guid? EnterpriseId { get; set; }
+        [JsonIgnore]
+        public Enterprise Enterprise { get; set; }
+        public short AccessLevel { get; set; }
     }
 }

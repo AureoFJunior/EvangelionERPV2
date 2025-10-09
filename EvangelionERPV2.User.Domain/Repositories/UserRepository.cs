@@ -15,7 +15,9 @@ namespace EvangelionERPV2.UserModule.Domain.Repositories
         {
             try
             {
-                var query = _context.Set<User>().Where(e => e.Id == id).AsNoTracking();
+                var query = _context.Set<User>()
+                    .Include(o => o.Enterprise)
+                    .Where(e => e.Id == id).AsNoTracking();
 
                 if (await query.AnyAsync())
                     return await query.FirstOrDefaultAsync();
@@ -29,13 +31,35 @@ namespace EvangelionERPV2.UserModule.Domain.Repositories
         {
             try
             {
-                IQueryable<User> query = _context.Set<User>().AsNoTracking().AsQueryable();
+                IQueryable<User> query = _context.Set<User>()
+                    .Include(o => o.Enterprise)
+                    .AsNoTracking().AsQueryable();
 
                 if (predicate != null)
-                    return _context.Set<Shared.Entities.User>().AsNoTracking().Where(predicate);
+                    return _context.Set<Shared.Entities.User>()
+                         .Include(o => o.Enterprise)
+                         .AsNoTracking()
+                         .Where(predicate);
 
                 if (await query.AnyAsync())
                     return await query.ToListAsync();
+
+                throw new NotFoundDatabaseException();
+            }
+            catch (Exception ex) { throw; }
+        }
+
+        public override IEnumerable<User> GetByCondition(Func<User, bool> condition)
+        {
+            try
+            {
+                var query = _context.Set<User>()
+                     .Include(o => o.Enterprise)
+                     .AsNoTracking()
+                     .Where(condition);
+
+                if (query.Any())
+                    return query.ToList();
 
                 throw new NotFoundDatabaseException();
             }
