@@ -21,11 +21,15 @@ namespace EvangelionERPV2.Web.FluentValidator
 
             RuleFor(product => product)
             .NotNull().WithMessage("Product must be filled")
-            .Must(fields => fields.DefaultValue > 0).WithMessage("Product must have a Defaul tValue");
+            .Must(fields => fields.DefaultValue > 0).WithMessage("Product must have a Defaul Value");
 
             RuleFor(product => product)
             .NotNull().WithMessage("Product must be filled")
             .Must(fields => fields.StorageQuantity > 0).WithMessage("Product must have a Storage Quantity");
+
+            RuleFor(product => product)
+            .NotNull().WithMessage("Product must be filled")
+            .Must(fields => fields.EnterpriseId != null && fields.EnterpriseId != default(Guid)).WithMessage("Product must have a Enterprise");
         }
     }
 }

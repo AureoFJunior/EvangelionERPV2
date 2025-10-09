@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EvangelionERPV2.EmailModule.Infra.Migrations
 {
     [DbContext(typeof(EmailModuleDbContext))]
-    [Migration("20250304223355_EmailModule")]
-    partial class EmailModule
+    [Migration("20251008230440_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

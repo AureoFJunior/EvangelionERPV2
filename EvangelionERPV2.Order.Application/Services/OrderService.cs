@@ -162,8 +162,8 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// </summary>
         public async Task<string> GetOrdersBodyAsync(Enterprise? enterprise)
         {
-            //if (!DateTime.UtcNow.IsLastMonthDay())
-            //    return null;
+            if (!DateTime.UtcNow.IsLastMonthDay())
+                return null;
 
             if (enterprise == null)
                 throw new Exception("The enterprise is null or empty");
