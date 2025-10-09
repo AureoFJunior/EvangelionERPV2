@@ -71,17 +71,6 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             return Tuple.Create(cacheKey, cachedProduct);
         }
 
-        private async Task<Tuple<string, string?>> GetCachedProductByName(string name)
-        {
-            // Define the cache key using the product name
-            string cacheKey = $"Product:{name}";
-
-            // Try to get the product from Redis cache
-            string? cachedProduct = await _cache.GetStringAsync(cacheKey);
-
-            return Tuple.Create(cacheKey, cachedProduct);
-        }
-
         public async override Task<IEnumerable<Product>> GetAllAsync(Func<Product, bool> predicate)
         {
             IQueryable<Product> query;
@@ -136,10 +125,10 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             if (product == null)
                 throw new NotFoundDatabaseException("Empty filter with no data found.");
 
-            if (!string.IsNullOrEmpty(product.Name)) // Filter in cache by name to optimize query time
+            if (product.Id != null) // Filter in cache by ID to optimize query time
             {
                 string? cacheKey, cachedProduct = "";
-                (cacheKey, cachedProduct) = await GetCachedProductByName(product.Name);
+                (cacheKey, cachedProduct) = await GetCachedProductById(product.Id);
 
                 if (!string.IsNullOrEmpty(cachedProduct))
                 {
@@ -156,7 +145,8 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             pageNumber,
             pageSize,
             x =>
-            string.IsNullOrEmpty(product.Name) || x.Name == product.Name
+            (string.IsNullOrEmpty(product.Name) || x.Name == product.Name)
+            && (x.EnterpriseId != null && (product.EnterpriseId == x.EnterpriseId && x.EnterpriseId != default(Guid)))
             ,
             orderBy
             );

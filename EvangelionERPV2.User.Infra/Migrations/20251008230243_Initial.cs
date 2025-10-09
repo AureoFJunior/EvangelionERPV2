@@ -3,10 +3,10 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace EvangelionERPV2.EnterpriseModule.Infra.Migrations
+namespace EvangelionERPV2.UserModule.Infra.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialUserMigration : Migration
+    public partial class Initial : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -31,27 +31,6 @@ namespace EvangelionERPV2.EnterpriseModule.Infra.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Product",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Description = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    DefaultValue = table.Column<double>(type: "float", nullable: false),
-                    StorageQuantity = table.Column<double>(type: "float", nullable: false),
-                    IsExternal = table.Column<bool>(type: "bit", nullable: false),
-                    IsService = table.Column<bool>(type: "bit", nullable: false),
-                    PictureAdress = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    UpdatedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    IsActive = table.Column<bool>(type: "bit", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Product", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "Customer",
                 columns: table => new
                 {
@@ -70,6 +49,64 @@ namespace EvangelionERPV2.EnterpriseModule.Infra.Migrations
                     table.PrimaryKey("PK_Customer", x => x.Id);
                     table.ForeignKey(
                         name: "FK_Customer_Enterprise_EnterpriseId",
+                        column: x => x.EnterpriseId,
+                        principalTable: "Enterprise",
+                        principalColumn: "Id");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Product",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Description = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    DefaultValue = table.Column<double>(type: "float", nullable: false),
+                    StorageQuantity = table.Column<double>(type: "float", nullable: false),
+                    UnitOfMeasure = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    IsExternal = table.Column<bool>(type: "bit", nullable: false),
+                    IsService = table.Column<bool>(type: "bit", nullable: false),
+                    PictureAdress = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    EnterpriseId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    UpdatedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    IsActive = table.Column<bool>(type: "bit", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Product", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Product_Enterprise_EnterpriseId",
+                        column: x => x.EnterpriseId,
+                        principalTable: "Enterprise",
+                        principalColumn: "Id");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "User",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    FirstName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    LastName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    UserName = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    Password = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    Email = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    BirthDate = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    IsLogged = table.Column<short>(type: "smallint", nullable: true),
+                    ActualTheme = table.Column<short>(type: "smallint", nullable: false),
+                    ProfilePicture = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    EnterpriseId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    AccessLevel = table.Column<short>(type: "smallint", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    UpdatedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    IsActive = table.Column<bool>(type: "bit", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_User", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_User_Enterprise_EnterpriseId",
                         column: x => x.EnterpriseId,
                         principalTable: "Enterprise",
                         principalColumn: "Id");
@@ -111,6 +148,7 @@ namespace EvangelionERPV2.EnterpriseModule.Infra.Migrations
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Quantity = table.Column<double>(type: "float", nullable: false),
                     Value = table.Column<double>(type: "float", nullable: false),
+                    UnitOfMeasure = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     OrderId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     ProductId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
@@ -219,6 +257,11 @@ namespace EvangelionERPV2.EnterpriseModule.Infra.Migrations
                 column: "ProductId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_Product_EnterpriseId",
+                table: "Product",
+                column: "EnterpriseId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Product_Id_CreatedAt_UpdatedAt",
                 table: "Product",
                 columns: new[] { "Id", "CreatedAt", "UpdatedAt" });
@@ -227,6 +270,26 @@ namespace EvangelionERPV2.EnterpriseModule.Infra.Migrations
                 name: "IX_Product_Id_CreatedAt_UpdatedAt_IsActive",
                 table: "Product",
                 columns: new[] { "Id", "CreatedAt", "UpdatedAt", "IsActive" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_User_EnterpriseId",
+                table: "User",
+                column: "EnterpriseId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_User_Id_CreatedAt_UpdatedAt",
+                table: "User",
+                columns: new[] { "Id", "CreatedAt", "UpdatedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_User_Id_CreatedAt_UpdatedAt_IsActive",
+                table: "User",
+                columns: new[] { "Id", "CreatedAt", "UpdatedAt", "IsActive" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_User_UserName_Password",
+                table: "User",
+                columns: new[] { "UserName", "Password" });
         }
 
         /// <inheritdoc />
@@ -234,6 +297,9 @@ namespace EvangelionERPV2.EnterpriseModule.Infra.Migrations
         {
             migrationBuilder.DropTable(
                 name: "OrderedProduct");
+
+            migrationBuilder.DropTable(
+                name: "User");
 
             migrationBuilder.DropTable(
                 name: "Order");

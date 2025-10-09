@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Shared.Entities
 {
@@ -22,7 +23,13 @@ namespace EvangelionERPV2.Shared.Entities
         public string Email { get; set; } = "";
         public string Adress { get; set; } = "";
         public bool ShouldSendMonthlyBilling { get; set; } = false;
+        [JsonIgnore]
         public virtual IEnumerable<Customer>? Customer { get; set; } = null;
+        [JsonIgnore]
         public virtual IEnumerable<Order>? Order { get; set; } = null;
+        [JsonIgnore]
+        public virtual IEnumerable<User>? User { get; set; } = null;
+        [JsonIgnore]
+        public virtual IEnumerable<Product>? Product { get; set; } = null;
     }
 }

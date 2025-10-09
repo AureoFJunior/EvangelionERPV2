@@ -25,6 +25,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
             {
                 var polly = new PollyHandler();
 
+
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     try

@@ -68,7 +68,8 @@ namespace EvangelionERPV2.Web.Controllers
                     Email = user.Email,
                     BirthDate = user.BirthDate,
                     Token = token,
-                    RefreshToken = refreshToken
+                    RefreshToken = refreshToken,
+                    Enterprise = user.Enterprise
                 };
 
                 return Ok(loggedUser);
@@ -145,37 +146,6 @@ namespace EvangelionERPV2.Web.Controllers
 
                 IEnumerable<UserDTO> userDTO = _mapper.Map<IEnumerable<UserDTO>>(user);
                 return Ok(userDTO);
-            }
-            catch (NotFoundDatabaseException exnf)
-            {
-                Log.Logger.Error("User not found", exnf);
-                return NoContent();
-            }
-            catch (Exception ex)
-            {
-                Log.Logger.Error("Error when getting User", ex);
-                return Problem(ex.Message);
-            }
-        }
-
-        /// <summary>
-        ///  Get a logged user.
-        /// </summary>
-        /// <returns>The logged user.</returns>
-        [HttpGet]
-        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
-        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> IsLogged()
-        {
-            try
-            {
-                IEnumerable<Shared.Entities.User> users = await _userRepository.GetAllAsync();
-                if (users == null)
-                    return NoContent();
-
-                UserDTO? user = users.Where(x => x.IsLogged == 1).Select(x => new UserDTO { Id = x.Id, FirstName = x.FirstName, LastName = x.LastName, Email = x.Email, BirthDate = x.BirthDate, Token = "" }).FirstOrDefault();
-                return Ok(user);
             }
             catch (NotFoundDatabaseException exnf)
             {
