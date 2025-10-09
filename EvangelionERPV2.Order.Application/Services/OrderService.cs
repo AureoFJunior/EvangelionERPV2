@@ -4,6 +4,7 @@ using EvangelionERPV2.OrderModule.Domain.Interface;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
+using EvangelionERPV2.Shared.Hubs;
 using EvangelionERPV2.Shared.Utils;
 using Serilog;
 using System.Text;
@@ -19,6 +20,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         private readonly IProductService<Product> _productService;
         public readonly IOrderRabbitMQManager _rabbitMQManager;
         public readonly IOrderReportGeneratorService _orderReportGeneratorService;
+        public readonly OrderHub _orderHub;
 
         private bool disposed;
 
@@ -28,7 +30,8 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             IRepository<OrderedProduct> orderedProductRepository,
             IProductService<Product> productService,
             IOrderRabbitMQManager rabbitMQManager,
-            IOrderReportGeneratorService orderReportGeneratorService
+            IOrderReportGeneratorService orderReportGeneratorService,
+            OrderHub orderHub = null
             )
         {
             _orderRepository = orderRepository;
@@ -38,6 +41,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             _productService = productService;
             _rabbitMQManager = rabbitMQManager;
             _orderReportGeneratorService = orderReportGeneratorService;
+            _orderHub = orderHub;
         }
 
         #region Persistence
@@ -60,6 +64,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 await _orderedProductRepository.CommitAsync();
 
                 Log.Logger.Information($"Order [{order.Id}] created at: {DateTime.UtcNow}");
+
+                // Send notification to Order Hub
+                await _orderHub.SendOrderUpdate(order.Id.ToString(), "Created");
+
                 return order;
 
             }
@@ -154,8 +162,8 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// </summary>
         public async Task<string> GetOrdersBodyAsync(Enterprise? enterprise)
         {
-            //if (!DateTime.UtcNow.IsLastMonthDay())
-            //    return null;
+            if (!DateTime.UtcNow.IsLastMonthDay())
+                return null;
 
             if (enterprise == null)
                 throw new Exception("The enterprise is null or empty");

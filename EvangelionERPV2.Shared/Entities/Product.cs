@@ -1,4 +1,6 @@
 using EvangelionERPV2.Shared.Enums;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Shared.Entities
 {
@@ -6,7 +8,7 @@ namespace EvangelionERPV2.Shared.Entities
     {
         public Product() { }
 
-        public Product(string name, string description, double defaultValue, double storageQuantity, bool isExternal, bool isService)
+        public Product(string name, string description, double defaultValue, double storageQuantity, bool isExternal, bool isService, string? pictureAdress, Guid enterpriseId)
         {
             Name = name;
             Description = description;
@@ -14,6 +16,8 @@ namespace EvangelionERPV2.Shared.Entities
             StorageQuantity = storageQuantity;
             IsExternal = isExternal;
             IsService = isService;
+            PictureAdress = pictureAdress;
+            EnterpriseId = enterpriseId;
         }
 
         public string Name { get; set; } = "";
@@ -24,6 +28,13 @@ namespace EvangelionERPV2.Shared.Entities
         public bool IsExternal { get; set; } = false;
         public bool IsService { get; set; } = false;
         public string? PictureAdress { get; set; }
+
+        [ForeignKey(nameof(Enterprise))]
+        public Guid? EnterpriseId { get; set; } = null;
+
+        [JsonIgnore]
+        public virtual Enterprise? Enterprise { get; set; } = null;
+
         public virtual IEnumerable<OrderedProduct>? OrderedProduct { get; set; } = null;
     }
 }

@@ -206,6 +206,25 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 await _s3Client.DeleteItemAsync(bucketName, existentProduct.PictureAdress);
         }
 
+        /// <summary>
+        /// Get products stock body
+        /// </summary>
+        //public async Task<string> GetProductsBodyAsync(Enterprise? enterprise)
+        //{
+        //    if (enterprise == null)
+        //        throw new Exception("The enterprise is null or empty");
+
+        //    IEnumerable<Product> products = await _productRepository.GetAllAsync(x => x.EnterpriseId == enterprise.Id);
+
+        //    if (products == null || products?.Any() == false)
+        //    {
+        //        Log.Logger.Warning($"Doesn't have any products");
+        //        return null;
+        //    }
+
+        //    return await _orderReportGeneratorService.GenerateMonthlyBillingReportAsync(enterprise, products);
+        //}
+
         #region Dispose Pattern
         public void Dispose()
         {

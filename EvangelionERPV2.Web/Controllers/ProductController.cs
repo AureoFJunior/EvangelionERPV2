@@ -8,6 +8,7 @@ using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
+using System.Security.Claims;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -45,15 +46,17 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetProducts(int? pageNumber = null, int? pageSize = null)
         {
-           
-                if (!ModelState.IsValid) return BadRequest(ModelState);
 
-                IEnumerable<Product> products = await _repository.GetAllAsync(pageNumber, pageSize);
-                if (products == null)
-                    return NoContent();
+            if (!ModelState.IsValid) return BadRequest(ModelState);
 
-                IEnumerable<ProductDTO> productDTO = _mapper.Map<IEnumerable<ProductDTO>>(products);
-                return Ok(productDTO);
+            Guid enterpriseId = Guid.Parse(User.FindFirst(ClaimTypes.GroupSid)?.Value);
+
+            IEnumerable<Product> products = await _repository.GetAllAsync(pageNumber, pageSize, x => x.EnterpriseId != null && (x.EnterpriseId != default(Guid) && x.EnterpriseId == enterpriseId));
+            if (products == null)
+                return NoContent();
+
+            IEnumerable<ProductDTO> productDTO = _mapper.Map<IEnumerable<ProductDTO>>(products);
+            return Ok(productDTO);
         }
 
         /// <summary>
@@ -73,6 +76,8 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                product.EnterpriseId = Guid.Parse(User.FindFirst(ClaimTypes.GroupSid)?.Value);
+
                 (IEnumerable<Product> products, int totalItems) = await _productRepository.GetAllAsyncFiltering(descending, pageNumber, pageSize, product);
                 if (products == null)
                     return NoContent();

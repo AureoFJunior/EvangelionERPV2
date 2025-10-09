@@ -38,9 +38,9 @@ namespace EvangelionERPV2.Web.Logging
         private void LogException(Exception ex, HttpContext context)
         {
             // Log the exception with detailed information
-            Log.Error(ex, "An unhandled exception occurred while processing the request.");
-            Log.Error($"Request details: Method={context.Request.Method}, Path={context.Request.Path}");
-            Log.Error($"Exception details: {ex.Message}\n{ex.StackTrace}");
+            Log.Logger.Error(ex, "An unhandled exception occurred while processing the request.");
+            Log.Logger.Error($"Request details: Method={context.Request.Method}, Path={context.Request.Path}");
+            Log.Logger.Error($"Exception details: {ex.Message}\n{ex.StackTrace}");
         }
 
         private int GetStatusCodeFromException(Exception ex)

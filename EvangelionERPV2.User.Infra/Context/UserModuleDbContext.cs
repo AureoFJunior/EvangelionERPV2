@@ -16,6 +16,7 @@ namespace EvangelionERPV2.UserModule.Infra.Context
 
         #region DbSets
         public DbSet<User> User { get; set; }
+        public DbSet<Enterprise> Enterprise { get; set; }
         #endregion
     }
 }
