@@ -39,7 +39,7 @@ namespace EvangelionERPV2.Shared.Entities
         [ForeignKey(nameof(Enterprise))]
         public Guid? EnterpriseId { get; set; }
         [JsonIgnore]
-        public Enterprise Enterprise { get; set; }
+        public virtual Enterprise Enterprise { get; set; }
         public short AccessLevel { get; set; }
     }
 }
