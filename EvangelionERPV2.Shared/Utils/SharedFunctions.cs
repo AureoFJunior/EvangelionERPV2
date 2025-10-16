@@ -301,6 +301,11 @@ namespace EvangelionERPV2.Shared.Utils
                 return string.Empty;
             }
         }
+
+        public static string GetEncryptionKey()
+        {
+            return _kmsProvider.GetKMSKey(_configuration.GetSection("Encryption")["TokenKey"] ?? string.Empty);
+        }
         #endregion
 
         #region Extensions

@@ -1,15 +1,14 @@
+using EvangelionERPV2.Shared.Utils;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
-using System.Security.Cryptography;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace EvangelionERPV2.UserModule.Application.Token
 {
     public class TokenService
     {
-        private static readonly string secret = "f0f228f0-4f22-45bc-bed8-bea3c97d463d"; // TODO: Remove secret and store in Amazon Secret Manager
-
         public TokenService()
         {
         }
@@ -17,7 +16,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
         public static string GenerateToken(Shared.Entities.User user)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(secret);
+            var key = Encoding.ASCII.GetBytes(SharedFunctions.GetEncryptionKey());
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Subject = new ClaimsIdentity(new[]
@@ -39,7 +38,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
         public static string GenerateToken(IEnumerable<Claim> claims)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(secret);
+            var key = Encoding.ASCII.GetBytes(SharedFunctions.GetEncryptionKey());
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Subject = new ClaimsIdentity(claims),
@@ -66,7 +65,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
                 ValidateAudience = false,
                 ValidateIssuer = false,
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret)),
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SharedFunctions.GetEncryptionKey())),
                 ValidateLifetime = false
             };
 
