@@ -17,12 +17,14 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         private readonly IAmazonS3 _s3Client;
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider kmsProvider;
+        private readonly IProductReportGeneratorService _productReportGeneratorService;
 
         private bool disposed;
 
         public ProductService(IRepository<Product> productRepository,
             IConfiguration configuration,
-            AWSKMSKeyProvider kmsProvider)
+            AWSKMSKeyProvider kmsProvider,
+            IProductReportGeneratorService productReportGeneratorService)
         {
             _productRepository = productRepository;
             this.kmsProvider = kmsProvider;
@@ -31,6 +33,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
             var awsCredentials = this.kmsProvider.GetAWSCredentialsAsync().Result;
             _s3Client = new AmazonS3Client(awsCredentials, RegionEndpoint.USEast1);
+            _productReportGeneratorService = productReportGeneratorService;
         }
 
         public async Task<Product> CreateAsync(ProductPicture product)
@@ -206,25 +209,24 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 await _s3Client.DeleteItemAsync(bucketName, existentProduct.PictureAdress);
         }
 
-        // TODO: Implement this method to generate product stock report
         /// <summary>
         /// Get products stock body
         /// </summary>
-        //public async Task<string> GetProductsBodyAsync(Enterprise? enterprise)
-        //{
-        //    if (enterprise == null)
-        //        throw new Exception("The enterprise is null or empty");
+        public async Task<string> GetProductsBodyAsync(Enterprise? enterprise)
+        {
+            if (enterprise == null)
+                throw new Exception("The enterprise is null or empty");
 
-        //    IEnumerable<Product> products = await _productRepository.GetAllAsync(x => x.EnterpriseId == enterprise.Id);
+            IEnumerable<Product> products = await _productRepository.GetAllAsync(x => x.EnterpriseId == enterprise.Id);
 
-        //    if (products == null || products?.Any() == false)
-        //    {
-        //        Log.Logger.Warning($"Doesn't have any products");
-        //        return null;
-        //    }
+            if (products == null || products?.Any() == false)
+            {
+                Log.Logger.Warning($"Doesn't have any products");
+                return null;
+            }
 
-        //    return await _orderReportGeneratorService.GenerateMonthlyBillingReportAsync(enterprise, products);
-        //}
+            return await _productReportGeneratorService.GenerateStockReportAsync(enterprise);
+        }
 
         #region Dispose Pattern
         public void Dispose()
