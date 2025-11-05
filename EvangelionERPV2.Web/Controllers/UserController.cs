@@ -1,13 +1,14 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Authorization;
 using AutoMapper;
-using Serilog;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
-using EvangelionERPV2.UserModule.Domain.Interface;
 using EvangelionERPV2.UserModule.Application.Token;
+using EvangelionERPV2.UserModule.Domain.Interface;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Serilog;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -144,7 +145,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (user == null)
                     return NoContent();
 
-                IEnumerable<UserDTO> userDTO = _mapper.Map<IEnumerable<UserDTO>>(user);
+                UserDTO userDTO = _mapper.Map<UserDTO>(user);
                 return Ok(userDTO);
             }
             catch (NotFoundDatabaseException exnf)
@@ -240,6 +241,31 @@ namespace EvangelionERPV2.Web.Controllers
             catch (Exception ex)
             {
                 Log.Logger.Error("Error when deleting User", ex);
+                return Problem(ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Return all the users.
+        /// </summary>
+        /// <returns></returns>
+        [HttpGet]
+        [ProducesResponseType(typeof(EnumAccessLevel), StatusCodes.Status200OK)]
+
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetAccessLevel()
+        {
+            try
+            {
+                return Ok(Enum.GetValues(typeof(EnumAccessLevel))
+                            .Cast<EnumAccessLevel>()
+                            .Select(s => new { Id = (int) s, Name = s.ToString() }));
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("Error when getting Access Levels", ex);
                 return Problem(ex.Message);
             }
         }

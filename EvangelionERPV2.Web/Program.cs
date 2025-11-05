@@ -18,6 +18,7 @@ using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.EmailModule.Application.DI;
 using Amazon.SecretsManager;
+using AspNetCoreRateLimit;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -49,21 +50,22 @@ try
     Log.Logger.Information("Starting Swagger");
     AddSwaggerGen(builder);
 
+    var tempProvider = builder.Services.BuildServiceProvider();
+    SharedFunctions.Initialize(tempProvider);
+
     Log.Logger.Information("Starting JWT");
     SetupJWT(builder);
 
     Log.Logger.Information("Starting Health Check");
     SetupHealthCheck(builder);
 
-   
+    AddRequestRateLimit(builder);
     #endregion
 
     #region App
     var app = builder.Build();
 
     Log.Logger.Information("Starting App Builder");
-
-    SharedFunctions.Initialize(app.Services);
 
     Log.Logger.Information("Swagger Config");
 
@@ -130,7 +132,7 @@ static void SetupSwagger(WebApplication app)
 
 static void SetupJWT(WebApplicationBuilder builder)
 {
-    var key = Encoding.ASCII.GetBytes("f0f228f0-4f22-45bc-bed8-bea3c97d463d");
+    var key = Encoding.ASCII.GetBytes(SharedFunctions.GetEncryptionKey());
     builder.Services.AddAuthentication(x =>
     {
         x.DefaultAuthenticateScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
@@ -232,5 +234,14 @@ static void SetupAppSettings(WebApplicationBuilder builder)
     builder.Configuration
           .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
           .AddJsonFile($"appsettings.{env.EnvironmentName}.json", optional: true, reloadOnChange: true);
+}
+
+static void AddRequestRateLimit(WebApplicationBuilder builder)
+{
+    builder.Services.AddMemoryCache();
+    builder.Services.Configure<IpRateLimitOptions>(builder.Configuration.GetSection("IpRateLimiting"));
+    builder.Services.Configure<IpRateLimitPolicies>(builder.Configuration.GetSection("IpRateLimitPolicies"));
+    builder.Services.AddInMemoryRateLimiting();
+    builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
 }
 #endregion
