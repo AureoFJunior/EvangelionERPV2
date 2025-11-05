@@ -196,7 +196,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="id">Customer's Id</param>
         /// <returns>The deleted customer</returns>
-        [HttpDelete]
+        [HttpDelete("{id}")]
         [ProducesResponseType(typeof(CustomerDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
