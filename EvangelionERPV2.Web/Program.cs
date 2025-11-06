@@ -1,24 +1,24 @@
+using System.Text;
+using System.Text.Json.Serialization;
+using AspNetCoreRateLimit;
+using EvangelionERPV2.CustomerModule.Application.DI;
+using EvangelionERPV2.EmailModule.Application.DI;
+using EvangelionERPV2.EnterpriseModule.Application.DI;
+using EvangelionERPV2.OrderModule.Application.DI;
+using EvangelionERPV2.ProductModule.Application.DI;
+using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Hubs;
+using EvangelionERPV2.Shared.Utils;
+using EvangelionERPV2.UserModule.Application.DI;
+using EvangelionERPV2.Web.FluentValidator;
+using EvangelionERPV2.Web.Logging;
+using FluentValidation;
+using FluentValidation.AspNetCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using System.Text;
-using System.Text.Json.Serialization;
-using FluentValidation.AspNetCore;
-using EvangelionERPV2.Web.FluentValidator;
-using EvangelionERPV2.Web.Logging;
 using Serilog;
-using FluentValidation;
-using EvangelionERPV2.Shared.Utils;
-using EvangelionERPV2.Shared.Hubs;
-using EvangelionERPV2.EnterpriseModule.Application.DI;
-using EvangelionERPV2.OrderModule.Application.DI;
-using EvangelionERPV2.CustomerModule.Application.DI;
-using EvangelionERPV2.UserModule.Application.DI;
-using EvangelionERPV2.ProductModule.Application.DI;
-using EvangelionERPV2.Shared.Entities;
-using EvangelionERPV2.EmailModule.Application.DI;
-using Amazon.SecretsManager;
-using AspNetCoreRateLimit;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -60,6 +60,7 @@ try
     SetupHealthCheck(builder);
 
     AddRequestRateLimit(builder);
+    builder.Services.AddSignalR();
     #endregion
 
     #region App
@@ -149,6 +150,21 @@ static void SetupJWT(WebApplicationBuilder builder)
               ValidateIssuer = false,
               ValidateAudience = false
           };
+          // Allow SignalR websocket connections to send the access token via the "access_token" query string.
+          // This is required because some transports (WebSockets) can't set Authorization header during the initial handshake.
+          x.Events = new JwtBearerEvents
+          {
+              OnMessageReceived = context =>
+              {
+                  var accessToken = context.Request.Query["access_token"].FirstOrDefault();
+                  var path = context.HttpContext.Request.Path;
+                  if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/orderHub"))
+                  {
+                      context.Token = accessToken;
+                  }
+                  return Task.CompletedTask;
+              }
+          };
       });
 }
 
@@ -201,7 +217,7 @@ static void SetupAPIVersioning(WebApplicationBuilder builder)
 static void SetupControllers(WebApplicationBuilder builder)
 {
     builder.Services.AddControllers()
-        .AddFluentValidation((Action<FluentValidationMvcConfiguration>)(options =>
+        .AddFluentValidation((Action<FluentValidationMvcConfiguration>) (options =>
         {
             // Automatic registration of validators in assembly
             RegisterValidations(options);
