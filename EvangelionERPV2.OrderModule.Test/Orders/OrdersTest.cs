@@ -1,8 +1,11 @@
-﻿using EvangelionERPV2.OrderModule.Application.Interface;
-using EvangelionERPV2.OrderModule.Application.Services;
+﻿using EvangelionERPV2.OrderModule.Application.Services;
+using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
+using EvangelionERPV2.Shared.Hubs;
+using Microsoft.AspNetCore.SignalR;
 using Moq;
+using System.Reflection;
 
 namespace EvangelionERPV2.OrderModule.Test.Bills
 {
@@ -33,7 +36,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 _mockIOrderedProductRepository.Object,
                 _mockIProductService.Object,
                 null,
-                _orderReportGeneratorService);
+                _orderReportGeneratorService,
+                null);
         }
 
 
@@ -210,7 +214,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(), null);
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
         }
-         
+
         [Fact]
         public async Task CreateAsync_OrderWithDuplicateProducts_ThrowsInsertDatabaseException()
         {
@@ -339,6 +343,97 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             };
         }
 
+        #endregion
+
+        #region SignalR
+        [Fact]
+        public async Task SendOrderUpdate_CallsClientsAllSendAsync()
+        {
+            // Arrange
+            var hub = new OrderHub();
+
+            var mockClients = new Mock<IHubCallerClients>();
+            var mockClientProxy = new Mock<IClientProxy>();
+
+            mockClients.Setup(c => c.All).Returns(mockClientProxy.Object);
+
+            // Set the non-public setter for Hub.Clients via reflection
+            var clientsProperty = typeof(Hub).GetProperty("Clients", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            var setMethod = clientsProperty.GetSetMethod(true);
+            setMethod.Invoke(hub, new object[] { mockClients.Object });
+
+            var orderId = Guid.NewGuid().ToString();
+            var status = "Created";
+
+            // Act
+            await hub.SendOrderUpdate(orderId, status);
+
+            // Assert
+            mockClientProxy.Verify(
+                p => p.SendCoreAsync(
+                    "ReceiveOrderUpdate",
+                    It.Is<object[]>(o => o != null && o.Length == 2 && (string)o[0] == orderId && (string)o[1] == status),
+                    It.IsAny<CancellationToken>()),
+                Times.Once);
+        }
+
+        [Fact]
+        public async Task CreateAsync_SendsSignalRNotification()
+        {
+            // Arrange
+            var order = new Order(DateTime.UtcNow, DateTime.UtcNow.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+                    new OrderedProduct { CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow, IsActive = true, Quantity = 1, Value = 100, ProductId = Guid.NewGuid() }
+                });
+
+            var mockOrderRepo = new Mock<OrderModule.Domain.Interface.IRepository<Order>>();
+            var mockOrderRepoCustom = new Mock<OrderModule.Domain.Interface.IOrderRepository<Order>>();
+            var mockProductRepo = new Mock<OrderModule.Domain.Interface.IRepository<Product>>();
+            var mockOrderedProductRepo = new Mock<OrderModule.Domain.Interface.IRepository<OrderedProduct>>();
+            var mockProductService = new Mock<ProductModule.Application.Interface.IProductService<Product>>();
+
+            // CommitAsync must be setup to avoid awaiting null
+            mockOrderRepo.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
+            mockOrderRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            mockOrderedProductRepo.Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<OrderedProduct>>())).ReturnsAsync(order.OrderedProduct);
+            mockOrderedProductRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            mockProductService.Setup(p => p.UpdateForOrder(It.IsAny<Order>())).Returns(Task.CompletedTask);
+
+            // Setup SignalR mocks
+            var mockHubContext = new Mock<IHubContext<OrderHub>>();
+            var mockClients = new Mock<IHubClients>();
+            var mockClientProxy = new Mock<IClientProxy>();
+
+            mockHubContext.SetupGet(h => h.Clients).Returns(mockClients.Object);
+            mockClients.Setup(c => c.All).Returns(mockClientProxy.Object);
+            mockClientProxy.Setup(p => p.SendCoreAsync(It.IsAny<string>(), It.IsAny<object[]>(), It.IsAny<CancellationToken>()))
+                           .Returns(Task.CompletedTask);
+
+            var orderReportGeneratorService = new OrderReportGeneratorService(mockProductRepo.Object);
+
+            var orderService = new OrderService(
+                mockOrderRepo.Object,
+                mockOrderRepoCustom.Object,
+                mockProductRepo.Object,
+                mockOrderedProductRepo.Object,
+                mockProductService.Object,
+                null,
+                orderReportGeneratorService,
+                mockHubContext.Object);
+
+            // Act
+            var result = await orderService.CreateAsync(order);
+
+            // Assert
+            Assert.NotNull(result);
+            mockClientProxy.Verify(
+                p => p.SendCoreAsync(
+                    "ReceiveOrderUpdate",
+                    It.Is<object[]>(args => args.Length == 2 && args[0].ToString() == order.Id.ToString() && args[1].ToString() == "Created"),
+                    It.IsAny<CancellationToken>()),
+                Times.Once);
+        }
         #endregion
     }
 }
