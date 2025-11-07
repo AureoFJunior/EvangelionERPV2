@@ -19,6 +19,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.EmailModule.Application.DI;
 using Amazon.SecretsManager;
 using AspNetCoreRateLimit;
+using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -74,6 +75,10 @@ try
     // Configure the HTTP request pipeline.
 
     SetupSwagger(app);
+
+    app.UseHttpMetrics();
+
+    var metricServer = app.MapMetrics("/metrics");
 
     app.UseHttpsRedirection();
 
