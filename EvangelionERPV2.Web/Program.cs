@@ -7,6 +7,10 @@ using EvangelionERPV2.EnterpriseModule.Application.DI;
 using EvangelionERPV2.OrderModule.Application.DI;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.EmailModule.Application.DI;
+using Amazon.SecretsManager;
+using AspNetCoreRateLimit;
+using Prometheus;
 using EvangelionERPV2.Shared.Hubs;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.DI;
@@ -75,6 +79,10 @@ try
     // Configure the HTTP request pipeline.
 
     SetupSwagger(app);
+
+    app.UseHttpMetrics();
+
+    var metricServer = app.MapMetrics("/metrics");
 
     app.UseHttpsRedirection();
 
