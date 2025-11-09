@@ -8,7 +8,6 @@ using EvangelionERPV2.Shared.Hubs;
 using EvangelionERPV2.Shared.Utils;
 using Microsoft.AspNetCore.SignalR;
 using Serilog;
-using System.Text;
 
 namespace EvangelionERPV2.OrderModule.Application.Services
 {
@@ -210,9 +209,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 {
                     // Dispose managed resources here.
                     (_orderRepository as IDisposable)?.Dispose();
+                    (_orderRepositoryCustom as IDisposable)?.Dispose();
                     (_productRepository as IDisposable)?.Dispose();
+                    (_orderedProductRepository as IDisposable)?.Dispose();
                     (_productService as IDisposable)?.Dispose();
                     (_rabbitMQManager as IDisposable)?.Dispose();
+                    (_orderReportGeneratorService as IDisposable)?.Dispose();
+                    (_orderHub as IDisposable)?.Dispose();
                 }
 
                 // Dispose unmanaged resources here.
