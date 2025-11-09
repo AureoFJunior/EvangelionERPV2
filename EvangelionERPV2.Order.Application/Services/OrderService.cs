@@ -6,6 +6,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Hubs;
 using EvangelionERPV2.Shared.Utils;
+using Microsoft.AspNetCore.SignalR;
 using Serilog;
 
 namespace EvangelionERPV2.OrderModule.Application.Services
@@ -19,7 +20,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         private readonly IProductService<Product> _productService;
         public readonly IOrderRabbitMQManager _rabbitMQManager;
         public readonly IOrderReportGeneratorService _orderReportGeneratorService;
-        public readonly OrderHub _orderHub;
+        private readonly IHubContext<OrderHub> _orderHubContext;
 
         private bool disposed;
 
@@ -30,7 +31,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             IProductService<Product> productService,
             IOrderRabbitMQManager rabbitMQManager,
             IOrderReportGeneratorService orderReportGeneratorService,
-            OrderHub orderHub = null
+            IHubContext<OrderHub> orderHubContext = null
             )
         {
             _orderRepository = orderRepository;
@@ -40,7 +41,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             _productService = productService;
             _rabbitMQManager = rabbitMQManager;
             _orderReportGeneratorService = orderReportGeneratorService;
-            _orderHub = orderHub;
+            _orderHubContext = orderHubContext;
         }
 
         #region Persistence
@@ -65,14 +66,27 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 Log.Logger.Information($"Order [{order.Id}] created at: {DateTime.UtcNow}");
 
                 // Send notification to Order Hub
-                await _orderHub.SendOrderUpdate(order.Id.ToString(), "Created");
+                await SendOrderUpdate(order.Id.ToString(), "Created");
 
                 return order;
 
             }
             catch (Exception ex)
             {
+                await SendOrderUpdate(order.Id.ToString(), "Created");
                 throw new InsertDatabaseException(ex.Message, ex.InnerException);
+            }
+        }
+
+        private async Task SendOrderUpdate(string orderId, string status)
+        {
+            try
+            {
+                await _orderHubContext.Clients.All.SendAsync("ReceiveOrderUpdate", orderId, status);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(ex, "SignalR notification failed for Order {OrderId}", orderId);
             }
         }
 
