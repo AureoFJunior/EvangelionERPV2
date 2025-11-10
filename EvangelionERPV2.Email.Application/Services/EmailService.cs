@@ -134,7 +134,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             try
             {
                 // Validate email
-                if (email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
+                if (email.RecipientEmails == null || email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
                 {
                     Log.Logger.Warning($"Shouldn't send email.");
                     return;

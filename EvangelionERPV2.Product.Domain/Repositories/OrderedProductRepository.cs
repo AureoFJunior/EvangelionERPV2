@@ -62,7 +62,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
                 if (query.Any())
                     result = await query.Skip(skip).Take(pageSize ?? 0).ToListAsync();
 
-                if (result?.Any() == false)
+                if (result == null || result?.Any() == false)
                     return result;
 
                 throw new NotFoundDatabaseException();
