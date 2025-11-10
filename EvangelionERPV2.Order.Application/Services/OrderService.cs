@@ -215,7 +215,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     (_productService as IDisposable)?.Dispose();
                     (_rabbitMQManager as IDisposable)?.Dispose();
                     (_orderReportGeneratorService as IDisposable)?.Dispose();
-                    (_orderHub as IDisposable)?.Dispose();
+                    (_orderHubContext as IDisposable)?.Dispose();
                 }
 
                 // Dispose unmanaged resources here.
