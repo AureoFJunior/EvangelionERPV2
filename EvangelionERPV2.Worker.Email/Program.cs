@@ -52,6 +52,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                     services.AddSingleton(typeof(IRabbitMQManager), typeof(RabbitMQManager));
                     services.AddHostedService<EmailConsumerWorker>();
                     services.AddHostedService<EmailMonthlyOrderSenderWorker>();
+                    services.AddHostedService<EmailStockSenderWorker>();
                 });
     }
 }
