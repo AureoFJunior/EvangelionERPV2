@@ -160,7 +160,7 @@ namespace EvangelionERPV2.EnterpriseModule.Domain.Repositories
             if (await query.AnyAsync())
                 result = await query.Skip(skip ?? 0).Take(pageSize ?? 0).ToListAsync();
 
-            if (result?.Any() == false)
+            if (result == null || result?.Any() == false)
                 return result;
 
             return new List<TEntity>();

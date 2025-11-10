@@ -206,6 +206,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 await _s3Client.DeleteItemAsync(bucketName, existentProduct.PictureAdress);
         }
 
+        // TODO: Implement this method to generate product stock report
         /// <summary>
         /// Get products stock body
         /// </summary>
