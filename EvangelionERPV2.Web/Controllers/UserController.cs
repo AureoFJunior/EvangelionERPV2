@@ -6,8 +6,10 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Token;
 using EvangelionERPV2.UserModule.Domain.Interface;
+using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Serilog;
 
 namespace EvangelionERPV2.Web.Controllers
@@ -84,6 +86,30 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 Log.Logger.Error("Error when logging", ex);
                 return Problem("Error when logging");
+            }
+        }
+
+        /// <summary>
+        /// Accepts a Google IdToken (obtained by the frontend SSO flow), validates it,
+        /// creates the user if necessary and returns application's JWT + refresh token.
+        /// This endpoint must be anonymous because the frontend calls it before it has the app token.
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> LoginWithGoogle([FromBody] string idToken)
+        {
+            try
+            {
+                return Ok(await _userService.LoginToSSOAsync(idToken));
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("Error when logging with Google", ex);
+                return Problem("Error when logging with Google");
             }
         }
 
