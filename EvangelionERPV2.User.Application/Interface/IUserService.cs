@@ -11,6 +11,7 @@ namespace EvangelionERPV2.UserModule.Application.Interface
 
         #region Async
         public Task<TEntity> CreateAsync(User user);
+        Task<User> LoginToSSOAsync(string idToken);
         #endregion
     }
 }
