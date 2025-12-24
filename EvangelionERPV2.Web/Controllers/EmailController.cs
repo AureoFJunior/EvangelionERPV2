@@ -134,5 +134,31 @@ namespace EvangelionERPV2.Web.Controllers
                 return Problem(ex.Message);
             }
         }
+
+        /// <summary>
+        /// Send stock email.
+        /// </summary>
+        /// <returns></returns>
+        [HttpPost]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> SendStockEmail()
+        {
+            try
+            {
+                if (!ModelState.IsValid) return BadRequest(ModelState);
+
+                await _emailService.SendStockEmail();
+
+                return Ok("Weekly Stock Emails sent");
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("Error when sending Emails", ex);
+                return Problem(ex.Message);
+            }
+        }
     }
 }

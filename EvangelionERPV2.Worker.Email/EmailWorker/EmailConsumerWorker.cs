@@ -1,7 +1,6 @@
 ﻿using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Worker.EmailModule.EmailWorker.RabbitMQ;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
