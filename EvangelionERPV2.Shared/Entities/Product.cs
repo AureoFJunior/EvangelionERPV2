@@ -35,6 +35,7 @@ namespace EvangelionERPV2.Shared.Entities
         [JsonIgnore]
         public virtual Enterprise? Enterprise { get; set; } = null;
 
-        public virtual IEnumerable<OrderedProduct>? OrderedProduct { get; set; } = null;
+        [JsonIgnore]
+        public virtual IEnumerable<OrderedProduct>? OrderedProduct { get; set; } = new List<OrderedProduct>();
     }
 }
