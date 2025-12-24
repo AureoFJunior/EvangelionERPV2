@@ -14,6 +14,7 @@ namespace EvangelionERPV2.ProductModule.Application.Interface
         public Task UpdateForOrder(Order order);
         public Task<TEntity> UpdateAsync(Product product);
         Task<Product> UpdatePictureAsync(ProductPicture productPicture);
+        Task<string> GetProductsBodyAsync(Enterprise? enterprise);
         #endregion
     }
 }

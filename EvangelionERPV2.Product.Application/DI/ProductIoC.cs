@@ -42,7 +42,7 @@ namespace EvangelionERPV2.ProductModule.Application.DI
                 #region Mapper
                 var mapper = MapperConfig.RegisterMaps().CreateMapper();
                 services.AddSingleton(mapper);
-                services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+                services.AddAutoMapper(config => { }, AppDomain.CurrentDomain.GetAssemblies());
 
                 #endregion
 
@@ -58,6 +58,7 @@ namespace EvangelionERPV2.ProductModule.Application.DI
                 #region Services
                 services.AddTransient(typeof(IProductService<Product>), typeof(ProductService));
                 services.AddTransient(typeof(IOrderedProductService<OrderedProduct>), typeof(OrderedProductService));
+                services.AddScoped(typeof(IProductReportGeneratorService), typeof(ProductReportGeneratorService));
                 #endregion
 
                 services.AddScoped(typeof(IUnitOfWork<ProductModuleDbContext>), typeof(UnitOfWork<ProductModuleDbContext>));

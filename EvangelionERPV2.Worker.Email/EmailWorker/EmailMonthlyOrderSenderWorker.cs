@@ -34,10 +34,10 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 
                         Log.Logger.Information($"Sending Monthly Order Emails at: {DateTime.UtcNow}");
 
-                        await SharedFunctions.PostAsync<object>("Email/SendMonthEmail", new object() { }, user.Token.ToString());
+                        await SharedFunctions.PostAsync<object>("Email/SendMonthEmail", new object() { });
 
                         Log.Logger.Information($"Email Monthly Order Sender Worker running at: {DateTime.UtcNow}");
-                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                        await Task.Delay(TimeSpan.FromDays(7), stoppingToken);
                     }
                     catch (Exception ex)
                     {
