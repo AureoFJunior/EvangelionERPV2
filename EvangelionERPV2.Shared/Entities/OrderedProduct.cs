@@ -31,7 +31,6 @@ namespace EvangelionERPV2.Shared.Entities
         [ForeignKey(nameof(Product))]
         public Guid ProductId { get; set; }
 
-        [JsonIgnore]
         public virtual Product? Product { get; set; }
     }
 }
