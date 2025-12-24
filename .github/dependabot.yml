@@ -1,0 +1,43 @@
+version: 2
+updates:
+- package-ecosystem: "nuget"
+  directory: "/"
+  schedule:
+    interval: "weekly"
+  open-pull-requests-limit: 10
+  rebase-strategy: "auto"
+  commit-message:
+    prefix: "deps"
+  labels:
+  - "dependencies"
+
+- package-ecosystem: "docker"
+  directory: "/"
+  schedule:
+    interval: "weekly"
+  open-pull-requests-limit: 5
+  rebase-strategy: "auto"
+  labels:
+  - "dependencies"
+  # Ignore automatic major upgrades for .NET images to avoid unintended platform bumps
+  ignore:
+  - dependency-name: "mcr.microsoft.com/dotnet/aspnet"
+    update-types: [ "version-update:semver-major" ]
+  - dependency-name: "mcr.microsoft.com/dotnet/sdk"
+    update-types: [ "version-update:semver-major" ]
+
+- package-ecosystem: "github-actions"
+  directory: "/"
+  schedule:
+    interval: "weekly"
+  open-pull-requests-limit: 10
+  labels:
+  - "dependencies"
+
+- package-ecosystem: "terraform"
+  directory: "EvangelionERPV2.Web/terraform"
+  schedule:
+    interval: "weekly"
+  open-pull-requests-limit: 5
+  labels:
+  - "dependencies"

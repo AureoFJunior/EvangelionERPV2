@@ -45,7 +45,7 @@ namespace EvangelionERPV2.EmailModule.Application.DI
                 #region Mapper
                 var mapper = MapperConfig.RegisterMaps().CreateMapper();
                 services.AddSingleton(mapper);
-                services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+                services.AddAutoMapper(config => { }, AppDomain.CurrentDomain.GetAssemblies());
 
                 #endregion
 
