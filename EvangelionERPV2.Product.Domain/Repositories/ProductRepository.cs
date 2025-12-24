@@ -32,6 +32,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             }
 
             // If not found in cache, query the database
+
             IQueryable<Product> query = _context.Set<Product>().Where(e => e.Id == id).AsNoTracking();
 
             if (await query.AnyAsync())
@@ -108,7 +109,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             if (await query.AnyAsync())
                 result = await query.Skip(skip).Take(pageSize ?? 0).ToListAsync();
 
-            if (result?.Any() == false)
+            if (result == null || result?.Any() == false)
                 return result;
 
             throw new NotFoundDatabaseException();

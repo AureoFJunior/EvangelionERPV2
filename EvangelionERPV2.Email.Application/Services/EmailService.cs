@@ -11,6 +11,7 @@ using MailKit.Security;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Util.Store;
 using Microsoft.Extensions.Configuration;
+using EvangelionERPV2.ProductModule.Application.Interface;
 
 namespace EvangelionERPV2.EmailModule.Application.Services
 {
@@ -20,6 +21,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         private readonly Domain.Interface.IRepository<Email> _emailRepository;
         public readonly IEmailRabbitMQManager _rabbitMQManager;
         public readonly IOrderService<Order> _orderService;
+        public readonly IProductService<Product> _productService;
         private readonly AWSKMSKeyProvider _kmsProvider;
         private readonly IConfiguration _configuration;
         private bool disposed;
@@ -28,6 +30,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             IEmailRabbitMQManager rabbitMQManager,
             IRepository<Enterprise> enterpriseRepository,
             IOrderService<Order> orderService,
+            IProductService<Product> productService,
             Domain.Interface.IRepository<Email> emailRepository,
             AWSKMSKeyProvider kmsProvider,
             IConfiguration configuration)
@@ -35,6 +38,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             _rabbitMQManager = rabbitMQManager;
             _enterpriseRepository = enterpriseRepository;
             _orderService = orderService;
+            _productService = productService;
             _emailRepository = emailRepository;
             _kmsProvider = kmsProvider;
             _configuration = configuration;
@@ -134,7 +138,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             try
             {
                 // Validate email
-                if (email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
+                if (email.RecipientEmails == null || email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
                 {
                     Log.Logger.Warning($"Shouldn't send email.");
                     return;
@@ -179,6 +183,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                 foreach (Enterprise enterprise in enterprises)
                 {
+
                     var body = await _orderService.GetOrdersBodyAsync(enterprise);
 
                     if (!string.IsNullOrEmpty(body))
@@ -186,6 +191,14 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                         List<string> recipientEmails = new List<string>() { enterprise.Email };
 
                         var email = new EmailStructure(body.ToString(), "Monthly Email", recipientEmails);
+
+                        // Validate email
+                        if (email.RecipientEmails == null || email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
+                        {
+                            Log.Logger.Warning($"Shouldn't send email.");
+                            return;
+                        }
+
                         await SendManualEmail(email, enterprise);
                     }
                 }
@@ -206,7 +219,37 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         #region Order Status Email
         #endregion
 
-        #region Stock Email
+        #region Stock Email 
+        public async Task SendStockEmail()
+        {
+            try
+            {
+                var enterprises = await _enterpriseRepository
+                    .GetAllAsync(x => !string.IsNullOrEmpty(x.Email)) ?? new List<Enterprise>();
+
+                foreach (Enterprise enterprise in enterprises)
+                {
+                    var body = await _productService.GetProductsBodyAsync(enterprise);
+
+                    if (!string.IsNullOrEmpty(body))
+                    {
+                        List<string> recipientEmails = new List<string>() { enterprise.Email };
+
+                        var email = new EmailStructure(body.ToString(), "Weekly Stock Email", recipientEmails);
+                        await SendManualEmail(email, enterprise);
+                    }
+                }
+            }
+            catch (EmailSenderException ex)
+            {
+                Log.Logger.Warning(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error($"Couldn't send email.", ex.Message);
+                throw;
+            }
+        }
         #endregion
 
         private async Task<bool> ShouldSendEmail(EmailStructure email, Enterprise enterprise)

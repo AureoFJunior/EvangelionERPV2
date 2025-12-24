@@ -7,9 +7,6 @@ using EvangelionERPV2.EnterpriseModule.Application.DI;
 using EvangelionERPV2.OrderModule.Application.DI;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.Shared.Entities;
-using EvangelionERPV2.EmailModule.Application.DI;
-using Amazon.SecretsManager;
-using AspNetCoreRateLimit;
 using Prometheus;
 using EvangelionERPV2.Shared.Hubs;
 using EvangelionERPV2.Shared.Utils;
@@ -21,8 +18,8 @@ using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
 using Serilog;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,7 +54,7 @@ try
     var tempProvider = builder.Services.BuildServiceProvider();
     SharedFunctions.Initialize(tempProvider);
 
-    Log.Logger.Information("Starting JWT");
+    Log.Logger.Information("Starting JWT"); 
     SetupJWT(builder);
 
     Log.Logger.Information("Starting Health Check");
@@ -158,8 +155,6 @@ static void SetupJWT(WebApplicationBuilder builder)
               ValidateIssuer = false,
               ValidateAudience = false
           };
-          // Allow SignalR websocket connections to send the access token via the "access_token" query string.
-          // This is required because some transports (WebSockets) can't set Authorization header during the initial handshake.
           x.Events = new JwtBearerEvents
           {
               OnMessageReceived = context =>
@@ -192,22 +187,13 @@ static void AddSwaggerGen(WebApplicationBuilder builder)
             Description = "JWT Authorization header using the Bearer scheme" +
             "Use the pattern 'Bearer TOKEN'",
         });
-        c.AddSecurityRequirement(new OpenApiSecurityRequirement
-                    {
-                    {
-                          new OpenApiSecurityScheme
-                          {
-                              Reference = new OpenApiReference
-                              {
-                                  Type = ReferenceType.SecurityScheme,
-                                  Id = "Bearer"
-                              }
-                          },
-                         new string[] {}
-                    }
-                    });
+        c.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference("Bearer", document)] = []
+        });
     });
 }
+
 
 static void SetupAPIVersioning(WebApplicationBuilder builder)
 {
@@ -233,6 +219,7 @@ static void SetupControllers(WebApplicationBuilder builder)
        .AddJsonOptions(options =>
        {
            options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+           options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
        });
 }
 

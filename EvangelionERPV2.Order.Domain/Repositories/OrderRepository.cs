@@ -25,13 +25,15 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
 
             if (!string.IsNullOrEmpty(cachedItem))
             {
-                // Deserialize the cached product and return it
                 var orderFromCache = JsonConvert.DeserializeObject<Order>(cachedItem);
                 return orderFromCache;
             }
 
-            // If not found in cache, query the database
-            IQueryable<Order> query = _context.Set<Order>().Where(e => e.Id == id).AsNoTracking();
+            IQueryable<Order> query = _context.Set<Order>()
+                .Include(o => o.OrderedProduct)
+                    .ThenInclude(op => op.Product)
+                .Where(e => e.Id == id)
+                .AsNoTracking();
 
             if (await query.AnyAsync())
             {
@@ -47,7 +49,10 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
 
         public async override Task<IEnumerable<Order>> GetAllAsync(Func<Order, bool> predicate)
         {
-            IQueryable<Order> query = _context.Set<Order>().AsNoTracking();
+            IQueryable<Order> query = _context.Set<Order>()
+                .Include(o => o.OrderedProduct)
+                    .ThenInclude(op => op.Product)
+                .AsNoTracking();
             IEnumerable<Order> result = new List<Order>();
 
             result = await query.ToListAsync();
@@ -65,7 +70,10 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             if (pageNumber == null || pageSize == null)
                 return await GetAllAsync(predicate);
 
-            IQueryable<Order> query = _context.Set<Order>().AsNoTracking();
+            IQueryable<Order> query = _context.Set<Order>()
+                .Include(o => o.OrderedProduct)
+                    .ThenInclude(op => op.Product)
+                .AsNoTracking();
             IEnumerable<Order> result = Enumerable.Empty<Order>();
 
             if (predicate != null)
@@ -86,6 +94,7 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
 
             var query = _context.Set<Order>()
                 .Include(o => o.OrderedProduct)
+                    .ThenInclude(op => op.Product)
                 .Where(x => x.IsActive ?? false 
                     && (x.PaymentScheduledDate.IsDateBetween(SharedFunctions.GetFirstDayOfMonth(), SharedFunctions.GetLastDayOfMonth())
                     || x.Payday != null && x.Payday.IsDateBetween(SharedFunctions.GetFirstDayOfMonth(), SharedFunctions.GetLastDayOfMonth()))
@@ -126,6 +135,37 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             return (orders, totalItems);
         }
 
+        public async override Task<(IEnumerable<Order>, int)> GetAllAsyncByFilter(bool descending,
+            int? pageNumber,
+            int? pageSize,
+            Expression<Func<Order, bool>> predicate = null,
+            Expression<Func<Order, object>> orderBy = null
+            )
+        {
+            IQueryable<Order> query = _context.Set<Order>()
+                .Include(o => o.OrderedProduct)
+                    .ThenInclude(op => op.Product)
+                .AsNoTracking();
+
+            if (predicate != null)
+                query = query.Where(predicate);
+
+            if (orderBy != null)
+                query = descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy);
+
+            int totalItems = await query.CountAsync();
+            int? skip = (pageNumber - 1) * pageSize ?? 1;
+            List<Order>? result = null;
+
+            if (await query.AnyAsync())
+                result = await query.Skip(skip ?? 0).Take(pageSize ?? 0).ToListAsync();
+
+            if (result?.Any() != false)
+                return (result, totalItems);
+
+            return (new List<Order>(), 1);
+        }
+
         private static Expression<Func<Order, object>> FillOrderByPerField(Order order, Expression<Func<Order, object>> orderBy)
         {
             if (order.Id != null && order.Id != Guid.Empty)
@@ -150,21 +190,18 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
 
         private async Task SetCachedOrder(string cacheKey, Order order)
         {
-            // Serialize the product and store it in Redis cache for future use
             var orderToCache = JsonConvert.SerializeObject(order);
 
             await _cache.SetStringAsync(cacheKey, orderToCache, new DistributedCacheEntryOptions
             {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60) // Cache for 60 minutes
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60)
             });
         }
 
         private async Task<Tuple<string, string?>> GetCachedOrderById(Guid id)
         {
-            // Define the cache key using the order ID
             string cacheKey = $"Order:{id}";
 
-            // Try to get the order from Redis cache
             string? cachedItem = await _cache.GetStringAsync(cacheKey);
 
             return Tuple.Create(cacheKey, cachedItem);
