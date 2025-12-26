@@ -43,7 +43,7 @@ jobs:
             || aws ecr create-repository --repository-name "${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}" --region "${{ secrets.AWS_REGION }}"
 
       - name: Build and push image from `Dockerfile`
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: ./EvangelionERPV2.Web
           file: ./EvangelionERPV2.Web/Dockerfile
