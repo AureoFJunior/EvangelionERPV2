@@ -30,8 +30,8 @@ COPY ["EvangelionERPV2.Enterprise.Application/EvangelionERPV2.EnterpriseModule.A
 COPY ["EvangelionERPV2.User.Application/EvangelionERPV2.UserModule.Application.csproj", "EvangelionERPV2.User.Application/"]
 COPY ["EvangelionERPV2.User.Domain/EvangelionERPV2.UserModule.Domain.csproj", "EvangelionERPV2.User.Domain/"]
 COPY ["EvangelionERPV2.User.Infra/EvangelionERPV2.UserModule.Infra.csproj", "EvangelionERPV2.User.Infra/"]
-COPY ["EvangelionERPV2.Worker.Email/EvangelionERPV2.Worker.Email.csproj", "EvangelionERPV2.Worker.Email/"]
 COPY ["EvangelionERPV2.Worker.Order/EvangelionERPV2.Worker.Order.csproj", "EvangelionERPV2.Worker.Order/"]
+COPY ["EvangelionERPV2.Worker.Email/EvangelionERPV2.Worker.Email.csproj", "EvangelionERPV2.Worker.Email/"]
 RUN dotnet restore "./EvangelionERPV2.Web/EvangelionERPV2.Web.csproj"
 COPY . .
 WORKDIR "/src/EvangelionERPV2.Web"
