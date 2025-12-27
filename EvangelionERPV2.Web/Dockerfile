@@ -6,10 +6,12 @@ EXPOSE 8080
 EXPOSE 8081
 
 
-# This stage is used to build the service project
+# This stage is used to build the service project. The Docker build context must be the repository root so
+# all projects referenced by the solution (including the worker projects) are available during restore.
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
+COPY ["EvangelionERPV2.sln", "./"]
 COPY ["EvangelionERPV2.Web/EvangelionERPV2.Web.csproj", "EvangelionERPV2.Web/"]
 COPY ["EvangelionERPV2.Customer.Application/EvangelionERPV2.CustomerModule.Application.csproj", "EvangelionERPV2.Customer.Application/"]
 COPY ["EvangelionERPV2.Customer.Domain/EvangelionERPV2.CustomerModule.Domain.csproj", "EvangelionERPV2.Customer.Domain/"]
@@ -30,9 +32,9 @@ COPY ["EvangelionERPV2.Enterprise.Application/EvangelionERPV2.EnterpriseModule.A
 COPY ["EvangelionERPV2.User.Application/EvangelionERPV2.UserModule.Application.csproj", "EvangelionERPV2.User.Application/"]
 COPY ["EvangelionERPV2.User.Domain/EvangelionERPV2.UserModule.Domain.csproj", "EvangelionERPV2.User.Domain/"]
 COPY ["EvangelionERPV2.User.Infra/EvangelionERPV2.UserModule.Infra.csproj", "EvangelionERPV2.User.Infra/"]
-COPY ["EvangelionERPV2.Worker.Email/EvangelionERPV2.Worker.Email.csproj", "EvangelionERPV2.Worker.Email/"]
-COPY ["EvangelionERPV2.Worker.Order/EvangelionERPV2.Worker.Order.csproj", "EvangelionERPV2.Worker.Order/"]
-RUN dotnet restore "./EvangelionERPV2.Web/EvangelionERPV2.Web.csproj"
+COPY EvangelionERPV2.Worker.Order/*.csproj EvangelionERPV2.Worker.Order/
+COPY EvangelionERPV2.Worker.Email/*.csproj EvangelionERPV2.Worker.Email/
+RUN dotnet restore "EvangelionERPV2.sln"
 COPY . .
 WORKDIR "/src/EvangelionERPV2.Web"
 RUN dotnet build "./EvangelionERPV2.Web.csproj" -c $BUILD_CONFIGURATION -o /app/build
