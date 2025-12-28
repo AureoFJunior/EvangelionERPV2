@@ -36,6 +36,7 @@ COPY EvangelionERPV2.Worker.Order/*.csproj EvangelionERPV2.Worker.Order/
 COPY EvangelionERPV2.Worker.Email/*.csproj EvangelionERPV2.Worker.Email/
 RUN dotnet restore "EvangelionERPV2.sln"
 COPY . .
+RUN dotnet restore "EvangelionERPV2.sln"
 WORKDIR "/src/EvangelionERPV2.Web"
 RUN dotnet build "./EvangelionERPV2.Web.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
