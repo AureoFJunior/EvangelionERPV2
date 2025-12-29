@@ -21,6 +21,28 @@ services:
     networks:
       - custom_network
 
+  worker_order:
+    image: aureofjunior/evangelionerpv2-worker-order:latest
+    container_name: evangelionerpv2_worker_order
+    environment:
+      HttpConfig__DefaultApiUrl: http://evangelionerpv2/api/v1
+    networks:
+      - custom_network
+    depends_on:
+      - rabbitmq
+      - evangelionerpv2
+
+  worker_email:
+    image: aureofjunior/evangelionerpv2-worker-email:latest
+    container_name: evangelionerpv2_worker_email
+    environment:
+      HttpConfig__DefaultApiUrl: http://evangelionerpv2/api/v1
+    networks:
+      - custom_network
+    depends_on:
+      - rabbitmq
+      - evangelionerpv2
+
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: 'rabbitmq'
