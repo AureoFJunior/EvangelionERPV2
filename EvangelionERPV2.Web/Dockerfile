@@ -2,6 +2,7 @@
 
 # This stage is used when running from VS in fast mode (Default for Debug configuration)
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+ARG APP_UID=0
 USER $APP_UID
 WORKDIR /app
 EXPOSE 8080
@@ -35,8 +36,6 @@ COPY EvangelionERPV2.Shared/*.csproj EvangelionERPV2.Shared/
 COPY EvangelionERPV2.User.Application/*.csproj EvangelionERPV2.User.Application/
 COPY EvangelionERPV2.User.Domain/*.csproj EvangelionERPV2.User.Domain/
 COPY EvangelionERPV2.User.Infra/*.csproj EvangelionERPV2.User.Infra/
-COPY EvangelionERPV2.Worker.Email/*.csproj EvangelionERPV2.Worker.Email/
-COPY EvangelionERPV2.Worker.Order/*.csproj EvangelionERPV2.Worker.Order/
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
     dotnet restore "EvangelionERPV2.Web/EvangelionERPV2.Web.csproj"

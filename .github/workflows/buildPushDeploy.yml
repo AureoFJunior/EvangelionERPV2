@@ -42,15 +42,37 @@ jobs:
           aws ecr describe-repositories --repository-names "${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}" --region "${{ secrets.AWS_REGION }}" \
             || aws ecr create-repository --repository-name "${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}" --region "${{ secrets.AWS_REGION }}"
 
-      - name: Build and push image from `Dockerfile`
+      - name: Build and push web image
         uses: docker/build-push-action@v6
         with:
-          context: ./EvangelionERPV2.Web
+          context: .
           file: ./EvangelionERPV2.Web/Dockerfile
           push: true
           tags: |
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest
             aureofjunior/evangelionerpv2-repository:latest
+          platforms: linux/amd64,linux/arm64
+
+      - name: Build and push worker email image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./EvangelionERPV2.Worker.Email/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:worker-email-latest
+            aureofjunior/evangelionerpv2-worker-email:latest
+          platforms: linux/amd64,linux/arm64
+
+      - name: Build and push worker order image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./EvangelionERPV2.Worker.Order/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:worker-order-latest
+            aureofjunior/evangelionerpv2-worker-order:latest
           platforms: linux/amd64,linux/arm64
 
   deploy_to_ecs:
