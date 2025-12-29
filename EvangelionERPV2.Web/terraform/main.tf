@@ -35,3 +35,49 @@ resource "aws_ecs_task_definition" "evangelionerpv2_task_definition" {
     }
   }])
 }
+
+# Worker task definition (Email)
+resource "aws_ecs_task_definition" "evangelionerpv2_worker_email_task_definition" {
+  family                   = "evangelionerpv2-worker-email-task-family"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "256"
+  memory                   = "512"
+
+  execution_role_arn = var.aws_iam_role_arn
+
+  container_definitions = jsonencode([{
+    name  = "evangelionerpv2-worker-email"
+    image = "${var.aws_ecr_repository_repository_url}:worker-email-latest"
+    cpu   = 256
+    memory = 512
+    networkMode = "awsvpc"
+    networkConfiguration = {
+      subnets = ["subnet-0003c61110d0f854a", "subnet-053500b7cbfec64ab"]
+      securityGroups = ["sg-047e646753efd8eae"]
+    }
+  }])
+}
+
+# Worker task definition (Order)
+resource "aws_ecs_task_definition" "evangelionerpv2_worker_order_task_definition" {
+  family                   = "evangelionerpv2-worker-order-task-family"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "256"
+  memory                   = "512"
+
+  execution_role_arn = var.aws_iam_role_arn
+
+  container_definitions = jsonencode([{
+    name  = "evangelionerpv2-worker-order"
+    image = "${var.aws_ecr_repository_repository_url}:worker-order-latest"
+    cpu   = 256
+    memory = 512
+    networkMode = "awsvpc"
+    networkConfiguration = {
+      subnets = ["subnet-0003c61110d0f854a", "subnet-053500b7cbfec64ab"]
+      securityGroups = ["sg-047e646753efd8eae"]
+    }
+  }])
+}
