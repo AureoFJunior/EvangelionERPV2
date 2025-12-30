@@ -10,35 +10,35 @@
 
   <ItemGroup>
     <PackageReference Include="AspNetCoreRateLimit" Version="5.0.0" />
-    <PackageReference Include="AutoMapper" Version="15.1.0" />
-    <PackageReference Include="FluentValidation" Version="12.1.0" />
+    <PackageReference Include="AutoMapper" Version="16.0.0" />
+    <PackageReference Include="FluentValidation" Version="12.1.1" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.1" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning" Version="5.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.0" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.0" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="10.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="10.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="10.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.1" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="10.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="10.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="10.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.0">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.1" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
     <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
     <PackageReference Include="Serilog" Version="4.3.0" />
-    <PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.0.1" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.15.0" />
   </ItemGroup>
 
@@ -67,8 +67,6 @@
     <ProjectReference Include="..\EvangelionERPV2.User.Application\EvangelionERPV2.UserModule.Application.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.User.Domain\EvangelionERPV2.UserModule.Domain.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.User.Infra\EvangelionERPV2.UserModule.Infra.csproj" />
-    <ProjectReference Include="..\EvangelionERPV2.Worker.Email\EvangelionERPV2.Worker.Email.csproj" />
-    <ProjectReference Include="..\EvangelionERPV2.Worker.Order\EvangelionERPV2.Worker.Order.csproj" />
   </ItemGroup>
 
 </Project>
