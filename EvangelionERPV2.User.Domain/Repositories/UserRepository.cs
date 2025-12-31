@@ -61,7 +61,7 @@ namespace EvangelionERPV2.UserModule.Domain.Repositories
                 if (query.Any())
                     return query.ToList();
 
-                throw new NotFoundDatabaseException();
+                return new List<User>();
             }
             catch (Exception ex) { throw; }
         }
