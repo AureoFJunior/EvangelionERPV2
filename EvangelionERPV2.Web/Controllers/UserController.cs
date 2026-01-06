@@ -6,11 +6,10 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Token;
 using EvangelionERPV2.UserModule.Domain.Interface;
-using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
 using Serilog;
+using System.Text.Json;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -22,14 +21,21 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IUserService<Shared.Entities.User> _userService;
         private readonly IRepository<Shared.Entities.User> _userRepository;
         private readonly IMapper _mapper;
+        private readonly IConfiguration _configuration;
+        private readonly AWSKMSKeyProvider _kmsProvider;
+        private static readonly HttpClient _httpClient = new HttpClient();
 
         public UserController(IUserService<Shared.Entities.User> userService,
             IRepository<Shared.Entities.User> userRepository,
-            IMapper mapper)
+            IMapper mapper,
+            IConfiguration configuration,
+            AWSKMSKeyProvider kmsProvider)
         {
             _userService = userService;
             _userRepository = userRepository;
             _mapper = mapper;
+            _configuration = configuration;
+            _kmsProvider = kmsProvider;
         }
 
         /// <summary>
@@ -100,11 +106,34 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> LoginWithGoogle([FromBody] string idToken)
+        public async Task<IActionResult> LoginWithGoogle([FromBody] JsonElement payload)
         {
             try
             {
-                return Ok(await _userService.LoginToSSOAsync(idToken));
+                string? idToken = null;
+                if (payload.ValueKind == JsonValueKind.String)
+                {
+                    idToken = payload.GetString();
+                }
+                else if (payload.ValueKind == JsonValueKind.Object &&
+                         payload.TryGetProperty("idToken", out var tokenElement))
+                {
+                    idToken = tokenElement.GetString();
+                }
+
+                if (string.IsNullOrWhiteSpace(idToken))
+                {
+                    return BadRequest("idToken is required.");
+                }
+
+                var user = await _userService.LoginToSSOAsync(idToken);
+                GenerateToken(user, out var token, out var refreshToken);
+                if (string.IsNullOrEmpty(token))
+                {
+                    throw new Exception("Token generation failed.");
+                }
+
+                return Ok(BuildUserDto(user, token, refreshToken));
             }
             catch (Exception ex)
             {
@@ -113,11 +142,130 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        /// <summary>
+        /// Accepts an OAuth authorization code, exchanges it for a Google id_token,
+        /// then validates and logs the user in.
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> LoginWithGoogleCode([FromBody] GoogleCodeExchangeRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.Code) || string.IsNullOrWhiteSpace(request.RedirectUri))
+            {
+                return BadRequest("code and redirectUri are required.");
+            }
+
+            try
+            {
+                var clientIdName = _configuration.GetSection("GoogleSettings")["ClientId"] ?? string.Empty;  
+                var clientSecretName = _configuration.GetSection("GoogleSettings")["ClientSecret"] ?? string.Empty;
+
+                var clientId = _kmsProvider.GetKMSKey(clientIdName);
+                var clientSecret = _kmsProvider.GetKMSKey(clientSecretName);
+
+                if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+                {
+                    Log.Logger.Error("Google client settings are missing.");
+                    return Problem("Google client settings are missing.");
+                }
+
+                var tokenResponse = await ExchangeGoogleCodeAsync(request, clientId, clientSecret);
+
+                if (tokenResponse == null)
+                {
+                    return Problem("Unable to exchange Google code.");
+                }
+
+                if (!string.IsNullOrWhiteSpace(tokenResponse.Error))
+                {
+                    Log.Logger.Error("Google token exchange failed: {Error} {Description}", tokenResponse.Error, tokenResponse.ErrorDescription);
+                    return Unauthorized(tokenResponse.ErrorDescription ?? "Invalid Google authorization code.");
+                }
+
+                if (string.IsNullOrWhiteSpace(tokenResponse.IdToken))
+                {
+                    return Unauthorized("Google id_token was not returned.");
+                }
+
+                var user = await _userService.LoginToSSOAsync(tokenResponse.IdToken);
+                GenerateToken(user, out var token, out var refreshToken);
+                if (string.IsNullOrEmpty(token))
+                {
+                    throw new Exception("Token generation failed.");
+                }
+
+                return Ok(BuildUserDto(user, token, refreshToken));
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("Error when logging with Google code", ex);
+                return Problem("Error when logging with Google code");
+            }
+        }
+
+        private static async Task<GoogleTokenResponse?> ExchangeGoogleCodeAsync(
+            GoogleCodeExchangeRequest request,
+            string clientId,
+            string clientSecret)
+        {
+            var payload = new Dictionary<string, string>
+            {
+                ["code"] = request.Code,
+                ["client_id"] = clientId,
+                ["client_secret"] = clientSecret,
+                ["redirect_uri"] = request.RedirectUri,
+                ["grant_type"] = "authorization_code",
+            };
+
+            if (!string.IsNullOrWhiteSpace(request.CodeVerifier))
+            {
+                payload["code_verifier"] = request.CodeVerifier;
+            }
+
+            using var content = new FormUrlEncodedContent(payload);
+            var response = await _httpClient.PostAsync("https://oauth2.googleapis.com/token", content);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            var tokenResponse = JsonSerializer.Deserialize<GoogleTokenResponse>(
+                responseBody,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (!response.IsSuccessStatusCode && tokenResponse == null)
+            {
+                tokenResponse = new GoogleTokenResponse
+                {
+                    Error = response.StatusCode.ToString(),
+                    ErrorDescription = "Google token exchange failed."
+                };
+            }
+
+            return tokenResponse;
+        }
+
         private static void GenerateToken(Shared.Entities.User user, out string token, out string refreshToken)
         {
             token = TokenService.GenerateToken(user);
             refreshToken = TokenService.GenerateRefreshToken();
             TokenService.SaveRefreshToken(user.UserName, refreshToken);
+        }
+
+        private static UserDTO BuildUserDto(Shared.Entities.User user, string token, string refreshToken)
+        {
+            return new UserDTO
+            {
+                Id = user.Id,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                Email = user.Email,
+                BirthDate = user.BirthDate,
+                Token = token,
+                RefreshToken = refreshToken,
+                Enterprise = user.Enterprise
+            };
         }
 
         /// <summary>

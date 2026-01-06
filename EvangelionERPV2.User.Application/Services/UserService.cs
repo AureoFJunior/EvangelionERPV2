@@ -1,5 +1,6 @@
 using Azure.Core;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
@@ -115,21 +116,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 return user;
             }
 
-            var newUser = new User
-            {
-                Id = Guid.NewGuid(),
-                UserName = payload.Email,
-                Email = payload.Email,
-                FirstName = payload.GivenName ?? payload.Name ?? string.Empty,
-                LastName = payload.FamilyName ?? string.Empty,
-                Password = SharedFunctions.Encrypt(Guid.NewGuid().ToString()), // random password for SSO users
-                BirthDate = DateTime.UtcNow,
-                IsLogged = 1
-            };
-
-            var created = await _userRepository.CreateAsync(newUser);
-            await _userRepository.CommitAsync();
-            return created;
+            throw new NotFoundDatabaseException("User not found. Please register before logging in with SSO.");
         }
     }
 }
