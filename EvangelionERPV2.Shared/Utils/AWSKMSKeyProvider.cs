@@ -20,6 +20,17 @@ namespace EvangelionERPV2.Shared.Utils
 
         public string GetKMSKey(string secretName)
         {
+            if (string.IsNullOrWhiteSpace(secretName))
+            {
+                return string.Empty;
+            }
+
+            const string plainPrefix = "plain:";
+            if (secretName.StartsWith(plainPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return secretName.Substring(plainPrefix.Length);
+            }
+
             var secretValueResponse = _secretsManager.GetSecretValueAsync(new GetSecretValueRequest
             {
                 SecretId = secretName.Split(":")?[0] ?? string.Empty
@@ -38,7 +49,7 @@ namespace EvangelionERPV2.Shared.Utils
                         return keyValue[1];
                     }
                 }
-                return string.Empty;
+                return keyIdentifier;
             }
             catch (JsonReaderException ex)
             {
