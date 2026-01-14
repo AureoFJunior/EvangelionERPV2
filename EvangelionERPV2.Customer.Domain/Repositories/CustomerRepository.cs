@@ -1,15 +1,16 @@
 using EvangelionERPV2.CustomerModule.Domain.Interface;
-using EvangelionERPV2.CustomerModule.Infra.Context;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
+using EvangelionERPV2.Shared.Context;
+using EvangelionERPV2.Shared.Repositories;
 
 namespace EvangelionERPV2.CustomerModule.Domain.Repositories
 {
     public class CustomerRepository : Repository<Customer>, ICustomerRepository<Customer>
     {
-        public CustomerRepository(CustomerModuleDbContext context) : base(context)
+        public CustomerRepository(AppDbContext context) : base(context)
         {
         }
 

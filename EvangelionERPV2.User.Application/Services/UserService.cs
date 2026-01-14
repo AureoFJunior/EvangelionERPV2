@@ -4,7 +4,6 @@ using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
-using EvangelionERPV2.UserModule.Domain.Interface;
 using Google.Apis.Auth;
 using Microsoft.Extensions.Configuration;
 using Serilog;
@@ -13,11 +12,11 @@ namespace EvangelionERPV2.UserModule.Application.Services
 {
     public class UserService : IUserService<User>
     {
-        private readonly IRepository<User> _userRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<User> _userRepository;
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider _kmsProvider;
 
-        public UserService(IRepository<User> userRepository,
+        public UserService(EvangelionERPV2.Shared.Repositories.IRepository<User> userRepository,
             IConfiguration configuration,
             AWSKMSKeyProvider kmsProvider)
         {

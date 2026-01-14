@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
@@ -7,10 +7,10 @@ using EvangelionERPV2.ProductModule.Domain.Repositories;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Configs;
 using EvangelionERPV2.ProductModule.Application.Interface;
-using EvangelionERPV2.ProductModule.Infra.Context;
 using EvangelionERPV2.ProductModule.Application.Services;
 using Amazon.SecretsManager;
 using EvangelionERPV2.Shared.Utils;
+using EvangelionERPV2.Shared.Context;
 
 namespace EvangelionERPV2.ProductModule.Application.DI
 {
@@ -35,7 +35,7 @@ namespace EvangelionERPV2.ProductModule.Application.DI
                 services.AddLogging();
 
                 #region DataBase
-                services.AddDbContext<ProductModuleDbContext>(options => options.UseSqlServer(kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty)));
+                services.AddDbContext<AppDbContext>(options => options.UseSqlServer(kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty)));
 
                 #endregion
 
@@ -47,9 +47,9 @@ namespace EvangelionERPV2.ProductModule.Application.DI
                 #endregion
 
                 #region Repositorys
-                services.AddTransient(typeof(IRepository<>), typeof(Repository<>));
-                services.AddTransient(typeof(IRepository<Product>), typeof(ProductRepository));
-                services.AddTransient(typeof(IRepository<OrderedProduct>), typeof(OrderedProductRepository));
+                services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<>), typeof(EvangelionERPV2.Shared.Repositories.Repository<>));
+                services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<Product>), typeof(ProductRepository));
+                services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct>), typeof(OrderedProductRepository));
                 services.AddTransient(typeof(IProductRepository<Product>), typeof(ProductRepository));
 
 
@@ -61,7 +61,7 @@ namespace EvangelionERPV2.ProductModule.Application.DI
                 services.AddScoped(typeof(IProductReportGeneratorService), typeof(ProductReportGeneratorService));
                 #endregion
 
-                services.AddScoped(typeof(IUnitOfWork<ProductModuleDbContext>), typeof(UnitOfWork<ProductModuleDbContext>));
+                services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));
 
                 #region Redis
                 services.AddStackExchangeRedisCache(o =>

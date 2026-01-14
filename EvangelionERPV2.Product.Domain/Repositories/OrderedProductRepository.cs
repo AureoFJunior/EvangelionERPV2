@@ -1,15 +1,16 @@
 using EvangelionERPV2.ProductModule.Domain.Interface;
-using EvangelionERPV2.ProductModule.Infra.Context;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using EvangelionERPV2.Shared.Context;
+using EvangelionERPV2.Shared.Repositories;
 
 
 namespace EvangelionERPV2.ProductModule.Domain.Repositories
 {
     public class OrderedProductRepository : Repository<OrderedProduct>, IOrderedProductRepository<OrderedProduct>
     {
-        public OrderedProductRepository(ProductModuleDbContext context) : base(context)
+        public OrderedProductRepository(AppDbContext context) : base(context)
         {
         }
 

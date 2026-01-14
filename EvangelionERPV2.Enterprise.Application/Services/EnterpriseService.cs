@@ -7,9 +7,9 @@ namespace EvangelionERPV2.EnterpriseModule.Application.Services
 {
     public class EnterpriseService : IEnterpriseService<Enterprise>
     {
-        private readonly IRepository<Enterprise> _enterpriseRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _enterpriseRepository;
 
-        public EnterpriseService(IRepository<Enterprise> enterpriseRepository)
+        public EnterpriseService(EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> enterpriseRepository)
         {
             _enterpriseRepository = enterpriseRepository;
         }

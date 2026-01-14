@@ -7,9 +7,9 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 {
     public class OrderedProductService : IOrderedProductService<OrderedProduct>
     {
-        private readonly IRepository<OrderedProduct> _orderedProductRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct> _orderedProductRepository;
 
-        public OrderedProductService(IRepository<OrderedProduct> orderedProductRepository)
+        public OrderedProductService(EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct> orderedProductRepository)
         {
             _orderedProductRepository = orderedProductRepository;
         }

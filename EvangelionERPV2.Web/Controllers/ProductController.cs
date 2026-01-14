@@ -19,11 +19,11 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private readonly IProductRepository<Product> _productRepository;
         private readonly IProductService<Product> _productService;
-        private readonly IRepository<Product> _repository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _repository;
         private readonly IMapper _mapper;
 
         public ProductController(IProductService<Product> productService,
-            IRepository<Product> repository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Product> repository,
             IProductRepository<Product> productRepository,
             IMapper mapper)
         {

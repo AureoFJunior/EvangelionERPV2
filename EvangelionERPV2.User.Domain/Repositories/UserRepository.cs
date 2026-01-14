@@ -1,13 +1,14 @@
 using Microsoft.EntityFrameworkCore;
-using EvangelionERPV2.UserModule.Infra.Context;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Context;
+using EvangelionERPV2.Shared.Repositories;
 
 namespace EvangelionERPV2.UserModule.Domain.Repositories
 {
     public class UserRepository : Repository<User>
     {
-        public UserRepository(UserModuleDbContext context) : base(context)
+        public UserRepository(AppDbContext context) : base(context)
         {
         }
 

@@ -1,17 +1,16 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using EvangelionERPV2.Shared.Configs;
 using EvangelionERPV2.Shared.Utils;
-using EvangelionERPV2.UserModule.Infra.Context;
-using EvangelionERPV2.UserModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.UserModule.Domain.Repositories;
 using EvangelionERPV2.UserModule.Application.Token;
 using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Services;
 using Amazon.SecretsManager;
+using EvangelionERPV2.Shared.Context;
 
 namespace EvangelionERPV2.UserModule.Application.DI
 {
@@ -36,7 +35,7 @@ namespace EvangelionERPV2.UserModule.Application.DI
                 services.AddLogging();
 
                 #region DataBase
-                services.AddDbContext<UserModuleDbContext>(options =>
+                services.AddDbContext<AppDbContext>(options =>
                 {
                     var connectionString = kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty);
 
@@ -59,8 +58,8 @@ namespace EvangelionERPV2.UserModule.Application.DI
                 #endregion
 
                 #region Repositorys
-                services.AddTransient(typeof(IRepository<>), typeof(Repository<>));
-                services.AddTransient(typeof(IRepository<User>), typeof(UserRepository));
+                services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<>), typeof(EvangelionERPV2.Shared.Repositories.Repository<>));
+                services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<User>), typeof(UserRepository));
                 #endregion
 
                 #region Services
@@ -68,7 +67,7 @@ namespace EvangelionERPV2.UserModule.Application.DI
                 services.AddTransient(typeof(IUserService<User>), typeof(UserService));
                 #endregion
 
-                services.AddScoped(typeof(IUnitOfWork<UserModuleDbContext>), typeof(UnitOfWork<UserModuleDbContext>));
+                services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));
             }
             catch (Exception ex)
             {

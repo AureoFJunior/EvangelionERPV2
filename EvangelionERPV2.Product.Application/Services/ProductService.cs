@@ -13,7 +13,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 {
     public class ProductService : IProductService<Product>, IDisposable
     {
-        private readonly IRepository<Product> _productRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _productRepository;
         private readonly IAmazonS3 _s3Client;
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider kmsProvider;
@@ -21,7 +21,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
         private bool disposed;
 
-        public ProductService(IRepository<Product> productRepository,
+        public ProductService(EvangelionERPV2.Shared.Repositories.IRepository<Product> productRepository,
             IConfiguration configuration,
             AWSKMSKeyProvider kmsProvider,
             IProductReportGeneratorService productReportGeneratorService)

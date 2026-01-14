@@ -18,11 +18,11 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private readonly IOrderRepository<Order> _orderRepository;
         private readonly IOrderService<Order> _orderService;
-        private readonly IRepository<Order> _repository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Order> _repository;
         private readonly IMapper _mapper;
 
         public OrderController(IOrderService<Order> orderService,
-            IRepository<Order> repository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Order> repository,
             IOrderRepository<Order> orderRepository,
             IMapper mapper)
         {
