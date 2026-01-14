@@ -17,12 +17,12 @@ namespace EvangelionERPV2.Web.Controllers
     public class CustomerController : Controller
     {
         private readonly ICustomerService<Customer> _customerService;
-        private readonly IRepository<Customer> _repository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _repository;
         private readonly ICustomerRepository<Customer> _customerRepository;
         private readonly IMapper _mapper;
 
         public CustomerController(ICustomerService<Customer> customerService,
-            IRepository<Customer> repository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Customer> repository,
             ICustomerRepository<Customer> customerRepository,
             IMapper mapper)
         {

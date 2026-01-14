@@ -1,19 +1,23 @@
 using System.Linq.Expressions;
+using EvangelionERPV2.Shared.Entities;
 
-namespace EvangelionERPV2.EnterpriseModule.Domain.Interface
+namespace EvangelionERPV2.Shared.Repositories
 {
-    public interface IRepository<TEntity> where TEntity : class
+    public interface IRepository<TEntity> where TEntity : BaseEntity
     {
         #region Sync
         void Commit(CancellationToken cancellation = default);
         TEntity GetById(Guid id);
         IEnumerable<TEntity> GetAll();
+        IEnumerable<TEntity> GetByCondition(Func<TEntity, bool> condition);
         TEntity Create(TEntity entity);
+        IEnumerable<TEntity> CreateRange(IEnumerable<TEntity> entitys);
         TEntity Update(TEntity entity);
         IEnumerable<TEntity> UpdateRange(IEnumerable<TEntity> entitys);
         TEntity Delete(TEntity entity);
         TEntity Delete<TInclude>(TEntity entity, params Expression<Func<TEntity, TInclude>>[] includeProperties);
         IEnumerable<TEntity> DeleteRange(IEnumerable<TEntity> entitys);
+        void DetachEntity<TDetach>(TDetach entity);
         #endregion
 
         #region Async
@@ -29,7 +33,6 @@ namespace EvangelionERPV2.EnterpriseModule.Domain.Interface
             Expression<Func<TEntity, object>> orderBy = null);
         Task<TEntity> CreateAsync(TEntity entity);
         Task<IEnumerable<TEntity>> CreateRangeAsync(IEnumerable<TEntity> entitys);
-        IEnumerable<TEntity> GetByCondition(Func<TEntity, bool> condition);
         #endregion
     }
 }

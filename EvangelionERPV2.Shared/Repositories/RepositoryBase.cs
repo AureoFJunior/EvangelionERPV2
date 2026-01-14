@@ -1,24 +1,22 @@
 using System.Linq.Expressions;
-using EvangelionERPV2.CustomerModule.Domain.Interface;
-using EvangelionERPV2.CustomerModule.Infra.Context;
+using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Entities;
 using Microsoft.EntityFrameworkCore;
 
-
-namespace EvangelionERPV2.CustomerModule.Domain.Repositories
+namespace EvangelionERPV2.Shared.Repositories
 {
-    public class Repository<TEntity> : IRepository<TEntity> where TEntity : BaseEntity
+    public abstract class RepositoryBase<TEntity> where TEntity : BaseEntity
     {
-        protected readonly CustomerModuleDbContext _context;
+        protected readonly AppDbContext _context;
 
-        public Repository(CustomerModuleDbContext context)
+        protected RepositoryBase(AppDbContext context)
         {
             _context = context;
         }
 
         #region Sync
 
-        public void Commit(CancellationToken cancellation = default)
+        public virtual void Commit(CancellationToken cancellation = default)
         {
             _context.SaveChanges();
             return;
@@ -101,6 +99,14 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
             return entitys;
         }
 
+        public void DetachEntity<TDetach>(TDetach entity)
+        {
+            if (entity != null)
+            {
+                _context.Entry(entity).State = EntityState.Detached;
+            }
+        }
+
         private bool IsEntityTracked(object entity)
         {
             var entry = _context.ChangeTracker.Entries().FirstOrDefault(e => e.Entity == entity);
@@ -110,7 +116,7 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
 
         #region Async
 
-        public Task CommitAsync(CancellationToken cancellation = default)
+        public virtual Task CommitAsync(CancellationToken cancellation = default)
         {
             return _context.SaveChangesAsync();
         }
@@ -141,7 +147,7 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
             if (predicate != null)
                 query = query.Where(entity => predicate(entity));
 
-            if (await query?.AnyAsync())
+            if (await query.AnyAsync())
                 return await query.ToListAsync();
 
             return new List<TEntity>();
@@ -166,7 +172,7 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
             return new List<TEntity>();
         }
 
-        public virtual async Task<IEnumerable<TEntity>> GetAllAsyncByFilter(bool descending,
+        protected virtual async Task<IEnumerable<TEntity>> GetAllAsyncByFilterInternal(bool descending,
             int? pageNumber,
             int? pageSize,
             Expression<Func<TEntity, bool>> predicate = null,
@@ -196,19 +202,46 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
             return new List<TEntity>();
         }
 
+        protected virtual async Task<(IEnumerable<TEntity>, int)> GetAllAsyncByFilterWithCountInternal(bool descending,
+            int? pageNumber,
+            int? pageSize,
+            Expression<Func<TEntity, bool>> predicate = null,
+            Expression<Func<TEntity, object>> orderBy = null
+            )
+        {
+            IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
+
+            if (predicate != null || orderBy != null)
+            {
+                if (predicate != null)
+                    query = query.Where(predicate);
+
+                if (orderBy != null)
+                    query = descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy);
+            }
+
+            int totalItems = await query.CountAsync();
+            int? skip = (pageNumber - 1) * pageSize ?? 1;
+            List<TEntity>? result = null;
+
+            if (await query.AnyAsync())
+                result = await query.Skip(skip ?? 0).Take(pageSize ?? 0).ToListAsync();
+
+            if (result?.Any() != false)
+                return (result, totalItems);
+
+            return (new List<TEntity>(), 1);
+        }
+
         public virtual async Task<TEntity> CreateAsync(TEntity entity)
         {
-            // Iterate over navigation properties
             foreach (var navigationEntry in _context.Entry(entity).Navigations)
             {
-                // If the navigation property is loaded and points to an existing entity
                 if (navigationEntry.IsLoaded && navigationEntry.CurrentValue != null)
                 {
-                    // Cast the current value to its appropriate type
                     var associatedEntities = navigationEntry.CurrentValue as IEnumerable<object>;
                     if (associatedEntities != null)
                     {
-                        // Check if the associated entity is not tracked, then attach it
                         foreach (var associatedEntity in associatedEntities)
                         {
                             if (!IsEntityTracked(associatedEntity))

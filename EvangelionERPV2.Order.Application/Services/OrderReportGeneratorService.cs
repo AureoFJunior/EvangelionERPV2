@@ -7,9 +7,9 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 {
     public class OrderReportGeneratorService : IOrderReportGeneratorService
     {
-        private readonly IRepository<Product> _productRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _productRepository;
 
-        public OrderReportGeneratorService(IRepository<Product> productRepository)
+        public OrderReportGeneratorService(EvangelionERPV2.Shared.Repositories.IRepository<Product> productRepository)
         {
             _productRepository = productRepository;
         }

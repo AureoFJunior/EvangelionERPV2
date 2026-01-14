@@ -18,6 +18,7 @@ namespace EvangelionERPV2.OrderModule.Infra.Context
         public DbSet<Order> Order { get; set; }
         public DbSet<OrderedProduct> OrderedProduct { get; set; }
         public DbSet<Product> Product { get; set; }
+        public DbSet<User> User { get; set; }
         #endregion
     }
 }

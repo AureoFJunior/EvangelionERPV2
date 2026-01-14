@@ -13,10 +13,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 {
     public class OrderService : IOrderService<Order>, IDisposable
     {
-        private readonly IRepository<Order> _orderRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Order> _orderRepository;
         private readonly IOrderRepository<Order> _orderRepositoryCustom;
-        private readonly IRepository<Product> _productRepository;
-        private readonly IRepository<OrderedProduct> _orderedProductRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _productRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct> _orderedProductRepository;
         private readonly IProductService<Product> _productService;
         public readonly IOrderRabbitMQManager _rabbitMQManager;
         public readonly IOrderReportGeneratorService _orderReportGeneratorService;
@@ -24,10 +24,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
         private bool disposed;
 
-        public OrderService(IRepository<Order> orderRepository,
+        public OrderService(EvangelionERPV2.Shared.Repositories.IRepository<Order> orderRepository,
             IOrderRepository<Order> orderRepositoryCustom,
-            IRepository<Product> productRepository,
-            IRepository<OrderedProduct> orderedProductRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Product> productRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct> orderedProductRepository,
             IProductService<Product> productService,
             IOrderRabbitMQManager rabbitMQManager,
             IOrderReportGeneratorService orderReportGeneratorService,

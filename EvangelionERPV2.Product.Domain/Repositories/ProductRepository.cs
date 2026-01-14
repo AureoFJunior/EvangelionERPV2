@@ -1,5 +1,4 @@
 using EvangelionERPV2.ProductModule.Domain.Interface;
-using EvangelionERPV2.ProductModule.Infra.Context;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
@@ -7,6 +6,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using System.Linq.Expressions;
+using EvangelionERPV2.Shared.Context;
+using EvangelionERPV2.Shared.Repositories;
 
 namespace EvangelionERPV2.ProductModule.Domain.Repositories
 {
@@ -14,7 +15,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
     {
         private readonly IDistributedCache _cache;
 
-        public ProductRepository(ProductModuleDbContext context, IDistributedCache cache) : base(context)
+        public ProductRepository(AppDbContext context, IDistributedCache cache) : base(context)
         {
             _cache = cache;
         }
@@ -141,15 +142,14 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
 
             orderBy = FillOrderByPerField(product, orderBy);
 
-            (var products, int totalItems) = await this.GetAllAsyncByFilter(
-            descending,
-            pageNumber,
-            pageSize,
-            x =>
-            (string.IsNullOrEmpty(product.Name) || x.Name == product.Name)
-            && (x.EnterpriseId != null && (product.EnterpriseId == x.EnterpriseId && x.EnterpriseId != default(Guid)))
-            ,
-            orderBy
+            (var products, int totalItems) = await GetAllAsyncByFilterWithCountInternal(
+                descending,
+                pageNumber,
+                pageSize,
+                x =>
+                (string.IsNullOrEmpty(product.Name) || x.Name == product.Name)
+                && (x.EnterpriseId != null && (product.EnterpriseId == x.EnterpriseId && x.EnterpriseId != default(Guid))),
+                orderBy
             );
 
             if (products.Any())

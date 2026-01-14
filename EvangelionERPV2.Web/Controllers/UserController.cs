@@ -5,7 +5,6 @@ using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Token;
-using EvangelionERPV2.UserModule.Domain.Interface;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
@@ -19,14 +18,14 @@ namespace EvangelionERPV2.Web.Controllers
     public class UserController : Controller
     {
         private readonly IUserService<Shared.Entities.User> _userService;
-        private readonly IRepository<Shared.Entities.User> _userRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Shared.Entities.User> _userRepository;
         private readonly IMapper _mapper;
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider _kmsProvider;
         private static readonly HttpClient _httpClient = new HttpClient();
 
         public UserController(IUserService<Shared.Entities.User> userService,
-            IRepository<Shared.Entities.User> userRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Shared.Entities.User> userRepository,
             IMapper mapper,
             IConfiguration configuration,
             AWSKMSKeyProvider kmsProvider)
@@ -110,6 +109,7 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+
                 string? idToken = null;
                 if (payload.ValueKind == JsonValueKind.String)
                 {

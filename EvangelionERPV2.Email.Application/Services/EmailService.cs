@@ -17,8 +17,8 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 {
     public class EmailService : IEmailService<EmailStructure>
     {
-        private readonly IRepository<Enterprise> _enterpriseRepository;
-        private readonly Domain.Interface.IRepository<Email> _emailRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _enterpriseRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Email> _emailRepository;
         public readonly IEmailRabbitMQManager _rabbitMQManager;
         public readonly IOrderService<Order> _orderService;
         public readonly IProductService<Product> _productService;
@@ -28,10 +28,10 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
         public EmailService(
             IEmailRabbitMQManager rabbitMQManager,
-            IRepository<Enterprise> enterpriseRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> enterpriseRepository,
             IOrderService<Order> orderService,
             IProductService<Product> productService,
-            Domain.Interface.IRepository<Email> emailRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Email> emailRepository,
             AWSKMSKeyProvider kmsProvider,
             IConfiguration configuration)
         {

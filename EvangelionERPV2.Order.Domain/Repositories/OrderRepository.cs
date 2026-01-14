@@ -1,5 +1,4 @@
 using EvangelionERPV2.OrderModule.Domain.Interface;
-using EvangelionERPV2.OrderModule.Infra.Context;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
@@ -7,13 +6,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using System.Linq.Expressions;
+using EvangelionERPV2.Shared.Context;
+using EvangelionERPV2.Shared.Repositories;
 
 namespace EvangelionERPV2.OrderModule.Domain.Repositories
 {
     public class OrderRepository : Repository<Order>, IOrderRepository<Order>
     {
         private readonly IDistributedCache _cache;
-        public OrderRepository(OrderModuleDbContext context, IDistributedCache cache) : base(context)
+        public OrderRepository(AppDbContext context, IDistributedCache cache) : base(context)
         {
             _cache = cache;
         }
@@ -124,46 +125,15 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             int totalItems = 0;
             IEnumerable<Order> orders = Enumerable.Empty<Order>();
 
-            (orders, totalItems) = await this.GetAllAsyncByFilter(
-            descending,
-            pageNumber,
-            pageSize,
-            null,
-            orderBy
+            (orders, totalItems) = await GetAllAsyncByFilterWithCountInternal(
+                descending,
+                pageNumber,
+                pageSize,
+                null,
+                orderBy
             );
 
             return (orders, totalItems);
-        }
-
-        public async override Task<(IEnumerable<Order>, int)> GetAllAsyncByFilter(bool descending,
-            int? pageNumber,
-            int? pageSize,
-            Expression<Func<Order, bool>> predicate = null,
-            Expression<Func<Order, object>> orderBy = null
-            )
-        {
-            IQueryable<Order> query = _context.Set<Order>()
-                .Include(o => o.OrderedProduct)
-                    .ThenInclude(op => op.Product)
-                .AsNoTracking();
-
-            if (predicate != null)
-                query = query.Where(predicate);
-
-            if (orderBy != null)
-                query = descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy);
-
-            int totalItems = await query.CountAsync();
-            int? skip = (pageNumber - 1) * pageSize ?? 1;
-            List<Order>? result = null;
-
-            if (await query.AnyAsync())
-                result = await query.Skip(skip ?? 0).Take(pageSize ?? 0).ToListAsync();
-
-            if (result?.Any() != false)
-                return (result, totalItems);
-
-            return (new List<Order>(), 1);
         }
 
         private static Expression<Func<Order, object>> FillOrderByPerField(Order order, Expression<Func<Order, object>> orderBy)
