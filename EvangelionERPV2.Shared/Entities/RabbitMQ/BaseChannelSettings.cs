@@ -1,6 +1,5 @@
 ﻿using EvangelionERPV2.Shared.Interfaces;
 using Microsoft.Extensions.Configuration;
-using System;
 
 namespace EvangelionERPV2.Shared.Entities.RabbitMQ
 {
@@ -8,12 +7,12 @@ namespace EvangelionERPV2.Shared.Entities.RabbitMQ
     {
         public BaseChannelSettings() { }
 
-        public string QueueName { get; set; }
-        public virtual string ExchangeName { get; set; }
-        public virtual string RoutingKey { get; set; }
-        public virtual string QueueNameDLQ { get; set; }
-        public virtual string ExchangeNameDLQ { get; set; }
-        public virtual string RoutingKeyDLQ { get; set; }
+        public string QueueName { get; set; } = string.Empty;
+        public virtual string ExchangeName { get; set; } = string.Empty;
+        public virtual string RoutingKey { get; set; } = string.Empty;
+        public virtual string QueueNameDLQ { get; set; } = string.Empty;
+        public virtual string ExchangeNameDLQ { get; set; } = string.Empty;
+        public virtual string RoutingKeyDLQ { get; set; } = string.Empty;
 
     }
 }

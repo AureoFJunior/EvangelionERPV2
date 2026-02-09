@@ -13,8 +13,8 @@ namespace EvangelionERPV2.Shared.Utils
         private readonly TimeSpan _circuitBreakerDuration;
         private readonly int _circuitBreakerFailures;
 
-        public PolicyWrap SyncPolicyWrap { get; private set; }
-        public AsyncPolicyWrap AsyncPolicyWrap { get; private set; }
+        public PolicyWrap SyncPolicyWrap { get; private set; } = null!;
+        public AsyncPolicyWrap AsyncPolicyWrap { get; private set; } = null!;
 
         public PollyHandler(int retryCount = 3, int retryDelaySeconds = 1, int timeoutSeconds = 5, int circuitBreakerFailures = 2, int circuitBreakerDurationSeconds = 30)
         {

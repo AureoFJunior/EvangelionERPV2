@@ -49,7 +49,8 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
 
-                Guid enterpriseId = Guid.Parse(User.FindFirst(ClaimTypes.GroupSid)?.Value);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
                 IEnumerable<Customer> customers = await _repository.GetAllAsync(pageNumber, pageSize, x => x.EnterpriseId != null && (x.EnterpriseId != default(Guid) && x.EnterpriseId == enterpriseId));
                 if (customers == null)
@@ -87,7 +88,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                customer.EnterpriseId = Guid.Parse(User.FindFirst(ClaimTypes.GroupSid)?.Value);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                customer.EnterpriseId = enterpriseId;
 
                 IEnumerable<Customer> customers = await _customerRepository.GetAllAsyncFiltering(descending, pageNumber, pageSize, customer);
                 if (customers == null)
@@ -217,6 +221,12 @@ namespace EvangelionERPV2.Web.Controllers
                 Log.Logger.Error($"Error when deleting Customer ID {id}", ex);
                 return Problem(ex.Message);
             }
+        }
+
+        private bool TryGetEnterpriseId(out Guid enterpriseId)
+        {
+            var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
+            return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
         }
     }
 }

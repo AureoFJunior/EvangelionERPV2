@@ -15,10 +15,10 @@ namespace EvangelionERPV2.Shared.Utils
     public static class SharedFunctions
     {
         private static readonly HttpClient _httpClient;
-        private static IConfiguration _configuration;
-        private static string _defaultApiUrl;
+        private static IConfiguration _configuration = null!;
+        private static string _defaultApiUrl = string.Empty;
         private static string _encryptionKey = string.Empty;
-        private static AWSKMSKeyProvider _kmsProvider;
+        private static AWSKMSKeyProvider _kmsProvider = null!;
 
         static SharedFunctions()
         {
@@ -94,7 +94,7 @@ namespace EvangelionERPV2.Shared.Utils
             return lastDayOfMonth;
         }
 
-        public static T ConvertObject<T>(object obj)
+        public static T? ConvertObject<T>(object? obj)
         {
             if (obj == null) return default;
 
@@ -118,11 +118,11 @@ namespace EvangelionERPV2.Shared.Utils
 
             foreach (PropertyInfo property in properties)
             {
-                object value = property.GetValue(obj);
+                object? value = property.GetValue(obj);
                 if (value != null)
                 {
                     string fieldName = property.Name;
-                    string fieldValue = value.ToString();
+                    string fieldValue = value.ToString() ?? string.Empty;
                     fieldValues.Add(fieldName, fieldValue);
                 }
             }
@@ -219,6 +219,10 @@ namespace EvangelionERPV2.Shared.Utils
         #endregion
 
         #region Encryption
+        private const int PasswordSaltSize = 16;
+        private const int PasswordKeySize = 32;
+        private const int PasswordIterations = 100_000;
+        private const string PasswordHashPrefix = "PBKDF2";
 
         public static string Encrypt(string value)
         {
@@ -255,7 +259,7 @@ namespace EvangelionERPV2.Shared.Utils
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return string.Empty;
             }
@@ -296,7 +300,7 @@ namespace EvangelionERPV2.Shared.Utils
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return string.Empty;
             }
@@ -304,7 +308,69 @@ namespace EvangelionERPV2.Shared.Utils
 
         public static string GetEncryptionKey()
         {
+            if (_configuration == null || _kmsProvider == null)
+                throw new InvalidOperationException("SharedFunctions.Initialize must be called before accessing encryption settings.");
+
             return _kmsProvider.GetKMSKey(_configuration.GetSection("Encryption")["TokenKey"] ?? string.Empty);
+        }
+        #endregion
+
+        #region Password Hashing
+        public static string HashPassword(string password)
+        {
+            if (string.IsNullOrWhiteSpace(password))
+                return string.Empty;
+
+            var salt = RandomNumberGenerator.GetBytes(PasswordSaltSize);
+            var key = Rfc2898DeriveBytes.Pbkdf2(password, salt, PasswordIterations, HashAlgorithmName.SHA256, PasswordKeySize);
+            return $"{PasswordHashPrefix}${PasswordIterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(key)}";
+        }
+
+        public static bool VerifyPassword(string password, string storedHash, out bool needsRehash)
+        {
+            needsRehash = false;
+
+            if (string.IsNullOrWhiteSpace(password) || string.IsNullOrWhiteSpace(storedHash))
+                return false;
+
+            if (IsPasswordHashFormat(storedHash))
+            {
+                var parts = storedHash.Split('$');
+                if (parts.Length != 4)
+                    return false;
+
+                if (!int.TryParse(parts[1], out var iterations) || iterations <= 0)
+                    return false;
+
+                var salt = Convert.FromBase64String(parts[2]);
+                var expected = Convert.FromBase64String(parts[3]);
+                var actual = Rfc2898DeriveBytes.Pbkdf2(password, salt, iterations, HashAlgorithmName.SHA256, expected.Length);
+
+                return FixedTimeEquals(actual, expected);
+            }
+
+            var legacy = Decrypt(storedHash);
+            if (string.IsNullOrEmpty(legacy))
+                return false;
+
+            var legacyMatch = FixedTimeEquals(Encoding.UTF8.GetBytes(password), Encoding.UTF8.GetBytes(legacy));
+            if (legacyMatch)
+                needsRehash = true;
+
+            return legacyMatch;
+        }
+
+        public static bool IsPasswordHashFormat(string value)
+        {
+            return !string.IsNullOrWhiteSpace(value) && value.StartsWith($"{PasswordHashPrefix}$", StringComparison.Ordinal);
+        }
+
+        private static bool FixedTimeEquals(byte[] left, byte[] right)
+        {
+            if (left.Length != right.Length)
+                return false;
+
+            return CryptographicOperations.FixedTimeEquals(left, right);
         }
         #endregion
 

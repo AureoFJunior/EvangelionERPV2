@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using EvangelionERPV2.Infra.Context;
@@ -25,7 +25,7 @@ namespace EvangelionERPV2.Application.DI
                 services.AddLogging();
 
                 #region DataBase
-                services.AddDbContext<AppDbContext>(options => options.UseSqlServer(connection));
+                services.AddDbContextPool<AppDbContext>(options => options.UseSqlServer(connection));
 
                 #endregion
 

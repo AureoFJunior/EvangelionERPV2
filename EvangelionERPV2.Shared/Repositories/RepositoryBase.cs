@@ -26,30 +26,24 @@ namespace EvangelionERPV2.Shared.Repositories
         {
             var query = _context.Set<TEntity>().Where(e => e.Id == id).AsNoTracking();
 
-            if (query.Any())
-                return query.FirstOrDefault();
-
-            return null;
+            var entity = query.FirstOrDefault();
+            return entity ?? null!;
         }
 
         public virtual IEnumerable<TEntity> GetAll()
         {
             var query = _context.Set<TEntity>().AsNoTracking();
 
-            if (query.Any())
-                return query.AsNoTracking().ToList();
-
-            return new List<TEntity>();
+            var result = query.ToList();
+            return result.Count > 0 ? result : new List<TEntity>();
         }
 
         public virtual IEnumerable<TEntity> GetByCondition(Func<TEntity, bool> condition)
         {
             var query = _context.Set<TEntity>().AsNoTracking().Where(condition);
 
-            if (query.Any())
-                return query.ToList();
-
-            return new List<TEntity>();
+            var result = query.ToList();
+            return result.Count > 0 ? result : new List<TEntity>();
         }
 
         public virtual TEntity Create(TEntity entity)
@@ -124,59 +118,51 @@ namespace EvangelionERPV2.Shared.Repositories
         public virtual async Task<Guid> GetLastId()
         {
             var query = _context.Set<TEntity>().AsNoTracking();
-            if (await query.AnyAsync())
-                return query.OrderByDescending(x => x.Id).FirstOrDefault().Id;
-
-            return Guid.NewGuid();
+            var lastEntity = await query.OrderByDescending(x => x.Id).FirstOrDefaultAsync();
+            return lastEntity?.Id ?? Guid.NewGuid();
         }
 
         public virtual async Task<TEntity> GetByIdAsync(Guid id)
         {
             var query = _context.Set<TEntity>().Where(e => e.Id == id).AsNoTracking();
 
-            if (await query.AnyAsync())
-                return await query.FirstOrDefaultAsync();
-
-            return null;
+            var entity = await query.FirstOrDefaultAsync();
+            return entity ?? null!;
         }
 
-        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(Func<TEntity, bool> predicate = null)
+        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(Func<TEntity, bool>? predicate = null)
         {
             IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
 
             if (predicate != null)
-                query = query.Where(entity => predicate(entity));
+                return query.AsEnumerable().Where(predicate).ToList();
 
-            if (await query.AnyAsync())
-                return await query.ToListAsync();
-
-            return new List<TEntity>();
+            return await query.ToListAsync();
         }
 
-        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Func<TEntity, bool> predicate = null)
+        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Func<TEntity, bool>? predicate = null)
         {
             IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
 
+            if (pageNumber == null || pageSize == null)
+                return await GetAllAsync(predicate);
+
             if (predicate != null)
-                query = query.Where(entity => predicate(entity));
+                return query.AsEnumerable()
+                    .Where(predicate)
+                    .Skip((pageNumber.Value - 1) * pageSize.Value)
+                    .Take(pageSize.Value)
+                    .ToList();
 
-            int? skip = (pageNumber - 1) * pageSize ?? 1;
-            List<TEntity>? result = null;
-
-            if (await query.AnyAsync())
-                result = await query.Skip(skip ?? 0).Take(pageSize ?? 0).ToListAsync();
-
-            if (result == null || result?.Any() == false)
-                return result;
-
-            return new List<TEntity>();
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
+            return await query.Skip(skip).Take(pageSize.Value).ToListAsync();
         }
 
         protected virtual async Task<IEnumerable<TEntity>> GetAllAsyncByFilterInternal(bool descending,
             int? pageNumber,
             int? pageSize,
-            Expression<Func<TEntity, bool>> predicate = null,
-            Expression<Func<TEntity, object>> orderBy = null
+            Expression<Func<TEntity, bool>>? predicate = null,
+            Expression<Func<TEntity, object>>? orderBy = null
             )
         {
             IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
@@ -190,23 +176,18 @@ namespace EvangelionERPV2.Shared.Repositories
                     query = descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy);
             }
 
-            int? skip = (pageNumber - 1) * pageSize ?? 1;
-            List<TEntity>? result = null;
+            if (pageNumber == null || pageSize == null)
+                return await query.ToListAsync();
 
-            if (await query.AnyAsync())
-                result = await query.Skip(skip ?? 0).Take(pageSize ?? 0).ToListAsync();
-
-            if (result?.Any() != false)
-                return result;
-
-            return new List<TEntity>();
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
+            return await query.Skip(skip).Take(pageSize.Value).ToListAsync();
         }
 
         protected virtual async Task<(IEnumerable<TEntity>, int)> GetAllAsyncByFilterWithCountInternal(bool descending,
             int? pageNumber,
             int? pageSize,
-            Expression<Func<TEntity, bool>> predicate = null,
-            Expression<Func<TEntity, object>> orderBy = null
+            Expression<Func<TEntity, bool>>? predicate = null,
+            Expression<Func<TEntity, object>>? orderBy = null
             )
         {
             IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
@@ -221,16 +202,13 @@ namespace EvangelionERPV2.Shared.Repositories
             }
 
             int totalItems = await query.CountAsync();
-            int? skip = (pageNumber - 1) * pageSize ?? 1;
-            List<TEntity>? result = null;
+            if (pageNumber == null || pageSize == null)
+                return (await query.ToListAsync(), totalItems);
 
-            if (await query.AnyAsync())
-                result = await query.Skip(skip ?? 0).Take(pageSize ?? 0).ToListAsync();
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
+            var result = await query.Skip(skip).Take(pageSize.Value).ToListAsync();
 
-            if (result?.Any() != false)
-                return (result, totalItems);
-
-            return (new List<TEntity>(), 1);
+            return (result, totalItems);
         }
 
         public virtual async Task<TEntity> CreateAsync(TEntity entity)

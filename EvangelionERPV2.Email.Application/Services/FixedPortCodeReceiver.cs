@@ -24,7 +24,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
         public async Task<AuthorizationCodeResponseUrl> ReceiveCodeAsync(AuthorizationCodeRequestUrl url, CancellationToken cancellationToken)
         {
-            // Abre o Edge em InPrivate
             var startInfo = new ProcessStartInfo
             {
                 FileName = @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -33,7 +32,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             };
             Process.Start(startInfo);
 
-            // Escuta na porta fixa
             using (var listener = new HttpListener())
             {
                 listener.Prefixes.Add(RedirectUri);
@@ -48,12 +46,10 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
                 response.OutputStream.Close();
 
-                // Obtém a query string corretamente
-                var query = context.Request.Url.Query; // Inclui o prefixo '?'
+                var query = context.Request.Url?.Query ?? string.Empty;
                 if (string.IsNullOrEmpty(query) || !query.Contains("code="))
                     throw new InvalidOperationException("Authorization code not found in the redirect URI.");
 
-                // Remove o prefixo '?'
                 var queryString = query.StartsWith("?") ? query.Substring(1) : query;
 
                 return new AuthorizationCodeResponseUrl(queryString);

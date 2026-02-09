@@ -9,7 +9,7 @@ namespace EvangelionERPV2.Web.FluentValidator
         {
             RuleFor(orderedProduct => orderedProduct)
             .NotNull().WithMessage("Ordered Product must be filled")
-            .Must(fields => fields.ProductId != null).WithMessage("Ordered Product must have an ProductId");
+            .Must(fields => fields.ProductId != Guid.Empty).WithMessage("Ordered Product must have an ProductId");
 
             RuleFor(orderedProduct => orderedProduct)
             .NotNull().WithMessage("Ordered Product must be filled")

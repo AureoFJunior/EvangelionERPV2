@@ -13,8 +13,8 @@ namespace EvangelionERPV2.Shared.Repositories
         public virtual Task<IEnumerable<TEntity>> GetAllAsyncByFilter(bool descending,
             int? pageNumber,
             int? pageSize,
-            Expression<Func<TEntity, bool>> predicate = null,
-            Expression<Func<TEntity, object>> orderBy = null)
+            Expression<Func<TEntity, bool>>? predicate = null,
+            Expression<Func<TEntity, object>>? orderBy = null)
         {
             return GetAllAsyncByFilterInternal(descending, pageNumber, pageSize, predicate, orderBy);
         }

@@ -49,7 +49,8 @@ namespace EvangelionERPV2.Web.Controllers
 
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            Guid enterpriseId = Guid.Parse(User.FindFirst(ClaimTypes.GroupSid)?.Value);
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
 
             IEnumerable<Product> products = await _repository.GetAllAsync(pageNumber, pageSize, x => x.EnterpriseId != null && (x.EnterpriseId != default(Guid) && x.EnterpriseId == enterpriseId));
             if (products == null)
@@ -76,7 +77,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                product.EnterpriseId = Guid.Parse(User.FindFirst(ClaimTypes.GroupSid)?.Value);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                product.EnterpriseId = enterpriseId;
 
                 (IEnumerable<Product> products, int totalItems) = await _productRepository.GetAllAsyncFiltering(descending, pageNumber, pageSize, product);
                 if (products == null)
@@ -236,6 +240,12 @@ namespace EvangelionERPV2.Web.Controllers
                 Log.Logger.Error($"Error when updating Product: {productPicture.Product.Name}", ex);
                 return Problem(ex.Message);
             }
+        }
+
+        private bool TryGetEnterpriseId(out Guid enterpriseId)
+        {
+            var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
+            return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
         }
     }
 }
