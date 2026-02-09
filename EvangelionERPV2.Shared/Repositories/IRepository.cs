@@ -24,13 +24,13 @@ namespace EvangelionERPV2.Shared.Repositories
         Task CommitAsync(CancellationToken cancellation = default);
         Task<Guid> GetLastId();
         Task<TEntity> GetByIdAsync(Guid id);
-        Task<IEnumerable<TEntity>> GetAllAsync(Func<TEntity, bool> predicate = null);
-        Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Func<TEntity, bool> predicate = null);
+        Task<IEnumerable<TEntity>> GetAllAsync(Func<TEntity, bool>? predicate = null);
+        Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Func<TEntity, bool>? predicate = null);
         Task<IEnumerable<TEntity>> GetAllAsyncByFilter(bool descending,
             int? pageNumber,
             int? pageSize,
-            Expression<Func<TEntity, bool>> predicate = null,
-            Expression<Func<TEntity, object>> orderBy = null);
+            Expression<Func<TEntity, bool>>? predicate = null,
+            Expression<Func<TEntity, object>>? orderBy = null);
         Task<TEntity> CreateAsync(TEntity entity);
         Task<IEnumerable<TEntity>> CreateRangeAsync(IEnumerable<TEntity> entitys);
         #endregion

@@ -36,7 +36,10 @@ namespace EvangelionERPV2.Shared.Utils
                 SecretId = secretName.Split(":")?[0] ?? string.Empty
             }).GetAwaiter().GetResult();
 
-            string secretString = secretValueResponse.SecretString;
+            string secretString = secretValueResponse.SecretString ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(secretString))
+                return string.Empty;
+
             string keyIdentifier = secretString.Replace("'", string.Empty).Replace("\"", string.Empty);
 
             try
@@ -65,9 +68,12 @@ namespace EvangelionERPV2.Shared.Utils
             });
 
             var secretString = secretValueResponse.SecretString;
+            if (string.IsNullOrWhiteSpace(secretString))
+                return new Dictionary<string, string>();
+
             var secretJson = JObject.Parse(secretString);
 
-            return secretJson.ToObject<Dictionary<string, string>>();
+            return secretJson.ToObject<Dictionary<string, string>>() ?? new Dictionary<string, string>();
         }
 
         public async Task<BasicAWSCredentials> GetAWSCredentialsAsync()
@@ -78,10 +84,16 @@ namespace EvangelionERPV2.Shared.Utils
             });
 
             var secretString = secretValueResponse.SecretString;
+            if (string.IsNullOrWhiteSpace(secretString))
+                throw new InvalidOperationException("AWS secret is empty.");
+
             var secretJson = JObject.Parse(secretString);
 
-            var accessKeyId = secretJson["access-key-id"].ToString();
-            var secretAccessKey = secretJson["secret-access-key"].ToString();
+            var accessKeyId = secretJson["access-key-id"]?.ToString();
+            var secretAccessKey = secretJson["secret-access-key"]?.ToString();
+
+            if (string.IsNullOrWhiteSpace(accessKeyId) || string.IsNullOrWhiteSpace(secretAccessKey))
+                throw new InvalidOperationException("AWS credentials are missing required values.");
 
             return new BasicAWSCredentials(accessKeyId, secretAccessKey);
         }

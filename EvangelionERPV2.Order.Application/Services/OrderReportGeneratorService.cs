@@ -238,13 +238,14 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             foreach (var order in orders)
             {
-                foreach (var orderedProduct in order.OrderedProduct)
+                var orderedProducts = order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>();
+                foreach (var orderedProduct in orderedProducts)
                 {
                     var product = await _productRepository.GetByIdAsync(orderedProduct.ProductId) ?? new Product();
                     rows.AppendLine(GetProductRow(product?.Name ?? "Unknown Product", orderedProduct.Quantity, orderedProduct.Value, orderedProduct.UnitOfMeasure));
                 }
 
-                totalQuantity += order.OrderedProduct.Sum(x => x.Quantity);
+                totalQuantity += orderedProducts.Sum(x => x.Quantity);
                 totalValue += order.TotalValue;
             }
 

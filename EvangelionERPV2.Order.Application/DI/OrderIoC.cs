@@ -39,7 +39,7 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 services.AddLogging();
 
                 #region DataBase
-                services.AddDbContext<AppDbContext>(options => options.UseSqlServer(kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty)));
+                services.AddDbContextPool<AppDbContext>(options => options.UseSqlServer(kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty)));
 
                 #endregion
 

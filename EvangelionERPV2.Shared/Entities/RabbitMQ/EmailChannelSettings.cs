@@ -12,12 +12,12 @@ namespace EvangelionERPV2.Shared.Entities.RabbitMQ
 
         public EmailChannelSettings(IConfigurationSection configurationSection)
         {
-            QueueName = configurationSection["QueueName"];
+            QueueName = configurationSection["QueueName"] ?? string.Empty;
         }
 
         public EmailChannelSettings() { }
 
-        public new string QueueName { get; set; }
+        public new string QueueName { get; set; } = string.Empty;
         public override string ExchangeName => $"email.{QueueName}.exchange.topic";
         public override string RoutingKey => $"email.{QueueName}.#";
         public override string QueueNameDLQ => $"{QueueName}.dlq";

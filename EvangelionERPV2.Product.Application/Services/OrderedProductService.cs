@@ -30,7 +30,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -49,13 +49,13 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 _orderedProductRepository.Commit();
                 return updatedOrderedProduct;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -75,13 +75,13 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 _orderedProductRepository.Commit();
                 return deletedOrderedProduct;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
     }

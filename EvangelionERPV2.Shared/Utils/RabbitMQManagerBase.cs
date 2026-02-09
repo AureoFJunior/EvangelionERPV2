@@ -69,7 +69,7 @@ namespace EvangelionERPV2.Shared.Utils
                 _channel.QueueBindAsync(_channelSettings.QueueNameDLQ, _channelSettings.ExchangeNameDLQ, _channelSettings.RoutingKeyDLQ).GetAwaiter().GetResult();
 
                 // Setup main queue
-                var queueArgs = new Dictionary<string, object>
+                var queueArgs = new Dictionary<string, object?>
                 {
                     { "x-queue-type", "classic" },
                     { "x-dead-letter-exchange", _channelSettings.ExchangeNameDLQ},
@@ -115,11 +115,9 @@ namespace EvangelionERPV2.Shared.Utils
         public async Task<T> DequeueAndProcessAsync<T>()
         {
             Log.Logger.Information($"Starting Dequeue and Process");
-            T resultObject = default;
-
             var tcs = new TaskCompletionSource<T>();
 
-            AsyncEventHandler<BasicDeliverEventArgs> handler = null;
+            AsyncEventHandler<BasicDeliverEventArgs>? handler = null;
             handler = async (model, ea) =>
             {
                 try
@@ -127,7 +125,10 @@ namespace EvangelionERPV2.Shared.Utils
                     Log.Logger.Information($"Consuming message");
                     var body = ea.Body;
                     var message = Encoding.UTF8.GetString(body.ToArray());
-                    resultObject = JsonSerializer.Deserialize<T>(message, _jsonOptions);
+                    var resultObject = JsonSerializer.Deserialize<T>(message, _jsonOptions);
+
+                    if (resultObject is null)
+                        throw new InvalidOperationException("Failed to deserialize message payload.");
 
                     await _channel.BasicAckAsync(ea.DeliveryTag, false);
 
@@ -147,8 +148,7 @@ namespace EvangelionERPV2.Shared.Utils
 
             _consumer.ReceivedAsync += handler;
 
-            await tcs.Task;
-            return resultObject;
+            return await tcs.Task;
         }
     }
 }

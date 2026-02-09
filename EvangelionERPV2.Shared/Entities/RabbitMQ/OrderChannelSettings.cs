@@ -12,13 +12,13 @@ namespace EvangelionERPV2.Shared.Entities.RabbitMQ
 
         public OrderChannelSettings(IConfigurationSection configurationSection)
         {
-            QueueName = configurationSection["QueueName"];
-            BatchSize = Convert.ToUInt32(configurationSection["BatchSize"]);
+            QueueName = configurationSection["QueueName"] ?? string.Empty;
+            BatchSize = uint.TryParse(configurationSection["BatchSize"], out var batchSize) ? batchSize : 0;
         }
 
         public OrderChannelSettings() { }
 
-        public new string QueueName { get; set; }
+        public new string QueueName { get; set; } = string.Empty;
         public uint BatchSize { get; set; }
         public override string ExchangeName => $"order.{QueueName}.exchange.topic";
         public override string RoutingKey => $"order.{QueueName}.#";

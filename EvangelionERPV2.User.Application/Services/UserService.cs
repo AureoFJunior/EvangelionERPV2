@@ -35,14 +35,16 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 if (existentUser != null)
                     throw new InsertDatabaseException($"{nameof(User)} already has an register in database");
 
-                user.Password = SharedFunctions.Encrypt(user.Password);
+                user.Password = SharedFunctions.IsPasswordHashFormat(user.Password)
+                    ? user.Password
+                    : SharedFunctions.HashPassword(user.Password);
                 includedUser = await _userRepository.CreateAsync(user);
                 await _userRepository.CommitAsync();
                 return includedUser;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -53,6 +55,9 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
             if (existentUser == null)
                 throw new NotFoundDatabaseException($"{nameof(User)} was not found in database.");
+
+            if (!string.IsNullOrWhiteSpace(user.Password) && !SharedFunctions.IsPasswordHashFormat(user.Password))
+                user.Password = SharedFunctions.HashPassword(user.Password);
 
             updatedUser = _userRepository.Update(user);
             _userRepository.Commit();
@@ -98,7 +103,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
             }
 
             if (payload == null || string.IsNullOrWhiteSpace(payload.Email) ||
-                (payload.EmailVerified != null && !payload.EmailVerified))
+                payload.EmailVerified != true)
             {
                 Log.Logger.Warning("Google token did not contain a verified email.");
                 throw new UnauthorizedAccessException("Email not verified by Google.");

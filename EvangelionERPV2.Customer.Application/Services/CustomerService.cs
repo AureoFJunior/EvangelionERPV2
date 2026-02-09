@@ -31,7 +31,7 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -50,13 +50,13 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
                 _customerRepository.Commit();
                 return updatedCustomer;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -76,13 +76,13 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
                 _customerRepository.Commit();
                 return deletedCustomer;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
     }

@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
 using System.Text.Json;
+using System.Security.Claims;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -22,51 +23,59 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IMapper _mapper;
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider _kmsProvider;
+        private readonly TokenService _tokenService;
         private static readonly HttpClient _httpClient = new HttpClient();
 
         public UserController(IUserService<Shared.Entities.User> userService,
             EvangelionERPV2.Shared.Repositories.IRepository<Shared.Entities.User> userRepository,
             IMapper mapper,
             IConfiguration configuration,
-            AWSKMSKeyProvider kmsProvider)
+            AWSKMSKeyProvider kmsProvider,
+            TokenService tokenService)
         {
             _userService = userService;
             _userRepository = userRepository;
             _mapper = mapper;
             _configuration = configuration;
             _kmsProvider = kmsProvider;
+            _tokenService = tokenService;
         }
 
         /// <summary>
         /// Log into the system and get the API token.
         /// </summary>
-        /// <param name="userName"></param>
-        /// <param name="password"></param>
+        /// <param name="request"></param>
         /// <returns></returns>
-        [HttpGet("{userName}/{password}")]
+        [HttpPost]
         [AllowAnonymous]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> LogInto(string userName, string password)
+        public async Task<IActionResult> LogInto([FromBody] LoginRequestDTO request)
         {
             try
             {
-                Shared.Entities.User? user = _userRepository.GetByCondition(x => x != null && x.UserName == userName && SharedFunctions.Decrypt(x.Password) == password).FirstOrDefault();
+                if (request == null || string.IsNullOrWhiteSpace(request.UserName) || string.IsNullOrWhiteSpace(request.Password))
+                    return BadRequest("userName and password are required.");
+
+                Shared.Entities.User? user = _userRepository.GetByCondition(x => x != null && x.UserName == request.UserName).FirstOrDefault();
                 if (user == null)
-                    return NoContent();
+                    return Unauthorized();
+
+                var isValidPassword = SharedFunctions.VerifyPassword(request.Password, user.Password, out var needsRehash);
+                if (!isValidPassword)
+                    return Unauthorized();
+
+                if (needsRehash)
+                    user.Password = SharedFunctions.HashPassword(request.Password);
 
                 user.IsLogged = 1;
                 _userService.Update(user);
 
-                string token, refreshToken;
-                GenerateToken(user, out token, out refreshToken);
-
-                if (String.IsNullOrEmpty(token) || String.IsNullOrEmpty(refreshToken))
+                var (token, refreshToken) = await GenerateTokensAsync(user);
+                if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
                     throw new Exception();
-
-                user.IsLogged = 1;
-                _userService.Update(user);
 
                 UserDTO loggedUser = new UserDTO()
                 {
@@ -75,9 +84,11 @@ namespace EvangelionERPV2.Web.Controllers
                     LastName = user.LastName,
                     Email = user.Email,
                     BirthDate = user.BirthDate,
+                    ProfilePicture = user.ProfilePicture,
                     Token = token,
                     RefreshToken = refreshToken,
-                    Enterprise = user.Enterprise
+                    Enterprise = user.Enterprise,
+                    ActualTheme = user.ActualTheme
                 };
 
                 return Ok(loggedUser);
@@ -127,11 +138,9 @@ namespace EvangelionERPV2.Web.Controllers
                 }
 
                 var user = await _userService.LoginToSSOAsync(idToken);
-                GenerateToken(user, out var token, out var refreshToken);
+                var (token, refreshToken) = await GenerateTokensAsync(user);
                 if (string.IsNullOrEmpty(token))
-                {
                     throw new Exception("Token generation failed.");
-                }
 
                 return Ok(BuildUserDto(user, token, refreshToken));
             }
@@ -192,11 +201,9 @@ namespace EvangelionERPV2.Web.Controllers
                 }
 
                 var user = await _userService.LoginToSSOAsync(tokenResponse.IdToken);
-                GenerateToken(user, out var token, out var refreshToken);
+                var (token, refreshToken) = await GenerateTokensAsync(user);
                 if (string.IsNullOrEmpty(token))
-                {
                     throw new Exception("Token generation failed.");
-                }
 
                 return Ok(BuildUserDto(user, token, refreshToken));
             }
@@ -246,11 +253,12 @@ namespace EvangelionERPV2.Web.Controllers
             return tokenResponse;
         }
 
-        private static void GenerateToken(Shared.Entities.User user, out string token, out string refreshToken)
+        private async Task<(string Token, string RefreshToken)> GenerateTokensAsync(Shared.Entities.User user)
         {
-            token = TokenService.GenerateToken(user);
-            refreshToken = TokenService.GenerateRefreshToken();
-            TokenService.SaveRefreshToken(user.UserName, refreshToken);
+            var token = _tokenService.GenerateToken(user);
+            var refreshToken = _tokenService.GenerateRefreshToken();
+            await _tokenService.SaveRefreshTokenAsync(user.Id, refreshToken);
+            return (token, refreshToken);
         }
 
         private static UserDTO BuildUserDto(Shared.Entities.User user, string token, string refreshToken)
@@ -262,11 +270,14 @@ namespace EvangelionERPV2.Web.Controllers
                 LastName = user.LastName,
                 Email = user.Email,
                 BirthDate = user.BirthDate,
+                ProfilePicture = user.ProfilePicture,
                 Token = token,
                 RefreshToken = refreshToken,
-                Enterprise = user.Enterprise
+                Enterprise = user.Enterprise,
+                ActualTheme = user.ActualTheme
             };
         }
+
 
         /// <summary>
         /// Return all the users.
@@ -387,6 +398,51 @@ namespace EvangelionERPV2.Web.Controllers
             catch (Exception ex)
             {
                 Log.Logger.Error("Error when updating User", ex);
+                return Problem(ex.Message);
+            }
+        }
+
+        public sealed class UpdateThemeRequest
+        {
+            public short Theme { get; set; }
+        }
+
+        /// <summary>
+        /// Update the current user's theme preference.
+        /// </summary>
+        [HttpPut]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public IActionResult UpdateTheme([FromBody] UpdateThemeRequest request)
+        {
+            try
+            {
+                var userName = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrWhiteSpace(userName))
+                    return Unauthorized();
+
+                Shared.Entities.User? user = _userRepository
+                    .GetByCondition(x => x != null && x.UserName == userName)
+                    .FirstOrDefault();
+
+                if (user == null)
+                    return NotFound();
+
+                user.ActualTheme = request.Theme;
+
+                var updatedUser = _userService.Update(user);
+                if (updatedUser == null)
+                    return NoContent();
+
+                var dto = _mapper.Map<UserDTO>(updatedUser);
+                return Ok(dto);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("Error when updating user theme", ex);
                 return Problem(ex.Message);
             }
         }

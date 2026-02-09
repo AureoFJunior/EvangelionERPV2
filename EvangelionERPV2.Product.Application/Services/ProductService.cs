@@ -56,7 +56,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -77,13 +77,13 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
                 return product;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -116,7 +116,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                         await UpdateAsync(product);
                         product = null;
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
                         throw;
                     }
@@ -124,13 +124,13 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
                 });
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -150,13 +150,13 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 _productRepository.Commit();
                 return deletedProduct;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -165,10 +165,12 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             try
             {
                 Product? existentProduct = await _productRepository.GetByIdAsync(productPicture.Product.Id);
-                string bucketName = _configuration.GetSection("AWSSettings")["BucketProducttName"];
+                string bucketName = _configuration.GetSection("AWSSettings")["BucketProducttName"] ?? string.Empty;
 
                 if (existentProduct == null)
                     throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
+                if (string.IsNullOrWhiteSpace(bucketName))
+                    throw new InvalidOperationException("AWS bucket name is not configured.");
 
                 string keyName = $"{productPicture.Product.Name.ClearString().Replace(" ", "-")}{DateTime.UtcNow.ToString("MM-dd-yyyy-HH:mm:ss:fff")}";
                 string encryptedkeyName = SharedFunctions.Encrypt(keyName);
@@ -186,13 +188,13 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 await _productRepository.CommitAsync();
                 return productPicture.Product;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -205,6 +207,8 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
         private async Task DeleteOldPicture(Product? existentProduct, string bucketName)
         {
+            if (existentProduct == null)
+                return;
             if (!string.IsNullOrEmpty(existentProduct.PictureAdress))
                 await _s3Client.DeleteItemAsync(bucketName, existentProduct.PictureAdress);
         }
@@ -222,7 +226,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             if (products == null || products?.Any() == false)
             {
                 Log.Logger.Warning($"Doesn't have any products");
-                return null;
+                return string.Empty;
             }
 
             return await _productReportGeneratorService.GenerateStockReportAsync(enterprise);

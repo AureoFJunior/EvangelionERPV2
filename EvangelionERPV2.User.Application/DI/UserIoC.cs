@@ -35,7 +35,7 @@ namespace EvangelionERPV2.UserModule.Application.DI
                 services.AddLogging();
 
                 #region DataBase
-                services.AddDbContext<AppDbContext>(options =>
+                services.AddDbContextPool<AppDbContext>(options =>
                 {
                     var connectionString = kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty);
 

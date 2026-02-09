@@ -16,59 +16,64 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
 
         public async override Task<OrderedProduct> GetByIdAsync(Guid id)
         {
-            try
-            {
-                IQueryable<OrderedProduct> query = _context.Set<OrderedProduct>().Where(e => e.Id == id).AsNoTracking();
+            IQueryable<OrderedProduct> query = _context.Set<OrderedProduct>().Where(e => e.Id == id).AsNoTracking();
+            OrderedProduct? orderedProduct = await query.FirstOrDefaultAsync();
 
-                if (await query.AnyAsync())
-                    return await query.FirstOrDefaultAsync();
-
+            if (orderedProduct == null)
                 throw new NotFoundDatabaseException();
-            }
-            catch (Exception ex) { throw; }
+
+            return orderedProduct;
         }
 
-        public async override Task<IEnumerable<OrderedProduct>> GetAllAsync(Func<OrderedProduct, bool> predicate)
+        public async override Task<IEnumerable<OrderedProduct>> GetAllAsync(Func<OrderedProduct, bool>? predicate)
         {
-            try
+            IEnumerable<OrderedProduct> result;
+            IQueryable<OrderedProduct> query = _context.Set<OrderedProduct>().AsNoTracking();
+
+            if (predicate != null)
             {
-                IQueryable<OrderedProduct> query = _context.Set<OrderedProduct>().AsNoTracking();
-
-                if (predicate != null)
-                    return query.Where(predicate);
-
-                if (await query.AnyAsync())
-                    return await query.ToListAsync();
-
-                throw new NotFoundDatabaseException();
+                result = query.AsEnumerable().Where(predicate).ToList();
             }
-            catch (Exception ex) { throw; }
+            else
+            {
+                result = await query.ToListAsync();
+            }
+
+            if (!result.Any())
+                throw new NotFoundDatabaseException();
+
+            return result;
         }
 
-        public async override Task<IEnumerable<OrderedProduct>> GetAllAsync(int? pageNumber, int? pageSize, Func<OrderedProduct, bool> predicate = null)
+        public async override Task<IEnumerable<OrderedProduct>> GetAllAsync(int? pageNumber, int? pageSize, Func<OrderedProduct, bool>? predicate = null)
         {
-            try
+            if (pageNumber == null || pageSize == null)
+                return await GetAllAsync(predicate);
+
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
+            IEnumerable<OrderedProduct> result;
+            IQueryable<OrderedProduct> query = _context.Set<OrderedProduct>().AsNoTracking();
+
+            if (predicate != null)
             {
-                if (pageNumber == null || pageSize == null)
-                    return await GetAllAsync(predicate);
-
-                IQueryable<OrderedProduct> query = _context.Set<OrderedProduct>().AsNoTracking();
-                int skip = (pageNumber - 1) * pageSize ?? 1;
-
-                if (predicate != null)
-                    return _context.Set<OrderedProduct>().AsNoTracking().Where(predicate).Skip(skip).Take(pageSize ?? 0);
-
-                List<OrderedProduct>? result = null;
-
-                if (query.Any())
-                    result = await query.Skip(skip).Take(pageSize ?? 0).ToListAsync();
-
-                if (result == null || result?.Any() == false)
-                    return result;
-
-                throw new NotFoundDatabaseException();
+                result = query.AsEnumerable()
+                    .Where(predicate)
+                    .Skip(skip)
+                    .Take(pageSize.Value)
+                    .ToList();
             }
-            catch (Exception ex) { throw; }
+            else
+            {
+                result = await query
+                    .Skip(skip)
+                    .Take(pageSize.Value)
+                    .ToListAsync();
+            }
+
+            if (!result.Any())
+                throw new NotFoundDatabaseException();
+
+            return result;
         }
     }
 }
