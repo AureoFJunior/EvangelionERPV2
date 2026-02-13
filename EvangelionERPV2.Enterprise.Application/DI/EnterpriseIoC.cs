@@ -1,8 +1,7 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
-using EvangelionERPV2.EnterpriseModule.Infra.Context;
 using EvangelionERPV2.Shared.Configs;
 using EvangelionERPV2.EnterpriseModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
@@ -11,6 +10,7 @@ using EvangelionERPV2.EnterpriseModule.Application.Interface;
 using EvangelionERPV2.EnterpriseModule.Application.Services;
 using EvangelionERPV2.Shared.Utils;
 using Amazon.SecretsManager;
+using EvangelionERPV2.Shared.Context;
 
 namespace EvangelionERPV2.EnterpriseModule.Application.DI
 {
@@ -35,7 +35,7 @@ namespace EvangelionERPV2.EnterpriseModule.Application.DI
                 services.AddLogging();
 
                 #region DataBase
-                services.AddDbContext<EnterpriseModuleDbContext>(options => options.UseSqlServer(kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty)));
+                services.AddDbContextPool<AppDbContext>(options => options.UseSqlServer(kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty)));
 
                 #endregion
 
@@ -47,8 +47,8 @@ namespace EvangelionERPV2.EnterpriseModule.Application.DI
                 #endregion
 
                 #region Repositorys
-                services.AddTransient(typeof(IRepository<>), typeof(Repository<>));
-                services.AddTransient(typeof(IRepository<Enterprise>), typeof(EnterpriseRepository));
+                services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<>), typeof(EvangelionERPV2.Shared.Repositories.Repository<>));
+                services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<Enterprise>), typeof(EnterpriseRepository));
                 services.AddTransient(typeof(IEnterpriseRepository<Enterprise>), typeof(EnterpriseRepository));
 
 
@@ -58,7 +58,7 @@ namespace EvangelionERPV2.EnterpriseModule.Application.DI
                 services.AddTransient(typeof(IEnterpriseService<Enterprise>), typeof(EnterpriseService));
                 #endregion
 
-                services.AddScoped(typeof(IUnitOfWork<EnterpriseModuleDbContext>), typeof(UnitOfWork<EnterpriseModuleDbContext>));
+                services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));
             }
             catch (Exception ex)
             {

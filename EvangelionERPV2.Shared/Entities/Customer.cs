@@ -9,18 +9,20 @@ namespace EvangelionERPV2.Shared.Entities
     {
         public Customer() { }
 
-        public Customer(string name, string phoneNumber, string email, string adress)
+        public Customer(string name, string phoneNumber, string email, string adress, string? document = null)
         {
             Name = name;
             PhoneNumber = phoneNumber;
             Email = email;
             Adress = adress;
+            Document = document;
         }
 
         public string Name { get; set; } = "";
         public string PhoneNumber { get; set; } = "";
         public string Email { get; set; } = "";
         public string Adress { get; set; } = "";
+        public string? Document { get; set; } = null;
 
         [ForeignKey(nameof(Enterprise))]
         public Guid? EnterpriseId { get; set; } = null;

@@ -1,80 +1,64 @@
 using EvangelionERPV2.CustomerModule.Domain.Interface;
-using EvangelionERPV2.CustomerModule.Infra.Context;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
+using EvangelionERPV2.Shared.Context;
+using EvangelionERPV2.Shared.Repositories;
 
 namespace EvangelionERPV2.CustomerModule.Domain.Repositories
 {
     public class CustomerRepository : Repository<Customer>, ICustomerRepository<Customer>
     {
-        public CustomerRepository(CustomerModuleDbContext context) : base(context)
+        public CustomerRepository(AppDbContext context) : base(context)
         {
         }
 
         public async override Task<Customer> GetByIdAsync(Guid id)
         {
-            try
-            {
-                IQueryable<Customer> query = _context.Set<Customer>().Where(e => e.Id == id).AsNoTracking();
+            IQueryable<Customer> query = _context.Set<Customer>().Where(e => e.Id == id).AsNoTracking();
+            Customer? customer = await query.FirstOrDefaultAsync();
 
-                if (await query.AnyAsync())
-                    return await query.FirstOrDefaultAsync();
-
+            if (customer == null)
                 throw new NotFoundDatabaseException();
-            }
-            catch (Exception ex) { throw; }
+
+            return customer;
         }
 
-        public async override Task<IEnumerable<Customer>> GetAllAsync(Func<Customer, bool> predicate)
+        public async override Task<IEnumerable<Customer>> GetAllAsync(Func<Customer, bool>? predicate)
         {
-            try
-            {
-                IQueryable<Customer> query = _context.Set<Customer>()
-                    .Include(o => o.Enterprise)
-                    .AsNoTracking();
+            IQueryable<Customer> query = _context.Set<Customer>()
+                .Include(o => o.Enterprise)
+                .AsNoTracking();
 
-                if (predicate != null)
-                    return _context.Set<Customer>()
-                        .Include(o => o.Enterprise)
-                        .AsNoTracking()
-                        .Where(predicate);
+            IEnumerable<Customer> result = predicate != null
+                ? query.AsEnumerable().Where(predicate).ToList()
+                : await query.ToListAsync();
 
-                if (await query.AnyAsync())
-                    return await query.ToListAsync();
-
+            if (!result.Any())
                 throw new NotFoundDatabaseException();
-            }
-            catch (Exception ex) { throw; }
+
+            return result;
         }
 
-        public async override Task<IEnumerable<Customer>> GetAllAsync(int? pageNumber, int? pageSize, Func<Customer, bool> predicate = null)
+        public async override Task<IEnumerable<Customer>> GetAllAsync(int? pageNumber, int? pageSize, Func<Customer, bool>? predicate = null)
         {
-            try
-            {
-                if (pageNumber == null || pageSize == null)
-                    return await GetAllAsync(predicate);
+            if (pageNumber == null || pageSize == null)
+                return await GetAllAsync(predicate);
 
-                IQueryable<Customer> query = _context.Set<Customer>()
-                    .Include(o => o.Enterprise)
-                    .AsNoTracking();
-                int skip = (pageNumber - 1) * pageSize ?? 1;
+            IQueryable<Customer> query = _context.Set<Customer>()
+                .Include(o => o.Enterprise)
+                .AsNoTracking();
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
 
-                if (predicate != null)
-                    return _context.Set<Customer>().Include(o => o.Enterprise).AsNoTracking().Where(predicate).Skip(skip).Take(pageSize ?? 0);
+            IEnumerable<Customer> result = predicate != null
+                ? query.AsEnumerable().Where(predicate).Skip(skip).Take(pageSize.Value).ToList()
+                : await query.Skip(skip).Take(pageSize.Value).ToListAsync();
 
-                List<Customer>? result = null;
-
-                if (await query.AnyAsync())
-                    result = await query.Skip(skip).Take(pageSize ?? 0).ToListAsync();
-
-                if (result == null || result?.Any() == false)
-                    return result;
-
+            if (!result.Any())
                 throw new NotFoundDatabaseException();
-            }
-            catch (Exception ex) { throw; }
+
+            return result;
         }
 
         public async Task<IEnumerable<Customer>> GetAllAsyncFiltering(bool descending,
@@ -83,34 +67,33 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
         Customer customer
         )
         {
-            try
-            {
-                Expression<Func<Customer, object>> orderBy = null;
+            if (customer == null)
+                throw new NotFoundDatabaseException("Empty filter with no data found.");
 
-                if (customer == null)
-                    throw new NotFoundDatabaseException("Empty filter with no data found.");
+            Expression<Func<Customer, object>> orderBy = FillOrderByPerField(customer);
 
-                orderBy = FillOrderByPerField(customer, orderBy);
+            var nameFilter = customer.Name?.Trim();
+            var emailFilter = customer.Email?.Trim();
+            var documentFilter = customer.Document?.Trim();
+            var phoneFilter = customer.PhoneNumber?.Trim();
 
-                return await this.GetAllAsyncByFilter(
-                descending,
-                pageNumber,
-                pageSize,
-                x =>
-                customer.EnterpriseId == Guid.Empty || x.EnterpriseId == customer.EnterpriseId
-                && string.IsNullOrEmpty(customer.Name) || x.Name == customer.Name 
-                ||
-                (string.IsNullOrEmpty(customer.Name) || x.Name == customer.Name) && (customer.EnterpriseId == Guid.Empty || x.EnterpriseId == customer.EnterpriseId)
-                ,
-                orderBy
-                );
-            }
-            catch (Exception ex) { throw; }
+            return await this.GetAllAsyncByFilter(
+            descending,
+            pageNumber,
+            pageSize,
+            x =>
+            (customer.EnterpriseId == Guid.Empty || x.EnterpriseId == customer.EnterpriseId)
+            && (string.IsNullOrEmpty(nameFilter) || EF.Functions.Like(x.Name, $"%{nameFilter}%"))
+            && (string.IsNullOrEmpty(emailFilter) || EF.Functions.Like(x.Email, $"%{emailFilter}%"))
+            && (string.IsNullOrEmpty(documentFilter) || (x.Document != null && EF.Functions.Like(x.Document, $"%{documentFilter}%")))
+            && (string.IsNullOrEmpty(phoneFilter) || EF.Functions.Like(x.PhoneNumber, $"%{phoneFilter}%")),
+            orderBy
+            );
         }
 
-        private static Expression<Func<Customer, object>> FillOrderByPerField(Customer customer, Expression<Func<Customer, object>> orderBy)
+        private static Expression<Func<Customer, object>> FillOrderByPerField(Customer customer)
         {
-            if (customer.Id != null && customer.Id != Guid.Empty)
+            if (customer.Id != Guid.Empty)
                 return x => x.Id;
             else if (!string.IsNullOrEmpty(customer.Name))
                 return x => x.Name;
@@ -120,10 +103,10 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
                 return x => x.Adress;
             else if (!string.IsNullOrEmpty(customer.PhoneNumber))
                 return x => x.PhoneNumber;
-            else if (customer.CreatedAt != null && customer.CreatedAt != DateTime.MinValue)
+            else if (customer.CreatedAt != DateTime.MinValue)
                 return x => x.CreatedAt;
-            else if (customer.UpdatedAt != null && customer.UpdatedAt != DateTime.MinValue)
-                return x => x.UpdatedAt;
+            else if (customer.UpdatedAt.HasValue && customer.UpdatedAt.Value != DateTime.MinValue)
+                return x => x.UpdatedAt ?? DateTime.MinValue;
 
             throw new NotFoundDatabaseException("Empty filter with no data found.");
         }

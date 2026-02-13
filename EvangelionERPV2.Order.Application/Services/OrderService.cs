@@ -1,4 +1,4 @@
-
+using System.Linq;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.OrderModule.Domain.Interface;
 using EvangelionERPV2.ProductModule.Application.Interface;
@@ -13,25 +13,25 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 {
     public class OrderService : IOrderService<Order>, IDisposable
     {
-        private readonly IRepository<Order> _orderRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Order> _orderRepository;
         private readonly IOrderRepository<Order> _orderRepositoryCustom;
-        private readonly IRepository<Product> _productRepository;
-        private readonly IRepository<OrderedProduct> _orderedProductRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _productRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct> _orderedProductRepository;
         private readonly IProductService<Product> _productService;
         public readonly IOrderRabbitMQManager _rabbitMQManager;
         public readonly IOrderReportGeneratorService _orderReportGeneratorService;
-        private readonly IHubContext<OrderHub> _orderHubContext;
+        private readonly IHubContext<OrderHub>? _orderHubContext;
 
         private bool disposed;
 
-        public OrderService(IRepository<Order> orderRepository,
+        public OrderService(EvangelionERPV2.Shared.Repositories.IRepository<Order> orderRepository,
             IOrderRepository<Order> orderRepositoryCustom,
-            IRepository<Product> productRepository,
-            IRepository<OrderedProduct> orderedProductRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Product> productRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct> orderedProductRepository,
             IProductService<Product> productService,
             IOrderRabbitMQManager rabbitMQManager,
             IOrderReportGeneratorService orderReportGeneratorService,
-            IHubContext<OrderHub> orderHubContext = null
+            IHubContext<OrderHub>? orderHubContext = null
             )
         {
             _orderRepository = orderRepository;
@@ -45,6 +45,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         }
 
         #region Persistence
+
         public async Task<Order> CreateAsync(Order order)
         {
             try
@@ -55,10 +56,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 VerifyValidValues(ref order);
 
                 await _orderRepository.CreateAsync(order);
-                await _orderedProductRepository.CreateRangeAsync(order.OrderedProduct);
+                await _orderedProductRepository.CreateRangeAsync(order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>());
 
                 // Update product quantity and needed fields for this flow
-                await _productService.UpdateForOrder(order);
+               await _productService.UpdateForOrder(order);
 
                 await _orderRepository.CommitAsync();
                 await _orderedProductRepository.CommitAsync();
@@ -74,7 +75,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             catch (Exception ex)
             {
                 await SendOrderUpdate(order.Id.ToString(), "Created");
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -82,6 +83,9 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         {
             try
             {
+                if (_orderHubContext == null)
+                    return;
+
                 await _orderHubContext.Clients.All.SendAsync("ReceiveOrderUpdate", orderId, status);
             }
             catch (Exception ex)
@@ -92,13 +96,24 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
         public void VerifyValidValues(ref Order order)
         {
-            order.TotalValue = order.OrderedProduct.Where(x => x.Value > 0 && x.Quantity > 0).Select(x => x.Value * x.Quantity).FirstOrDefault();
+            if (order == null) throw new InsertDatabaseException($"{nameof(Order)} is null");
 
-            if (order.TotalValue == null || order.TotalValue <= 0) { throw new InsertDatabaseException($"{nameof(Order)} has value/quantity null or negative"); }
-            if (order.OrderedProduct?.DistinctBy(x => x.ProductId).Count() != order.OrderedProduct?.Count()) { throw new InsertDatabaseException($"{nameof(Order)} has duplicated items"); }
-            if (order.OrderedProduct == null || !order.OrderedProduct.Any()) { throw new InsertDatabaseException($"{nameof(Order)} has no products"); }
-            if (order.OrderedProduct?.Any(x => x.Quantity <= 0 || x.Value <= 0) ?? false) { throw new InsertDatabaseException($"{nameof(Order)} has products with quantity or value less than or equal to zero"); }
-            if (order.OrderedProduct?.Any(x => x.Quantity == double.MaxValue || x.Value == double.MaxValue) ?? false) { throw new InsertDatabaseException($"{nameof(Order)} has products with extremely large values"); }
+            var orderedProducts = order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>();
+            if (!orderedProducts.Any()) throw new InsertDatabaseException($"{nameof(Order)} has no products");
+
+            if (orderedProducts.DistinctBy(x => x.ProductId).Count() != orderedProducts.Count()) throw new InsertDatabaseException($"{nameof(Order)} has duplicated items");
+
+            if (orderedProducts.Any(x => x.Quantity <= 0 || x.Value <= 0)) throw new InsertDatabaseException($"{nameof(Order)} has products with quantity or value less than or equal to zero");
+
+            if (orderedProducts.Any(x => x.Quantity == double.MaxValue || x.Value == double.MaxValue)) throw new InsertDatabaseException($"{nameof(Order)} has products with extremely large values");
+
+            double computedTotal = orderedProducts
+                .Where(x => x.Value > 0 && x.Quantity > 0)
+                .Sum(x => x.Value * x.Quantity);
+
+            order.TotalValue = computedTotal;
+
+            if (order.TotalValue <= 0) throw new InsertDatabaseException($"{nameof(Order)} has value/quantity null or negative");
         }
 
         public Order Update(Order order)
@@ -116,13 +131,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 _orderRepository.Commit();
                 return updatedOrder;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -142,13 +157,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 _orderRepository.Commit();
                 return deletedOrder;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -176,20 +191,21 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         public async Task<string> GetOrdersBodyAsync(Enterprise? enterprise)
         {
             if (!DateTime.UtcNow.IsLastMonthDay())
-                return null;
+                return string.Empty;
 
             if (enterprise == null)
                 throw new Exception("The enterprise is null or empty");
 
-            IEnumerable<Order> orders = await _orderRepositoryCustom.GetAllAsyncWithOrderedProductsByEnterprise(enterprise);
+            IEnumerable<Order>? orders = await _orderRepositoryCustom.GetAllAsyncWithOrderedProductsByEnterprise(enterprise);
 
-            if (orders == null || orders?.Any() == false)
+            if (orders == null || !orders.Any())
             {
                 Log.Logger.Warning($"Doesn't have any orders to be billed for {enterprise.Name}");
-                return null;
+                return string.Empty;
             }
 
-            return await _orderReportGeneratorService.GenerateMonthlyBillingReportAsync(enterprise, orders);
+            var ordersList = orders.ToList();
+            return await _orderReportGeneratorService.GenerateMonthlyBillingReportAsync(enterprise, ordersList);
         }
 
         #endregion
@@ -214,7 +230,8 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     (_orderedProductRepository as IDisposable)?.Dispose();
                     (_productService as IDisposable)?.Dispose();
                     (_rabbitMQManager as IDisposable)?.Dispose();
-                    (_orderReportGeneratorService as IDisposable)?.Dispose();
+                    (_orderReportGeneratorService as IDisposable)?.
+Dispose();
                     (_orderHubContext as IDisposable)?.Dispose();
                 }
 

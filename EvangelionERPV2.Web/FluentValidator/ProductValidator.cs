@@ -13,14 +13,6 @@ namespace EvangelionERPV2.Web.FluentValidator
 
             RuleFor(product => product)
             .NotNull().WithMessage("Product must be filled")
-            .Must(fields => fields.IsExternal != null).WithMessage("Product must have a IsExternal flag");
-
-            RuleFor(product => product)
-            .NotNull().WithMessage("Product must be filled")
-            .Must(fields => fields.IsService != null).WithMessage("Product must have a IsService flag");
-
-            RuleFor(product => product)
-            .NotNull().WithMessage("Product must be filled")
             .Must(fields => fields.DefaultValue > 0).WithMessage("Product must have a Defaul Value");
 
             RuleFor(product => product)

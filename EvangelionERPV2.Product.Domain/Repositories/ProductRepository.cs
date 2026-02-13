@@ -1,12 +1,13 @@
 using EvangelionERPV2.ProductModule.Domain.Interface;
-using EvangelionERPV2.ProductModule.Infra.Context;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
-using Newtonsoft.Json;
 using System.Linq.Expressions;
+using EvangelionERPV2.Shared.Context;
+using EvangelionERPV2.Shared.Repositories;
+using System.Text.Json;
 
 namespace EvangelionERPV2.ProductModule.Domain.Repositories
 {
@@ -14,7 +15,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
     {
         private readonly IDistributedCache _cache;
 
-        public ProductRepository(ProductModuleDbContext context, IDistributedCache cache) : base(context)
+        public ProductRepository(AppDbContext context, IDistributedCache cache) : base(context)
         {
             _cache = cache;
         }
@@ -27,24 +28,22 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             if (!string.IsNullOrEmpty(cachedProduct))
             {
                 // Deserialize the cached product and return it
-                var productFromCache = JsonConvert.DeserializeObject<Product>(cachedProduct);
-                return productFromCache;
+                var productFromCache = JsonSerializer.Deserialize<Product>(cachedProduct);
+                if (productFromCache != null)
+                    return productFromCache;
             }
 
             // If not found in cache, query the database
 
             IQueryable<Product> query = _context.Set<Product>().Where(e => e.Id == id).AsNoTracking();
 
-            if (await query.AnyAsync())
-            {
-                Product product = await query.FirstOrDefaultAsync();
+            Product? product = await query.FirstOrDefaultAsync();
+            if (product == null)
+                throw new NotFoundDatabaseException();
 
-                await SetCachedProduct(cacheKey, product);
+            await SetCachedProduct(cacheKey, product);
 
-                return product;
-            }
-
-            throw new NotFoundDatabaseException();
+            return product;
         }
 
         private async Task SetCachedProduct(string cacheKey, Product product)
@@ -53,7 +52,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             product.PictureAdress = SharedFunctions.Decrypt(product.PictureAdress ?? "");
 
             // Serialize the product and store it in Redis cache for future use
-            var productToCache = JsonConvert.SerializeObject(product);
+            var productToCache = JsonSerializer.Serialize(product);
 
             await _cache.SetStringAsync(cacheKey, productToCache, new DistributedCacheEntryOptions
             {
@@ -72,47 +71,58 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             return Tuple.Create(cacheKey, cachedProduct);
         }
 
-        public async override Task<IEnumerable<Product>> GetAllAsync(Func<Product, bool> predicate)
+        public async override Task<IEnumerable<Product>> GetAllAsync(Func<Product, bool>? predicate)
         {
-            IQueryable<Product> query;
             IEnumerable<Product> result = Enumerable.Empty<Product>();
             if (predicate != null)
                 result = _context.Set<Product>().AsNoTracking().Where(predicate).ToList();
             else
                 result = await _context.Set<Product>().AsNoTracking().ToListAsync();
 
-            if (result.Count() > 0)
-            {
-                foreach (var item in result)
-                    item.PictureAdress = SharedFunctions.Decrypt(item.PictureAdress ?? "");
+            if (!result.Any())
+                throw new NotFoundDatabaseException();
 
-                return result;
-            }
+            foreach (var item in result)
+                item.PictureAdress = SharedFunctions.Decrypt(item.PictureAdress ?? "");
 
-            throw new NotFoundDatabaseException();
+            return result;
         }
 
-        public async override Task<IEnumerable<Product>> GetAllAsync(int? pageNumber, int? pageSize, Func<Product, bool> predicate = null)
+        public async override Task<IEnumerable<Product>> GetAllAsync(int? pageNumber, int? pageSize, Func<Product, bool>? predicate = null)
         {
 
             if (pageNumber == null || pageSize == null)
                 return await GetAllAsync(predicate);
 
-            IQueryable<Product> query = _context.Set<Product>().AsNoTracking();
-            int skip = (pageNumber - 1) * pageSize ?? 1;
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
+            IEnumerable<Product> result;
 
-            if (predicate == null)
-                return _context.Set<Product>().AsNoTracking().Where(predicate).Skip(skip).Take(pageSize ?? 0);
+            if (predicate != null)
+            {
+                result = _context.Set<Product>()
+                    .AsNoTracking()
+                    .AsEnumerable()
+                    .Where(predicate)
+                    .Skip(skip)
+                    .Take(pageSize.Value)
+                    .ToList();
+            }
+            else
+            {
+                result = await _context.Set<Product>()
+                    .AsNoTracking()
+                    .Skip(skip)
+                    .Take(pageSize.Value)
+                    .ToListAsync();
+            }
 
-            List<Product>? result = null;
+            if (!result.Any())
+                throw new NotFoundDatabaseException();
 
-            if (await query.AnyAsync())
-                result = await query.Skip(skip).Take(pageSize ?? 0).ToListAsync();
+            foreach (var item in result)
+                item.PictureAdress = SharedFunctions.Decrypt(item.PictureAdress ?? "");
 
-            if (result == null || result?.Any() == false)
-                return result;
-
-            throw new NotFoundDatabaseException();
+            return result;
         }
 
         public async Task<(IEnumerable<Product>, int)> GetAllAsyncFiltering(bool descending,
@@ -121,12 +131,10 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
         Product product
         )
         {
-            Expression<Func<Product, object>> orderBy = null;
-
             if (product == null)
                 throw new NotFoundDatabaseException("Empty filter with no data found.");
 
-            if (product.Id != null) // Filter in cache by ID to optimize query time
+            if (product.Id != Guid.Empty) // Filter in cache by ID to optimize query time
             {
                 string? cacheKey, cachedProduct = "";
                 (cacheKey, cachedProduct) = await GetCachedProductById(product.Id);
@@ -134,22 +142,24 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
                 if (!string.IsNullOrEmpty(cachedProduct))
                 {
                     // Deserialize the cached product and return it
-                    var productFromCache = JsonConvert.DeserializeObject<Product>(cachedProduct);
-                    return (new List<Product>() { productFromCache }, 1);
+                    var productFromCache = JsonSerializer.Deserialize<Product>(cachedProduct);
+                    if (productFromCache != null)
+                        return (new List<Product>() { productFromCache }, 1);
                 }
             }
 
-            orderBy = FillOrderByPerField(product, orderBy);
+            Expression<Func<Product, object>> orderBy = FillOrderByPerField(product);
 
-            (var products, int totalItems) = await this.GetAllAsyncByFilter(
-            descending,
-            pageNumber,
-            pageSize,
-            x =>
-            (string.IsNullOrEmpty(product.Name) || x.Name == product.Name)
-            && (x.EnterpriseId != null && (product.EnterpriseId == x.EnterpriseId && x.EnterpriseId != default(Guid)))
-            ,
-            orderBy
+            var nameFilter = product.Name?.Trim();
+
+            (var products, int totalItems) = await GetAllAsyncByFilterWithCountInternal(
+                descending,
+                pageNumber,
+                pageSize,
+                x =>
+                (string.IsNullOrEmpty(nameFilter) || EF.Functions.Like(x.Name, $"%{nameFilter}%"))
+                && (x.EnterpriseId != null && (product.EnterpriseId == x.EnterpriseId && x.EnterpriseId != default(Guid))),
+                orderBy
             );
 
             if (products.Any())
@@ -161,18 +171,18 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             return (products, totalItems);
         }
 
-        private static Expression<Func<Product, object>> FillOrderByPerField(Product product, Expression<Func<Product, object>> orderBy)
+        private static Expression<Func<Product, object>> FillOrderByPerField(Product product)
         {
-            if (product.Id != null && product.Id != Guid.Empty)
+            if (product.Id != Guid.Empty)
                 return x => x.Id;
             else if (!string.IsNullOrEmpty(product.Name))
                 return x => x.Name;
             else if (product.DefaultValue > 0)
                 return x => x.DefaultValue;
-            else if (product.CreatedAt != null && product.CreatedAt != DateTime.MinValue)
+            else if (product.CreatedAt != DateTime.MinValue)
                 return x => x.CreatedAt;
-            else if (product.UpdatedAt != null && product.UpdatedAt != DateTime.MinValue)
-                return x => x.UpdatedAt;
+            else if (product.UpdatedAt.HasValue && product.UpdatedAt.Value != DateTime.MinValue)
+                return x => x.UpdatedAt ?? DateTime.MinValue;
 
             throw new NotFoundDatabaseException("Empty filter with no data found.");
         }

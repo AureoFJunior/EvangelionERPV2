@@ -26,20 +26,20 @@ namespace EvangelionERPV2.Shared.Entities
             AccessLevel = accessLevel;
         }
 
-        public string FirstName { get; set; }
-        public string LastName { get; set; }
-        public string UserName { get; set; }
-        public string Password { get; set; }
-        public string Email { get; set; }
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+        public string UserName { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
         public DateTime BirthDate { get; set; }
         public short? IsLogged { get; set; }
         public short ActualTheme { get; set; }
-        public string ProfilePicture { get; set; }
+        public string ProfilePicture { get; set; } = string.Empty;
 
         [ForeignKey(nameof(Enterprise))]
         public Guid? EnterpriseId { get; set; }
         [JsonIgnore]
-        public virtual Enterprise Enterprise { get; set; }
+        public virtual Enterprise? Enterprise { get; set; }
         public short AccessLevel { get; set; }
     }
 }
