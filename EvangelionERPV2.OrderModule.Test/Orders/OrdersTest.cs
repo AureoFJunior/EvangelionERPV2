@@ -11,20 +11,20 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
 {
     public class OrdersTest
     {
-        private readonly Mock<OrderModule.Domain.Interface.IRepository<Order>> _mockIOrderRepository;
+        private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<Order>> _mockIOrderRepository;
         private readonly Mock<OrderModule.Domain.Interface.IOrderRepository<Order>> _mockIOrderRepositoryCustom;
-        private readonly Mock<OrderModule.Domain.Interface.IRepository<Product>> _mockIProductRepository;
-        private readonly Mock<OrderModule.Domain.Interface.IRepository<OrderedProduct>> _mockIOrderedProductRepository;
+        private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>> _mockIProductRepository;
+        private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct>> _mockIOrderedProductRepository;
         private readonly Mock<ProductModule.Application.Interface.IProductService<Product>> _mockIProductService;
         private readonly OrderService _orderService;
         private readonly OrderReportGeneratorService _orderReportGeneratorService;
 
         public OrdersTest()
         {
-            _mockIOrderRepository = new Mock<OrderModule.Domain.Interface.IRepository<Order>>();
+            _mockIOrderRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Order>>();
             _mockIOrderRepositoryCustom = new Mock<OrderModule.Domain.Interface.IOrderRepository<Order>>();
-            _mockIProductRepository = new Mock<OrderModule.Domain.Interface.IRepository<Product>>();
-            _mockIOrderedProductRepository = new Mock<OrderModule.Domain.Interface.IRepository<OrderedProduct>>();
+            _mockIProductRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>>();
+            _mockIOrderedProductRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct>>();
             _mockIProductService = new Mock<ProductModule.Application.Interface.IProductService<Product>>();
 
             _orderReportGeneratorService = new OrderReportGeneratorService(_mockIProductRepository.Object);
@@ -80,7 +80,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                         Value = 50,
                         ProductId = Guid.NewGuid()
                     }
-                });
+                }, Guid.NewGuid());
 
             _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
 
@@ -115,7 +115,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                         Value = 50,
                         ProductId = Guid.NewGuid()
                     }
-                })};
+                }, Guid.NewGuid())};
 
             // Zero value
             yield return new object[] { new Order(DateTime.Now, DateTime.Now.AddDays(1), 0, Guid.NewGuid(), Guid.NewGuid(),
@@ -130,7 +130,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                         Value = 0,
                         ProductId = Guid.NewGuid()
                     }
-                })};
+                }, Guid.NewGuid())};
         }
 
         [Fact]
@@ -149,7 +149,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                         Value = 100,
                         ProductId = Guid.NewGuid()
                     }
-                });
+                }, Guid.NewGuid());
 
             // Act & Assert
             var refOrder = order;
@@ -173,13 +173,13 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 Value = 100,
                 ProductId = Guid.NewGuid()
             }
-                });
+                }, Guid.NewGuid());
 
             // Simulate the order already exists in the repository
             _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns(originalOrder);
 
             // Simulate updating the order
-            var updatedOrder = new Order(originalOrder.Payday, originalOrder.PaymentScheduledDate, 200, originalOrder.EnterpriseId, originalOrder.CustomerId, originalOrder.OrderedProduct)
+            var updatedOrder = new Order(originalOrder.Payday, originalOrder.PaymentScheduledDate, 200, originalOrder.EnterpriseId, originalOrder.CustomerId, originalOrder.OrderedProduct, Guid.NewGuid())
             {
                 // Set the same ID as the original
                 Id = orderId
@@ -203,7 +203,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_OrderWithNoOrderedProducts_ThrowsInsertDatabaseException()
         {
-            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(), new List<OrderedProduct>());
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(), new List<OrderedProduct>(), Guid.NewGuid());
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
         }
 
@@ -211,7 +211,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_OrderWithNullOrderedProducts_ThrowsInsertDatabaseException()
         {
-            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(), null);
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid());
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
         }
 
@@ -224,7 +224,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 {
             new OrderedProduct { CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now, IsActive = true, Quantity = 1, Value = 50, ProductId = productId },
             new OrderedProduct { CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now, IsActive = true, Quantity = 2, Value = 50, ProductId = productId }
-                });
+                }, Guid.NewGuid());
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
         }
 
@@ -236,7 +236,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 new List<OrderedProduct>
                 {
             new OrderedProduct { CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now, IsActive = true, Quantity = double.MaxValue, Value = double.MaxValue, ProductId = Guid.NewGuid() }
-                });
+                }, Guid.NewGuid());
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
         }
 
@@ -249,7 +249,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 new List<OrderedProduct>
                 {
             new OrderedProduct { CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now, IsActive = true, Quantity = 1, Value = 100, ProductId = Guid.NewGuid() }
-                })
+                }, Guid.NewGuid())
             { Id = orderId };
 
             _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns((Order)null);
@@ -275,7 +275,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                         Value = 10,
                         ProductId = Guid.NewGuid()
                     }
-                })
+                }, Guid.NewGuid())
             };
 
             // Case 02 - Negative Total Value
@@ -291,7 +291,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                         Value = -10,
                         ProductId = Guid.NewGuid()
                     }
-                })
+                }, Guid.NewGuid())
             };
 
             // Case 03 - Negative Product Quantity and Negative Total Value
@@ -307,7 +307,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                         Value = -10,
                         ProductId = Guid.NewGuid()
                     }
-                })
+                }, Guid.NewGuid())
             };
 
             // Case 04 - Empty Quantity
@@ -323,7 +323,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                         Value = 10,
                         ProductId = Guid.NewGuid()
                     }
-                })
+                }, Guid.NewGuid())
             };
 
             // Case 05 - Empty Value
@@ -339,7 +339,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                         Value = 0,
                         ProductId = Guid.NewGuid()
                     }
-                })
+                }, Guid.NewGuid())
             };
         }
 
@@ -385,12 +385,12 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 new List<OrderedProduct>
                 {
                     new OrderedProduct { CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow, IsActive = true, Quantity = 1, Value = 100, ProductId = Guid.NewGuid() }
-                });
+                }, Guid.NewGuid());
 
-            var mockOrderRepo = new Mock<OrderModule.Domain.Interface.IRepository<Order>>();
+            var mockOrderRepo = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Order>>();
             var mockOrderRepoCustom = new Mock<OrderModule.Domain.Interface.IOrderRepository<Order>>();
-            var mockProductRepo = new Mock<OrderModule.Domain.Interface.IRepository<Product>>();
-            var mockOrderedProductRepo = new Mock<OrderModule.Domain.Interface.IRepository<OrderedProduct>>();
+            var mockProductRepo = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>>();
+            var mockOrderedProductRepo = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct>>();
             var mockProductService = new Mock<ProductModule.Application.Interface.IProductService<Product>>();
 
             // CommitAsync must be setup to avoid awaiting null

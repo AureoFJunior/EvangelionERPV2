@@ -9,6 +9,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public double TotalValue { get; set; } = 0;
         public Guid? EnterpriseId { get; set; } = null;
         public Guid? CustomerId { get; set; } = null;
+        public string? CustomerName { get; set; } = null;
         public IEnumerable<OrderedProduct>? OrderedProduct { get; set; } = null;
 
     }

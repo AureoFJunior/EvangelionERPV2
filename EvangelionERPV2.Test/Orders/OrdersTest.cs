@@ -13,9 +13,9 @@ namespace EvangelionERPV2.Test.Bills
 {
     public class OrdersTest
     {
-        private readonly Mock<IRepository<Order>> _mockIOrderRepository;
-        private readonly Mock<IRepository<Product>> _mockIProductRepository;
-        private readonly Mock<IRepository<OrderedProduct>> _mockIOrderedProductRepository;
+        private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<Order>> _mockIOrderRepository;
+        private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>> _mockIProductRepository;
+        private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct>> _mockIOrderedProductRepository;
         private readonly Mock<IProductService<Product>> _mockIProductService;
         private readonly Mock<IRabbitMQManager> _mockRabbitMQManager;
         private readonly Mock<IOptions<OrderChannelSettings>> _mockOrderChannelSettings;
@@ -23,9 +23,9 @@ namespace EvangelionERPV2.Test.Bills
 
         public OrdersTest()
         {
-            _mockIOrderRepository = new Mock<IRepository<Order>>();
-            _mockIProductRepository = new Mock<IRepository<Product>>();
-            _mockIOrderedProductRepository = new Mock<IRepository<OrderedProduct>>();
+            _mockIOrderRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Order>>();
+            _mockIProductRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>>();
+            _mockIOrderedProductRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct>>();
             _mockIProductService = new Mock<IProductService<Product>>();
             _mockRabbitMQManager = new Mock<IRabbitMQManager>();
             _mockOrderChannelSettings = new Mock<IOptions<OrderChannelSettings>>();

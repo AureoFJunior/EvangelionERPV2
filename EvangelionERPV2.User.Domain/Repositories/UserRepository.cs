@@ -1,69 +1,55 @@
 using Microsoft.EntityFrameworkCore;
-using EvangelionERPV2.UserModule.Infra.Context;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Context;
+using EvangelionERPV2.Shared.Repositories;
 
 namespace EvangelionERPV2.UserModule.Domain.Repositories
 {
     public class UserRepository : Repository<User>
     {
-        public UserRepository(UserModuleDbContext context) : base(context)
+        public UserRepository(AppDbContext context) : base(context)
         {
         }
 
         public async override Task<User> GetByIdAsync(Guid id)
         {
-            try
-            {
-                var query = _context.Set<User>()
-                    .Include(o => o.Enterprise)
-                    .Where(e => e.Id == id).AsNoTracking();
+            var query = _context.Set<User>()
+                .Include(o => o.Enterprise)
+                .Where(e => e.Id == id).AsNoTracking();
 
-                if (await query.AnyAsync())
-                    return await query.FirstOrDefaultAsync();
-
+            User? user = await query.FirstOrDefaultAsync();
+            if (user == null)
                 throw new NotFoundDatabaseException();
-            }
-            catch (Exception ex) { throw; }
+
+            return user;
         }
 
-        public async override Task<IEnumerable<User>> GetAllAsync(Func<User, bool> predicate)
+        public async override Task<IEnumerable<User>> GetAllAsync(Func<User, bool>? predicate)
         {
-            try
-            {
-                IQueryable<User> query = _context.Set<User>()
-                    .Include(o => o.Enterprise)
-                    .AsNoTracking().AsQueryable();
+            IQueryable<User> query = _context.Set<User>()
+                .Include(o => o.Enterprise)
+                .AsNoTracking();
 
-                if (predicate != null)
-                    return _context.Set<Shared.Entities.User>()
-                         .Include(o => o.Enterprise)
-                         .AsNoTracking()
-                         .Where(predicate);
+            IEnumerable<User> result = predicate != null
+                ? query.AsEnumerable().Where(predicate).ToList()
+                : await query.ToListAsync();
 
-                if (await query.AnyAsync())
-                    return await query.ToListAsync();
-
+            if (!result.Any())
                 throw new NotFoundDatabaseException();
-            }
-            catch (Exception ex) { throw; }
+
+            return result;
         }
 
         public override IEnumerable<User> GetByCondition(Func<User, bool> condition)
         {
-            try
-            {
-                var query = _context.Set<User>()
-                     .Include(o => o.Enterprise)
-                     .AsNoTracking()
-                     .Where(condition);
+            var query = _context.Set<User>()
+                 .Include(o => o.Enterprise)
+                 .AsNoTracking()
+                 .Where(condition);
 
-                if (query.Any())
-                    return query.ToList();
-
-                return new List<User>();
-            }
-            catch (Exception ex) { throw; }
+            var result = query.ToList();
+            return result.Count > 0 ? result : new List<User>();
         }
     }
 }

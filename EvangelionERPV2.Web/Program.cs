@@ -1,9 +1,11 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using AspNetCoreRateLimit;
+using EvangelionERPV2.BillsModule.Application.DI;
 using EvangelionERPV2.CustomerModule.Application.DI;
 using EvangelionERPV2.EmailModule.Application.DI;
 using EvangelionERPV2.EnterpriseModule.Application.DI;
+using EvangelionERPV2.NFeModule.Application.DI;
 using EvangelionERPV2.OrderModule.Application.DI;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.Shared.Entities;
@@ -20,6 +22,7 @@ using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Microsoft.OpenApi;
+using Microsoft.AspNetCore.ResponseCompression;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,14 +54,20 @@ try
     Log.Logger.Information("Starting Swagger");
     AddSwaggerGen(builder);
 
-    var tempProvider = builder.Services.BuildServiceProvider();
-    SharedFunctions.Initialize(tempProvider);
+    builder.Services.AddFluentValidationAutoValidation();
+    builder.Services.AddFluentValidationClientsideAdapters();
 
     Log.Logger.Information("Starting JWT"); 
     SetupJWT(builder);
 
     Log.Logger.Information("Starting Health Check");
     SetupHealthCheck(builder);
+
+    Log.Logger.Information("Starting Response Compression");
+    builder.Services.AddResponseCompression(options =>
+    {
+        options.EnableForHttps = true;
+    });
 
     AddRequestRateLimit(builder);
     builder.Services.AddSignalR();
@@ -75,28 +84,30 @@ try
 
     // Configure the HTTP request pipeline.
 
-    SetupSwagger(app);
+    SetupSwagger(app, app.Environment);
 
     app.UseHttpMetrics();
 
-    var metricServer = app.MapMetrics("/metrics");
-
     app.UseHttpsRedirection();
 
+    app.UseResponseCompression();
+
     app.UseRouting();
+
+    app.UseIpRateLimiting();
 
     app.UseCors(x => x.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
 
     app.UseAuthentication();
     app.UseAuthorization();
 
-    app.UseEndpoints(endpoints =>
-    {
-        endpoints.MapHub<OrderHub>("/orderHub");
-    });
+    app.MapMetrics("/metrics").RequireAuthorization();
+    app.MapHub<OrderHub>("/orderHub");
 
     app.MapControllers();
-    app.UseHealthChecks("/health");
+    app.MapHealthChecks("/health").RequireAuthorization();
+
+    SharedFunctions.Initialize(app.Services);
 
     Log.Logger.Information("Starting App Run");
     app.Run();
@@ -114,20 +125,14 @@ static void BuildValidators(WebApplicationBuilder builder)
     builder.Services.AddTransient<IValidator<OrderedProduct>, OrderedProductValidator>();
     builder.Services.AddTransient<IValidator<Customer>, CustomerValidator>();
     builder.Services.AddTransient<IValidator<Product>, ProductValidator>();
+    builder.Services.AddTransient<IValidator<ProductPicture>, ProductPictureValidator>();
 }
 
-static void RegisterValidations(FluentValidationMvcConfiguration options)
+static void SetupSwagger(WebApplication app, IWebHostEnvironment env)
 {
-    options.RegisterValidatorsFromAssemblyContaining<UserValidator>();
-    options.RegisterValidatorsFromAssemblyContaining<EnterpriseValidator>();
-    options.RegisterValidatorsFromAssemblyContaining<OrderValidator>();
-    options.RegisterValidatorsFromAssemblyContaining<OrderedProductValidator>();
-    options.RegisterValidatorsFromAssemblyContaining<CustomerValidator>();
-    options.RegisterValidatorsFromAssemblyContaining<ProductValidator>();
-}
+    if (!env.IsDevelopment())
+        return;
 
-static void SetupSwagger(WebApplication app)
-{
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
@@ -138,37 +143,50 @@ static void SetupSwagger(WebApplication app)
 
 static void SetupJWT(WebApplicationBuilder builder)
 {
-    var key = Encoding.ASCII.GetBytes(SharedFunctions.GetEncryptionKey());
+    var issuer = builder.Configuration.GetSection("JwtSettings")["Issuer"] ?? string.Empty;
+    var audience = builder.Configuration.GetSection("JwtSettings")["Audience"] ?? string.Empty;
+    var isDevelopment = builder.Environment.IsDevelopment();
     builder.Services.AddAuthentication(x =>
     {
         x.DefaultAuthenticateScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
         x.DefaultChallengeScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
     })
-      .AddJwtBearer(x =>
-      {
-          x.RequireHttpsMetadata = false;
-          x.SaveToken = true;
-          x.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-          {
-              ValidateIssuerSigningKey = true,
-              IssuerSigningKey = new SymmetricSecurityKey(key),
-              ValidateIssuer = false,
-              ValidateAudience = false
-          };
-          x.Events = new JwtBearerEvents
-          {
-              OnMessageReceived = context =>
-              {
-                  var accessToken = context.Request.Query["access_token"].FirstOrDefault();
-                  var path = context.HttpContext.Request.Path;
-                  if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/orderHub"))
-                  {
-                      context.Token = accessToken;
-                  }
-                  return Task.CompletedTask;
-              }
-          };
-      });
+      .AddJwtBearer();
+
+    builder.Services.AddOptions<JwtBearerOptions>(Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme)
+        .Configure<IConfiguration, AWSKMSKeyProvider>((options, configuration, kmsProvider) =>
+        {
+            var tokenKey = kmsProvider.GetKMSKey(configuration.GetSection("Encryption")["TokenKey"] ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(tokenKey))
+                throw new InvalidOperationException("JWT TokenKey is not configured.");
+
+            options.RequireHttpsMetadata = !isDevelopment;
+            options.SaveToken = true;
+            options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(tokenKey)),
+                ValidateIssuer = true,
+                ValidIssuer = issuer,
+                ValidateAudience = true,
+                ValidAudience = audience,
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromMinutes(1)
+            };
+            options.Events = new JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"].FirstOrDefault();
+                    var path = context.HttpContext.Request.Path;
+                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/orderHub"))
+                    {
+                        context.Token = accessToken;
+                    }
+                    return Task.CompletedTask;
+                }
+            };
+        });
 }
 
 static void AddSwaggerGen(WebApplicationBuilder builder)
@@ -211,11 +229,6 @@ static void SetupAPIVersioning(WebApplicationBuilder builder)
 static void SetupControllers(WebApplicationBuilder builder)
 {
     builder.Services.AddControllers()
-        .AddFluentValidation((Action<FluentValidationMvcConfiguration>) (options =>
-        {
-            // Automatic registration of validators in assembly
-            RegisterValidations(options);
-        }))
        .AddJsonOptions(options =>
        {
            options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -233,26 +246,22 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     UserIoC.Configure(builder.Services, builder.Configuration);
     ProductIoC.Configure(builder.Services, builder.Configuration);
     OrderIoC.Configure(builder.Services, builder.Configuration);
+    BillsIoC.Configure(builder.Services, builder.Configuration);
+    NFeIoC.Configure(builder.Services, builder.Configuration);
     CustomerIoC.Configure(builder.Services, builder.Configuration);
     EnterpriseIoC.Configure(builder.Services, builder.Configuration);
     EmailIoC.Configure(builder.Services, builder.Configuration);
     SharedIoC.Configure(builder.Services, builder.Configuration);
 }
 
-static void SetupAppSettings(WebApplicationBuilder builder)
-{
-    var env = builder.Environment;
-    builder.Configuration
-          .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-          .AddJsonFile($"appsettings.{env.EnvironmentName}.json", optional: true, reloadOnChange: true);
-}
-
 static void AddRequestRateLimit(WebApplicationBuilder builder)
 {
     builder.Services.AddMemoryCache();
+    builder.Services.AddHttpContextAccessor();
     builder.Services.Configure<IpRateLimitOptions>(builder.Configuration.GetSection("IpRateLimiting"));
     builder.Services.Configure<IpRateLimitPolicies>(builder.Configuration.GetSection("IpRateLimitPolicies"));
     builder.Services.AddInMemoryRateLimiting();
     builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
 }
 #endregion
+

@@ -17,11 +17,11 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private readonly IEnterpriseRepository<Enterprise> _enterpriseRepository;
         private readonly IEnterpriseService<Enterprise> _enterpriseService;
-        private readonly IRepository<Enterprise> _repository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _repository;
         private readonly IMapper _mapper;
 
         public EnterpriseController(IEnterpriseService<Enterprise> enterpriseService,
-            IRepository<Enterprise> repository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> repository,
             IEnterpriseRepository<Enterprise> enterpriseRepository,
             IMapper mapper)
         {

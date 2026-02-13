@@ -4,7 +4,6 @@ using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
-using EvangelionERPV2.UserModule.Domain.Interface;
 using Google.Apis.Auth;
 using Microsoft.Extensions.Configuration;
 using Serilog;
@@ -13,11 +12,11 @@ namespace EvangelionERPV2.UserModule.Application.Services
 {
     public class UserService : IUserService<User>
     {
-        private readonly IRepository<User> _userRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<User> _userRepository;
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider _kmsProvider;
 
-        public UserService(IRepository<User> userRepository,
+        public UserService(EvangelionERPV2.Shared.Repositories.IRepository<User> userRepository,
             IConfiguration configuration,
             AWSKMSKeyProvider kmsProvider)
         {
@@ -36,14 +35,16 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 if (existentUser != null)
                     throw new InsertDatabaseException($"{nameof(User)} already has an register in database");
 
-                user.Password = SharedFunctions.Encrypt(user.Password);
+                user.Password = SharedFunctions.IsPasswordHashFormat(user.Password)
+                    ? user.Password
+                    : SharedFunctions.HashPassword(user.Password);
                 includedUser = await _userRepository.CreateAsync(user);
                 await _userRepository.CommitAsync();
                 return includedUser;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -54,6 +55,9 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
             if (existentUser == null)
                 throw new NotFoundDatabaseException($"{nameof(User)} was not found in database.");
+
+            if (!string.IsNullOrWhiteSpace(user.Password) && !SharedFunctions.IsPasswordHashFormat(user.Password))
+                user.Password = SharedFunctions.HashPassword(user.Password);
 
             updatedUser = _userRepository.Update(user);
             _userRepository.Commit();
@@ -99,7 +103,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
             }
 
             if (payload == null || string.IsNullOrWhiteSpace(payload.Email) ||
-                (payload.EmailVerified != null && !payload.EmailVerified))
+                payload.EmailVerified != true)
             {
                 Log.Logger.Warning("Google token did not contain a verified email.");
                 throw new UnauthorizedAccessException("Email not verified by Google.");

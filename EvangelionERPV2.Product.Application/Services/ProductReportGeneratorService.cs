@@ -7,9 +7,9 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 {
     public class ProductReportGeneratorService : IProductReportGeneratorService
     {
-        private readonly IRepository<Product> _productRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _productRepository;
 
-        public ProductReportGeneratorService(IRepository<Product> productRepository)
+        public ProductReportGeneratorService(EvangelionERPV2.Shared.Repositories.IRepository<Product> productRepository)
         {
             _productRepository = productRepository;
         }

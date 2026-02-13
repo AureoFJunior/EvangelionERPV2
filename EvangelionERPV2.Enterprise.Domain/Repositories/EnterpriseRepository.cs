@@ -1,72 +1,59 @@
 using EvangelionERPV2.EnterpriseModule.Domain.Interface;
-using EvangelionERPV2.EnterpriseModule.Infra.Context;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
+using EvangelionERPV2.Shared.Context;
+using EvangelionERPV2.Shared.Repositories;
 
 namespace EvangelionERPV2.EnterpriseModule.Domain.Repositories
 {
     public class EnterpriseRepository : Repository<Enterprise>, IEnterpriseRepository<Enterprise>
     {
-        public EnterpriseRepository(EnterpriseModuleDbContext context) : base(context)
+        public EnterpriseRepository(AppDbContext context) : base(context)
         {
         }
 
         public async override Task<Enterprise> GetByIdAsync(Guid id)
         {
-            try
-            {
-                IQueryable<Enterprise> query = _context.Set<Enterprise>().Where(e => e.Id == id).AsNoTracking();
+            IQueryable<Enterprise> query = _context.Set<Enterprise>().Where(e => e.Id == id).AsNoTracking();
+            Enterprise? enterprise = await query.FirstOrDefaultAsync();
 
-                if (await query.AnyAsync())
-                    return await query.FirstOrDefaultAsync();
-
+            if (enterprise == null)
                 throw new NotFoundDatabaseException();
-            }
-            catch (Exception ex) { throw; }
+
+            return enterprise;
         }
 
-        public async override Task<IEnumerable<Enterprise>> GetAllAsync(Func<Enterprise, bool> predicate)
+        public async override Task<IEnumerable<Enterprise>> GetAllAsync(Func<Enterprise, bool>? predicate)
         {
-            try
-            {
-                IQueryable<Enterprise> query = _context.Set<Enterprise>().AsNoTracking();
-                if (predicate != null)
-                    return _context.Set<Enterprise>().AsNoTracking().Where(predicate);
+            IQueryable<Enterprise> query = _context.Set<Enterprise>().AsNoTracking();
+            IEnumerable<Enterprise> result = predicate != null
+                ? query.AsEnumerable().Where(predicate).ToList()
+                : await query.ToListAsync();
 
-                if (await query.AnyAsync())
-                    return await query.ToListAsync();
-
+            if (!result.Any())
                 throw new NotFoundDatabaseException();
-            }
-            catch (Exception ex) { throw; }
+
+            return result;
         }
 
-        public async override Task<IEnumerable<Enterprise>> GetAllAsync(int? pageNumber, int? pageSize, Func<Enterprise, bool> predicate = null)
+        public async override Task<IEnumerable<Enterprise>> GetAllAsync(int? pageNumber, int? pageSize, Func<Enterprise, bool>? predicate = null)
         {
-            try
-            {
-                if (pageNumber == null || pageSize == null)
-                    return await GetAllAsync(predicate);
+            if (pageNumber == null || pageSize == null)
+                return await GetAllAsync(predicate);
 
-                IQueryable<Enterprise> query = _context.Set<Enterprise>().AsNoTracking();
-                int skip = (pageNumber - 1) * pageSize ?? 1;
+            IQueryable<Enterprise> query = _context.Set<Enterprise>().AsNoTracking();
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
 
-                if (predicate != null)
-                    return _context.Set<Enterprise>().AsNoTracking().Where(predicate).Skip(skip).Take(pageSize ?? 0);
+            IEnumerable<Enterprise> result = predicate != null
+                ? query.AsEnumerable().Where(predicate).Skip(skip).Take(pageSize.Value).ToList()
+                : await query.Skip(skip).Take(pageSize.Value).ToListAsync();
 
-                List<Enterprise>? result = null;
-
-                if (await query.AnyAsync())
-                    result = await query.Skip(skip).Take(pageSize ?? 0).ToListAsync();
-
-                if (result == null || result?.Any() == false)
-                    return result;
-
+            if (!result.Any())
                 throw new NotFoundDatabaseException();
-            }
-            catch (Exception ex) { throw; }
+
+            return result;
         }
 
         public async Task<IEnumerable<Enterprise>> GetAllAsyncFiltering(bool descending,
@@ -75,31 +62,25 @@ namespace EvangelionERPV2.EnterpriseModule.Domain.Repositories
         Enterprise enterprise
         )
         {
-            try
-            {
-                Expression<Func<Enterprise, object>> orderBy = null;
+            if (enterprise == null)
+                throw new NotFoundDatabaseException("Empty filter with no data found.");
 
-                if (enterprise == null)
-                    throw new NotFoundDatabaseException("Empty filter with no data found.");
+            Expression<Func<Enterprise, object>> orderBy = FillOrderByPerField(enterprise);
 
-                orderBy = FillOrderByPerField(enterprise, orderBy);
-
-                return await this.GetAllAsyncByFilter(
-                descending,
-                pageNumber,
-                pageSize,
-                x =>
-                string.IsNullOrEmpty(enterprise.Name) || x.Name == enterprise.Name
-                ,
-                orderBy
-                );
-            }
-            catch (Exception ex) { throw; }
+            return await this.GetAllAsyncByFilter(
+            descending,
+            pageNumber,
+            pageSize,
+            x =>
+            string.IsNullOrEmpty(enterprise.Name) || x.Name == enterprise.Name
+            ,
+            orderBy
+            );
         }
 
-        private static Expression<Func<Enterprise, object>> FillOrderByPerField(Enterprise enterprise, Expression<Func<Enterprise, object>> orderBy)
+        private static Expression<Func<Enterprise, object>> FillOrderByPerField(Enterprise enterprise)
         {
-            if (enterprise.Id != null && enterprise.Id != Guid.Empty)
+            if (enterprise.Id != Guid.Empty)
                 return x => x.Id;
             else if (!string.IsNullOrEmpty(enterprise.Name))
                 return x => x.Name;
@@ -109,10 +90,10 @@ namespace EvangelionERPV2.EnterpriseModule.Domain.Repositories
                 return x => x.Adress;
             else if (!string.IsNullOrEmpty(enterprise.PhoneNumber))
                 return x => x.PhoneNumber;
-            else if (enterprise.CreatedAt != null && enterprise.CreatedAt != DateTime.MinValue)
+            else if (enterprise.CreatedAt != DateTime.MinValue)
                 return x => x.CreatedAt;
-            else if (enterprise.UpdatedAt != null && enterprise.UpdatedAt != DateTime.MinValue)
-                return x => x.UpdatedAt;
+            else if (enterprise.UpdatedAt.HasValue && enterprise.UpdatedAt.Value != DateTime.MinValue)
+                return x => x.UpdatedAt ?? DateTime.MinValue;
 
             throw new NotFoundDatabaseException("Empty filter with no data found.");
         }

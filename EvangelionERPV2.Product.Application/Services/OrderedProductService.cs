@@ -7,9 +7,9 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 {
     public class OrderedProductService : IOrderedProductService<OrderedProduct>
     {
-        private readonly IRepository<OrderedProduct> _orderedProductRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct> _orderedProductRepository;
 
-        public OrderedProductService(IRepository<OrderedProduct> orderedProductRepository)
+        public OrderedProductService(EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct> orderedProductRepository)
         {
             _orderedProductRepository = orderedProductRepository;
         }
@@ -30,7 +30,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -49,13 +49,13 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 _orderedProductRepository.Commit();
                 return updatedOrderedProduct;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -75,13 +75,13 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 _orderedProductRepository.Commit();
                 return deletedOrderedProduct;
             }
-            catch (NotFoundDatabaseException ex)
+            catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
     }

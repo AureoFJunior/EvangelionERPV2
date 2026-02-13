@@ -18,22 +18,22 @@ namespace EvangelionERPV2.Shared.Entities.RabbitMQ
 
         public RabbitMQSettings(IConfigurationSection configurationSection)
         {
-            HostName = configurationSection["HostName"];
-            UserName = configurationSection["UserName"];
-            Password = configurationSection["Password"];
-            VirtualHost = configurationSection["VirtualHost"];
-            Port = configurationSection["Port"];
-            Uri = configurationSection["Uri"];
+            HostName = configurationSection["HostName"] ?? string.Empty;
+            UserName = configurationSection["UserName"] ?? string.Empty;
+            Password = configurationSection["Password"] ?? string.Empty;
+            VirtualHost = configurationSection["VirtualHost"] ?? string.Empty;
+            Port = configurationSection["Port"] ?? string.Empty;
+            Uri = configurationSection["Uri"] ?? string.Empty;
         }
 
         public RabbitMQSettings() { }
 
-        public string HostName { get; set; }
-        public string UserName { get; set; }
-        public string Password { get; set; }
-        public string VirtualHost { get; set; }
-        public string Port { get; set; }
-        public string Uri { get; set; }
+        public string HostName { get; set; } = string.Empty;
+        public string UserName { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string VirtualHost { get; set; } = string.Empty;
+        public string Port { get; set; } = string.Empty;
+        public string Uri { get; set; } = string.Empty;
 
     }
 }

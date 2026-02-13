@@ -17,8 +17,8 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 {
     public class EmailService : IEmailService<EmailStructure>
     {
-        private readonly IRepository<Enterprise> _enterpriseRepository;
-        private readonly Domain.Interface.IRepository<Email> _emailRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _enterpriseRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Email> _emailRepository;
         public readonly IEmailRabbitMQManager _rabbitMQManager;
         public readonly IOrderService<Order> _orderService;
         public readonly IProductService<Product> _productService;
@@ -28,10 +28,10 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
         public EmailService(
             IEmailRabbitMQManager rabbitMQManager,
-            IRepository<Enterprise> enterpriseRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> enterpriseRepository,
             IOrderService<Order> orderService,
             IProductService<Product> productService,
-            Domain.Interface.IRepository<Email> emailRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Email> emailRepository,
             AWSKMSKeyProvider kmsProvider,
             IConfiguration configuration)
         {
@@ -64,7 +64,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex.InnerException);
+                throw new InsertDatabaseException(ex.Message, ex);
             }
         }
 
@@ -76,8 +76,11 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                 var message = new MimeMessage();
                 IEnumerable<Email> emailsSettings = await _emailRepository.GetAllAsync();
-                Email emailSettings = emailsSettings?.FirstOrDefault();
-                message.From.Add(new MailboxAddress(emailSettings?.UserName, emailSettings?.UserName));
+                Email? emailSettings = emailsSettings?.FirstOrDefault();
+                if (emailSettings == null)
+                    throw new NotFoundDatabaseException("Email settings were not found.");
+
+                message.From.Add(new MailboxAddress(emailSettings.UserName, emailSettings.UserName));
 
                 foreach (var recipientEmail in email.RecipientEmails)
                 {
@@ -105,16 +108,20 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             try
             {
                 IEnumerable<Email> emailsSettings = await _emailRepository.GetAllAsync();
-                Email emailSettings = emailsSettings?.FirstOrDefault();
+                Email? emailSettings = emailsSettings?.FirstOrDefault();
+                if (emailSettings == null)
+                    throw new NotFoundDatabaseException("Email settings were not found.");
 
                 // Get the access token (cache and refresh as needed in production)
-                string clientId = _kmsProvider.GetKMSKey(_configuration.GetSection("GoogleSettings")["ClientId"]);
-                string clientSecret = _kmsProvider.GetKMSKey(_configuration.GetSection("GoogleSettings")["ClientSecret"]);
-                string userEmail = emailSettings?.UserName;
+                string clientId = _kmsProvider.GetKMSKey(_configuration.GetSection("GoogleSettings")["ClientId"] ?? string.Empty);
+                string clientSecret = _kmsProvider.GetKMSKey(_configuration.GetSection("GoogleSettings")["ClientSecret"] ?? string.Empty);
+                string userEmail = emailSettings.UserName;
+                if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret) || string.IsNullOrWhiteSpace(userEmail))
+                    throw new InvalidOperationException("Google email settings are not configured.");
                 string accessToken = await GetGmailAccessTokenAsync(clientId, clientSecret, userEmail);
 
                 using var smtpClient = new MailKit.Net.Smtp.SmtpClient();
-                await smtpClient.ConnectAsync(emailSettings?.HostName, emailSettings?.Port ?? 587, SecureSocketOptions.StartTls);
+                await smtpClient.ConnectAsync(emailSettings.HostName, emailSettings.Port == 0 ? 587 : emailSettings.Port, SecureSocketOptions.StartTls);
 
                 // Authenticate using OAuth2
                 var oauth2 = new SaslMechanismOAuth2(userEmail, accessToken);
