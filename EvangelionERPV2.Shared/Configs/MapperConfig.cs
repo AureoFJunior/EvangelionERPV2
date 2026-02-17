@@ -21,6 +21,7 @@ namespace EvangelionERPV2.Shared.Configs
                     .ForMember(dest => dest.CustomerName, opt => opt.MapFrom(src => src.Customer != null ? src.Customer.Name : null))
                     .ReverseMap();
                 config.CreateMap<Bill, BillDTO>().ReverseMap();
+                config.CreateMap<PayableBill, PayableBillDTO>().ReverseMap();
                 config.CreateMap<NFeDocument, NFeDocumentDTO>().ReverseMap();
                 config.CreateMap<Customer, CustomerDTO>().ReverseMap();
                 config.CreateMap<Product, ProductDTO>().ReverseMap();
