@@ -1,0 +1,127 @@
+using System.Text.Json;
+using EvangelionERPV2.BillsModule.Application.Interface;
+using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Repositories;
+
+namespace EvangelionERPV2.BillsModule.Application.Services
+{
+    public class CashFlowForecastService : ICashFlowForecastService
+    {
+        private readonly IRepository<Order> _orderRepository;
+        private readonly IRepository<PayableBill> _payableBillRepository;
+        private readonly IRepository<ForecastSimulationLog> _simulationLogRepository;
+
+        public CashFlowForecastService(
+            IRepository<Order> orderRepository,
+            IRepository<PayableBill> payableBillRepository,
+            IRepository<ForecastSimulationLog> simulationLogRepository)
+        {
+            _orderRepository = orderRepository;
+            _payableBillRepository = payableBillRepository;
+            _simulationLogRepository = simulationLogRepository;
+        }
+
+        public async Task<CashFlowForecastDTO> GetForecastAsync(Guid enterpriseId, int horizonInDays, double currentBalance)
+        {
+            return await BuildForecastAsync(enterpriseId, horizonInDays, currentBalance, 0, 1);
+        }
+
+        public async Task<IEnumerable<SimulationResultDTO>> RunSimulationAsync(Guid enterpriseId, Guid userId, RunSimulationRequestDTO request)
+        {
+            var scenarios = request.Scenarios?.ToList() ?? [];
+            if (scenarios.Count < 2)
+                throw new ArgumentException("At least two scenarios are required.");
+
+            var baseline = await BuildForecastAsync(enterpriseId, request.HorizonInDays, request.CurrentBalance, 0, 1);
+            var baselineFinalBalance = baseline.FinalProjectedBalance;
+            var results = new List<SimulationResultDTO>();
+
+            foreach (var scenario in scenarios)
+            {
+                var simulation = await BuildForecastAsync(
+                    enterpriseId,
+                    request.HorizonInDays,
+                    request.CurrentBalance,
+                    scenario.ReceivableDelayInDays,
+                    scenario.PayableMultiplier);
+
+                var riskDays = simulation.DailyProjection.Where(x => x.IsRiskDay).Select(x => x.Date.Date).ToList();
+                results.Add(new SimulationResultDTO
+                {
+                    ScenarioName = scenario.ScenarioName,
+                    FinalProjectedBalance = simulation.FinalProjectedBalance,
+                    Impact = simulation.FinalProjectedBalance - baselineFinalBalance,
+                    RiskDays = riskDays
+                });
+
+                await _simulationLogRepository.CreateAsync(new ForecastSimulationLog
+                {
+                    Id = Guid.NewGuid(),
+                    EnterpriseId = enterpriseId,
+                    UserId = userId,
+                    ExecutedAt = DateTime.UtcNow,
+                    ScenarioName = scenario.ScenarioName,
+                    HorizonInDays = request.HorizonInDays,
+                    FinalProjectedBalance = simulation.FinalProjectedBalance,
+                    InputsJson = JsonSerializer.Serialize(scenario),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    IsActive = true
+                });
+            }
+
+            await _simulationLogRepository.CommitAsync();
+            return results;
+        }
+
+        private async Task<CashFlowForecastDTO> BuildForecastAsync(Guid enterpriseId, int horizonInDays, double currentBalance, int receivableDelayInDays, double payableMultiplier)
+        {
+            var today = DateTime.UtcNow.Date;
+            var endDate = today.AddDays(horizonInDays);
+
+            var orders = (await _orderRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId && x.IsActive == true)).ToList();
+            var receivables = orders
+                .Select(x => new
+                {
+                    Date = ((x.Payday ?? x.PaymentScheduledDate).Date).AddDays(receivableDelayInDays),
+                    Amount = x.TotalValue
+                })
+                .Where(x => x.Date >= today && x.Date <= endDate)
+                .GroupBy(x => x.Date)
+                .ToDictionary(x => x.Key, x => x.Sum(y => y.Amount));
+
+            var payables = (await _payableBillRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId && x.IsActive == true && !x.IsPaid))
+                .Where(x => x.DueDate.Date >= today && x.DueDate.Date <= endDate)
+                .GroupBy(x => x.DueDate.Date)
+                .ToDictionary(x => x.Key, x => x.Sum(y => y.Amount * payableMultiplier));
+
+            var projection = new List<CashFlowForecastDayDTO>();
+            var runningBalance = currentBalance;
+
+            for (var date = today; date <= endDate; date = date.AddDays(1))
+            {
+                receivables.TryGetValue(date, out var dayReceivable);
+                payables.TryGetValue(date, out var dayPayable);
+                runningBalance += dayReceivable - dayPayable;
+
+                projection.Add(new CashFlowForecastDayDTO
+                {
+                    Date = date,
+                    AccountsReceivable = dayReceivable,
+                    AccountsPayable = dayPayable,
+                    ProjectedBalance = runningBalance,
+                    IsRiskDay = runningBalance < 0
+                });
+            }
+
+            return new CashFlowForecastDTO
+            {
+                HorizonInDays = horizonInDays,
+                CurrentBalance = currentBalance,
+                FinalProjectedBalance = runningBalance,
+                DailyProjection = projection
+            };
+        }
+    }
+}
