@@ -17,6 +17,8 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<Order> Order { get; set; }
         public DbSet<OrderedProduct> OrderedProduct { get; set; }
         public DbSet<Product> Product { get; set; }
+        public DbSet<PayableBill> PayableBill { get; set; }
+        public DbSet<ForecastSimulationLog> ForecastSimulationLog { get; set; }
         public DbSet<RefreshToken> RefreshToken { get; set; }
         public DbSet<User> User { get; set; }
 
