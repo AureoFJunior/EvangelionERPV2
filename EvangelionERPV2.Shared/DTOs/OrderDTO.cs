@@ -11,6 +11,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public Guid? CustomerId { get; set; } = null;
         public string? CustomerName { get; set; } = null;
         public IEnumerable<OrderedProduct>? OrderedProduct { get; set; } = null;
+        public int Status { get; set; } = 0;
 
     }
 }

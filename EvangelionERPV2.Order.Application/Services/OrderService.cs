@@ -126,6 +126,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 if (existentOrder == null)
                     throw new NotFoundDatabaseException($"{nameof(Order)} was not found in database.");
 
+                order.OrderedProduct = null;
                 order.UpdatedAt = DateTime.UtcNow;
                 updatedOrder = _orderRepository.Update(order);
                 _orderRepository.Commit();

@@ -88,7 +88,9 @@ namespace EvangelionERPV2.Web.Controllers
                     Token = token,
                     RefreshToken = refreshToken,
                     Enterprise = user.Enterprise,
-                    ActualTheme = user.ActualTheme
+                    ActualTheme = user.ActualTheme,
+                    AccessLevel = user.AccessLevel,
+                    Language = user.Language
                 };
 
                 return Ok(loggedUser);
