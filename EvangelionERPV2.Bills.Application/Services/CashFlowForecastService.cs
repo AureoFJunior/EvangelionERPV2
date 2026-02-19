@@ -92,6 +92,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 .ToDictionary(x => x.Key, x => x.Sum(y => y.Amount));
 
             var payables = (await _payableBillRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId && x.IsActive == true))
+                .Where(x => !x.IsPaid || x.PaidAt.HasValue)
                 .Select(x => new
                 {
                     Date = ResolvePayableDate(x),
@@ -136,11 +137,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         private static DateTime ResolvePayableDate(PayableBill payableBill)
         {
-            var date = payableBill.IsPaid && payableBill.PaidAt.HasValue
-                ? payableBill.PaidAt.Value
-                : payableBill.DueDate;
+            if (payableBill.IsPaid)
+                return payableBill.PaidAt!.Value.Date;
 
-            return date.Date;
+            return payableBill.DueDate.Date;
         }
     }
 }
