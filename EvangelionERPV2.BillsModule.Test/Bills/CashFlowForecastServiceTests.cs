@@ -107,5 +107,40 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(170, day4.ProjectedBalance, 2);
             Assert.Equal(170, result.FinalProjectedBalance, 2);
         }
+
+        [Fact]
+        public async Task GetForecastAsync_ShouldIgnorePaidBillsWithoutPaidAtDate()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var today = DateTime.UtcNow.Date;
+
+            var orders = new List<Order>();
+            var payables = new List<PayableBill>
+            {
+                new() { EnterpriseId = enterpriseId, DueDate = today.AddDays(2), Amount = 40, IsPaid = false, IsActive = true },
+                new() { EnterpriseId = enterpriseId, DueDate = today.AddDays(3), Amount = 90, IsPaid = true, PaidAt = null, IsActive = true }
+            };
+
+            var orderRepo = new Mock<IRepository<Order>>();
+            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<Order, bool>>())).ReturnsAsync((Func<Order, bool>? f) => orders.Where(f!).ToList());
+
+            var payableRepo = new Mock<IRepository<PayableBill>>();
+            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync((Func<PayableBill, bool>? f) => payables.Where(f!).ToList());
+
+            var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, logRepo.Object);
+
+            var result = await service.GetForecastAsync(enterpriseId, 30, 100);
+
+            var day2 = result.DailyProjection.Single(x => x.Date == today.AddDays(2));
+            var day3 = result.DailyProjection.Single(x => x.Date == today.AddDays(3));
+
+            Assert.Equal(40, day2.AccountsPayable, 2);
+            Assert.Equal(60, day2.ProjectedBalance, 2);
+            Assert.Equal(0, day3.AccountsPayable, 2);
+            Assert.Equal(60, day3.ProjectedBalance, 2);
+            Assert.Equal(60, result.FinalProjectedBalance, 2);
+        }
+
     }
 }
