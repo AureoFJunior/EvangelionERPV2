@@ -84,16 +84,22 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var receivables = orders
                 .Select(x => new
                 {
-                    Date = ((x.Payday ?? x.PaymentScheduledDate).Date).AddDays(receivableDelayInDays),
+                    Date = ResolveOrderReceivableDate(x).AddDays(receivableDelayInDays),
                     Amount = x.TotalValue
                 })
                 .Where(x => x.Date >= today && x.Date <= endDate)
                 .GroupBy(x => x.Date)
                 .ToDictionary(x => x.Key, x => x.Sum(y => y.Amount));
 
-            var payables = (await _payableBillRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId && x.IsActive == true && !x.IsPaid))
-                .Where(x => x.DueDate.Date >= today && x.DueDate.Date <= endDate)
-                .GroupBy(x => x.DueDate.Date)
+            var payables = (await _payableBillRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId && x.IsActive == true))
+                .Where(x => !x.IsPaid || x.PaidAt.HasValue)
+                .Select(x => new
+                {
+                    Date = ResolvePayableDate(x),
+                    Amount = x.Amount
+                })
+                .Where(x => x.Date >= today && x.Date <= endDate)
+                .GroupBy(x => x.Date)
                 .ToDictionary(x => x.Key, x => x.Sum(y => y.Amount * payableMultiplier));
 
             var projection = new List<CashFlowForecastDayDTO>();
@@ -122,6 +128,19 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 FinalProjectedBalance = runningBalance,
                 DailyProjection = projection
             };
+        }
+
+        private static DateTime ResolveOrderReceivableDate(Order order)
+        {
+            return (order.Payday ?? order.PaymentScheduledDate).Date;
+        }
+
+        private static DateTime ResolvePayableDate(PayableBill payableBill)
+        {
+            if (payableBill.IsPaid)
+                return payableBill.PaidAt!.Value.Date;
+
+            return payableBill.DueDate.Date;
         }
     }
 }
