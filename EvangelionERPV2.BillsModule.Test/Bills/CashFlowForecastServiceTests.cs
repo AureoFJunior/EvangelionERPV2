@@ -89,9 +89,22 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 0);
 
-            Assert.Equal(170, result.DailyProjection.Single(x => x.Date == today.AddDays(2)).ProjectedBalance, 2);
-            Assert.Equal(250, result.DailyProjection.Single(x => x.Date == today.AddDays(4)).ProjectedBalance, 2);
-            Assert.Equal(170, result.DailyProjection.Single(x => x.Date == today.AddDays(1)).ProjectedBalance, 2);
+            var day1 = result.DailyProjection.Single(x => x.Date == today.AddDays(1));
+            var day2 = result.DailyProjection.Single(x => x.Date == today.AddDays(2));
+            var day3 = result.DailyProjection.Single(x => x.Date == today.AddDays(3));
+            var day4 = result.DailyProjection.Single(x => x.Date == today.AddDays(4));
+
+            Assert.Equal(80, day1.AccountsPayable, 2);
+            Assert.Equal(-80, day1.ProjectedBalance, 2);
+
+            Assert.Equal(200, day2.AccountsReceivable, 2);
+            Assert.Equal(120, day2.ProjectedBalance, 2);
+
+            Assert.Equal(50, day3.AccountsPayable, 2);
+            Assert.Equal(70, day3.ProjectedBalance, 2);
+
+            Assert.Equal(100, day4.AccountsReceivable, 2);
+            Assert.Equal(170, day4.ProjectedBalance, 2);
             Assert.Equal(170, result.FinalProjectedBalance, 2);
         }
     }
