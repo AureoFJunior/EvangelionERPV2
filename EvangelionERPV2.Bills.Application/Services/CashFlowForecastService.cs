@@ -84,8 +84,14 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var receivables = orders
                 .Select(x => new
                 {
-                    Date = ResolveOrderReceivableDate(x).AddDays(receivableDelayInDays),
+                    Date = ResolveOrderReceivableDate(x, today)?.AddDays(receivableDelayInDays),
                     Amount = x.TotalValue
+                })
+                .Where(x => x.Date.HasValue)
+                .Select(x => new
+                {
+                    Date = x.Date!.Value,
+                    x.Amount
                 })
                 .Where(x => x.Date >= today && x.Date <= endDate)
                 .GroupBy(x => x.Date)
@@ -95,8 +101,14 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 .Where(x => !x.IsPaid || x.PaidAt.HasValue)
                 .Select(x => new
                 {
-                    Date = ResolvePayableDate(x),
+                    Date = ResolvePayableDate(x, today),
                     Amount = x.Amount
+                })
+                .Where(x => x.Date.HasValue)
+                .Select(x => new
+                {
+                    Date = x.Date!.Value,
+                    x.Amount
                 })
                 .Where(x => x.Date >= today && x.Date <= endDate)
                 .GroupBy(x => x.Date)
@@ -130,17 +142,31 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             };
         }
 
-        private static DateTime ResolveOrderReceivableDate(Order order)
+        private static DateTime? ResolveOrderReceivableDate(Order order, DateTime today)
         {
-            return (order.Payday ?? order.PaymentScheduledDate).Date;
+            if (order.Payday.HasValue)
+            {
+                var paidDate = order.Payday.Value.Date;
+                return paidDate >= today ? paidDate : null;
+            }
+
+            var scheduledDate = order.PaymentScheduledDate.Date;
+            return scheduledDate < today ? today : scheduledDate;
         }
 
-        private static DateTime ResolvePayableDate(PayableBill payableBill)
+        private static DateTime? ResolvePayableDate(PayableBill payableBill, DateTime today)
         {
             if (payableBill.IsPaid)
-                return payableBill.PaidAt!.Value.Date;
+            {
+                if (!payableBill.PaidAt.HasValue)
+                    return null;
 
-            return payableBill.DueDate.Date;
+                var paidDate = payableBill.PaidAt.Value.Date;
+                return paidDate >= today ? paidDate : null;
+            }
+
+            var dueDate = payableBill.DueDate.Date;
+            return dueDate < today ? today : dueDate;
         }
     }
 }
