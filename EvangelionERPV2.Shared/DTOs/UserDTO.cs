@@ -14,5 +14,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public short ActualTheme { get; set; }
         public string Token { get; set; } = string.Empty;
         public string? RefreshToken { get; set; }
+        public short? AccessLevel { get; set; }
+        public short? Language { get; set; }
     }
 }
