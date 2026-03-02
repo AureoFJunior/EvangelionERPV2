@@ -4,7 +4,9 @@
     {
         Pending,
         Processing,
+        Paid,
         Shipped,
-        Delivered
+        Delivered,
+        Finished
     }
 }
