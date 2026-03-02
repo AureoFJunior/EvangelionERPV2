@@ -276,7 +276,9 @@ namespace EvangelionERPV2.Web.Controllers
                 Token = token,
                 RefreshToken = refreshToken,
                 Enterprise = user.Enterprise,
-                ActualTheme = user.ActualTheme
+                ActualTheme = user.ActualTheme,
+                AccessLevel = user.AccessLevel,
+                Language = user.Language
             };
         }
 
@@ -409,6 +411,16 @@ namespace EvangelionERPV2.Web.Controllers
             public short Theme { get; set; }
         }
 
+        public sealed class UpdateLanguageRequest
+        {
+            public int Language { get; set; }
+        }
+
+        public sealed class UpdateProfilePictureRequest
+        {
+            public string? ProfilePicture { get; set; }
+        }
+
         /// <summary>
         /// Update the current user's theme preference.
         /// </summary>
@@ -445,6 +457,89 @@ namespace EvangelionERPV2.Web.Controllers
             catch (Exception ex)
             {
                 Log.Logger.Error("Error when updating user theme", ex);
+                return Problem(ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Update the current user's language preference.
+        /// </summary>
+        [HttpPut]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public IActionResult UpdateLanguage([FromBody] UpdateLanguageRequest request)
+        {
+            try
+            {
+                if (!Enum.IsDefined(typeof(EnumLanguage), request.Language))
+                    return BadRequest("Invalid language value.");
+
+                var userName = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrWhiteSpace(userName))
+                    return Unauthorized();
+
+                Shared.Entities.User? user = _userRepository
+                    .GetByCondition(x => x != null && x.UserName == userName)
+                    .FirstOrDefault();
+
+                if (user == null)
+                    return NotFound();
+
+                user.Language = (short)request.Language;
+
+                var updatedUser = _userService.Update(user);
+                if (updatedUser == null)
+                    return NoContent();
+
+                var dto = _mapper.Map<UserDTO>(updatedUser);
+                return Ok(dto);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("Error when updating user language", ex);
+                return Problem(ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Update the current user's profile picture.
+        /// </summary>
+        [HttpPut]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public IActionResult UpdateProfilePicture([FromBody] UpdateProfilePictureRequest request)
+        {
+            try
+            {
+                var userName = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrWhiteSpace(userName))
+                    return Unauthorized();
+
+                Shared.Entities.User? user = _userRepository
+                    .GetByCondition(x => x != null && x.UserName == userName)
+                    .FirstOrDefault();
+
+                if (user == null)
+                    return NotFound();
+
+                user.ProfilePicture = request?.ProfilePicture?.Trim() ?? string.Empty;
+
+                var updatedUser = _userService.Update(user);
+                if (updatedUser == null)
+                    return NoContent();
+
+                var dto = _mapper.Map<UserDTO>(updatedUser);
+                return Ok(dto);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("Error when updating user profile picture", ex);
                 return Problem(ex.Message);
             }
         }
