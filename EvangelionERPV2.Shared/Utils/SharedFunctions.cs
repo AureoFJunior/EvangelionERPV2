@@ -53,14 +53,44 @@ namespace EvangelionERPV2.Shared.Utils
                 if (int.TryParse(input, out int result))
                     return (T)(object)result;
             }
+            else if (typeof(T) == typeof(uint))
+            {
+                if (uint.TryParse(input, out uint result))
+                    return (T)(object)result;
+            }
             else if (typeof(T) == typeof(short))
             {
                 if (short.TryParse(input, out short result))
                     return (T)(object)result;
             }
+            else if (typeof(T) == typeof(ushort))
+            {
+                if (ushort.TryParse(input, out ushort result))
+                    return (T)(object)result;
+            }
             else if (typeof(T) == typeof(long))
             {
                 if (long.TryParse(input, out long result))
+                    return (T)(object)result;
+            }
+            else if (typeof(T) == typeof(ulong))
+            {
+                if (ulong.TryParse(input, out ulong result))
+                    return (T)(object)result;
+            }
+            else if (typeof(T) == typeof(float))
+            {
+                if (float.TryParse(input, out float result))
+                    return (T)(object)result;
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                if (double.TryParse(input, out double result))
+                    return (T)(object)result;
+            }
+            else if (typeof(T) == typeof(decimal))
+            {
+                if (decimal.TryParse(input, out decimal result))
                     return (T)(object)result;
             }
             return default;
@@ -73,12 +103,13 @@ namespace EvangelionERPV2.Shared.Utils
 
         public static bool IsDateBetween(this DateTime? input, DateTime start, DateTime end)
         {
-            return input >= start && input <= end;
+            return input.HasValue && input.Value >= start && input.Value <= end;
         }
 
         public static bool IsLastMonthDay(this DateTime input)
         {
-            return input == GetLastDayOfMonth();
+            var lastDay = GetLastDayOfMonth();
+            return input.Date == lastDay.Date;
         }
 
         public static DateTime GetFirstDayOfMonth()
