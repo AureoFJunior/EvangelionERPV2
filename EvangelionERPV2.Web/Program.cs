@@ -202,7 +202,7 @@ static void AddSwaggerGen(WebApplicationBuilder builder)
             Scheme = "Bearer",
             BearerFormat = "JWT",
             In = ParameterLocation.Header,
-            Description = "JWT Authorization header using the Bearer scheme" +
+            Description = "JWT Authorization header using the Bearer scheme. " +
             "Use the pattern 'Bearer TOKEN'",
         });
         c.AddSecurityRequirement(document => new OpenApiSecurityRequirement

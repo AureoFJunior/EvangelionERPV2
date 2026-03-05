@@ -77,21 +77,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
                     throw new Exception();
 
-                UserDTO loggedUser = new UserDTO()
-                {
-                    Id = user.Id,
-                    FirstName = user.FirstName,
-                    LastName = user.LastName,
-                    Email = user.Email,
-                    BirthDate = user.BirthDate,
-                    ProfilePicture = user.ProfilePicture,
-                    Token = token,
-                    RefreshToken = refreshToken,
-                    Enterprise = user.Enterprise,
-                    ActualTheme = user.ActualTheme
-                };
-
-                return Ok(loggedUser);
+                return Ok(BuildUserDto(user, token, refreshToken));
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -270,12 +256,21 @@ namespace EvangelionERPV2.Web.Controllers
                 LastName = user.LastName,
                 Email = user.Email,
                 BirthDate = user.BirthDate,
-                ProfilePicture = user.ProfilePicture,
+                ProfilePicture = SharedFunctions.EnsureDecryptedAddress(user.ProfilePicture),
                 Token = token,
                 RefreshToken = refreshToken,
                 Enterprise = user.Enterprise,
-                ActualTheme = user.ActualTheme
+                ActualTheme = user.ActualTheme,
+                AccessLevel = user.AccessLevel,
+                Language = user.Language
             };
+        }
+
+        private UserDTO ToUserDto(Shared.Entities.User user)
+        {
+            var dto = _mapper.Map<UserDTO>(user);
+            dto.ProfilePicture = SharedFunctions.EnsureDecryptedAddress(dto.ProfilePicture);
+            return dto;
         }
 
 
@@ -298,8 +293,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (users == null)
                     return NoContent();
 
-                IEnumerable<UserDTO> userDTO = _mapper.Map<IEnumerable<UserDTO>>(users);
-                return Ok(userDTO);
+                return Ok(users.Select(ToUserDto).ToList());
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -330,8 +324,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (user == null)
                     return NoContent();
 
-                UserDTO userDTO = _mapper.Map<UserDTO>(user);
-                return Ok(userDTO);
+                return Ok(ToUserDto(user));
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -363,7 +356,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!ModelState.IsValid) return BadRequest(ModelState);
 
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
-                return Ok(createdUser);
+                return Ok(ToUserDto(createdUser));
             }
             catch (Exception ex)
             {
@@ -393,7 +386,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                return Ok(user);
+                return Ok(ToUserDto(updatedUser));
             }
             catch (Exception ex)
             {
@@ -405,6 +398,16 @@ namespace EvangelionERPV2.Web.Controllers
         public sealed class UpdateThemeRequest
         {
             public short Theme { get; set; }
+        }
+
+        public sealed class UpdateLanguageRequest
+        {
+            public int Language { get; set; }
+        }
+
+        public sealed class UpdateProfilePictureRequest
+        {
+            public string? ProfilePicture { get; set; }
         }
 
         /// <summary>
@@ -448,6 +451,85 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
+        /// Update the current user's language preference.
+        /// </summary>
+        [HttpPut]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public IActionResult UpdateLanguage([FromBody] UpdateLanguageRequest request)
+        {
+            try
+            {
+                if (!Enum.IsDefined(typeof(EnumLanguage), request.Language))
+                    return BadRequest("Invalid language value.");
+
+                var userName = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrWhiteSpace(userName))
+                    return Unauthorized();
+
+                Shared.Entities.User? user = _userRepository
+                    .GetByCondition(x => x != null && x.UserName == userName)
+                    .FirstOrDefault();
+
+                if (user == null)
+                    return NotFound();
+
+                user.Language = (short)request.Language;
+
+                var updatedUser = _userService.Update(user);
+                if (updatedUser == null)
+                    return NoContent();
+
+                return Ok(ToUserDto(updatedUser));
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("Error when updating user language", ex);
+                return Problem(ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Update the current user's profile picture.
+        /// </summary>
+        [HttpPut]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> UpdateProfilePicture([FromBody] UpdateProfilePictureRequest request)
+        {
+            try
+            {
+                var userName = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrWhiteSpace(userName))
+                    return Unauthorized();
+
+                Shared.Entities.User? user = _userRepository
+                    .GetByCondition(x => x != null && x.UserName == userName)
+                    .FirstOrDefault();
+
+                if (user == null)
+                    return NotFound();
+
+                var updatedUser = await _userService.UpdateProfilePictureAsync(user, request?.ProfilePicture);
+                if (updatedUser == null)
+                    return NoContent();
+
+                return Ok(ToUserDto(updatedUser));
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("Error when updating user profile picture", ex);
+                return Problem(ex.Message);
+            }
+        }
+
+        /// <summary>
         /// Delete an user
         /// </summary>
         /// <param name="id">User's Id</param>
@@ -466,7 +548,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (user == null)
                     return NoContent();
 
-                return Ok(user);
+                return Ok(ToUserDto(user));
             }
             catch (Exception ex)
             {

@@ -8,6 +8,7 @@ using EvangelionERPV2.Shared.Utils;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using System.Collections.Concurrent;
+using System.Net;
 
 namespace EvangelionERPV2.ProductModule.Application.Services
 {
@@ -49,9 +50,11 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 includedProduct = await _productRepository.CreateAsync(product.Product);
                 await _productRepository.CommitAsync();
 
-                await UpdatePictureAsync(product);
+                if (string.IsNullOrWhiteSpace(product.File))
+                    return includedProduct;
 
-                return includedProduct;
+                var updatedProduct = await UpdatePictureAsync(product);
+                return updatedProduct;
 
             }
             catch (Exception ex)
@@ -71,7 +74,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
                 _productRepository.DetachEntity(existentProduct);
                 product.UpdatedAt = DateTime.UtcNow;
-                product.PictureAdress = SharedFunctions.Encrypt(product.PictureAdress ?? "");
+                product.PictureAdress = SharedFunctions.EnsureEncryptedAddress(product.PictureAdress);
                 _productRepository.Update(product);
                 await _productRepository.CommitAsync();
 
@@ -165,7 +168,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             try
             {
                 Product? existentProduct = await _productRepository.GetByIdAsync(productPicture.Product.Id);
-                string bucketName = _configuration.GetSection("AWSSettings")["BucketProducttName"] ?? string.Empty;
+                string bucketName = SharedFunctions.GetProductBucketName(_configuration);
 
                 if (existentProduct == null)
                     throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
@@ -173,15 +176,14 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                     throw new InvalidOperationException("AWS bucket name is not configured.");
 
                 string keyName = $"{productPicture.Product.Name.ClearString().Replace(" ", "-")}{DateTime.UtcNow.ToString("MM-dd-yyyy-HH:mm:ss:fff")}";
-                string encryptedkeyName = SharedFunctions.Encrypt(keyName);
+                string encryptedkeyName = SharedFunctions.EnsureEncryptedAddress(keyName);
                 productPicture.Product.UpdatedAt = DateTime.UtcNow;
                 productPicture.Product.PictureAdress = encryptedkeyName;
 
                 await DeleteOldPicture(existentProduct, bucketName);
 
                 existentProduct = null;
-                MemoryStream content = GetPictureContent(productPicture);
-
+                using var content = SharedFunctions.GetMemoryStreamFromBase64Payload(productPicture.File);
                 await _s3Client.CreateItemAsync(bucketName, keyName, content);
 
                 _productRepository.Update(productPicture.Product);
@@ -198,19 +200,12 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
         }
 
-        private MemoryStream GetPictureContent(ProductPicture productPicture)
-        {
-            var bytes = Convert.FromBase64String(productPicture.File); // Get bytes from Base64 field
-            var content = new MemoryStream(bytes); // Convert the bytes into the file (Stream)
-            return content;
-        }
-
         private async Task DeleteOldPicture(Product? existentProduct, string bucketName)
         {
             if (existentProduct == null)
                 return;
-            if (!string.IsNullOrEmpty(existentProduct.PictureAdress))
-                await _s3Client.DeleteItemAsync(bucketName, existentProduct.PictureAdress);
+
+            await _s3Client.DeleteItemIfExistsAsync(bucketName, existentProduct.PictureAdress);
         }
 
         /// <summary>
@@ -230,6 +225,28 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
 
             return await _productReportGeneratorService.GenerateStockReportAsync(enterprise);
+        }
+
+        public async Task<string> GetPictureBase64Async(string? pictureAddress)
+        {
+            try
+            {
+                string bucketName = SharedFunctions.GetProductBucketName(_configuration);
+                if (string.IsNullOrWhiteSpace(bucketName))
+                    throw new InvalidOperationException("AWS bucket name is not configured.");
+
+                return await _s3Client.GetItemBase64Async(bucketName, pictureAddress);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
+            {
+                Log.Logger.Warning("Product image not found in S3 for key {KeyName}", pictureAddress);
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(ex, "Unable to load product image from S3 for key {KeyName}", pictureAddress);
+                return string.Empty;
+            }
         }
 
         #region Dispose Pattern
