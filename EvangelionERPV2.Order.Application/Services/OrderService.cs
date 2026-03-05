@@ -113,6 +113,9 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             order.TotalValue = computedTotal;
 
+            if (order.PaymentScheduledDate.Date == DateTime.Now.Date)
+                order.PaymentScheduledDate = order.PaymentScheduledDate.AddDays(30);
+
             if (order.TotalValue <= 0) throw new InsertDatabaseException($"{nameof(Order)} has value/quantity null or negative");
         }
 
@@ -126,6 +129,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 if (existentOrder == null)
                     throw new NotFoundDatabaseException($"{nameof(Order)} was not found in database.");
 
+                order.OrderedProduct = null;
                 order.UpdatedAt = DateTime.UtcNow;
                 updatedOrder = _orderRepository.Update(order);
                 _orderRepository.Commit();

@@ -41,5 +41,6 @@ namespace EvangelionERPV2.Shared.Entities
         [JsonIgnore]
         public virtual Enterprise? Enterprise { get; set; }
         public short AccessLevel { get; set; }
+        public short Language { get; set; }
     }
 }

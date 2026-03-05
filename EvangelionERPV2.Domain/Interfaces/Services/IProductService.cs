@@ -13,6 +13,7 @@ namespace EvangelionERPV2.Domain.Interfaces.Services
         public Task UpdateForOrder(Order order);
         public Task<TEntity> UpdateAsync(Product product);
         Task<Product> UpdatePictureAsync(ProductPicture productPicture);
+        Task<string> GetPictureBase64Async(string? pictureAddress);
         #endregion
     }
 }

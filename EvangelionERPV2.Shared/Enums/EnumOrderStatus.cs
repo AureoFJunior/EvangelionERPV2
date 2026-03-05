@@ -2,9 +2,11 @@
 {
     public enum EnumOrderStatus
     {
-        Created,
-        Completed,
         Pending,
-        Canceled
+        Processing,
+        Paid,
+        Shipped,
+        Delivered,
+        Finished
     }
 }
