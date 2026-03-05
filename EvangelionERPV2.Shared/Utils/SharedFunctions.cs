@@ -161,6 +161,73 @@ namespace EvangelionERPV2.Shared.Utils
             return fieldValues;
         }
 
+        public static string EnsureEncryptedAddress(string? address)
+        {
+            if (string.IsNullOrWhiteSpace(address))
+                return string.Empty;
+
+            var trimmed = address.Trim();
+            var decrypted = Decrypt(trimmed);
+            if (!string.IsNullOrWhiteSpace(decrypted))
+                return trimmed;
+
+            return Encrypt(trimmed);
+        }
+
+        public static string EnsureDecryptedAddress(string? address)
+        {
+            if (string.IsNullOrWhiteSpace(address))
+                return string.Empty;
+
+            var trimmed = address.Trim();
+            var decrypted = Decrypt(trimmed);
+            return !string.IsNullOrWhiteSpace(decrypted) ? decrypted : trimmed;
+        }
+
+        public static string NormalizeBase64Payload(string payload)
+        {
+            if (string.IsNullOrWhiteSpace(payload))
+                return string.Empty;
+
+            var trimmed = payload.Trim();
+            var markerIndex = trimmed.IndexOf("base64,", StringComparison.OrdinalIgnoreCase);
+            if (trimmed.StartsWith("data:", StringComparison.OrdinalIgnoreCase) && markerIndex >= 0)
+                return trimmed.Substring(markerIndex + "base64,".Length);
+
+            return trimmed;
+        }
+
+        public static MemoryStream GetMemoryStreamFromBase64Payload(string payload)
+        {
+            var normalizedPayload = NormalizeBase64Payload(payload);
+            var bytes = Convert.FromBase64String(normalizedPayload);
+            return new MemoryStream(bytes);
+        }
+
+        public static string GetAWSSetting(IConfiguration configuration, string settingName)
+        {
+            if (configuration == null)
+                throw new ArgumentNullException(nameof(configuration));
+            if (string.IsNullOrWhiteSpace(settingName))
+                return string.Empty;
+
+            return configuration.GetSection("AWSSettings")[settingName] ?? string.Empty;
+        }
+
+        public static string GetProductBucketName(IConfiguration configuration)
+        {
+            return GetAWSSetting(configuration, "BucketProducttName");
+        }
+
+        public static string GetUserBucketName(IConfiguration configuration)
+        {
+            var userBucket = GetAWSSetting(configuration, "BucketUserName");
+            if (!string.IsNullOrWhiteSpace(userBucket))
+                return userBucket;
+
+            return GetProductBucketName(configuration);
+        }
+
         #endregion
 
         #region HTTP/HTTPS
@@ -469,6 +536,34 @@ namespace EvangelionERPV2.Shared.Utils
             };
 
             await _s3Client.DeleteObjectAsync(deleteRequest);
+        }
+
+
+        public static async Task DeleteItemIfExistsAsync(this IAmazonS3 _s3Client, string bucketName, string? encryptedOrPlainKey)
+        {
+            if (string.IsNullOrWhiteSpace(bucketName))
+                return;
+
+            var key = EnsureDecryptedAddress(encryptedOrPlainKey);
+            if (string.IsNullOrWhiteSpace(key))
+                return;
+
+            await _s3Client.DeleteItemAsync(bucketName, key);
+        }
+
+        public static async Task<string> GetItemBase64Async(this IAmazonS3 _s3Client, string bucketName, string? encryptedOrPlainKey)
+        {
+            if (string.IsNullOrWhiteSpace(bucketName))
+                return string.Empty;
+
+            var key = EnsureDecryptedAddress(encryptedOrPlainKey);
+            if (string.IsNullOrWhiteSpace(key))
+                return string.Empty;
+
+            using var itemStream = await _s3Client.GetItemAsync(bucketName, key);
+            using var buffer = new MemoryStream();
+            await itemStream.CopyToAsync(buffer);
+            return Convert.ToBase64String(buffer.ToArray());
         }
 
         #endregion

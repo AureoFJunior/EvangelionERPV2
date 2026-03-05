@@ -1,4 +1,5 @@
-using Azure.Core;
+using Amazon;
+using Amazon.S3;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
@@ -15,6 +16,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<User> _userRepository;
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider _kmsProvider;
+        private readonly IAmazonS3 _s3Client;
 
         public UserService(EvangelionERPV2.Shared.Repositories.IRepository<User> userRepository,
             IConfiguration configuration,
@@ -23,6 +25,9 @@ namespace EvangelionERPV2.UserModule.Application.Services
             _userRepository = userRepository;
             _configuration = configuration;
             _kmsProvider = kmsProvider;
+
+            var awsCredentials = _kmsProvider.GetAWSCredentialsAsync().Result;
+            _s3Client = new AmazonS3Client(awsCredentials, RegionEndpoint.USEast1);
         }
 
         public async Task<User> CreateAsync(User user)
@@ -38,6 +43,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 user.Password = SharedFunctions.IsPasswordHashFormat(user.Password)
                     ? user.Password
                     : SharedFunctions.HashPassword(user.Password);
+                user.ProfilePicture = SharedFunctions.EnsureEncryptedAddress(user.ProfilePicture);
                 includedUser = await _userRepository.CreateAsync(user);
                 await _userRepository.CommitAsync();
                 return includedUser;
@@ -59,6 +65,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
             if (!string.IsNullOrWhiteSpace(user.Password) && !SharedFunctions.IsPasswordHashFormat(user.Password))
                 user.Password = SharedFunctions.HashPassword(user.Password);
 
+            user.ProfilePicture = SharedFunctions.EnsureEncryptedAddress(user.ProfilePicture);
             updatedUser = _userRepository.Update(user);
             _userRepository.Commit();
             return updatedUser;
@@ -121,6 +128,37 @@ namespace EvangelionERPV2.UserModule.Application.Services
             }
 
             throw new NotFoundDatabaseException("User not found. Please register before logging in with SSO.");
+        }
+
+        public async Task<User> UpdateProfilePictureAsync(User user, string? profilePicturePayload)
+        {
+            if (user == null)
+                throw new ArgumentNullException(nameof(user));
+
+            var existentUser = _userRepository.GetById(user.Id);
+            if (existentUser == null)
+                throw new NotFoundDatabaseException($"{nameof(User)} was not found in database.");
+
+            var bucketName = SharedFunctions.GetUserBucketName(_configuration);
+            if (string.IsNullOrWhiteSpace(bucketName))
+                throw new InvalidOperationException("AWS bucket name is not configured.");
+
+            await _s3Client.DeleteItemIfExistsAsync(bucketName, existentUser.ProfilePicture);
+
+            if (string.IsNullOrWhiteSpace(profilePicturePayload))
+            {
+                user.ProfilePicture = string.Empty;
+                user.UpdatedAt = DateTime.UtcNow;
+                return Update(user);
+            }
+
+            var keyName = $"users/{user.UserName.ClearString().ToLowerInvariant()}-{DateTime.UtcNow:yyyyMMddHHmmssfff}";
+            using var content = SharedFunctions.GetMemoryStreamFromBase64Payload(profilePicturePayload);
+            await _s3Client.CreateItemAsync(bucketName, keyName, content);
+
+            user.ProfilePicture = SharedFunctions.EnsureEncryptedAddress(keyName);
+            user.UpdatedAt = DateTime.UtcNow;
+            return Update(user);
         }
     }
 }
