@@ -44,7 +44,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetProducts(int? pageNumber = null, int? pageSize = null)
+        public async Task<IActionResult> GetProducts(int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = false)
         {
 
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -56,8 +56,7 @@ namespace EvangelionERPV2.Web.Controllers
             if (products == null)
                 return NoContent();
 
-            IEnumerable<ProductDTO> productDTO = _mapper.Map<IEnumerable<ProductDTO>>(products);
-            return Ok(productDTO);
+            return Ok(await ToProductDtosAsync(products, includePictures));
         }
 
         /// <summary>
@@ -73,7 +72,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetProductsByFilter([FromBody] Product product, bool descending, int? pageNumber = null, int? pageSize = null)
+        public async Task<IActionResult> GetProductsByFilter([FromBody] Product product, bool descending, int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = false)
         {
             try
             {
@@ -86,7 +85,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (products == null)
                     return NoContent();
 
-                IEnumerable<ProductDTO> productDTO = _mapper.Map<IEnumerable<ProductDTO>>(products);
+                IEnumerable<ProductDTO> productDTO = await ToProductDtosAsync(products, includePictures);
                 return Ok(productDTO.ToPaginatedResult(pageNumber ?? 1, pageSize ?? 1, totalItems));
             }
             catch (NotFoundDatabaseException exnf)
@@ -118,8 +117,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (product == null)
                     return NoContent();
 
-                ProductDTO productDTO = _mapper.Map<ProductDTO>(product);
-                return Ok(productDTO);
+                return Ok(await ToProductDtoAsync(product));
             }
             catch (Exception ex)
             {
@@ -145,7 +143,10 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!ModelState.IsValid) return BadRequest(ModelState);
 
                 Product createdProduct = await _productService.CreateAsync(product);
-                return Ok(_mapper.Map<ProductDTO>(createdProduct));
+                if (createdProduct == null)
+                    return NoContent();
+
+                return Ok(await ToProductDtoAsync(createdProduct));
             }
             catch (Exception ex)
             {
@@ -175,7 +176,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedProduct == null)
                     return NoContent();
 
-                return Ok(_mapper.Map<ProductDTO>(product));
+                return Ok(await ToProductDtoAsync(updatedProduct));
             }
             catch (Exception ex)
             {
@@ -203,7 +204,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (product == null)
                     return NoContent();
 
-                return Ok(product);
+                return Ok(await ToProductDtoAsync(product));
             }
             catch (Exception ex)
             {
@@ -233,7 +234,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedProduct == null)
                     return NoContent();
 
-                return Ok(updatedProduct);
+                return Ok(await ToProductDtoAsync(updatedProduct));
             }
             catch (Exception ex)
             {
@@ -246,6 +247,39 @@ namespace EvangelionERPV2.Web.Controllers
         {
             var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
+        }
+
+        private async Task<IEnumerable<ProductDTO>> ToProductDtosAsync(IEnumerable<Product> products, bool includePictures = true)
+        {
+            var productList = products.ToList();
+            if (productList.Count == 0)
+                return Enumerable.Empty<ProductDTO>();
+
+            var productDtos = new ProductDTO[productList.Count];
+            var parallelOptions = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 8
+            };
+
+            await Parallel.ForEachAsync(Enumerable.Range(0, productList.Count), parallelOptions, async (index, _) =>
+            {
+                productDtos[index] = await ToProductDtoAsync(productList[index], includePictures);
+            });
+
+            return productDtos;
+        }
+
+        private async Task<ProductDTO> ToProductDtoAsync(Product product, bool includePicture = true)
+        {
+            ProductDTO dto = _mapper.Map<ProductDTO>(product);
+            if (!includePicture || string.IsNullOrWhiteSpace(product.PictureAdress))
+            {
+                dto.PictureAdress = string.Empty;
+                return dto;
+            }
+
+            dto.PictureAdress = await _productService.GetPictureBase64Async(product.PictureAdress);
+            return dto;
         }
     }
 }

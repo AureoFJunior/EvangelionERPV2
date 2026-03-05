@@ -77,23 +77,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
                     throw new Exception();
 
-                UserDTO loggedUser = new UserDTO()
-                {
-                    Id = user.Id,
-                    FirstName = user.FirstName,
-                    LastName = user.LastName,
-                    Email = user.Email,
-                    BirthDate = user.BirthDate,
-                    ProfilePicture = user.ProfilePicture,
-                    Token = token,
-                    RefreshToken = refreshToken,
-                    Enterprise = user.Enterprise,
-                    ActualTheme = user.ActualTheme,
-                    AccessLevel = user.AccessLevel,
-                    Language = user.Language
-                };
-
-                return Ok(loggedUser);
+                return Ok(BuildUserDto(user, token, refreshToken));
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -272,7 +256,7 @@ namespace EvangelionERPV2.Web.Controllers
                 LastName = user.LastName,
                 Email = user.Email,
                 BirthDate = user.BirthDate,
-                ProfilePicture = user.ProfilePicture,
+                ProfilePicture = SharedFunctions.EnsureDecryptedAddress(user.ProfilePicture),
                 Token = token,
                 RefreshToken = refreshToken,
                 Enterprise = user.Enterprise,
@@ -280,6 +264,13 @@ namespace EvangelionERPV2.Web.Controllers
                 AccessLevel = user.AccessLevel,
                 Language = user.Language
             };
+        }
+
+        private UserDTO ToUserDto(Shared.Entities.User user)
+        {
+            var dto = _mapper.Map<UserDTO>(user);
+            dto.ProfilePicture = SharedFunctions.EnsureDecryptedAddress(dto.ProfilePicture);
+            return dto;
         }
 
 
@@ -302,8 +293,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (users == null)
                     return NoContent();
 
-                IEnumerable<UserDTO> userDTO = _mapper.Map<IEnumerable<UserDTO>>(users);
-                return Ok(userDTO);
+                return Ok(users.Select(ToUserDto).ToList());
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -334,8 +324,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (user == null)
                     return NoContent();
 
-                UserDTO userDTO = _mapper.Map<UserDTO>(user);
-                return Ok(userDTO);
+                return Ok(ToUserDto(user));
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -367,7 +356,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!ModelState.IsValid) return BadRequest(ModelState);
 
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
-                return Ok(createdUser);
+                return Ok(ToUserDto(createdUser));
             }
             catch (Exception ex)
             {
@@ -397,7 +386,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                return Ok(user);
+                return Ok(ToUserDto(updatedUser));
             }
             catch (Exception ex)
             {
@@ -494,8 +483,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                var dto = _mapper.Map<UserDTO>(updatedUser);
-                return Ok(dto);
+                return Ok(ToUserDto(updatedUser));
             }
             catch (Exception ex)
             {
@@ -513,7 +501,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult UpdateProfilePicture([FromBody] UpdateProfilePictureRequest request)
+        public async Task<IActionResult> UpdateProfilePicture([FromBody] UpdateProfilePictureRequest request)
         {
             try
             {
@@ -528,14 +516,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (user == null)
                     return NotFound();
 
-                user.ProfilePicture = request?.ProfilePicture?.Trim() ?? string.Empty;
-
-                var updatedUser = _userService.Update(user);
+                var updatedUser = await _userService.UpdateProfilePictureAsync(user, request?.ProfilePicture);
                 if (updatedUser == null)
                     return NoContent();
 
-                var dto = _mapper.Map<UserDTO>(updatedUser);
-                return Ok(dto);
+                return Ok(ToUserDto(updatedUser));
             }
             catch (Exception ex)
             {
@@ -563,7 +548,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (user == null)
                     return NoContent();
 
-                return Ok(user);
+                return Ok(ToUserDto(user));
             }
             catch (Exception ex)
             {
