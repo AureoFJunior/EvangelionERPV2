@@ -49,7 +49,7 @@ jobs:
             || aws ecr create-repository --repository-name "${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}" --region "${{ secrets.AWS_REGION }}"
 
       - name: Build and push web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./EvangelionERPV2.Web/Dockerfile
@@ -60,7 +60,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       - name: Build and push worker email image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./EvangelionERPV2.Worker.Email/Dockerfile
@@ -71,7 +71,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       - name: Build and push worker order image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./EvangelionERPV2.Worker.Order/Dockerfile
