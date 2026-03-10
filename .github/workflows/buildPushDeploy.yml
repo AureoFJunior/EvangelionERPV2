@@ -96,25 +96,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Ensure ECS task execution role permissions (optional)
-        run: |
-          set -euo pipefail
-          ROLE_NAME="${{ secrets.ECS_TASK_EXECUTION_ROLE_NAME }}"
-
-          if [ -z "${ROLE_NAME}" ]; then
-            echo "ECS_TASK_EXECUTION_ROLE_NAME not provided; skipping IAM policy attachment."
-            exit 0
-          fi
-
-          aws iam attach-role-policy \
-            --role-name "${ROLE_NAME}" \
-            --policy-arn "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-
-          aws iam attach-role-policy \
-            --role-name "${ROLE_NAME}" \
-            --policy-arn "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-
-      - name: Register task definitions with ECR images and deploy ECS services
+      - name: Deploy ECS services with configured names
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
@@ -123,13 +105,18 @@ jobs:
           ECS_WEB_SERVICE_NAME: ${{ secrets.ECS_SERVICE_NAME }}
           ECS_WORKER_EMAIL_SERVICE_NAME: ${{ secrets.ECS_WORKER_EMAIL_SERVICE_NAME }}
           ECS_WORKER_ORDER_SERVICE_NAME: ${{ secrets.ECS_WORKER_ORDER_SERVICE_NAME }}
-          ECS_WEB_CONTAINER_NAME: ${{ secrets.ECS_WEB_CONTAINER_NAME }}
-          ECS_WORKER_EMAIL_CONTAINER_NAME: ${{ secrets.ECS_WORKER_EMAIL_CONTAINER_NAME }}
-          ECS_WORKER_ORDER_CONTAINER_NAME: ${{ secrets.ECS_WORKER_ORDER_CONTAINER_NAME }}
         run: |
           set -euo pipefail
 
-          required_envs=(AWS_REGION AWS_ACCOUNT_ID ECR_REPOSITORY ECS_CLUSTER)
+          required_envs=(
+            AWS_REGION
+            AWS_ACCOUNT_ID
+            ECR_REPOSITORY
+            ECS_CLUSTER
+            ECS_WEB_SERVICE_NAME
+            ECS_WORKER_EMAIL_SERVICE_NAME
+            ECS_WORKER_ORDER_SERVICE_NAME
+          )
           for env_name in "${required_envs[@]}"; do
             if [ -z "${!env_name:-}" ]; then
               echo "Required environment variable ${env_name} is missing."
@@ -140,19 +127,14 @@ jobs:
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           ECR_IMAGE_BASE="${ECR_REGISTRY}/${ECR_REPOSITORY}"
 
-          WEB_CONTAINER_NAME="${ECS_WEB_CONTAINER_NAME:-evangelionerpv2-container}"
-          WORKER_EMAIL_CONTAINER_NAME="${ECS_WORKER_EMAIL_CONTAINER_NAME:-evangelionerpv2-worker-email}"
-          WORKER_ORDER_CONTAINER_NAME="${ECS_WORKER_ORDER_CONTAINER_NAME:-evangelionerpv2-worker-order}"
+          WEB_CONTAINER_NAME="evangelionerpv2-container"
+          WORKER_EMAIL_CONTAINER_NAME="evangelionerpv2-worker-email"
+          WORKER_ORDER_CONTAINER_NAME="evangelionerpv2-worker-order"
 
           deploy_service() {
             local service_name="$1"
             local container_name="$2"
             local image_tag="$3"
-
-            if [ -z "${service_name}" ]; then
-              echo "Service not configured for container ${container_name}; skipping."
-              return 0
-            fi
 
             local image_uri="${ECR_IMAGE_BASE}:${image_tag}"
             echo "Deploying ${service_name} using ${image_uri}"
@@ -209,6 +191,11 @@ jobs:
               --force-new-deployment \
               --region "${AWS_REGION}"
           }
+
+          echo "Using ECS cluster ${ECS_CLUSTER}"
+          echo "Web service ${ECS_WEB_SERVICE_NAME}"
+          echo "Worker email service ${ECS_WORKER_EMAIL_SERVICE_NAME}"
+          echo "Worker order service ${ECS_WORKER_ORDER_SERVICE_NAME}"
 
           deploy_service "${ECS_WEB_SERVICE_NAME}" "${WEB_CONTAINER_NAME}" "latest"
           deploy_service "${ECS_WORKER_EMAIL_SERVICE_NAME}" "${WORKER_EMAIL_CONTAINER_NAME}" "worker-email-latest"
