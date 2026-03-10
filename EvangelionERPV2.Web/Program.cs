@@ -102,11 +102,11 @@ try
     app.UseAuthentication();
     app.UseAuthorization();
 
-    app.MapMetrics("/metrics").RequireAuthorization();
+    app.MapMetrics("/metrics");
     app.MapHub<OrderHub>("/orderHub");
 
     app.MapControllers();
-    app.MapHealthChecks("/health").RequireAuthorization();
+    app.MapHealthChecks("/health");
 
     SharedFunctions.Initialize(app.Services);
 

@@ -89,7 +89,7 @@ Each module follows a consistent layering model:
 - Request logging middleware tracks: endpoint, caller, body, response time, status code
 - JWT bearer authentication is enabled globally
 - IP rate limiting via `AspNetCoreRateLimit`
-- `/metrics` and `/health` require authentication
+- `/metrics` and `/health` are public endpoints
 - Swagger UI is available only in `Development`
 
 ## Running with Docker Compose (single file)
@@ -171,6 +171,14 @@ Use one of the following according to your runtime mode:
 - Through nginx (`--profile proxy`): `http://localhost:8082/api/v1`
 - EC2 without nginx: `http://<EC2_PUBLIC_IP>:5000/api/v1`
 - Frontend running inside the same Docker network: `http://evangelionerpv2:8080/api/v1`
+
+## Grafana Cloud metrics (Option A: direct scrape)
+
+Use Grafana Cloud to scrape the API endpoint directly:
+
+1. Expose `https://<your-domain-or-alb>/metrics`.
+2. In Grafana Cloud scrape job, configure the target URL `/metrics`.
+3. Keep access restricted at network level (security group / WAF / allowlist) if exposure should be limited.
 
 ## RabbitMQ note
 
