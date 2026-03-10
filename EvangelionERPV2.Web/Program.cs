@@ -80,6 +80,7 @@ try
 
     Log.Logger.Information("Swagger Config");
 
+    app.UseMiddleware<RequestLoggingMiddleware>();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
     // Configure the HTTP request pipeline.
