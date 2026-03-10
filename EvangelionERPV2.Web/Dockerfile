@@ -5,6 +5,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 ARG APP_UID=0
 USER $APP_UID
 WORKDIR /app
+ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 EXPOSE 8081
 
@@ -17,6 +18,9 @@ WORKDIR /src
 # Copy solution and project files first to maximize restore layer caching
 COPY EvangelionERPV2.sln ./
 COPY EvangelionERPV2.Web/EvangelionERPV2.Web.csproj EvangelionERPV2.Web/
+COPY EvangelionERPV2.Bills.Application/*.csproj EvangelionERPV2.Bills.Application/
+COPY EvangelionERPV2.Bills.Domain/*.csproj EvangelionERPV2.Bills.Domain/
+COPY EvangelionERPV2.Bills.Infra/*.csproj EvangelionERPV2.Bills.Infra/
 COPY EvangelionERPV2.Customer.Application/*.csproj EvangelionERPV2.Customer.Application/
 COPY EvangelionERPV2.Customer.Domain/*.csproj EvangelionERPV2.Customer.Domain/
 COPY EvangelionERPV2.Customer.Infra/*.csproj EvangelionERPV2.Customer.Infra/
@@ -26,6 +30,9 @@ COPY EvangelionERPV2.Email.Infra/*.csproj EvangelionERPV2.Email.Infra/
 COPY EvangelionERPV2.Enterprise.Application/*.csproj EvangelionERPV2.Enterprise.Application/
 COPY EvangelionERPV2.Enterprise.Domain/*.csproj EvangelionERPV2.Enterprise.Domain/
 COPY EvangelionERPV2.Enterprise.Infra/*.csproj EvangelionERPV2.Enterprise.Infra/
+COPY EvangelionERPV2.NFe.Application/*.csproj EvangelionERPV2.NFe.Application/
+COPY EvangelionERPV2.NFe.Domain/*.csproj EvangelionERPV2.NFe.Domain/
+COPY EvangelionERPV2.NFe.Infra/*.csproj EvangelionERPV2.NFe.Infra/
 COPY EvangelionERPV2.Order.Application/*.csproj EvangelionERPV2.Order.Application/
 COPY EvangelionERPV2.Order.Domain/*.csproj EvangelionERPV2.Order.Domain/
 COPY EvangelionERPV2.Order.Infra/*.csproj EvangelionERPV2.Order.Infra/
@@ -37,8 +44,7 @@ COPY EvangelionERPV2.User.Application/*.csproj EvangelionERPV2.User.Application/
 COPY EvangelionERPV2.User.Domain/*.csproj EvangelionERPV2.User.Domain/
 COPY EvangelionERPV2.User.Infra/*.csproj EvangelionERPV2.User.Infra/
 
-RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet restore "EvangelionERPV2.Web/EvangelionERPV2.Web.csproj"
+RUN dotnet restore "EvangelionERPV2.Web/EvangelionERPV2.Web.csproj"
 
 # Copy the remaining source now that restore is cached
 COPY . .
