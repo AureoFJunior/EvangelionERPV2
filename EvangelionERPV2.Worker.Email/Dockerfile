@@ -16,6 +16,9 @@ COPY EvangelionERPV2.Email.Domain/*.csproj EvangelionERPV2.Email.Domain/
 COPY EvangelionERPV2.Email.Infra/*.csproj EvangelionERPV2.Email.Infra/
 COPY EvangelionERPV2.Enterprise.Infra/*.csproj EvangelionERPV2.Enterprise.Infra/
 COPY EvangelionERPV2.Enterprise.Domain/*.csproj EvangelionERPV2.Enterprise.Domain/
+COPY EvangelionERPV2.Bills.Application/*.csproj EvangelionERPV2.Bills.Application/
+COPY EvangelionERPV2.Bills.Domain/*.csproj EvangelionERPV2.Bills.Domain/
+COPY EvangelionERPV2.Bills.Infra/*.csproj EvangelionERPV2.Bills.Infra/
 COPY EvangelionERPV2.Order.Application/*.csproj EvangelionERPV2.Order.Application/
 COPY EvangelionERPV2.Order.Domain/*.csproj EvangelionERPV2.Order.Domain/
 COPY EvangelionERPV2.Order.Infra/*.csproj EvangelionERPV2.Order.Infra/
@@ -24,8 +27,7 @@ COPY EvangelionERPV2.Product.Domain/*.csproj EvangelionERPV2.Product.Domain/
 COPY EvangelionERPV2.Product.Infra/*.csproj EvangelionERPV2.Product.Infra/
 COPY EvangelionERPV2.Shared/*.csproj EvangelionERPV2.Shared/
 
-RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet restore "EvangelionERPV2.Worker.Email/EvangelionERPV2.Worker.Email.csproj"
+RUN dotnet restore "EvangelionERPV2.Worker.Email/EvangelionERPV2.Worker.Email.csproj"
 
 COPY . .
 
