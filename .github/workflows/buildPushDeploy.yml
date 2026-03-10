@@ -96,10 +96,120 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Force new deployment on ECS (pull latest image referenced in task definition)
+      - name: Ensure ECS task execution role permissions (optional)
         run: |
-          aws ecs update-service \
-            --cluster "${{ secrets.ECS_CLUSTER }}" \
-            --service "${{ secrets.ECS_SERVICE_NAME }}" \
-            --force-new-deployment \
-            --region "${{ secrets.AWS_REGION }}"
+          set -euo pipefail
+          ROLE_NAME="${{ secrets.ECS_TASK_EXECUTION_ROLE_NAME }}"
+
+          if [ -z "${ROLE_NAME}" ]; then
+            echo "ECS_TASK_EXECUTION_ROLE_NAME not provided; skipping IAM policy attachment."
+            exit 0
+          fi
+
+          aws iam attach-role-policy \
+            --role-name "${ROLE_NAME}" \
+            --policy-arn "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+
+          aws iam attach-role-policy \
+            --role-name "${ROLE_NAME}" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+
+      - name: Register task definitions with ECR images and deploy ECS services
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          ECR_REPOSITORY: ${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}
+          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          ECS_WEB_SERVICE_NAME: ${{ secrets.ECS_SERVICE_NAME }}
+          ECS_WORKER_EMAIL_SERVICE_NAME: ${{ secrets.ECS_WORKER_EMAIL_SERVICE_NAME }}
+          ECS_WORKER_ORDER_SERVICE_NAME: ${{ secrets.ECS_WORKER_ORDER_SERVICE_NAME }}
+          ECS_WEB_CONTAINER_NAME: ${{ secrets.ECS_WEB_CONTAINER_NAME }}
+          ECS_WORKER_EMAIL_CONTAINER_NAME: ${{ secrets.ECS_WORKER_EMAIL_CONTAINER_NAME }}
+          ECS_WORKER_ORDER_CONTAINER_NAME: ${{ secrets.ECS_WORKER_ORDER_CONTAINER_NAME }}
+        run: |
+          set -euo pipefail
+
+          required_envs=(AWS_REGION AWS_ACCOUNT_ID ECR_REPOSITORY ECS_CLUSTER)
+          for env_name in "${required_envs[@]}"; do
+            if [ -z "${!env_name:-}" ]; then
+              echo "Required environment variable ${env_name} is missing."
+              exit 1
+            fi
+          done
+
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          ECR_IMAGE_BASE="${ECR_REGISTRY}/${ECR_REPOSITORY}"
+
+          WEB_CONTAINER_NAME="${ECS_WEB_CONTAINER_NAME:-evangelionerpv2-container}"
+          WORKER_EMAIL_CONTAINER_NAME="${ECS_WORKER_EMAIL_CONTAINER_NAME:-evangelionerpv2-worker-email}"
+          WORKER_ORDER_CONTAINER_NAME="${ECS_WORKER_ORDER_CONTAINER_NAME:-evangelionerpv2-worker-order}"
+
+          deploy_service() {
+            local service_name="$1"
+            local container_name="$2"
+            local image_tag="$3"
+
+            if [ -z "${service_name}" ]; then
+              echo "Service not configured for container ${container_name}; skipping."
+              return 0
+            fi
+
+            local image_uri="${ECR_IMAGE_BASE}:${image_tag}"
+            echo "Deploying ${service_name} using ${image_uri}"
+
+            local current_task_def_arn
+            current_task_def_arn="$(aws ecs describe-services \
+              --cluster "${ECS_CLUSTER}" \
+              --services "${service_name}" \
+              --region "${AWS_REGION}" \
+              --query 'services[0].taskDefinition' \
+              --output text)"
+
+            if [ -z "${current_task_def_arn}" ] || [ "${current_task_def_arn}" = "None" ]; then
+              echo "Could not resolve current task definition for service ${service_name}"
+              exit 1
+            fi
+
+            aws ecs describe-task-definition \
+              --task-definition "${current_task_def_arn}" \
+              --region "${AWS_REGION}" \
+              --query 'taskDefinition' > current-task-def.json
+
+            if ! jq -e --arg CONTAINER_NAME "${container_name}" '.containerDefinitions[] | select(.name == $CONTAINER_NAME)' current-task-def.json >/dev/null; then
+              echo "Container ${container_name} not found in task definition ${current_task_def_arn}"
+              exit 1
+            fi
+
+            jq --arg IMAGE_URI "${image_uri}" --arg CONTAINER_NAME "${container_name}" '
+              .containerDefinitions |= map(
+                if .name == $CONTAINER_NAME then .image = $IMAGE_URI else . end
+              )
+              | del(
+                  .taskDefinitionArn,
+                  .revision,
+                  .status,
+                  .requiresAttributes,
+                  .compatibilities,
+                  .registeredAt,
+                  .registeredBy
+                )
+            ' current-task-def.json > new-task-def.json
+
+            local new_task_def_arn
+            new_task_def_arn="$(aws ecs register-task-definition \
+              --cli-input-json file://new-task-def.json \
+              --region "${AWS_REGION}" \
+              --query 'taskDefinition.taskDefinitionArn' \
+              --output text)"
+
+            aws ecs update-service \
+              --cluster "${ECS_CLUSTER}" \
+              --service "${service_name}" \
+              --task-definition "${new_task_def_arn}" \
+              --force-new-deployment \
+              --region "${AWS_REGION}"
+          }
+
+          deploy_service "${ECS_WEB_SERVICE_NAME}" "${WEB_CONTAINER_NAME}" "latest"
+          deploy_service "${ECS_WORKER_EMAIL_SERVICE_NAME}" "${WORKER_EMAIL_CONTAINER_NAME}" "worker-email-latest"
+          deploy_service "${ECS_WORKER_ORDER_SERVICE_NAME}" "${WORKER_ORDER_CONTAINER_NAME}" "worker-order-latest"
