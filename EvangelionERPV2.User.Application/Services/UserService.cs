@@ -8,6 +8,7 @@ using EvangelionERPV2.UserModule.Application.Interface;
 using Google.Apis.Auth;
 using Microsoft.Extensions.Configuration;
 using Serilog;
+using System.Net;
 
 namespace EvangelionERPV2.UserModule.Application.Services
 {
@@ -16,7 +17,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<User> _userRepository;
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider _kmsProvider;
-        private readonly IAmazonS3 _s3Client;
+        private IAmazonS3? _s3Client;
 
         public UserService(EvangelionERPV2.Shared.Repositories.IRepository<User> userRepository,
             IConfiguration configuration,
@@ -25,9 +26,6 @@ namespace EvangelionERPV2.UserModule.Application.Services
             _userRepository = userRepository;
             _configuration = configuration;
             _kmsProvider = kmsProvider;
-
-            var awsCredentials = _kmsProvider.GetAWSCredentialsAsync().Result;
-            _s3Client = new AmazonS3Client(awsCredentials, RegionEndpoint.USEast1);
         }
 
         public async Task<User> CreateAsync(User user)
@@ -143,7 +141,8 @@ namespace EvangelionERPV2.UserModule.Application.Services
             if (string.IsNullOrWhiteSpace(bucketName))
                 throw new InvalidOperationException("AWS bucket name is not configured.");
 
-            await _s3Client.DeleteItemIfExistsAsync(bucketName, existentUser.ProfilePicture);
+            var s3Client = await GetS3ClientAsync();
+            await s3Client.DeleteItemIfExistsAsync(bucketName, existentUser.ProfilePicture);
 
             if (string.IsNullOrWhiteSpace(profilePicturePayload))
             {
@@ -154,11 +153,44 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
             var keyName = $"users/{user.UserName.ClearString().ToLowerInvariant()}-{DateTime.UtcNow:yyyyMMddHHmmssfff}";
             using var content = SharedFunctions.GetMemoryStreamFromBase64Payload(profilePicturePayload);
-            await _s3Client.CreateItemAsync(bucketName, keyName, content);
+            await s3Client.CreateItemAsync(bucketName, keyName, content);
 
             user.ProfilePicture = SharedFunctions.EnsureEncryptedAddress(keyName);
             user.UpdatedAt = DateTime.UtcNow;
             return Update(user);
+        }
+
+        public async Task<string> GetProfilePictureBase64Async(string? profilePictureAddress)
+        {
+            try
+            {
+                string bucketName = SharedFunctions.GetUserBucketName(_configuration);
+                if (string.IsNullOrWhiteSpace(bucketName))
+                    throw new InvalidOperationException("AWS bucket name is not configured.");
+
+                var s3Client = await GetS3ClientAsync();
+                return await s3Client.GetItemBase64Async(bucketName, profilePictureAddress);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
+            {
+                Log.Logger.Warning("User profile image not found in S3 for key {KeyName}", profilePictureAddress);
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(ex, "Unable to load user profile image from S3 for key {KeyName}", profilePictureAddress);
+                return string.Empty;
+            }
+        }
+
+        private async Task<IAmazonS3> GetS3ClientAsync()
+        {
+            if (_s3Client != null)
+                return _s3Client;
+
+            var awsCredentials = await _kmsProvider.GetAWSCredentialsAsync();
+            _s3Client = new AmazonS3Client(awsCredentials, RegionEndpoint.USEast1);
+            return _s3Client;
         }
     }
 }

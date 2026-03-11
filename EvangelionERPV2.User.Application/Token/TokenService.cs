@@ -34,6 +34,8 @@ namespace EvangelionERPV2.UserModule.Application.Token
                     new Claim(ClaimTypes.GivenName, user.FirstName),
                     new Claim(ClaimTypes.Surname, user.LastName),
                     new Claim(ClaimTypes.NameIdentifier, user.UserName),
+                    new Claim(ClaimTypes.Sid, user.Id.ToString()),
+                    new Claim("uid", user.Id.ToString()),
                     new Claim(ClaimTypes.GroupSid, user?.EnterpriseId?.ToString() ?? string.Empty)
                 }),
                 Expires = DateTime.UtcNow.AddMinutes(GetAccessTokenMinutes()),

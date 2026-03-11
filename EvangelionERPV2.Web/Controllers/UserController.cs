@@ -77,7 +77,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
                     throw new Exception();
 
-                return Ok(BuildUserDto(user, token, refreshToken));
+                return Ok(await BuildUserDtoAsync(user, token, refreshToken));
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -128,7 +128,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (string.IsNullOrEmpty(token))
                     throw new Exception("Token generation failed.");
 
-                return Ok(BuildUserDto(user, token, refreshToken));
+                return Ok(await BuildUserDtoAsync(user, token, refreshToken));
             }
             catch (Exception ex)
             {
@@ -191,7 +191,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (string.IsNullOrEmpty(token))
                     throw new Exception("Token generation failed.");
 
-                return Ok(BuildUserDto(user, token, refreshToken));
+                return Ok(await BuildUserDtoAsync(user, token, refreshToken));
             }
             catch (Exception ex)
             {
@@ -247,8 +247,12 @@ namespace EvangelionERPV2.Web.Controllers
             return (token, refreshToken);
         }
 
-        private static UserDTO BuildUserDto(Shared.Entities.User user, string token, string refreshToken)
+        private async Task<UserDTO> BuildUserDtoAsync(Shared.Entities.User user, string token, string refreshToken)
         {
+            var profilePictureBase64 = string.IsNullOrWhiteSpace(user.ProfilePicture)
+                ? string.Empty
+                : await _userService.GetProfilePictureBase64Async(user.ProfilePicture);
+
             return new UserDTO
             {
                 Id = user.Id,
@@ -256,7 +260,7 @@ namespace EvangelionERPV2.Web.Controllers
                 LastName = user.LastName,
                 Email = user.Email,
                 BirthDate = user.BirthDate,
-                ProfilePicture = SharedFunctions.EnsureDecryptedAddress(user.ProfilePicture),
+                ProfilePicture = profilePictureBase64,
                 Token = token,
                 RefreshToken = refreshToken,
                 Enterprise = user.Enterprise,
@@ -266,10 +270,37 @@ namespace EvangelionERPV2.Web.Controllers
             };
         }
 
-        private UserDTO ToUserDto(Shared.Entities.User user)
+        private async Task<IEnumerable<UserDTO>> ToUserDtosAsync(IEnumerable<Shared.Entities.User> users, bool includePictures = false)
+        {
+            var userList = users?.ToList() ?? new List<Shared.Entities.User>();
+            if (userList.Count == 0)
+                return Enumerable.Empty<UserDTO>();
+
+            var userDtos = new UserDTO[userList.Count];
+            var parallelOptions = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 8
+            };
+
+            await Parallel.ForEachAsync(Enumerable.Range(0, userList.Count), parallelOptions, async (index, _) =>
+            {
+                userDtos[index] = await ToUserDtoAsync(userList[index], includePictures);
+            });
+
+            return userDtos;
+        }
+
+        private async Task<UserDTO> ToUserDtoAsync(Shared.Entities.User user, bool includePicture = true)
         {
             var dto = _mapper.Map<UserDTO>(user);
-            dto.ProfilePicture = SharedFunctions.EnsureDecryptedAddress(dto.ProfilePicture);
+
+            if (!includePicture || string.IsNullOrWhiteSpace(user.ProfilePicture))
+            {
+                dto.ProfilePicture = string.Empty;
+                return dto;
+            }
+
+            dto.ProfilePicture = await _userService.GetProfilePictureBase64Async(user.ProfilePicture);
             return dto;
         }
 
@@ -283,7 +314,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetUsers()
+        public async Task<IActionResult> GetUsers([FromQuery] bool includePictures = false)
         {
             try
             {
@@ -293,7 +324,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (users == null)
                     return NoContent();
 
-                return Ok(users.Select(ToUserDto).ToList());
+                return Ok(await ToUserDtosAsync(users, includePictures));
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -324,7 +355,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (user == null)
                     return NoContent();
 
-                return Ok(ToUserDto(user));
+                return Ok(await ToUserDtoAsync(user));
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -356,7 +387,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!ModelState.IsValid) return BadRequest(ModelState);
 
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
-                return Ok(ToUserDto(createdUser));
+                return Ok(await ToUserDtoAsync(createdUser));
             }
             catch (Exception ex)
             {
@@ -386,7 +417,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                return Ok(ToUserDto(updatedUser));
+                return Ok(await ToUserDtoAsync(updatedUser));
             }
             catch (Exception ex)
             {
@@ -419,7 +450,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult UpdateTheme([FromBody] UpdateThemeRequest request)
+        public async Task<IActionResult> UpdateTheme([FromBody] UpdateThemeRequest request)
         {
             try
             {
@@ -440,8 +471,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                var dto = _mapper.Map<UserDTO>(updatedUser);
-                return Ok(dto);
+                return Ok(await ToUserDtoAsync(updatedUser));
             }
             catch (Exception ex)
             {
@@ -459,7 +489,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult UpdateLanguage([FromBody] UpdateLanguageRequest request)
+        public async Task<IActionResult> UpdateLanguage([FromBody] UpdateLanguageRequest request)
         {
             try
             {
@@ -483,7 +513,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                return Ok(ToUserDto(updatedUser));
+                return Ok(await ToUserDtoAsync(updatedUser));
             }
             catch (Exception ex)
             {
@@ -520,11 +550,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                return Ok(ToUserDto(updatedUser));
+                return Ok(await ToUserDtoAsync(updatedUser));
             }
             catch (Exception ex)
             {
-                Log.Logger.Error("Error when updating user profile picture", ex);
+                Log.Logger.Error(ex, "Error when updating user profile picture");
                 return Problem(ex.Message);
             }
         }
@@ -548,7 +578,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (user == null)
                     return NoContent();
 
-                return Ok(ToUserDto(user));
+                return Ok(await ToUserDtoAsync(user));
             }
             catch (Exception ex)
             {

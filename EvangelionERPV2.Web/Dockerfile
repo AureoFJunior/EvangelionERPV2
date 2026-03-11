@@ -18,6 +18,9 @@ WORKDIR /src
 # Copy solution and project files first to maximize restore layer caching
 COPY EvangelionERPV2.sln ./
 COPY EvangelionERPV2.Web/EvangelionERPV2.Web.csproj EvangelionERPV2.Web/
+COPY EvangelionERPV2.Audit.Application/*.csproj EvangelionERPV2.Audit.Application/
+COPY EvangelionERPV2.Audit.Domain/*.csproj EvangelionERPV2.Audit.Domain/
+COPY EvangelionERPV2.Audit.Infra/*.csproj EvangelionERPV2.Audit.Infra/
 COPY EvangelionERPV2.Bills.Application/*.csproj EvangelionERPV2.Bills.Application/
 COPY EvangelionERPV2.Bills.Domain/*.csproj EvangelionERPV2.Bills.Domain/
 COPY EvangelionERPV2.Bills.Infra/*.csproj EvangelionERPV2.Bills.Infra/

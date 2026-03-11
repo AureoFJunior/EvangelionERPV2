@@ -13,8 +13,18 @@ services:
       RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
       Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
       Encryption__TokenKey: ${EVA_TOKEN_KEY:-evangelion/prd/encryptiontokenkey:key}
+      AWSSettings__SecretName: "${EVA_AWS_SECRET_NAME:-AWSCredentials}"
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: ${AWS_EC2_METADATA_DISABLED:-false}
     ports:
       - "${WEB_HOST_PORT:-5000}:8080"
+    volumes:
+      - type: bind
+        source: ${AWS_CREDENTIALS_DIR:-/root/.aws}
+        target: /root/.aws
+        read_only: true
     networks:
       - custom_network
 
@@ -51,6 +61,15 @@ services:
       RabbitMQSettings__VirtualHost: ${EVA_RABBITMQ_VHOST:-evangelion/prd/rabbitmq-vhost:vhost}
       RabbitMQSettings__Port: ${EVA_RABBITMQ_PORT:-evangelion/prd/rabbitmq-port:port}
       RabbitMQSettings__Uri: ${EVA_RABBITMQ_URI:-evangelion/prd/rabbitmq:uri}
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: ${AWS_EC2_METADATA_DISABLED:-false}
+    volumes:
+      - type: bind
+        source: ${AWS_CREDENTIALS_DIR:-/root/.aws}
+        target: /root/.aws
+        read_only: true
     networks:
       - custom_network
     depends_on:
@@ -75,6 +94,15 @@ services:
       RabbitMQSettings__VirtualHost: ${EVA_RABBITMQ_VHOST:-evangelion/prd/rabbitmq-vhost:vhost}
       RabbitMQSettings__Port: ${EVA_RABBITMQ_PORT:-evangelion/prd/rabbitmq-port:port}
       RabbitMQSettings__Uri: ${EVA_RABBITMQ_URI:-evangelion/prd/rabbitmq:uri}
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: ${AWS_EC2_METADATA_DISABLED:-false}
+    volumes:
+      - type: bind
+        source: ${AWS_CREDENTIALS_DIR:-/root/.aws}
+        target: /root/.aws
+        read_only: true
     networks:
       - custom_network
     depends_on:
