@@ -25,6 +25,9 @@ namespace EvangelionERPV2.Shared.Configs
                 config.CreateMap<NFeDocument, NFeDocumentDTO>().ReverseMap();
                 config.CreateMap<Customer, CustomerDTO>().ReverseMap();
                 config.CreateMap<Product, ProductDTO>().ReverseMap();
+                config.CreateMap<AuditTrail, AuditTrailDTO>()
+                    .ForMember(dest => dest.UserName,
+                        opt => opt.MapFrom(src => src.User != null ? src.User.UserName : string.Empty));
             }, loggerFactory);
 
             return mappingsConfigs;

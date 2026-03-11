@@ -50,6 +50,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\EvangelionERPV2.Audit.Application\EvangelionERPV2.AuditModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Audit.Domain\EvangelionERPV2.AuditModule.Domain.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Audit.Infra\EvangelionERPV2.AuditModule.Infra.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Bills.Application\EvangelionERPV2.BillsModule.Application.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Bills.Domain\EvangelionERPV2.BillsModule.Domain.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Bills.Infra\EvangelionERPV2.BillsModule.Infra.csproj" />

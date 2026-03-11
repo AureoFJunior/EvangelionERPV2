@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using AspNetCoreRateLimit;
+using EvangelionERPV2.AuditModule.Application.DI;
 using EvangelionERPV2.BillsModule.Application.DI;
 using EvangelionERPV2.CustomerModule.Application.DI;
 using EvangelionERPV2.EmailModule.Application.DI;
@@ -244,6 +245,7 @@ static void SetupHealthCheck(WebApplicationBuilder builder)
 
 static void ConfigureIoC(WebApplicationBuilder builder)
 {
+    AuditTrailIoC.Configure(builder.Services, builder.Configuration);
     UserIoC.Configure(builder.Services, builder.Configuration);
     ProductIoC.Configure(builder.Services, builder.Configuration);
     OrderIoC.Configure(builder.Services, builder.Configuration);

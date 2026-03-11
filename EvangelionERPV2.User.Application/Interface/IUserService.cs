@@ -13,6 +13,7 @@ namespace EvangelionERPV2.UserModule.Application.Interface
         public Task<TEntity> CreateAsync(User user);
         Task<User> LoginToSSOAsync(string idToken);
         Task<TEntity> UpdateProfilePictureAsync(User user, string? profilePicturePayload);
+        Task<string> GetProfilePictureBase64Async(string? profilePictureAddress);
         #endregion
     }
 }
