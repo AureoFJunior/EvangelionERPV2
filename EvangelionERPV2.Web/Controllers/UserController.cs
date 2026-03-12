@@ -75,19 +75,18 @@ namespace EvangelionERPV2.Web.Controllers
 
                 var (token, refreshToken) = await GenerateTokensAsync(user);
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
-                    throw new Exception();
+                    throw new InvalidOperationException("Token generation failed.");
 
                 return Ok(await BuildUserDtoAsync(user, token, refreshToken));
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("User not found", exnf);
+                Log.Logger.Error(exnf, "User not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when logging", ex);
-                return Problem("Error when logging");
+                throw;
             }
         }
 
@@ -125,15 +124,14 @@ namespace EvangelionERPV2.Web.Controllers
 
                 var user = await _userService.LoginToSSOAsync(idToken);
                 var (token, refreshToken) = await GenerateTokensAsync(user);
-                if (string.IsNullOrEmpty(token))
-                    throw new Exception("Token generation failed.");
+                if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
+                    throw new InvalidOperationException("Token generation failed.");
 
                 return Ok(await BuildUserDtoAsync(user, token, refreshToken));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when logging with Google", ex);
-                return Problem("Error when logging with Google");
+                throw;
             }
         }
 
@@ -188,15 +186,14 @@ namespace EvangelionERPV2.Web.Controllers
 
                 var user = await _userService.LoginToSSOAsync(tokenResponse.IdToken);
                 var (token, refreshToken) = await GenerateTokensAsync(user);
-                if (string.IsNullOrEmpty(token))
-                    throw new Exception("Token generation failed.");
+                if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
+                    throw new InvalidOperationException("Token generation failed.");
 
                 return Ok(await BuildUserDtoAsync(user, token, refreshToken));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when logging with Google code", ex);
-                return Problem("Error when logging with Google code");
+                throw;
             }
         }
 
@@ -328,13 +325,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Enterprises not found", exnf);
+                Log.Logger.Error(exnf, "Enterprises not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Enterprises", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -359,13 +355,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("User not found", exnf);
+                Log.Logger.Error(exnf, "User not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting User", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -389,10 +384,9 @@ namespace EvangelionERPV2.Web.Controllers
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
                 return Ok(await ToUserDtoAsync(createdUser));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when adding User", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -419,10 +413,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(await ToUserDtoAsync(updatedUser));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when updating User", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -473,10 +466,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(await ToUserDtoAsync(updatedUser));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when updating user theme", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -515,10 +507,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(await ToUserDtoAsync(updatedUser));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when updating user language", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -552,10 +543,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(await ToUserDtoAsync(updatedUser));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error(ex, "Error when updating user profile picture");
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -580,10 +570,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(await ToUserDtoAsync(user));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when deleting User", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -605,10 +594,9 @@ namespace EvangelionERPV2.Web.Controllers
                             .Cast<EnumAccessLevel>()
                             .Select(s => new { Id = (int) s, Name = s.ToString() }));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Access Levels", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
     }

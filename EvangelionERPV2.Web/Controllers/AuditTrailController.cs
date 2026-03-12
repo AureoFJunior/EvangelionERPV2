@@ -43,10 +43,9 @@ namespace EvangelionERPV2.Web.Controllers
                 var dto = _mapper.Map<IEnumerable<AuditTrailDTO>>(data);
                 return Ok(dto.ToPaginatedResult(pageNumber ?? 1, pageSize ?? 50, totalItems));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error(ex, "Error when getting audit trail logs.");
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -75,10 +74,9 @@ namespace EvangelionERPV2.Web.Controllers
                 var dto = _mapper.Map<IEnumerable<AuditTrailDTO>>(data);
                 return Ok(dto.ToPaginatedResult(pageNumber ?? 1, pageSize ?? 50, totalItems));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error(ex, "Error when filtering audit trail logs.");
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -97,10 +95,9 @@ namespace EvangelionERPV2.Web.Controllers
                 var dto = _mapper.Map<AuditTrailDTO>(auditTrail);
                 return Ok(dto);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error(ex, "Error when getting AuditTrail ID {AuditTrailId}", id);
-                return Problem(ex.Message);
+                throw;
             }
         }
     }

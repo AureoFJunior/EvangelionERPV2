@@ -90,13 +90,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Products not found", exnf);
+                Log.Logger.Error(exnf, "Products not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Products", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -119,10 +118,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(await ToProductDtoAsync(product));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when getting Product ID {id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -148,10 +146,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(await ToProductDtoAsync(createdProduct));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when creating Product: {product.Product.Name}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -178,10 +175,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(await ToProductDtoAsync(updatedProduct));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when updating Product: {product.Name}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -206,10 +202,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(await ToProductDtoAsync(product));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when deleting Product ID {id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -236,10 +231,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(await ToProductDtoAsync(updatedProduct));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when updating Product: {productPicture.Product.Name}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 

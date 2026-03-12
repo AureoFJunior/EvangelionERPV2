@@ -73,7 +73,7 @@ namespace EvangelionERPV2.EmailModule.Application.DI
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Error at DI IoC Email: {ex.Message}", ex);
+                Log.Logger.Error(ex, $"Error at DI IoC Email: {ex.Message}");
             }
 
         }
