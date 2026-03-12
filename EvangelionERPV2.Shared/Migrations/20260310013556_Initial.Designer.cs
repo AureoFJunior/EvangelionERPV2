@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EvangelionERPV2.Shared.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260217232240_AddPayablesAndForecastLogs")]
-    partial class AddPayablesAndForecastLogs
+    [Migration("20260310013556_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -388,6 +388,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime>("PaymentScheduledDate")
                         .HasColumnType("datetime2");
 
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
                     b.Property<double>("TotalValue")
                         .HasColumnType("float");
 
@@ -632,6 +635,9 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasColumnType("bit");
 
                     b.Property<short?>("IsLogged")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("Language")
                         .HasColumnType("smallint");
 
                     b.Property<string>("LastName")

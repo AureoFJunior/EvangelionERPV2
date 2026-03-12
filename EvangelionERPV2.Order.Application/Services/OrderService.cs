@@ -113,7 +113,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             order.TotalValue = computedTotal;
 
-            if (order.PaymentScheduledDate.Date == DateTime.Now.Date)
+            if (order.PaymentScheduledDate.Date == DateTime.UtcNow.Date)
                 order.PaymentScheduledDate = order.PaymentScheduledDate.AddDays(30);
 
             if (order.TotalValue <= 0) throw new InsertDatabaseException($"{nameof(Order)} has value/quantity null or negative");
@@ -181,7 +181,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             }
             catch (Exception ex)
             {
-                Log.Logger.Information($"Order was not able to be enqueued at: {DateTime.UtcNow}", ex);
+                Log.Logger.Error(ex, $"Order was not able to be enqueued at: {DateTime.UtcNow}");
                 throw;
             }
         }
@@ -198,7 +198,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 return string.Empty;
 
             if (enterprise == null)
-                throw new Exception("The enterprise is null or empty");
+                throw new ArgumentNullException(nameof(enterprise), "The enterprise is null or empty");
 
             IEnumerable<Order>? orders = await _orderRepositoryCustom.GetAllAsyncWithOrderedProductsByEnterprise(enterprise);
 

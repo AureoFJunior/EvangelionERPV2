@@ -59,7 +59,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                         }
                         catch (Exception ex)
                         {
-                            Log.Logger.Error($"Email Consumer Worker error: {ex.Message}", ex.Message, ex.InnerException);
+                            Log.Logger.Error(ex, "Email Consumer Worker error.");
                         }
                         finally
                         {
@@ -71,7 +71,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Email Consumer With Scope error: {ex.Message}", ex.Message, ex.InnerException);
+                Log.Logger.Error(ex, "Email Consumer scope error.");
             }
         }
 

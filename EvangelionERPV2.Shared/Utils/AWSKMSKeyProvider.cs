@@ -78,9 +78,21 @@ namespace EvangelionERPV2.Shared.Utils
 
         public async Task<BasicAWSCredentials> GetAWSCredentialsAsync()
         {
+            var environmentAccessKeyId = Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID");
+            var environmentSecretAccessKey = Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY");
+            if (!string.IsNullOrWhiteSpace(environmentAccessKeyId) && !string.IsNullOrWhiteSpace(environmentSecretAccessKey))
+                return new BasicAWSCredentials(environmentAccessKeyId, environmentSecretAccessKey);
+
+            var configuredSecretName = _configuration.GetSection("AWSSettings")["SecretName"] ?? string.Empty;
+            if (TryGetPlainCredentials(configuredSecretName, out var plainCredentials) && plainCredentials != null)
+                return plainCredentials;
+
+            if (string.IsNullOrWhiteSpace(configuredSecretName))
+                throw new InvalidOperationException("AWSSettings:SecretName is not configured.");
+
             var secretValueResponse = await _secretsManager.GetSecretValueAsync(new GetSecretValueRequest
             {
-                SecretId = _configuration.GetSection("AWSSettings")["SecretName"]
+                SecretId = configuredSecretName
             });
 
             var secretString = secretValueResponse.SecretString;
@@ -96,6 +108,49 @@ namespace EvangelionERPV2.Shared.Utils
                 throw new InvalidOperationException("AWS credentials are missing required values.");
 
             return new BasicAWSCredentials(accessKeyId, secretAccessKey);
+        }
+
+        private static bool TryGetPlainCredentials(string secretName, out BasicAWSCredentials? credentials)
+        {
+            credentials = null;
+
+            const string plainPrefix = "plain:";
+            if (string.IsNullOrWhiteSpace(secretName) || !secretName.StartsWith(plainPrefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var payload = secretName.Substring(plainPrefix.Length).Trim();
+            if (string.IsNullOrWhiteSpace(payload))
+                return false;
+
+            var pipeSeparatedValues = payload.Split('|', 2, StringSplitOptions.TrimEntries);
+            if (pipeSeparatedValues.Length == 2 &&
+                !string.IsNullOrWhiteSpace(pipeSeparatedValues[0]) &&
+                !string.IsNullOrWhiteSpace(pipeSeparatedValues[1]))
+            {
+                credentials = new BasicAWSCredentials(pipeSeparatedValues[0], pipeSeparatedValues[1]);
+                return true;
+            }
+
+            try
+            {
+                var secretJson = JObject.Parse(payload);
+                var accessKeyId = secretJson["access-key-id"]?.ToString()
+                    ?? secretJson["accessKeyId"]?.ToString()
+                    ?? secretJson["AccessKeyId"]?.ToString();
+                var secretAccessKey = secretJson["secret-access-key"]?.ToString()
+                    ?? secretJson["secretAccessKey"]?.ToString()
+                    ?? secretJson["SecretAccessKey"]?.ToString();
+
+                if (string.IsNullOrWhiteSpace(accessKeyId) || string.IsNullOrWhiteSpace(secretAccessKey))
+                    return false;
+
+                credentials = new BasicAWSCredentials(accessKeyId, secretAccessKey);
+                return true;
+            }
+            catch (JsonReaderException)
+            {
+                return false;
+            }
         }
     }
 }

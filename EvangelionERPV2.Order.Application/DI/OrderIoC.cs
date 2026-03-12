@@ -92,7 +92,7 @@ namespace EvangelionERPV2.OrderModule.Application.DI
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Error at DI IoC Order: {ex.Message}", ex);
+                Log.Logger.Error(ex, $"Error at DI IoC Order: {ex.Message}");
             }
 
         }

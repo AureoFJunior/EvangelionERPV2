@@ -35,10 +35,9 @@ namespace EvangelionERPV2.Web.Controllers
                 var bills = await _payableBillService.GetByEnterpriseIdAsync(enterpriseId, pageNumber, pageSize);
                 return Ok(_mapper.Map<IEnumerable<PayableBillDTO>>(bills));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error getting payable bills", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -56,10 +55,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(_mapper.Map<PayableBillDTO>(bill));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error getting payable bill {id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -75,10 +73,9 @@ namespace EvangelionERPV2.Web.Controllers
                 var created = await _payableBillService.CreateAsync(payableBill);
                 return Ok(_mapper.Map<PayableBillDTO>(created));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error creating payable bill", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -95,13 +92,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error("Payable bill not found", ex);
+                Log.Logger.Error(ex, "Payable bill not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error updating payable bill {payableBill.Id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -118,13 +114,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error("Payable bill not found", ex);
+                Log.Logger.Error(ex, "Payable bill not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error deleting payable bill {id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 

@@ -3,6 +3,7 @@ using Amazon.S3.Model;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -548,7 +549,17 @@ namespace EvangelionERPV2.Shared.Utils
             if (string.IsNullOrWhiteSpace(key))
                 return;
 
-            await _s3Client.DeleteItemAsync(bucketName, key);
+            if (LooksLikeEmbeddedImagePayload(key))
+                return;
+
+            try
+            {
+                await _s3Client.DeleteItemAsync(bucketName, key);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
+            {
+                // Ignore not found/legacy key formats so replace flows can continue.
+            }
         }
 
         public static async Task<string> GetItemBase64Async(this IAmazonS3 _s3Client, string bucketName, string? encryptedOrPlainKey)
@@ -560,10 +571,32 @@ namespace EvangelionERPV2.Shared.Utils
             if (string.IsNullOrWhiteSpace(key))
                 return string.Empty;
 
+            if (LooksLikeEmbeddedImagePayload(key))
+                return NormalizeBase64Payload(key);
+
             using var itemStream = await _s3Client.GetItemAsync(bucketName, key);
             using var buffer = new MemoryStream();
             await itemStream.CopyToAsync(buffer);
             return Convert.ToBase64String(buffer.ToArray());
+        }
+
+        private static bool LooksLikeEmbeddedImagePayload(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            var trimmed = value.Trim();
+            if (trimmed.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (trimmed.Contains("base64,", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // S3 keys max out at 1024 chars; large payload-like values should never be treated as object keys.
+            if (trimmed.Length > 1024)
+                return true;
+
+            return false;
         }
 
         #endregion
