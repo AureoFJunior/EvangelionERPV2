@@ -33,10 +33,9 @@ namespace EvangelionERPV2.Web.Controllers
                 var result = await _cashFlowForecastService.GetForecastAsync(enterpriseId, horizonInDays, currentBalance);
                 return Ok(result);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error generating cashflow forecast", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -58,10 +57,9 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 return BadRequest(ex.Message);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error running cashflow simulation", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 

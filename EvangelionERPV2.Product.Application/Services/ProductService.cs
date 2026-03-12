@@ -211,7 +211,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         public async Task<string> GetProductsBodyAsync(Enterprise? enterprise)
         {
             if (enterprise == null)
-                throw new Exception("The enterprise is null or empty");
+                throw new ArgumentNullException(nameof(enterprise), "The enterprise is null or empty");
 
             IEnumerable<Product> products = await _productRepository.GetAllAsync(x => x.EnterpriseId == enterprise.Id);
 

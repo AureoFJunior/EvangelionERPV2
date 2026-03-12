@@ -44,10 +44,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok("Emails sended to the emails queue");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when sending Emails", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -75,10 +74,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok("Emails sent");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when sending Emails", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -101,10 +99,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok("Monthly Emails sent");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when sending Emails", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -128,10 +125,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok("Email created successfully");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when sending Emails", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -154,10 +150,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok("Weekly Stock Emails sent");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when sending Emails", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
     }

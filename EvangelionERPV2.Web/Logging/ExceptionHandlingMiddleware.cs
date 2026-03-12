@@ -1,4 +1,5 @@
 using EvangelionERPV2.Shared.Exceptions;
+using Microsoft.AspNetCore.Mvc;
 using Serilog;
 using System.Text.Json;
 
@@ -7,10 +8,16 @@ namespace EvangelionERPV2.Web.Logging
     public class ExceptionHandlingMiddleware
     {
         private readonly RequestDelegate _next;
+        private readonly IHostEnvironment _environment;
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
 
-        public ExceptionHandlingMiddleware(RequestDelegate next)
+        public ExceptionHandlingMiddleware(RequestDelegate next, IHostEnvironment environment)
         {
             _next = next;
+            _environment = environment;
         }
 
         public async Task InvokeAsync(HttpContext context)
@@ -22,61 +29,84 @@ namespace EvangelionERPV2.Web.Logging
             catch (Exception ex)
             {
                 LogException(ex, context);
-
-                // Determine the appropriate response based on the exception type
                 var statusCode = GetStatusCodeFromException(ex);
-                var errorResponse = CreateErrorResponse(ex, statusCode);
+
+                if (context.Response.HasStarted)
+                {
+                    Log.Logger.Warning(
+                        "Response already started. Exception middleware cannot write error response. TraceId={TraceId}",
+                        context.TraceIdentifier);
+                    throw;
+                }
+
+                context.Response.Clear();
 
                 context.Response.StatusCode = statusCode;
-                context.Response.ContentType = "application/json";
 
-                var errorJson = JsonSerializer.Serialize(errorResponse);
-                await context.Response.WriteAsync(errorJson);
+                // Keep 204 fully bodyless by HTTP contract.
+                if (statusCode == StatusCodes.Status204NoContent)
+                    return;
+
+                var problem = CreateProblemDetails(ex, statusCode, context.TraceIdentifier);
+                context.Response.ContentType = "application/problem+json";
+
+                var payload = JsonSerializer.Serialize(problem, JsonOptions);
+                await context.Response.WriteAsync(payload);
             }
         }
 
-        private void LogException(Exception ex, HttpContext context)
+        private static void LogException(Exception ex, HttpContext context)
         {
-            // Log the exception with detailed information
-            Log.Logger.Error(ex, "An unhandled exception occurred while processing the request.");
-            Log.Logger.Error($"Request details: Method={context.Request.Method}, Path={context.Request.Path}");
-            Log.Logger.Error($"Exception details: {ex.Message}\n{ex.StackTrace}");
+            Log.Logger.Error(
+                ex,
+                "Unhandled exception. Method={Method}, Path={Path}, TraceId={TraceId}",
+                context.Request.Method,
+                context.Request.Path,
+                context.TraceIdentifier);
         }
 
-        private int GetStatusCodeFromException(Exception ex)
+        private static int GetStatusCodeFromException(Exception ex)
         {
-            // Determine the appropriate HTTP status code based on the exception type
-            if (ex is ArgumentException || ex is FormatException)
-                return StatusCodes.Status400BadRequest;
-            else if (ex is NotFoundDatabaseException)
-                return StatusCodes.Status204NoContent;
-            else
-                return StatusCodes.Status500InternalServerError;
-        }
-
-        private object CreateErrorResponse(Exception ex, int statusCode)
-        {
-            return new
+            return ex switch
             {
-                StatusCode = statusCode,
-                Message = GetErrorMessage(ex, statusCode),
-                Details = ex.Message
+                ArgumentException or FormatException => StatusCodes.Status400BadRequest,
+                NotFoundDatabaseException => StatusCodes.Status204NoContent,
+                _ => StatusCodes.Status500InternalServerError
             };
         }
 
-        private string GetErrorMessage(Exception ex, int statusCode)
+        private ProblemDetails CreateProblemDetails(Exception ex, int statusCode, string traceId)
         {
-            switch (statusCode)
+            var problem = new ProblemDetails
             {
-                case StatusCodes.Status400BadRequest:
-                    return "The request was invalid. Please check the input and try again.";
-                case StatusCodes.Status404NotFound:
-                    return "The requested resource could not be found.";
-                case StatusCodes.Status204NoContent:
-                    return "The requested content could not be found.";
-                default:
-                    return "An internal server error occurred. Please try again later.";
-            }
+                Status = statusCode,
+                Title = GetErrorMessage(statusCode),
+                Detail = GetErrorDetail(ex, statusCode)
+            };
+
+            problem.Extensions["traceId"] = traceId;
+            return problem;
+        }
+
+        private string? GetErrorDetail(Exception ex, int statusCode)
+        {
+            if (statusCode == StatusCodes.Status400BadRequest)
+                return ex.Message;
+
+            if (statusCode == StatusCodes.Status500InternalServerError && _environment.IsDevelopment())
+                return ex.Message;
+
+            return null;
+        }
+
+        private static string GetErrorMessage(int statusCode)
+        {
+            return statusCode switch
+            {
+                StatusCodes.Status400BadRequest => "The request was invalid. Please check the input and try again.",
+                StatusCodes.Status500InternalServerError => "An internal server error occurred. Please try again later.",
+                _ => "An unexpected error occurred."
+            };
         }
     }
 }
