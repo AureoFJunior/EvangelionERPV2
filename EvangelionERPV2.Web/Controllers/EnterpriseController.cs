@@ -57,13 +57,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Enterprises not found", exnf);
+                Log.Logger.Error(exnf, "Enterprises not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Enterprises", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -93,13 +92,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Enterprises not found", exnf);
+                Log.Logger.Error(exnf, "Enterprises not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Enterprises", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -123,10 +121,9 @@ namespace EvangelionERPV2.Web.Controllers
                 EnterpriseDTO enterpriseDTO = _mapper.Map<EnterpriseDTO>(enterprise);
                 return Ok(enterpriseDTO);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when getting Enterprise ID {id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -149,10 +146,9 @@ namespace EvangelionERPV2.Web.Controllers
                 Enterprise createdEnterprise = await _enterpriseService.CreateAsync(enterprise);
                 return Ok(createdEnterprise);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when creating Enterprise: {enterprise.Name}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -179,10 +175,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(enterprise);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when updating Enterprise: {enterprise.Name}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -207,10 +202,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(enterprise);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when deleting Enterprise ID {id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
     }

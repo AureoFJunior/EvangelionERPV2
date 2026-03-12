@@ -63,7 +63,7 @@ namespace EvangelionERPV2.BillsModule.Application.DI
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Error at DI IoC Bills: {ex.Message}", ex);
+                Log.Logger.Error(ex, $"Error at DI IoC Bills: {ex.Message}");
             }
         }
     }

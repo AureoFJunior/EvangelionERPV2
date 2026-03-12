@@ -59,7 +59,7 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
                     }
                     catch (Exception ex)
                     {
-                        Log.Logger.Error($"Order Worker with error: {ex.Message}", ex.Message, ex.InnerException);
+                        Log.Logger.Error(ex, "Order Worker with error.");
                         await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
 
                     }
@@ -67,7 +67,7 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Order Worker Scope with error: {ex.Message}", ex.Message, ex.InnerException);
+                Log.Logger.Error(ex, "Order Worker scope with error.");
             }
         }
 

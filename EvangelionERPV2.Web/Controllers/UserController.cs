@@ -75,19 +75,18 @@ namespace EvangelionERPV2.Web.Controllers
 
                 var (token, refreshToken) = await GenerateTokensAsync(user);
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
-                    throw new Exception();
+                    throw new InvalidOperationException("Token generation failed.");
 
-                return Ok(BuildUserDto(user, token, refreshToken));
+                return Ok(await BuildUserDtoAsync(user, token, refreshToken));
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("User not found", exnf);
+                Log.Logger.Error(exnf, "User not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when logging", ex);
-                return Problem("Error when logging");
+                throw;
             }
         }
 
@@ -125,15 +124,14 @@ namespace EvangelionERPV2.Web.Controllers
 
                 var user = await _userService.LoginToSSOAsync(idToken);
                 var (token, refreshToken) = await GenerateTokensAsync(user);
-                if (string.IsNullOrEmpty(token))
-                    throw new Exception("Token generation failed.");
+                if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
+                    throw new InvalidOperationException("Token generation failed.");
 
-                return Ok(BuildUserDto(user, token, refreshToken));
+                return Ok(await BuildUserDtoAsync(user, token, refreshToken));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when logging with Google", ex);
-                return Problem("Error when logging with Google");
+                throw;
             }
         }
 
@@ -188,15 +186,14 @@ namespace EvangelionERPV2.Web.Controllers
 
                 var user = await _userService.LoginToSSOAsync(tokenResponse.IdToken);
                 var (token, refreshToken) = await GenerateTokensAsync(user);
-                if (string.IsNullOrEmpty(token))
-                    throw new Exception("Token generation failed.");
+                if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
+                    throw new InvalidOperationException("Token generation failed.");
 
-                return Ok(BuildUserDto(user, token, refreshToken));
+                return Ok(await BuildUserDtoAsync(user, token, refreshToken));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when logging with Google code", ex);
-                return Problem("Error when logging with Google code");
+                throw;
             }
         }
 
@@ -247,8 +244,12 @@ namespace EvangelionERPV2.Web.Controllers
             return (token, refreshToken);
         }
 
-        private static UserDTO BuildUserDto(Shared.Entities.User user, string token, string refreshToken)
+        private async Task<UserDTO> BuildUserDtoAsync(Shared.Entities.User user, string token, string refreshToken)
         {
+            var profilePictureBase64 = string.IsNullOrWhiteSpace(user.ProfilePicture)
+                ? string.Empty
+                : await _userService.GetProfilePictureBase64Async(user.ProfilePicture);
+
             return new UserDTO
             {
                 Id = user.Id,
@@ -256,7 +257,7 @@ namespace EvangelionERPV2.Web.Controllers
                 LastName = user.LastName,
                 Email = user.Email,
                 BirthDate = user.BirthDate,
-                ProfilePicture = SharedFunctions.EnsureDecryptedAddress(user.ProfilePicture),
+                ProfilePicture = profilePictureBase64,
                 Token = token,
                 RefreshToken = refreshToken,
                 Enterprise = user.Enterprise,
@@ -266,10 +267,37 @@ namespace EvangelionERPV2.Web.Controllers
             };
         }
 
-        private UserDTO ToUserDto(Shared.Entities.User user)
+        private async Task<IEnumerable<UserDTO>> ToUserDtosAsync(IEnumerable<Shared.Entities.User> users, bool includePictures = false)
+        {
+            var userList = users?.ToList() ?? new List<Shared.Entities.User>();
+            if (userList.Count == 0)
+                return Enumerable.Empty<UserDTO>();
+
+            var userDtos = new UserDTO[userList.Count];
+            var parallelOptions = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 8
+            };
+
+            await Parallel.ForEachAsync(Enumerable.Range(0, userList.Count), parallelOptions, async (index, _) =>
+            {
+                userDtos[index] = await ToUserDtoAsync(userList[index], includePictures);
+            });
+
+            return userDtos;
+        }
+
+        private async Task<UserDTO> ToUserDtoAsync(Shared.Entities.User user, bool includePicture = true)
         {
             var dto = _mapper.Map<UserDTO>(user);
-            dto.ProfilePicture = SharedFunctions.EnsureDecryptedAddress(dto.ProfilePicture);
+
+            if (!includePicture || string.IsNullOrWhiteSpace(user.ProfilePicture))
+            {
+                dto.ProfilePicture = string.Empty;
+                return dto;
+            }
+
+            dto.ProfilePicture = await _userService.GetProfilePictureBase64Async(user.ProfilePicture);
             return dto;
         }
 
@@ -283,7 +311,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetUsers()
+        public async Task<IActionResult> GetUsers([FromQuery] bool includePictures = false)
         {
             try
             {
@@ -293,17 +321,16 @@ namespace EvangelionERPV2.Web.Controllers
                 if (users == null)
                     return NoContent();
 
-                return Ok(users.Select(ToUserDto).ToList());
+                return Ok(await ToUserDtosAsync(users, includePictures));
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Enterprises not found", exnf);
+                Log.Logger.Error(exnf, "Enterprises not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Enterprises", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -324,17 +351,16 @@ namespace EvangelionERPV2.Web.Controllers
                 if (user == null)
                     return NoContent();
 
-                return Ok(ToUserDto(user));
+                return Ok(await ToUserDtoAsync(user));
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("User not found", exnf);
+                Log.Logger.Error(exnf, "User not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting User", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -356,12 +382,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!ModelState.IsValid) return BadRequest(ModelState);
 
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
-                return Ok(ToUserDto(createdUser));
+                return Ok(await ToUserDtoAsync(createdUser));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when adding User", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -386,12 +411,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                return Ok(ToUserDto(updatedUser));
+                return Ok(await ToUserDtoAsync(updatedUser));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when updating User", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -419,7 +443,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult UpdateTheme([FromBody] UpdateThemeRequest request)
+        public async Task<IActionResult> UpdateTheme([FromBody] UpdateThemeRequest request)
         {
             try
             {
@@ -440,13 +464,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                var dto = _mapper.Map<UserDTO>(updatedUser);
-                return Ok(dto);
+                return Ok(await ToUserDtoAsync(updatedUser));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when updating user theme", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -459,7 +481,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult UpdateLanguage([FromBody] UpdateLanguageRequest request)
+        public async Task<IActionResult> UpdateLanguage([FromBody] UpdateLanguageRequest request)
         {
             try
             {
@@ -483,12 +505,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                return Ok(ToUserDto(updatedUser));
+                return Ok(await ToUserDtoAsync(updatedUser));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when updating user language", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -520,12 +541,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedUser == null)
                     return NoContent();
 
-                return Ok(ToUserDto(updatedUser));
+                return Ok(await ToUserDtoAsync(updatedUser));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when updating user profile picture", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -548,12 +568,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (user == null)
                     return NoContent();
 
-                return Ok(ToUserDto(user));
+                return Ok(await ToUserDtoAsync(user));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when deleting User", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -575,10 +594,9 @@ namespace EvangelionERPV2.Web.Controllers
                             .Cast<EnumAccessLevel>()
                             .Select(s => new { Id = (int) s, Name = s.ToString() }));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Access Levels", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
     }

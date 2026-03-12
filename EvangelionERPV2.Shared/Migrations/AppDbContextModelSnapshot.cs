@@ -17,10 +17,48 @@ namespace EvangelionERPV2.Shared.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.1")
+                .HasAnnotation("ProductVersion", "10.0.3")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.AuditTrail", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ChangesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EntityName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ChangedAt");
+
+                    b.HasIndex("EntityName", "EntityId", "ChangedAt");
+
+                    b.ToTable("AuditTrails");
+                });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Bill", b =>
                 {
@@ -667,6 +705,16 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("User");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.AuditTrail", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Bill", b =>

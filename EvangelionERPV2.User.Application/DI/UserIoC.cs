@@ -71,7 +71,7 @@ namespace EvangelionERPV2.UserModule.Application.DI
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Error at DI User IoC: {ex.Message}", ex);
+                Log.Logger.Error(ex, $"Error at DI User IoC: {ex.Message}");
             }
 
         }

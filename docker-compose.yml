@@ -1,0 +1,113 @@
+services:
+  evangelionerpv2:
+    image: ${WEB_IMAGE:-aureofjunior/evangelionerpv2-repository:latest}
+    build:
+      context: .
+      dockerfile: EvangelionERPV2.Web/Dockerfile
+    container_name: evangelionerpv2_web
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DefaultConnection: ${EVA_CONN_STR:-evangelion/prd/database:DefaultConnection}
+      RedisSettings__InstanceName: ${EVA_REDIS_INSTANCE:-evangelion/prd/redis-name:instancename}
+      RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
+      Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
+      Encryption__TokenKey: ${EVA_TOKEN_KEY:-evangelion/prd/encryptiontokenkey:key}
+      AWSSettings__SecretName: "${EVA_AWS_SECRET_NAME:-AWSCredentials}"
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: ${AWS_EC2_METADATA_DISABLED:-false}
+    ports:
+      - "${WEB_HOST_PORT:-5000}:8080"
+    volumes:
+      - type: bind
+        source: ${AWS_CREDENTIALS_DIR:-/root/.aws}
+        target: /root/.aws
+        read_only: true
+    networks:
+      - custom_network
+
+  nginx:
+    profiles:
+      - proxy
+    image: nginx:latest
+    container_name: evangelionerpv2_nginx
+    ports:
+      - "${NGINX_HOST_PORT:-8082}:8082"
+    volumes:
+      - ./EvangelionERPV2.Web/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - custom_network
+    depends_on:
+      - evangelionerpv2
+
+  worker_order:
+    profiles:
+      - workers
+    image: ${WORKER_ORDER_IMAGE:-aureofjunior/evangelionerpv2-worker-order:latest}
+    build:
+      context: .
+      dockerfile: EvangelionERPV2.Worker.Order/Dockerfile
+    container_name: evangelionerpv2_worker_order
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      HttpConfig__DefaultApiUrl: http://evangelionerpv2:8080/api/v1
+      Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
+      SelfAPIAuth: ${EVA_WORKER_SELF_API_AUTH:-evangelion/prd/selfapilogin:log}
+      RabbitMQSettings__HostName: ${EVA_RABBITMQ_HOSTNAME:-evangelion/prd/rabbitmq-host:hostname}
+      RabbitMQSettings__UserName: ${EVA_RABBITMQ_USERNAME:-evangelion/prd/rabbitmq-user:username}
+      RabbitMQSettings__Password: ${EVA_RABBITMQ_PASSWORD:-evangelion/prd/rabbitmq-pass:password}
+      RabbitMQSettings__VirtualHost: ${EVA_RABBITMQ_VHOST:-evangelion/prd/rabbitmq-vhost:vhost}
+      RabbitMQSettings__Port: ${EVA_RABBITMQ_PORT:-evangelion/prd/rabbitmq-port:port}
+      RabbitMQSettings__Uri: ${EVA_RABBITMQ_URI:-evangelion/prd/rabbitmq:uri}
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: ${AWS_EC2_METADATA_DISABLED:-false}
+    volumes:
+      - type: bind
+        source: ${AWS_CREDENTIALS_DIR:-/root/.aws}
+        target: /root/.aws
+        read_only: true
+    networks:
+      - custom_network
+    depends_on:
+      - evangelionerpv2
+
+  worker_email:
+    profiles:
+      - workers
+    image: ${WORKER_EMAIL_IMAGE:-aureofjunior/evangelionerpv2-worker-email:latest}
+    build:
+      context: .
+      dockerfile: EvangelionERPV2.Worker.Email/Dockerfile
+    container_name: evangelionerpv2_worker_email
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      HttpConfig__DefaultApiUrl: http://evangelionerpv2:8080/api/v1
+      Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
+      SelfAPIAuth: ${EVA_WORKER_SELF_API_AUTH:-evangelion/prd/selfapilogin:log}
+      RabbitMQSettings__HostName: ${EVA_RABBITMQ_HOSTNAME:-evangelion/prd/rabbitmq-host:hostname}
+      RabbitMQSettings__UserName: ${EVA_RABBITMQ_USERNAME:-evangelion/prd/rabbitmq-user:username}
+      RabbitMQSettings__Password: ${EVA_RABBITMQ_PASSWORD:-evangelion/prd/rabbitmq-pass:password}
+      RabbitMQSettings__VirtualHost: ${EVA_RABBITMQ_VHOST:-evangelion/prd/rabbitmq-vhost:vhost}
+      RabbitMQSettings__Port: ${EVA_RABBITMQ_PORT:-evangelion/prd/rabbitmq-port:port}
+      RabbitMQSettings__Uri: ${EVA_RABBITMQ_URI:-evangelion/prd/rabbitmq:uri}
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: ${AWS_EC2_METADATA_DISABLED:-false}
+    volumes:
+      - type: bind
+        source: ${AWS_CREDENTIALS_DIR:-/root/.aws}
+        target: /root/.aws
+        read_only: true
+    networks:
+      - custom_network
+    depends_on:
+      - evangelionerpv2
+
+networks:
+  custom_network:
+    driver: bridge

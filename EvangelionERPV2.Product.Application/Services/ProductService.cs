@@ -15,7 +15,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
     public class ProductService : IProductService<Product>, IDisposable
     {
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _productRepository;
-        private readonly IAmazonS3 _s3Client;
+        private IAmazonS3? _s3Client;
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider kmsProvider;
         private readonly IProductReportGeneratorService _productReportGeneratorService;
@@ -30,10 +30,6 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             _productRepository = productRepository;
             this.kmsProvider = kmsProvider;
             _configuration = configuration;
-
-
-            var awsCredentials = this.kmsProvider.GetAWSCredentialsAsync().Result;
-            _s3Client = new AmazonS3Client(awsCredentials, RegionEndpoint.USEast1);
             _productReportGeneratorService = productReportGeneratorService;
         }
 
@@ -180,11 +176,12 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 productPicture.Product.UpdatedAt = DateTime.UtcNow;
                 productPicture.Product.PictureAdress = encryptedkeyName;
 
-                await DeleteOldPicture(existentProduct, bucketName);
+                var s3Client = await GetS3ClientAsync();
+                await DeleteOldPicture(existentProduct, bucketName, s3Client);
 
                 existentProduct = null;
                 using var content = SharedFunctions.GetMemoryStreamFromBase64Payload(productPicture.File);
-                await _s3Client.CreateItemAsync(bucketName, keyName, content);
+                await s3Client.CreateItemAsync(bucketName, keyName, content);
 
                 _productRepository.Update(productPicture.Product);
                 await _productRepository.CommitAsync();
@@ -200,12 +197,12 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
         }
 
-        private async Task DeleteOldPicture(Product? existentProduct, string bucketName)
+        private static async Task DeleteOldPicture(Product? existentProduct, string bucketName, IAmazonS3 s3Client)
         {
             if (existentProduct == null)
                 return;
 
-            await _s3Client.DeleteItemIfExistsAsync(bucketName, existentProduct.PictureAdress);
+            await s3Client.DeleteItemIfExistsAsync(bucketName, existentProduct.PictureAdress);
         }
 
         /// <summary>
@@ -214,7 +211,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         public async Task<string> GetProductsBodyAsync(Enterprise? enterprise)
         {
             if (enterprise == null)
-                throw new Exception("The enterprise is null or empty");
+                throw new ArgumentNullException(nameof(enterprise), "The enterprise is null or empty");
 
             IEnumerable<Product> products = await _productRepository.GetAllAsync(x => x.EnterpriseId == enterprise.Id);
 
@@ -235,7 +232,8 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 if (string.IsNullOrWhiteSpace(bucketName))
                     throw new InvalidOperationException("AWS bucket name is not configured.");
 
-                return await _s3Client.GetItemBase64Async(bucketName, pictureAddress);
+                var s3Client = await GetS3ClientAsync();
+                return await s3Client.GetItemBase64Async(bucketName, pictureAddress);
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
             {
@@ -247,6 +245,16 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 Log.Logger.Warning(ex, "Unable to load product image from S3 for key {KeyName}", pictureAddress);
                 return string.Empty;
             }
+        }
+
+        private async Task<IAmazonS3> GetS3ClientAsync()
+        {
+            if (_s3Client != null)
+                return _s3Client;
+
+            var awsCredentials = await kmsProvider.GetAWSCredentialsAsync();
+            _s3Client = new AmazonS3Client(awsCredentials, RegionEndpoint.USEast1);
+            return _s3Client;
         }
 
         #region Dispose Pattern
