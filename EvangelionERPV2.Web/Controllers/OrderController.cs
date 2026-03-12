@@ -58,13 +58,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found", exnf);
+                Log.Logger.Error(exnf, "Orders not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Orders", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -94,13 +93,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found", exnf);
+                Log.Logger.Error(exnf, "Orders not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Orders", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -124,10 +122,9 @@ namespace EvangelionERPV2.Web.Controllers
                 OrderDTO orderDTO = _mapper.Map<OrderDTO>(order);
                 return Ok(orderDTO);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when getting Order ID {id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -149,10 +146,9 @@ namespace EvangelionERPV2.Web.Controllers
                 await _orderService.InsertOrderInQueue(order);
                 return Ok("Order enqueued successfully");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when enqueing Order for {order.Enterprise?.Name ?? ""}{(order.Customer == null ? "" : $"/{order.Customer.Name}")}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -174,10 +170,9 @@ namespace EvangelionERPV2.Web.Controllers
                 await _orderService.CreateAsync(order);
                 return Ok("Order created successfully");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when creating Order for {order.Enterprise?.Name ?? ""}{(order.Customer == null ? "" : $"/{order.Customer.Name}")}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -206,13 +201,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found", exnf);
+                Log.Logger.Error(exnf, "Orders not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when updating Order: {order.Id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -239,13 +233,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found", exnf);
+                Log.Logger.Error(exnf, "Orders not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when deleting Order ID {id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
     }

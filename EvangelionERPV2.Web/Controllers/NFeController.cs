@@ -38,10 +38,9 @@ namespace EvangelionERPV2.Web.Controllers
                 var dto = _mapper.Map<NFeDocumentDTO>(document);
                 return Ok(dto);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when getting NFe document for Order {orderId}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -62,13 +61,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error($"Order not found for NFe issuance: {orderId}", exnf);
+                Log.Logger.Error(exnf, $"Order not found for NFe issuance: {orderId}");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when issuing NFe document for Order {orderId}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -87,10 +85,9 @@ namespace EvangelionERPV2.Web.Controllers
                 var dto = _mapper.Map<NFeDocumentDTO>(document);
                 return Ok(dto);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when consulting NFe document {accessKey}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -110,10 +107,9 @@ namespace EvangelionERPV2.Web.Controllers
                 var dto = _mapper.Map<NFeDocumentDTO>(document);
                 return Ok(dto);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when cancelling NFe document {accessKey}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
     }

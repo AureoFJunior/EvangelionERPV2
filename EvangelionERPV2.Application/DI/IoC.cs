@@ -109,7 +109,7 @@ namespace EvangelionERPV2.Application.DI
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Error at DI IoC: {ex.Message}", ex);
+                Log.Logger.Error(ex, $"Error at DI IoC: {ex.Message}");
             }
 
         }

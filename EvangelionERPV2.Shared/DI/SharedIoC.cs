@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using EvangelionERPV2.Shared.Configs;
@@ -38,7 +38,7 @@ namespace EvangelionERPV2.OrderModule.Application.DI
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Error at DI IoC Shared: {ex.Message}", ex);
+                Log.Logger.Error(ex, $"Error at DI IoC Shared: {ex.Message}");
             }
 
         }

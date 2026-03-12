@@ -61,13 +61,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Customers not found", exnf);
+                Log.Logger.Error(exnf, "Customers not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Customers", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -102,13 +101,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Customers not found", exnf);
+                Log.Logger.Error(exnf, "Customers not found");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error("Error when getting Customers", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -132,10 +130,9 @@ namespace EvangelionERPV2.Web.Controllers
                 CustomerDTO customerDTO = _mapper.Map<CustomerDTO>(customer);
                 return Ok(customerDTO);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when getting Customer ID {id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -158,10 +155,9 @@ namespace EvangelionERPV2.Web.Controllers
                 Customer createdCustomer = await _customerService.CreateAsync(customer);
                 return Ok(createdCustomer);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when creating Customer: {customer.Name}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -188,10 +184,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(customer);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when updating Customer: {customer.Name}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -216,10 +211,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(customer);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when deleting Customer ID {id}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 

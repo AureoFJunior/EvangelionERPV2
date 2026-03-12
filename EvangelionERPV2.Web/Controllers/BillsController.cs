@@ -38,10 +38,9 @@ namespace EvangelionERPV2.Web.Controllers
                 var dto = _mapper.Map<BillDTO>(bill);
                 return Ok(dto);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when getting Bill for Order {orderId}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -62,13 +61,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error($"Order not found for bill generation: {orderId}", exnf);
+                Log.Logger.Error(exnf, $"Order not found for bill generation: {orderId}");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when generating Bill for Order {orderId}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
 
@@ -89,13 +87,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error($"Order not found for bill PDF generation: {orderId}", exnf);
+                Log.Logger.Error(exnf, $"Order not found for bill PDF generation: {orderId}");
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Log.Logger.Error($"Error when generating Bill PDF for Order {orderId}", ex);
-                return Problem(ex.Message);
+                throw;
             }
         }
     }

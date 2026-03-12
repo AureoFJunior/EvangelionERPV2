@@ -11,7 +11,7 @@ using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Test.Bills
 {
-    public class OrdersTest
+    public class LegacyOrdersTest
     {
         private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<Order>> _mockIOrderRepository;
         private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>> _mockIProductRepository;
@@ -21,7 +21,7 @@ namespace EvangelionERPV2.Test.Bills
         private readonly Mock<IOptions<OrderChannelSettings>> _mockOrderChannelSettings;
         private readonly OrderService _orderService;
 
-        public OrdersTest()
+        public LegacyOrdersTest()
         {
             _mockIOrderRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Order>>();
             _mockIProductRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>>();
