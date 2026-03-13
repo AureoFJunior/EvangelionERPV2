@@ -29,6 +29,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<OrderedProduct> OrderedProduct { get; set; }
         public DbSet<Product> Product { get; set; }
         public DbSet<PayableBill> PayableBill { get; set; }
+        public DbSet<PayableBillProduct> PayableBillProduct { get; set; }
         public DbSet<ForecastSimulationLog> ForecastSimulationLog { get; set; }
         public DbSet<RefreshToken> RefreshToken { get; set; }
         public DbSet<User> User { get; set; }
@@ -49,6 +50,18 @@ namespace EvangelionERPV2.Shared.Context
             modelBuilder.Entity<NFeDocument>()
                 .Property(document => document.AccessKey)
                 .HasMaxLength(44);
+
+            modelBuilder.Entity<PayableBill>()
+                .HasMany(payableBill => payableBill.Items)
+                .WithOne(item => item.PayableBill)
+                .HasForeignKey(item => item.PayableBillId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<PayableBillProduct>()
+                .HasOne(item => item.Product)
+                .WithMany(product => product.PayableBillProducts)
+                .HasForeignKey(item => item.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<AuditTrail>()
                 .Property(audit => audit.Action)

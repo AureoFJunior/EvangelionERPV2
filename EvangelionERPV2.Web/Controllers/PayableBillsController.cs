@@ -73,6 +73,11 @@ namespace EvangelionERPV2.Web.Controllers
                 var created = await _payableBillService.CreateAsync(payableBill);
                 return Ok(_mapper.Map<PayableBillDTO>(created));
             }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error(ex, "Invalid payable bill payload");
+                return BadRequest(ex.Message);
+            }
             catch (Exception)
             {
                 throw;
@@ -90,10 +95,65 @@ namespace EvangelionERPV2.Web.Controllers
                 var updated = await _payableBillService.UpdateAsync(payableBill, enterpriseId);
                 return Ok(_mapper.Map<PayableBillDTO>(updated));
             }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error(ex, "Invalid payable bill update");
+                return BadRequest(ex.Message);
+            }
             catch (NotFoundDatabaseException ex)
             {
                 Log.Logger.Error(ex, "Payable bill not found");
                 return NoContent();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        [HttpPost("{id}")]
+        public async Task<IActionResult> MarkProductsReceived(Guid id)
+        {
+            try
+            {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var updated = await _payableBillService.MarkProductsReceivedAsync(id, enterpriseId);
+                return Ok(_mapper.Map<PayableBillDTO>(updated));
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error(ex, "Invalid receive action for payable bill");
+                return BadRequest(ex.Message);
+            }
+            catch (NotFoundDatabaseException ex)
+            {
+                Log.Logger.Error(ex, "Payable bill not found");
+                return NoContent();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> GetReplenishmentSuggestions([FromBody] ReplenishmentSuggestionRequestDTO? request)
+        {
+            try
+            {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var suggestions = await _payableBillService.GetReplenishmentSuggestionsAsync(
+                    enterpriseId,
+                    request ?? new ReplenishmentSuggestionRequestDTO());
+
+                if (!suggestions.Any())
+                    return NoContent();
+
+                return Ok(suggestions);
             }
             catch (Exception)
             {
@@ -111,6 +171,11 @@ namespace EvangelionERPV2.Web.Controllers
 
                 var deleted = await _payableBillService.DeleteAsync(id, enterpriseId);
                 return Ok(_mapper.Map<PayableBillDTO>(deleted));
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error(ex, "Invalid payable bill delete");
+                return BadRequest(ex.Message);
             }
             catch (NotFoundDatabaseException ex)
             {
