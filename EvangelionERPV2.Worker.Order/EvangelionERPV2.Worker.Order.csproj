@@ -30,8 +30,8 @@
   <ItemGroup>
     <PackageReference Include="AutoMapper" Version="16.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.0" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.1" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="10.0.1" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.5" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="10.0.5" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="10.0.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="10.0.1" />
