@@ -10,7 +10,8 @@ namespace EvangelionERPV2.Shared.Auditing
             typeof(Product),
             typeof(Order),
             typeof(Bill),
-            typeof(PayableBill)
+            typeof(PayableBill),
+            typeof(PayableBillProduct)
         };
 
         private static readonly HashSet<string> _entityNames = new(
