@@ -1,6 +1,7 @@
 using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using Moq;
@@ -31,6 +32,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 Description = "Office supply",
                 EnterpriseId = enterpriseId,
                 IsPaid = false,
+                BillType = 3,
                 Amount = 999,
                 Items =
                 [
@@ -47,6 +49,7 @@ namespace EvangelionERPV2.BillsModule.Test
             var result = await service.CreateAsync(entity);
 
             Assert.Equal(25, result.Amount);
+            Assert.Equal(3, result.BillType);
             Assert.Single(payableItems);
             Assert.Equal("Unit", payableItems[0].UnitOfMeasure);
             productRepo.Verify(x => x.GetAllAsync(It.IsAny<Func<Product, bool>?>()), Times.AtLeastOnce);
@@ -93,6 +96,23 @@ namespace EvangelionERPV2.BillsModule.Test
 
             Assert.Equal(1400, result.Amount);
             Assert.Empty(payableItems);
+        }
+
+        [Fact]
+        public async Task CreateAsync_WithInvalidBillType_ShouldThrow()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var (_, _, _, _, _, service, _) = BuildSut();
+
+            var entity = new PayableBill
+            {
+                Description = "Invalid type",
+                Amount = 150,
+                EnterpriseId = enterpriseId,
+                BillType = 999
+            };
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.CreateAsync(entity));
         }
 
         [Fact]
@@ -193,6 +213,110 @@ namespace EvangelionERPV2.BillsModule.Test
         }
 
         [Fact]
+        public async Task RefundAsync_WithReceivedProducts_ShouldRollbackStock_AndLockBill()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Notebook",
+                StorageQuantity = 10,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "Supplier return",
+                IsActive = true,
+                ProductsReceivedAt = DateTime.UtcNow,
+                Amount = 500
+            };
+
+            var item = new PayableBillProduct
+            {
+                Id = Guid.NewGuid(),
+                PayableBillId = bill.Id,
+                ProductId = product.Id,
+                Quantity = 5,
+                UnitValue = 100,
+                LineAmount = 500,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var (_, _, _, _, _, service, itemsStore) = BuildSut(
+                payableBills: [bill],
+                payableItems: [item],
+                products: [product]);
+
+            var refunded = await service.RefundAsync(bill.Id, enterpriseId, "Supplier shipped wrong model");
+
+            Assert.NotNull(refunded.RefundedAt);
+            Assert.Equal("Supplier shipped wrong model", refunded.RefundReason);
+            Assert.Equal(0, refunded.Amount);
+            Assert.False(refunded.IsPaid);
+            Assert.Equal(5, product.StorageQuantity);
+            Assert.All(itemsStore, line =>
+            {
+                Assert.Equal(0, line.Quantity);
+                Assert.Equal(0, line.UnitValue);
+                Assert.Equal(0, line.LineAmount);
+            });
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => service.MarkProductsReceivedAsync(bill.Id, enterpriseId));
+        }
+
+        [Fact]
+        public async Task RefundAsync_WithoutItems_ShouldThrow()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "No items",
+                IsActive = true
+            };
+
+            var (_, _, _, _, _, service, _) = BuildSut(payableBills: [bill]);
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => service.RefundAsync(bill.Id, enterpriseId, "No products to refund"));
+        }
+
+        [Fact]
+        public async Task UpdateAsync_AfterRefund_ShouldThrow()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "Locked",
+                IsActive = true,
+                RefundedAt = DateTime.UtcNow,
+                RefundReason = "Already refunded"
+            };
+
+            var (_, _, _, _, _, service, _) = BuildSut(payableBills: [bill]);
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => service.UpdateAsync(new PayableBill
+                {
+                    Id = bill.Id,
+                    Description = bill.Description,
+                    DueDate = DateTime.UtcNow,
+                    Amount = 10,
+                    IsPaid = false
+                }, enterpriseId));
+        }
+
+        [Fact]
         public async Task UpdateAsync_WithEmptyItemsPayload_ShouldKeepManualAmountAndClearItems()
         {
             var enterpriseId = Guid.NewGuid();
@@ -237,22 +361,117 @@ namespace EvangelionERPV2.BillsModule.Test
         }
 
         [Fact]
-        public async Task DeleteAsync_AfterProductsReceived_ShouldThrow()
+        public async Task DeleteAsync_AfterProductsReceived_ShouldRollbackStockAndSoftDelete()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Cable",
+                StorageQuantity = 10,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "Delete with rollback",
+                IsActive = true,
+                ProductsReceivedAt = DateTime.UtcNow
+            };
+
+            var item = new PayableBillProduct
+            {
+                Id = Guid.NewGuid(),
+                PayableBillId = bill.Id,
+                ProductId = product.Id,
+                Quantity = 3,
+                UnitValue = 10,
+                LineAmount = 30,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var (_, _, _, _, _, service, payableItemsStore) = BuildSut(
+                payableBills: [bill],
+                payableItems: [item],
+                products: [product]);
+
+            var deleted = await service.DeleteAsync(bill.Id, enterpriseId);
+
+            Assert.False(deleted.IsActive ?? true);
+            Assert.Equal(7, product.StorageQuantity);
+            Assert.All(payableItemsStore, stored => Assert.False(stored.IsActive ?? true));
+        }
+
+        [Fact]
+        public async Task DeleteAsync_AfterRefund_ShouldSoftDelete()
         {
             var enterpriseId = Guid.NewGuid();
             var bill = new PayableBill
             {
                 Id = Guid.NewGuid(),
                 EnterpriseId = enterpriseId,
-                Description = "Cannot delete",
+                Description = "Cannot delete refunded",
                 IsActive = true,
-                ProductsReceivedAt = DateTime.UtcNow
+                RefundedAt = DateTime.UtcNow,
+                RefundReason = "Supplier return"
             };
 
             var (_, _, _, _, _, service, _) = BuildSut(payableBills: [bill]);
 
-            await Assert.ThrowsAsync<InsertDatabaseException>(
-                () => service.DeleteAsync(bill.Id, enterpriseId));
+            var deleted = await service.DeleteAsync(bill.Id, enterpriseId);
+            Assert.False(deleted.IsActive ?? true);
+        }
+
+        [Fact]
+        public async Task GetByEnterpriseIdAsync_ShouldFilterByIsActiveAndBillType()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var activeAccounts = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "Active Accounts",
+                BillType = 0,
+                IsActive = true
+            };
+
+            var inactiveAccounts = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "Inactive Accounts",
+                BillType = 0,
+                IsActive = false
+            };
+
+            var activeTaxes = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "Active Taxes",
+                BillType = 4,
+                IsActive = true
+            };
+
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [activeAccounts, inactiveAccounts, activeTaxes]);
+
+            var activeOnly = (await service.GetByEnterpriseIdAsync(enterpriseId, isActive: true)).ToList();
+            Assert.Equal(2, activeOnly.Count);
+            Assert.DoesNotContain(activeOnly, x => x.Id == inactiveAccounts.Id);
+
+            var inactiveOnly = (await service.GetByEnterpriseIdAsync(enterpriseId, isActive: false)).ToList();
+            Assert.Single(inactiveOnly);
+            Assert.Equal(inactiveAccounts.Id, inactiveOnly[0].Id);
+
+            var allStatuses = (await service.GetByEnterpriseIdAsync(enterpriseId, isActive: null, billType: 0)).ToList();
+            Assert.Equal(2, allStatuses.Count);
+            Assert.All(allStatuses, bill => Assert.Equal(0, bill.BillType));
         }
 
         [Fact]
@@ -295,10 +514,10 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var orders = new List<Order>
             {
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-40), IsActive = true },
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-30), IsActive = true },
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-20), IsActive = true },
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-10), IsActive = true },
+                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-40), IsActive = true, Status = (int)EnumOrderStatus.Paid },
+                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-30), IsActive = true, Status = (int)EnumOrderStatus.Shipped },
+                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-20), IsActive = true, Status = (int)EnumOrderStatus.Delivered },
+                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-10), IsActive = true, Status = (int)EnumOrderStatus.Finished },
             };
 
             var orderedProducts = new List<OrderedProduct>();
@@ -392,6 +611,19 @@ namespace EvangelionERPV2.BillsModule.Test
             var payableBillRepo = CreateRepositoryMock(payableBillStore);
             var payableBillProductRepo = CreateRepositoryMock(payableItemsStore);
             var productRepo = CreateRepositoryMock(productStore, throwsWhenEmpty: true);
+            var enterpriseRepo = CreateRepositoryMock(new List<Enterprise>
+            {
+                new()
+                {
+                    Id = payableBillStore.FirstOrDefault()?.EnterpriseId
+                         ?? productStore.FirstOrDefault()?.EnterpriseId
+                         ?? orderStore.FirstOrDefault()?.EnterpriseId
+                         ?? Guid.NewGuid(),
+                    Name = "Enterprise",
+                    IsActive = true,
+                    CurrentBalance = 0
+                }
+            });
             var orderRepo = CreateRepositoryMock(orderStore, throwsWhenEmpty: true);
             var orderedProductRepo = CreateRepositoryMock(orderedProductStore, throwsWhenEmpty: true);
 
@@ -399,6 +631,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 payableBillRepo.Object,
                 payableBillProductRepo.Object,
                 productRepo.Object,
+                enterpriseRepo.Object,
                 orderRepo.Object,
                 orderedProductRepo.Object);
 
@@ -490,6 +723,9 @@ namespace EvangelionERPV2.BillsModule.Test
 
             repo.Setup(x => x.CommitAsync(It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
+
+            repo.Setup(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
+                .Returns((Func<Task> operation, CancellationToken _) => operation());
 
             return repo;
         }

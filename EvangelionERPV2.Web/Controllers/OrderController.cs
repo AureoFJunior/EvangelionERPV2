@@ -8,6 +8,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
+using System.Security.Claims;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -18,16 +19,13 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private readonly IOrderRepository<Order> _orderRepository;
         private readonly IOrderService<Order> _orderService;
-        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Order> _repository;
         private readonly IMapper _mapper;
 
         public OrderController(IOrderService<Order> orderService,
-            EvangelionERPV2.Shared.Repositories.IRepository<Order> repository,
             IOrderRepository<Order> orderRepository,
             IMapper mapper)
         {
             _orderService = orderService;
-            _repository = repository;
             _orderRepository = orderRepository;
             _mapper = mapper;
         }
@@ -48,9 +46,11 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
-                IEnumerable<Order> orders = await _repository.GetAllAsync(pageNumber, pageSize);
-                if (orders == null)
+                IEnumerable<Order> orders = await _orderService.GetByEnterpriseIdAsync(enterpriseId, pageNumber, pageSize);
+                if (!orders.Any())
                     return NoContent();
 
                 IEnumerable<OrderDTO> orderDTO = _mapper.Map<IEnumerable<OrderDTO>>(orders);
@@ -84,8 +84,15 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                (IEnumerable<Order> orders, int totalItems)= await _orderRepository.GetAllAsyncFiltering(descending, pageNumber, pageSize, order);
-                if (orders == null)
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                order ??= new Order();
+                order.EnterpriseId = enterpriseId;
+                order.IsActive = true;
+
+                (IEnumerable<Order> orders, int totalItems) = await _orderRepository.GetAllAsyncFiltering(descending, pageNumber, pageSize, order);
+                if (!orders.Any())
                     return NoContent();
 
                 IEnumerable<OrderDTO> orderDTO = _mapper.Map<IEnumerable<OrderDTO>>(orders);
@@ -115,7 +122,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                Order order = await _repository.GetByIdAsync(id);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                Order? order = await _orderService.GetByIdAsync(id, enterpriseId);
                 if (order == null)
                     return NoContent();
 
@@ -141,8 +151,11 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid || order == null) return BadRequest(ModelState);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
+                order.EnterpriseId = enterpriseId;
                 await _orderService.InsertOrderInQueue(order);
                 return Ok("Order enqueued successfully");
             }
@@ -165,8 +178,11 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid || order == null) return BadRequest(ModelState);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
+                order.EnterpriseId = enterpriseId;
                 await _orderService.CreateAsync(order);
                 return Ok("Order created successfully");
             }
@@ -190,18 +206,53 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid || order == null) return BadRequest(ModelState);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
-                Order updatedOrder = _orderService.Update(order);
+                Order updatedOrder = _orderService.Update(order, enterpriseId);
 
                 if (updatedOrder == null)
                     return NoContent();
 
-                return Ok(order);
+                return Ok(_mapper.Map<OrderDTO>(updatedOrder));
             }
             catch (NotFoundDatabaseException exnf)
             {
                 Log.Logger.Error(exnf, "Orders not found");
+                return NoContent();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        [HttpPost("{id}")]
+        [ProducesResponseType(typeof(OrderDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> RefundOrder(Guid id, [FromBody] RefundRequestDTO request)
+        {
+            try
+            {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var reason = request?.Reason ?? string.Empty;
+                var refundedOrder = await _orderService.RefundAsync(id, enterpriseId, reason);
+                return Ok(_mapper.Map<OrderDTO>(refundedOrder));
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error(ex, "Invalid refund action for order");
+                return BadRequest(GetSafeInsertErrorMessage(ex));
+            }
+            catch (NotFoundDatabaseException ex)
+            {
+                Log.Logger.Error(ex, "Order not found for refund");
                 return NoContent();
             }
             catch (Exception)
@@ -224,12 +275,14 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
-                Order order = _orderService.Delete(id);
+                Order order = _orderService.Delete(id, enterpriseId);
                 if (order == null)
                     return NoContent();
 
-                return Ok(order);
+                return Ok(_mapper.Map<OrderDTO>(order));
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -240,6 +293,19 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 throw;
             }
+        }
+
+        private bool TryGetEnterpriseId(out Guid enterpriseId)
+        {
+            var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
+            return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
+        }
+
+        private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)
+        {
+            return ex.InnerException == null
+                ? ex.Message
+                : "An internal error occurred. Please try again later.";
         }
     }
 }

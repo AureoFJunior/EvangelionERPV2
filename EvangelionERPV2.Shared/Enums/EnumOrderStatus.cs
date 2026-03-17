@@ -7,6 +7,7 @@
         Paid,
         Shipped,
         Delivered,
-        Finished
+        Finished,
+        Refund
     }
 }

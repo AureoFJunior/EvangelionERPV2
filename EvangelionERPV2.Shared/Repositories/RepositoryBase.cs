@@ -22,6 +22,36 @@ namespace EvangelionERPV2.Shared.Repositories
             return;
         }
 
+        public virtual void ExecuteInTransaction(Action operation, CancellationToken cancellation = default)
+        {
+            ArgumentNullException.ThrowIfNull(operation);
+
+            var strategy = _context.Database.CreateExecutionStrategy();
+            strategy.Execute(() =>
+            {
+                using var transaction = _context.Database.BeginTransaction();
+                operation();
+                transaction.Commit();
+            });
+        }
+
+        public virtual TResult ExecuteInTransaction<TResult>(Func<TResult> operation, CancellationToken cancellation = default)
+        {
+            ArgumentNullException.ThrowIfNull(operation);
+
+            var strategy = _context.Database.CreateExecutionStrategy();
+            TResult result = default!;
+
+            strategy.Execute(() =>
+            {
+                using var transaction = _context.Database.BeginTransaction();
+                result = operation();
+                transaction.Commit();
+            });
+
+            return result;
+        }
+
         public virtual TEntity GetById(Guid id)
         {
             var query = _context.Set<TEntity>().Where(e => e.Id == id).AsNoTracking();
@@ -60,13 +90,38 @@ namespace EvangelionERPV2.Shared.Repositories
 
         public virtual TEntity Update(TEntity entity)
         {
+            var trackedEntity = _context.Set<TEntity>().Local.FirstOrDefault(localEntity => localEntity.Id == entity.Id);
+            if (trackedEntity != null && !ReferenceEquals(trackedEntity, entity))
+            {
+                _context.Entry(trackedEntity).CurrentValues.SetValues(entity);
+                _context.Entry(trackedEntity).State = EntityState.Modified;
+                return trackedEntity;
+            }
+
             _context.Set<TEntity>().Update(entity);
             return entity;
         }
 
         public virtual IEnumerable<TEntity> UpdateRange(IEnumerable<TEntity> entitys)
         {
-            _context.Set<TEntity>().UpdateRange(entitys);
+            var entitiesToUpdate = new List<TEntity>();
+
+            foreach (var entity in entitys)
+            {
+                var trackedEntity = _context.Set<TEntity>().Local.FirstOrDefault(localEntity => localEntity.Id == entity.Id);
+                if (trackedEntity != null && !ReferenceEquals(trackedEntity, entity))
+                {
+                    _context.Entry(trackedEntity).CurrentValues.SetValues(entity);
+                    _context.Entry(trackedEntity).State = EntityState.Modified;
+                    continue;
+                }
+
+                entitiesToUpdate.Add(entity);
+            }
+
+            if (entitiesToUpdate.Count > 0)
+                _context.Set<TEntity>().UpdateRange(entitiesToUpdate);
+
             return entitys;
         }
 
@@ -113,6 +168,33 @@ namespace EvangelionERPV2.Shared.Repositories
         public virtual Task CommitAsync(CancellationToken cancellation = default)
         {
             return _context.SaveChangesAsync();
+        }
+
+        public virtual Task ExecuteInTransactionAsync(Func<Task> operation, CancellationToken cancellation = default)
+        {
+            ArgumentNullException.ThrowIfNull(operation);
+
+            var strategy = _context.Database.CreateExecutionStrategy();
+            return strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await _context.Database.BeginTransactionAsync(cancellation);
+                await operation();
+                await transaction.CommitAsync(cancellation);
+            });
+        }
+
+        public virtual Task<TResult> ExecuteInTransactionAsync<TResult>(Func<Task<TResult>> operation, CancellationToken cancellation = default)
+        {
+            ArgumentNullException.ThrowIfNull(operation);
+
+            var strategy = _context.Database.CreateExecutionStrategy();
+            return strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await _context.Database.BeginTransactionAsync(cancellation);
+                var result = await operation();
+                await transaction.CommitAsync(cancellation);
+                return result;
+            });
         }
 
         public virtual async Task<Guid> GetLastId()

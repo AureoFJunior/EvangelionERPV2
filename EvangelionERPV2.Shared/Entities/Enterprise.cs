@@ -23,6 +23,7 @@ namespace EvangelionERPV2.Shared.Entities
         public string Email { get; set; } = "";
         public string Adress { get; set; } = "";
         public string Currency { get; set; } = "BRL";
+        public double CurrentBalance { get; set; } = 0;
         public bool ShouldSendMonthlyBilling { get; set; } = false;
         [JsonIgnore]
         public virtual IEnumerable<Customer>? Customer { get; set; } = null;

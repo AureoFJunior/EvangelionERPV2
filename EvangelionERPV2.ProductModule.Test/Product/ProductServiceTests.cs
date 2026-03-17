@@ -129,7 +129,8 @@ namespace EvangelionERPV2.ProductModule.Test
         {
             var (service, _, _) = CreateService();
 
-            await Assert.ThrowsAsync<Exception>(() => service.GetProductsBodyAsync(null));
+            var exception = await Assert.ThrowsAsync<ArgumentNullException>(() => service.GetProductsBodyAsync(null));
+            Assert.Equal("enterprise", exception.ParamName);
         }
 
         [Fact]

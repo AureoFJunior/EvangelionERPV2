@@ -28,15 +28,17 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                     return new AmazonSecretsManagerClient(region);
                 });
                 services.AddSingleton<AWSKMSKeyProvider>();
-
-                var serviceProvider = services.BuildServiceProvider();
-                var kmsProvider = serviceProvider.GetRequiredService<AWSKMSKeyProvider>();
                 #endregion
 
                 services.AddLogging();
 
                 #region DataBase
-                services.AddDbContextPool<AppDbContext>(options => options.UseSqlServer(kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty)));
+                services.AddDbContextPool<AppDbContext>((serviceProvider, options) =>
+                {
+                    var kmsProvider = serviceProvider.GetRequiredService<AWSKMSKeyProvider>();
+                    var encryptedConnection = configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
+                    options.UseSqlServer(kmsProvider.GetKMSKey(encryptedConnection));
+                });
                 #endregion
 
                 #region Mapper
@@ -46,7 +48,6 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 #endregion
 
                 services.Configure<BillsSettings>(configuration.GetSection("BillsSettings"));
-
                 #region Repositorys
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<>), typeof(EvangelionERPV2.Shared.Repositories.Repository<>));
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<Bill>), typeof(BillsRepository));
