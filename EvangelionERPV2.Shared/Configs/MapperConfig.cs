@@ -31,6 +31,11 @@ namespace EvangelionERPV2.Shared.Configs
                 config.CreateMap<AuditTrail, AuditTrailDTO>()
                     .ForMember(dest => dest.UserName,
                         opt => opt.MapFrom(src => src.User != null ? src.User.UserName : string.Empty));
+                config.CreateMap<Opportunity, OpportunityDTO>().ReverseMap();
+                config.CreateMap<OpportunitySignal, OpportunitySignalDTO>().ReverseMap();
+                config.CreateMap<OpportunityRecommendation, OpportunityRecommendationDTO>().ReverseMap();
+                config.CreateMap<OpportunityFeedback, OpportunityFeedbackDTO>().ReverseMap();
+                config.CreateMap<OpportunityRunLog, OpportunityRunLogDTO>().ReverseMap();
             }, loggerFactory);
 
             return mappingsConfigs;

@@ -1,8 +1,12 @@
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Shared.Utils;
+using Microsoft.EntityFrameworkCore;
 
 namespace EvangelionERPV2.BillsModule.Application.Services
 {
@@ -11,21 +15,27 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly IRepository<PayableBill> _payableBillRepository;
         private readonly IRepository<PayableBillProduct> _payableBillProductRepository;
         private readonly IRepository<Product> _productRepository;
+        private readonly IRepository<Enterprise> _enterpriseRepository;
         private readonly IRepository<Order> _orderRepository;
         private readonly IRepository<OrderedProduct> _orderedProductRepository;
+        private readonly AppDbContext? _appDbContext;
 
         public PayableBillService(
             IRepository<PayableBill> payableBillRepository,
             IRepository<PayableBillProduct> payableBillProductRepository,
             IRepository<Product> productRepository,
+            IRepository<Enterprise> enterpriseRepository,
             IRepository<Order> orderRepository,
-            IRepository<OrderedProduct> orderedProductRepository)
+            IRepository<OrderedProduct> orderedProductRepository,
+            AppDbContext? appDbContext = null)
         {
             _payableBillRepository = payableBillRepository;
             _payableBillProductRepository = payableBillProductRepository;
             _productRepository = productRepository;
+            _enterpriseRepository = enterpriseRepository;
             _orderRepository = orderRepository;
             _orderedProductRepository = orderedProductRepository;
+            _appDbContext = appDbContext;
         }
 
         public async Task<PayableBill> CreateAsync(PayableBill payableBill)
@@ -33,39 +43,57 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (payableBill == null)
                 throw new InsertDatabaseException($"{nameof(PayableBill)} is null.");
 
-            payableBill.Id = payableBill.Id == Guid.Empty ? Guid.NewGuid() : payableBill.Id;
-            payableBill.CreatedAt = DateTime.UtcNow;
-            payableBill.UpdatedAt = DateTime.UtcNow;
-            payableBill.IsActive = true;
+            await ExecuteInTransactionAsync(async () =>
+            {
+                payableBill.Id = payableBill.Id == Guid.Empty ? Guid.NewGuid() : payableBill.Id;
+                payableBill.CreatedAt = DateTime.UtcNow;
+                payableBill.UpdatedAt = DateTime.UtcNow;
+                payableBill.IsActive = true;
+                payableBill.RefundReason = null;
+                payableBill.RefundedAt = null;
+                payableBill.BillType = NormalizeBillType(payableBill.BillType);
 
-            var hasProvidedItems = payableBill.Items?.Any() == true;
-            var normalizedItems = hasProvidedItems
-                ? await NormalizeItemsAsync(payableBill.Id, payableBill.EnterpriseId, payableBill.Items!)
-                : new List<PayableBillProduct>();
+                var hasProvidedItems = payableBill.Items?.Any() == true;
+                var normalizedItems = hasProvidedItems
+                    ? await NormalizeItemsAsync(payableBill.Id, payableBill.EnterpriseId, payableBill.Items!)
+                    : new List<PayableBillProduct>();
 
-            if (hasProvidedItems)
-                payableBill.Amount = normalizedItems.Sum(x => x.LineAmount);
+                if (hasProvidedItems)
+                    payableBill.Amount = normalizedItems.Sum(x => x.LineAmount);
 
-            payableBill.Items = null;
+                payableBill.Items = null;
 
-            await _payableBillRepository.CreateAsync(payableBill);
+                await _payableBillRepository.CreateAsync(payableBill);
 
-            if (hasProvidedItems && normalizedItems.Any())
-                await _payableBillProductRepository.CreateRangeAsync(normalizedItems);
+                if (hasProvidedItems && normalizedItems.Any())
+                    await _payableBillProductRepository.CreateRangeAsync(normalizedItems);
 
-            await _payableBillRepository.CommitAsync();
+                await _payableBillRepository.CommitAsync();
+
+                await ApplyEnterpriseBalanceDeltaAsync(
+                    payableBill.EnterpriseId,
+                    EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(payableBill, DateTime.UtcNow.Date));
+            });
 
             var createdBill = await GetByIdAsync(payableBill.Id, payableBill.EnterpriseId);
             return createdBill ?? payableBill;
         }
 
-        public async Task<IEnumerable<PayableBill>> GetByEnterpriseIdAsync(Guid enterpriseId, int? pageNumber = null, int? pageSize = null)
+        public async Task<IEnumerable<PayableBill>> GetByEnterpriseIdAsync(
+            Guid enterpriseId,
+            int? pageNumber = null,
+            int? pageSize = null,
+            bool? isActive = null,
+            int? billType = null)
         {
             var bills = (await _payableBillRepository.GetAllAsync(
                 pageNumber,
                 pageSize,
-                x => x.EnterpriseId == enterpriseId && x.IsActive == true)).ToList();
+                x => x.EnterpriseId == enterpriseId
+                     && (!isActive.HasValue || x.IsActive == isActive.Value)
+                     && (!billType.HasValue || x.BillType == billType.Value))).ToList();
 
+            NormalizeBillTypesOnRead(bills);
             await PopulateItemsAsync(bills);
             return bills;
         }
@@ -76,46 +104,67 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (bill == null || bill.EnterpriseId != enterpriseId || bill.IsActive != true)
                 return null;
 
+            bill.BillType = SanitizeBillTypeOnRead(bill.BillType);
             await PopulateItemsAsync([bill]);
             return bill;
         }
 
         public async Task<PayableBill> UpdateAsync(PayableBill payableBill, Guid enterpriseId)
         {
-            var existing = await _payableBillRepository.GetByIdAsync(payableBill.Id);
-            if (existing == null || existing.EnterpriseId != enterpriseId || existing.IsActive != true)
-                throw new NotFoundDatabaseException($"{nameof(PayableBill)} was not found in database.");
+            if (payableBill == null)
+                throw new InsertDatabaseException($"{nameof(PayableBill)} is null.");
 
-            var hasProvidedItemsPayload = payableBill.Items != null;
-            var hasProvidedItems = payableBill.Items?.Any() == true;
+            PayableBill? updatedEntity = null;
 
-            if (existing.ProductsReceivedAt.HasValue && hasProvidedItemsPayload)
-                throw new InsertDatabaseException("Products were already received. Item lines cannot be changed.");
-
-            var normalizedItems = hasProvidedItems
-                ? await NormalizeItemsAsync(existing.Id, enterpriseId, payableBill.Items!)
-                : new List<PayableBillProduct>();
-
-            existing.Description = payableBill.Description;
-            existing.DueDate = payableBill.DueDate;
-            existing.PaidAt = payableBill.PaidAt;
-            existing.IsPaid = payableBill.IsPaid;
-            existing.UpdatedAt = DateTime.UtcNow;
-            existing.Amount = hasProvidedItems ? normalizedItems.Sum(x => x.LineAmount) : payableBill.Amount;
-
-            _payableBillRepository.Update(existing);
-
-            if (hasProvidedItemsPayload)
+            await ExecuteInTransactionAsync(async () =>
             {
-                await SoftDeleteAllItemsAsync(existing.Id);
-                if (normalizedItems.Any())
-                    await _payableBillProductRepository.CreateRangeAsync(normalizedItems);
-            }
+                var existing = await _payableBillRepository.GetByIdAsync(payableBill.Id);
+                if (existing == null || existing.EnterpriseId != enterpriseId || existing.IsActive != true)
+                    throw new NotFoundDatabaseException($"{nameof(PayableBill)} was not found in database.");
 
-            await _payableBillRepository.CommitAsync();
+                if (existing.RefundedAt.HasValue)
+                    throw new InsertDatabaseException("Payable bill is refunded and cannot be edited.");
 
-            var updated = await GetByIdAsync(existing.Id, enterpriseId);
-            return updated ?? existing;
+                var oldContribution = EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(existing, DateTime.UtcNow.Date);
+
+                var hasProvidedItemsPayload = payableBill.Items != null;
+                var hasProvidedItems = payableBill.Items?.Any() == true;
+
+                if (existing.ProductsReceivedAt.HasValue && hasProvidedItemsPayload)
+                    throw new InsertDatabaseException("Products were already received. Item lines cannot be changed.");
+
+                var normalizedItems = hasProvidedItems
+                    ? await NormalizeItemsAsync(existing.Id, enterpriseId, payableBill.Items!)
+                    : new List<PayableBillProduct>();
+
+                existing.Description = payableBill.Description;
+                existing.DueDate = payableBill.DueDate;
+                existing.PaidAt = payableBill.PaidAt;
+                existing.IsPaid = payableBill.IsPaid;
+                existing.BillType = NormalizeBillType(payableBill.BillType);
+                existing.UpdatedAt = DateTime.UtcNow;
+                existing.Amount = hasProvidedItems ? normalizedItems.Sum(x => x.LineAmount) : payableBill.Amount;
+                existing.RefundReason = null;
+                existing.RefundedAt = null;
+
+                _payableBillRepository.Update(existing);
+
+                if (hasProvidedItemsPayload)
+                {
+                    await SoftDeleteAllItemsAsync(existing.Id);
+                    if (normalizedItems.Any())
+                        await _payableBillProductRepository.CreateRangeAsync(normalizedItems);
+                }
+
+                await _payableBillRepository.CommitAsync();
+
+                var newContribution = EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(existing, DateTime.UtcNow.Date);
+                await ApplyEnterpriseBalanceDeltaAsync(existing.EnterpriseId, newContribution - oldContribution);
+                updatedEntity = existing;
+            });
+
+            var updated = await GetByIdAsync(payableBill.Id, enterpriseId);
+            return updated ?? updatedEntity ?? payableBill;
         }
 
         public async Task<PayableBill> MarkProductsReceivedAsync(Guid id, Guid enterpriseId)
@@ -123,6 +172,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var existing = await _payableBillRepository.GetByIdAsync(id);
             if (existing == null || existing.EnterpriseId != enterpriseId || existing.IsActive != true)
                 throw new NotFoundDatabaseException($"{nameof(PayableBill)} was not found in database.");
+
+            if (existing.RefundedAt.HasValue)
+                throw new InsertDatabaseException("Refunded payable bills cannot receive products.");
 
             if (existing.ProductsReceivedAt.HasValue)
                 throw new InsertDatabaseException("Products were already received for this payable bill.");
@@ -164,6 +216,90 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return receivedBill ?? existing;
         }
 
+        public async Task<PayableBill> RefundAsync(Guid id, Guid enterpriseId, string reason)
+        {
+            PayableBill? refundedEntity = null;
+
+            await ExecuteInTransactionAsync(async () =>
+            {
+                var existing = await _payableBillRepository.GetByIdAsync(id);
+                if (existing == null || existing.EnterpriseId != enterpriseId || existing.IsActive != true)
+                    throw new NotFoundDatabaseException($"{nameof(PayableBill)} was not found in database.");
+
+                if (existing.RefundedAt.HasValue)
+                    throw new InsertDatabaseException("Payable bill was already refunded.");
+
+                var oldContribution = EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(existing, DateTime.UtcNow.Date);
+
+                var trimmedReason = (reason ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(trimmedReason))
+                    throw new InsertDatabaseException("Refund reason is required.");
+
+                var items = (await _payableBillProductRepository.GetAllAsync(
+                        x => x.IsActive == true && x.PayableBillId == id))
+                    .ToList();
+
+                if (!items.Any())
+                    throw new InsertDatabaseException("Refund is only allowed when payable bill has product items.");
+
+                var now = DateTime.UtcNow;
+
+                if (existing.ProductsReceivedAt.HasValue)
+                {
+                    var productIds = items.Select(x => x.ProductId).Distinct().ToList();
+                    var products = (await _productRepository.GetAllAsync(
+                            x => x.IsActive == true
+                                 && x.EnterpriseId == enterpriseId
+                                 && productIds.Contains(x.Id)))
+                        .ToDictionary(x => x.Id, x => x);
+
+                    if (products.Count != productIds.Count)
+                        throw new InsertDatabaseException("Some products were not found for this payable bill.");
+
+                    foreach (var item in items)
+                    {
+                        if (!products.TryGetValue(item.ProductId, out var product))
+                            throw new InsertDatabaseException($"Product [{item.ProductId}] was not found.");
+
+                        product.StorageQuantity -= Math.Max(0, item.Quantity);
+                        if (product.StorageQuantity < 0)
+                            product.StorageQuantity = 0;
+
+                        product.UpdatedAt = now;
+                        _productRepository.Update(product);
+                    }
+                }
+
+                foreach (var item in items)
+                {
+                    item.Quantity = 0;
+                    item.UnitValue = 0;
+                    item.LineAmount = 0;
+                    item.UpdatedAt = now;
+                }
+
+                _payableBillProductRepository.UpdateRange(items);
+
+                existing.Amount = 0;
+                existing.IsPaid = false;
+                existing.PaidAt = null;
+                existing.RefundReason = trimmedReason;
+                existing.RefundedAt = now;
+                existing.UpdatedAt = now;
+                _payableBillRepository.Update(existing);
+
+                var newContribution = EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(existing, now.Date);
+                await ApplyEnterpriseBalanceDeltaAsync(existing.EnterpriseId, newContribution - oldContribution);
+
+                await _payableBillRepository.CommitAsync();
+                refundedEntity = existing;
+            });
+
+            var refundedBill = await GetByIdAsync(id, enterpriseId);
+            return refundedBill ?? refundedEntity
+                ?? throw new InsertDatabaseException("Payable bill refund failed.");
+        }
+
         public async Task<IEnumerable<ReplenishmentSuggestionDTO>> GetReplenishmentSuggestionsAsync(Guid enterpriseId, ReplenishmentSuggestionRequestDTO request)
         {
             request ??= new ReplenishmentSuggestionRequestDTO();
@@ -176,10 +312,20 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             List<Order> orders;
             try
             {
+                var finalizedStatuses = new HashSet<int>
+                {
+                    (int)EnumOrderStatus.Paid,
+                    (int)EnumOrderStatus.Shipped,
+                    (int)EnumOrderStatus.Delivered,
+                    (int)EnumOrderStatus.Finished
+                };
+
                 orders = (await _orderRepository.GetAllAsync(
                         x => x.IsActive == true
-                             && x.EnterpriseId == enterpriseId
-                             && x.CreatedAt >= windowStart))
+                              && x.EnterpriseId == enterpriseId
+                              && !x.RefundedAt.HasValue
+                              && finalizedStatuses.Contains(x.Status)
+                              && x.CreatedAt >= windowStart))
                     .ToList();
             }
             catch (NotFoundDatabaseException)
@@ -296,22 +442,67 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         public async Task<PayableBill> DeleteAsync(Guid id, Guid enterpriseId)
         {
-            var existing = await _payableBillRepository.GetByIdAsync(id);
-            if (existing == null || existing.EnterpriseId != enterpriseId || existing.IsActive != true)
-                throw new NotFoundDatabaseException($"{nameof(PayableBill)} was not found in database.");
+            PayableBill? deletedEntity = null;
 
-            if (existing.ProductsReceivedAt.HasValue)
-                throw new InsertDatabaseException("Products were already received. Item lines cannot be deleted.");
+            await ExecuteInTransactionAsync(async () =>
+            {
+                var existing = await _payableBillRepository.GetByIdAsync(id);
+                if (existing == null || existing.EnterpriseId != enterpriseId || existing.IsActive != true)
+                    throw new NotFoundDatabaseException($"{nameof(PayableBill)} was not found in database.");
 
-            existing.IsActive = false;
-            existing.UpdatedAt = DateTime.UtcNow;
-            _payableBillRepository.Update(existing);
+                var existingItems = (await _payableBillProductRepository.GetAllAsync(
+                        x => x.IsActive == true && x.PayableBillId == existing.Id))
+                    .ToList();
 
-            await SoftDeleteAllItemsAsync(existing.Id);
-            await _payableBillRepository.CommitAsync();
+                var oldContribution = EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(existing, DateTime.UtcNow.Date);
 
-            var deleted = await GetByIdAsync(existing.Id, enterpriseId);
-            return deleted ?? existing;
+                if (existing.ProductsReceivedAt.HasValue && existingItems.Any())
+                {
+                    var productIds = existingItems.Select(x => x.ProductId).Distinct().ToList();
+                    var productsById = (await _productRepository.GetAllAsync(
+                            x => x.IsActive == true
+                                 && x.EnterpriseId == enterpriseId
+                                 && productIds.Contains(x.Id)))
+                        .ToDictionary(x => x.Id, x => x);
+
+                    if (productsById.Count != productIds.Count)
+                        throw new InsertDatabaseException("Some products for this payable bill were not found.");
+
+                    var now = DateTime.UtcNow;
+                    foreach (var item in existingItems)
+                    {
+                        if (!productsById.TryGetValue(item.ProductId, out var product))
+                            throw new InsertDatabaseException($"Product [{item.ProductId}] was not found.");
+
+                        product.StorageQuantity -= Math.Max(0, item.Quantity);
+                        if (product.StorageQuantity < 0)
+                            product.StorageQuantity = 0;
+
+                        product.UpdatedAt = now;
+                    }
+
+                    _productRepository.UpdateRange(productsById.Values);
+                }
+
+                existing.IsActive = false;
+                existing.UpdatedAt = DateTime.UtcNow;
+                _payableBillRepository.Update(existing);
+
+                await SoftDeleteAllItemsAsync(existing.Id);
+                await _payableBillRepository.CommitAsync();
+
+                await ApplyEnterpriseBalanceDeltaAsync(existing.EnterpriseId, -oldContribution);
+                deletedEntity = existing;
+            });
+
+            var deleted = await GetByIdAsync(id, enterpriseId);
+            return deleted ?? deletedEntity
+                ?? throw new InsertDatabaseException("Payable bill deletion failed.");
+        }
+
+        private async Task ExecuteInTransactionAsync(Func<Task> operation)
+        {
+            await _payableBillRepository.ExecuteInTransactionAsync(operation);
         }
 
         private async Task<List<PayableBillProduct>> NormalizeItemsAsync(Guid payableBillId, Guid enterpriseId, IEnumerable<PayableBillProduct> items)
@@ -478,6 +669,55 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 "medium" => 1,
                 _ => 2
             };
+        }
+
+        private static int NormalizeBillType(int billType)
+        {
+            if (!Enum.IsDefined(typeof(EnumPayableBillType), billType))
+                throw new InsertDatabaseException("Invalid payable bill type.");
+
+            return billType;
+        }
+
+        private static void NormalizeBillTypesOnRead(IEnumerable<PayableBill> bills)
+        {
+            foreach (var bill in bills)
+                bill.BillType = SanitizeBillTypeOnRead(bill.BillType);
+        }
+
+        private static int SanitizeBillTypeOnRead(int billType)
+        {
+            return Enum.IsDefined(typeof(EnumPayableBillType), billType)
+                ? billType
+                : (int)EnumPayableBillType.Other;
+        }
+
+        private async Task ApplyEnterpriseBalanceDeltaAsync(Guid enterpriseId, double delta)
+        {
+            if (Math.Abs(delta) < 0.000001)
+                return;
+
+            if (_appDbContext != null)
+            {
+                var now = DateTime.UtcNow;
+                var roundedDelta = Math.Round(delta, 2);
+                var affectedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE Enterprise SET CurrentBalance = ROUND(CurrentBalance + {roundedDelta}, 2), UpdatedAt = {now} WHERE Id = {enterpriseId}");
+
+                if (affectedRows <= 0)
+                    throw new InsertDatabaseException("Enterprise was not found for balance update.");
+
+                return;
+            }
+
+            var enterprise = await _enterpriseRepository.GetByIdAsync(enterpriseId);
+            if (enterprise == null)
+                throw new InsertDatabaseException("Enterprise was not found for balance update.");
+
+            enterprise.CurrentBalance = Math.Round(enterprise.CurrentBalance + delta, 2);
+            enterprise.UpdatedAt = DateTime.UtcNow;
+            _enterpriseRepository.Update(enterprise);
+            await _enterpriseRepository.CommitAsync();
         }
     }
 }

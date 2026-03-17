@@ -43,5 +43,9 @@ namespace EvangelionERPV2.Shared.Entities
         public virtual User? User { get; set; } = null;
 
         public int Status { get; set; } = 0;
+
+        public string? RefundReason { get; set; } = null;
+
+        public DateTime? RefundedAt { get; set; } = null;
     }
 }

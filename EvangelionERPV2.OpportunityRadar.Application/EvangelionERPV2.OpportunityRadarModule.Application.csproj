@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="prometheus-net" Version="8.2.1" />
+    <PackageReference Include="Serilog" Version="4.3.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EvangelionERPV2.OpportunityRadar.Domain\EvangelionERPV2.OpportunityRadarModule.Domain.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.OpportunityRadar.Infra\EvangelionERPV2.OpportunityRadarModule.Infra.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Shared\EvangelionERPV2.Shared.csproj" />
+  </ItemGroup>
+</Project>

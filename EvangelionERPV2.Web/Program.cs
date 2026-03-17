@@ -7,6 +7,7 @@ using EvangelionERPV2.CustomerModule.Application.DI;
 using EvangelionERPV2.EmailModule.Application.DI;
 using EvangelionERPV2.EnterpriseModule.Application.DI;
 using EvangelionERPV2.NFeModule.Application.DI;
+using EvangelionERPV2.OpportunityRadarModule.Application.DI;
 using EvangelionERPV2.OrderModule.Application.DI;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.Shared.Entities;
@@ -254,6 +255,7 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     CustomerIoC.Configure(builder.Services, builder.Configuration);
     EnterpriseIoC.Configure(builder.Services, builder.Configuration);
     EmailIoC.Configure(builder.Services, builder.Configuration);
+    OpportunityRadarIoC.Configure(builder.Services, builder.Configuration);
     SharedIoC.Configure(builder.Services, builder.Configuration);
 }
 

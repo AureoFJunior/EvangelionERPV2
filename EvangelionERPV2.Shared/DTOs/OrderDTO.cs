@@ -12,6 +12,8 @@ namespace EvangelionERPV2.Shared.DTOs
         public string? CustomerName { get; set; } = null;
         public IEnumerable<OrderedProduct>? OrderedProduct { get; set; } = null;
         public int Status { get; set; } = 0;
+        public string? RefundReason { get; set; } = null;
+        public DateTime? RefundedAt { get; set; } = null;
 
     }
 }

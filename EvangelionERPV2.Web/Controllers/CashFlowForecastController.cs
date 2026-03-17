@@ -19,8 +19,28 @@ namespace EvangelionERPV2.Web.Controllers
             _cashFlowForecastService = cashFlowForecastService;
         }
 
+        [HttpGet("{horizonInDays}")]
+        public async Task<IActionResult> GetForecast(int horizonInDays)
+        {
+            try
+            {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                if (horizonInDays is not (30 or 60 or 90))
+                    return BadRequest("Horizon must be 30, 60 or 90 days.");
+
+                var result = await _cashFlowForecastService.GetForecastAsync(enterpriseId, horizonInDays);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
         [HttpGet("{horizonInDays}/{currentBalance}")]
-        public async Task<IActionResult> GetForecast(int horizonInDays, double currentBalance)
+        public async Task<IActionResult> GetForecastWithBalanceOverride(int horizonInDays, double currentBalance)
         {
             try
             {
@@ -71,7 +91,9 @@ namespace EvangelionERPV2.Web.Controllers
 
         private bool TryGetUserId(out Guid userId)
         {
-            var claimValue = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var claimValue = User.FindFirst(ClaimTypes.Sid)?.Value
+                             ?? User.FindFirst("uid")?.Value
+                             ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             return Guid.TryParse(claimValue, out userId) && userId != Guid.Empty;
         }
     }
