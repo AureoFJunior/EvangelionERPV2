@@ -29,6 +29,12 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<OrderedProduct> OrderedProduct { get; set; }
         public DbSet<Product> Product { get; set; }
         public DbSet<PayableBill> PayableBill { get; set; }
+        public DbSet<PayableBillProduct> PayableBillProduct { get; set; }
+        public DbSet<Opportunity> Opportunity { get; set; }
+        public DbSet<OpportunitySignal> OpportunitySignal { get; set; }
+        public DbSet<OpportunityRecommendation> OpportunityRecommendation { get; set; }
+        public DbSet<OpportunityFeedback> OpportunityFeedback { get; set; }
+        public DbSet<OpportunityRunLog> OpportunityRunLog { get; set; }
         public DbSet<ForecastSimulationLog> ForecastSimulationLog { get; set; }
         public DbSet<RefreshToken> RefreshToken { get; set; }
         public DbSet<User> User { get; set; }
@@ -43,12 +49,148 @@ namespace EvangelionERPV2.Shared.Context
                 .HasMaxLength(3)
                 .HasDefaultValue("BRL");
 
+            modelBuilder.Entity<Enterprise>()
+                .Property(enterprise => enterprise.CurrentBalance)
+                .HasDefaultValue(0d);
+
             modelBuilder.Entity<Bill>()
                 .ToTable("Boleto");
 
             modelBuilder.Entity<NFeDocument>()
                 .Property(document => document.AccessKey)
                 .HasMaxLength(44);
+
+            modelBuilder.Entity<PayableBill>()
+                .HasMany(payableBill => payableBill.Items)
+                .WithOne(item => item.PayableBill)
+                .HasForeignKey(item => item.PayableBillId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<PayableBillProduct>()
+                .HasOne(item => item.Product)
+                .WithMany(product => product.PayableBillProducts)
+                .HasForeignKey(item => item.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PayableBillProduct>()
+                .HasIndex(item => new { item.PayableBillId, item.ProductId })
+                .HasFilter("[IsActive] = 1")
+                .IsUnique();
+
+            modelBuilder.Entity<Opportunity>()
+                .Property(opportunity => opportunity.Type)
+                .HasMaxLength(64)
+                .IsRequired();
+
+            modelBuilder.Entity<Opportunity>()
+                .Property(opportunity => opportunity.Status)
+                .HasMaxLength(32)
+                .IsRequired();
+
+            modelBuilder.Entity<Opportunity>()
+                .Property(opportunity => opportunity.Title)
+                .HasMaxLength(256)
+                .IsRequired();
+
+            modelBuilder.Entity<Opportunity>()
+                .Property(opportunity => opportunity.SourceRule)
+                .HasMaxLength(128)
+                .IsRequired();
+
+            modelBuilder.Entity<Opportunity>()
+                .Property(opportunity => opportunity.SourceModel)
+                .HasMaxLength(128)
+                .IsRequired();
+
+            modelBuilder.Entity<Opportunity>()
+                .Property(opportunity => opportunity.Fingerprint)
+                .HasMaxLength(256)
+                .IsRequired();
+
+            modelBuilder.Entity<Opportunity>()
+                .HasMany(opportunity => opportunity.Signals)
+                .WithOne(signal => signal.Opportunity)
+                .HasForeignKey(signal => signal.OpportunityId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Opportunity>()
+                .HasMany(opportunity => opportunity.Recommendations)
+                .WithOne(recommendation => recommendation.Opportunity)
+                .HasForeignKey(recommendation => recommendation.OpportunityId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Opportunity>()
+                .HasMany(opportunity => opportunity.Feedbacks)
+                .WithOne(feedback => feedback.Opportunity)
+                .HasForeignKey(feedback => feedback.OpportunityId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<OpportunitySignal>()
+                .Property(signal => signal.SignalType)
+                .HasMaxLength(64)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunitySignal>()
+                .Property(signal => signal.SignalKey)
+                .HasMaxLength(128)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunitySignal>()
+                .Property(signal => signal.Unit)
+                .HasMaxLength(32)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunitySignal>()
+                .Property(signal => signal.SourceEntity)
+                .HasMaxLength(64)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunitySignal>()
+                .Property(signal => signal.SourceEntityId)
+                .HasMaxLength(128)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunityRecommendation>()
+                .Property(recommendation => recommendation.ActionTitle)
+                .HasMaxLength(160)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunityRecommendation>()
+                .Property(recommendation => recommendation.PriorityLabel)
+                .HasMaxLength(16)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunityFeedback>()
+                .Property(feedback => feedback.Status)
+                .HasMaxLength(32)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunityFeedback>()
+                .HasOne(feedback => feedback.User)
+                .WithMany()
+                .HasForeignKey(feedback => feedback.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<OpportunityRunLog>()
+                .Property(runLog => runLog.TriggerType)
+                .HasMaxLength(32)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunityRunLog>()
+                .Property(runLog => runLog.Status)
+                .HasMaxLength(32)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunityRunLog>()
+                .Property(runLog => runLog.CorrelationId)
+                .HasMaxLength(128)
+                .IsRequired();
+
+            modelBuilder.Entity<OpportunityRunLog>()
+                .HasOne(runLog => runLog.User)
+                .WithMany()
+                .HasForeignKey(runLog => runLog.RequestedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<AuditTrail>()
                 .Property(audit => audit.Action)

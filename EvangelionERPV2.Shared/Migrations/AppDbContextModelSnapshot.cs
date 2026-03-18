@@ -17,7 +17,7 @@ namespace EvangelionERPV2.Shared.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.3")
+                .HasAnnotation("ProductVersion", "10.0.5")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -238,6 +238,11 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasColumnType("nvarchar(3)")
                         .HasDefaultValue("BRL");
 
+                    b.Property<double>("CurrentBalance")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("float")
+                        .HasDefaultValue(0.0);
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -399,6 +404,360 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("NFeDocument");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Opportunity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<double>("ConfidenceScore")
+                        .HasColumnType("float");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("DetectedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<double>("EstimatedCashImpact")
+                        .HasColumnType("float");
+
+                    b.Property<double>("EstimatedMarginImpact")
+                        .HasColumnType("float");
+
+                    b.Property<double>("EstimatedRevenueImpact")
+                        .HasColumnType("float");
+
+                    b.Property<string>("ExplainabilityJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Hypothesis")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("LastEvaluatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<double>("PriorityScore")
+                        .HasColumnType("float");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SourceModel")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("SourceRule")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId", "Fingerprint")
+                        .IsUnique();
+
+                    b.HasIndex("EnterpriseId", "Type", "Status");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("RunId", "Type", "IsActive");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("Opportunity");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.OpportunityFeedback", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Comment")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("MetadataJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("OpportunityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<double?>("RealCashImpact")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("RealMarginImpact")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("RealRevenueImpact")
+                        .HasColumnType("float");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("OpportunityId", "Status", "CreatedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("OpportunityFeedback");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.OpportunityRecommendation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActionDescription")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ActionPayloadJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ActionTitle")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("OpportunityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PriorityLabel")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("WhyRecommended")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OpportunityId", "CreatedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("OpportunityRecommendation");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.OpportunityRunLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DetectorStatsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ErrorMessage")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("RequestedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<int>("TotalArchived")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TotalGenerated")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TotalUpdated")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TriggerType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedByUserId");
+
+                    b.HasIndex("RunId")
+                        .IsUnique();
+
+                    b.HasIndex("EnterpriseId", "StartedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("OpportunityRunLog");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.OpportunitySignal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CapturedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("MetadataJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("OpportunityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SignalKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("SignalType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<double>("SignalValue")
+                        .HasColumnType("float");
+
+                    b.Property<string>("SourceEntity")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("SourceEntityId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OpportunityId", "SignalType");
+
+                    b.HasIndex("SourceEntity", "SourceEntityId");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("OpportunitySignal");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Order", b =>
                 {
                     b.Property<Guid>("Id")
@@ -421,6 +780,12 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<DateTime>("PaymentScheduledDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("RefundReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("RefundedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<int>("Status")
@@ -503,6 +868,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<double>("Amount")
                         .HasColumnType("float");
 
+                    b.Property<int>("BillType")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -525,6 +893,15 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("ProductsReceivedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("RefundReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("RefundedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
@@ -537,6 +914,57 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("PayableBill");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PayableBillProduct", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<double>("LineAmount")
+                        .HasColumnType("float");
+
+                    b.Property<Guid>("PayableBillId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<double>("Quantity")
+                        .HasColumnType("float");
+
+                    b.Property<string>("UnitOfMeasure")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<double>("UnitValue")
+                        .HasColumnType("float");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PayableBillId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("PayableBillId", "ProductId")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("PayableBillProduct");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
@@ -748,6 +1176,73 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("Order");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Opportunity", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.OpportunityFeedback", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Opportunity", "Opportunity")
+                        .WithMany("Feedbacks")
+                        .HasForeignKey("OpportunityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Opportunity");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.OpportunityRecommendation", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Opportunity", "Opportunity")
+                        .WithMany("Recommendations")
+                        .HasForeignKey("OpportunityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Opportunity");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.OpportunityRunLog", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId");
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("RequestedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Enterprise");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.OpportunitySignal", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Opportunity", "Opportunity")
+                        .WithMany("Signals")
+                        .HasForeignKey("OpportunityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Opportunity");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Order", b =>
                 {
                     b.HasOne("EvangelionERPV2.Shared.Entities.Customer", "Customer")
@@ -797,6 +1292,25 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("Enterprise");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PayableBillProduct", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.PayableBill", "PayableBill")
+                        .WithMany("Items")
+                        .HasForeignKey("PayableBillId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Product", "Product")
+                        .WithMany("PayableBillProducts")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("PayableBill");
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
                 {
                     b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
@@ -842,14 +1356,30 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Opportunity", b =>
+                {
+                    b.Navigation("Feedbacks");
+
+                    b.Navigation("Recommendations");
+
+                    b.Navigation("Signals");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Order", b =>
                 {
                     b.Navigation("OrderedProduct");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PayableBill", b =>
+                {
+                    b.Navigation("Items");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
                 {
                     b.Navigation("OrderedProduct");
+
+                    b.Navigation("PayableBillProducts");
                 });
 #pragma warning restore 612, 618
         }

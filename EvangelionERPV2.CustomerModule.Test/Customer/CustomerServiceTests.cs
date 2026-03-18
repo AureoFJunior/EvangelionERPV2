@@ -19,18 +19,25 @@ namespace EvangelionERPV2.CustomerModule.Test
         }
 
         [Fact]
-        public async Task CreateAsync_WhenCustomerExists_ThrowsInsertDatabaseException()
+        public async Task CreateAsync_IgnoresIncomingId_GeneratesServerId()
         {
+            var incomingId = Guid.NewGuid();
             var customer = new Customer("Customer", "11999999999", "customer@test.com", "Street", "12345678901")
             {
-                Id = Guid.NewGuid()
+                Id = incomingId
             };
 
-            _customerRepository.Setup(r => r.GetById(customer.Id)).Returns(customer);
+            _customerRepository
+                .Setup(r => r.CreateAsync(It.IsAny<Customer>()))
+                .ReturnsAsync((Customer entity) => entity);
+            _customerRepository
+                .Setup(r => r.CommitAsync(It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
 
-            await Assert.ThrowsAsync<InsertDatabaseException>(() => _service.CreateAsync(customer));
+            var result = await _service.CreateAsync(customer);
 
-            _customerRepository.Verify(r => r.CreateAsync(It.IsAny<Customer>()), Times.Never);
+            Assert.NotEqual(incomingId, result.Id);
+            _customerRepository.Verify(r => r.CreateAsync(It.Is<Customer>(x => x.Id != incomingId)), Times.Once);
         }
 
         [Fact]

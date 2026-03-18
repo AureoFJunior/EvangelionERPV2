@@ -7,6 +7,8 @@ namespace EvangelionERPV2.Shared.Repositories
     {
         #region Sync
         void Commit(CancellationToken cancellation = default);
+        void ExecuteInTransaction(Action operation, CancellationToken cancellation = default);
+        TResult ExecuteInTransaction<TResult>(Func<TResult> operation, CancellationToken cancellation = default);
         TEntity GetById(Guid id);
         IEnumerable<TEntity> GetAll();
         IEnumerable<TEntity> GetByCondition(Func<TEntity, bool> condition);
@@ -22,6 +24,8 @@ namespace EvangelionERPV2.Shared.Repositories
 
         #region Async
         Task CommitAsync(CancellationToken cancellation = default);
+        Task ExecuteInTransactionAsync(Func<Task> operation, CancellationToken cancellation = default);
+        Task<TResult> ExecuteInTransactionAsync<TResult>(Func<Task<TResult>> operation, CancellationToken cancellation = default);
         Task<Guid> GetLastId();
         Task<TEntity> GetByIdAsync(Guid id);
         Task<IEnumerable<TEntity>> GetAllAsync(Func<TEntity, bool>? predicate = null);

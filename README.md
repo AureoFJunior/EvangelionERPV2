@@ -186,6 +186,18 @@ docker compose --env-file .env.local --profile workers up -d --build
 
 Workers are profile-based. They do not start unless you pass `--profile workers`.
 
+6. Optional: start only `nginx` + `worker_order` (without `worker_email`):
+
+```powershell
+docker compose --env-file .env.local --profile proxy --profile workers up -d --build nginx worker_order
+```
+
+If images are already built locally:
+
+```powershell
+docker compose --env-file .env.local --profile proxy --profile workers up -d --no-build nginx worker_order
+```
+
 ### Shortcut scripts (PowerShell)
 
 From repository root:

@@ -37,12 +37,12 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         {
             try
             {
-                var existentProduct = _productRepository.GetById(product.Product.Id);
+                if (product?.Product == null)
+                    throw new InsertDatabaseException($"{nameof(Product)} is null");
+
+                product.Product.Id = Guid.NewGuid();
+
                 Product includedProduct = new Product();
-
-                if (existentProduct != null)
-                    throw new InsertDatabaseException($"{nameof(Product)} already has an register in database");
-
                 includedProduct = await _productRepository.CreateAsync(product.Product);
                 await _productRepository.CommitAsync();
 

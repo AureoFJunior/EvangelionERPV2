@@ -317,8 +317,20 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
 
-                IEnumerable<Shared.Entities.User> users = await _userRepository.GetAllAsync();
-                if (users == null)
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var callerId = TryGetUserId();
+                var callerAccess = await ResolveAccessLevelAsync(callerId, enterpriseId);
+                if (!IsAdminAccess(callerAccess))
+                    return Forbid();
+
+                var users = await _userRepository.GetAllAsync(x =>
+                    x.IsActive == true &&
+                    x.EnterpriseId.HasValue &&
+                    x.EnterpriseId.Value == enterpriseId);
+
+                if (users == null || !users.Any())
                     return NoContent();
 
                 return Ok(await ToUserDtosAsync(users, includePictures));
@@ -347,9 +359,19 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var callerId = TryGetUserId();
+                var callerAccess = await ResolveAccessLevelAsync(callerId, enterpriseId);
+
                 Shared.Entities.User user = await _userRepository.GetByIdAsync(id);
-                if (user == null)
+                if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
                     return NoContent();
+
+                var callerIsTargetUser = callerId.HasValue && callerId.Value == user.Id;
+                if (!callerIsTargetUser && !IsAdminAccess(callerAccess))
+                    return Forbid();
 
                 return Ok(await ToUserDtoAsync(user));
             }
@@ -370,7 +392,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="user">User to be added</param>
         /// <returns>The added user</returns>
         [HttpPost]
-        [AllowAnonymous]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -380,6 +401,18 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var callerId = TryGetUserId();
+                var callerAccess = await ResolveAccessLevelAsync(callerId, enterpriseId);
+                if (!IsAdminAccess(callerAccess))
+                    return Forbid();
+
+                user.EnterpriseId = enterpriseId;
+                user.AccessLevel = (short)EnumAccessLevel.Employee;
+                user.IsLogged = 0;
 
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
                 return Ok(await ToUserDtoAsync(createdUser));
@@ -405,6 +438,24 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var callerId = TryGetUserId();
+                var callerAccess = await ResolveAccessLevelAsync(callerId, enterpriseId);
+                if (!IsAdminAccess(callerAccess))
+                    return Forbid();
+
+                var existentUser = await _userRepository.GetByIdAsync(user.Id);
+                if (existentUser == null || existentUser.IsActive != true || existentUser.EnterpriseId != enterpriseId)
+                    return NoContent();
+
+                if (!Enum.IsDefined(typeof(EnumAccessLevel), user.AccessLevel))
+                    return BadRequest("Invalid access level.");
+
+                user.EnterpriseId = existentUser.EnterpriseId;
+                user.IsLogged = existentUser.IsLogged;
 
                 Shared.Entities.User updatedUser = _userService.Update(user);
 
@@ -564,8 +615,20 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
 
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var callerId = TryGetUserId();
+                var callerAccess = await ResolveAccessLevelAsync(callerId, enterpriseId);
+                if (!IsAdminAccess(callerAccess))
+                    return Forbid();
+
+                var userToDelete = await _userRepository.GetByIdAsync(id);
+                if (userToDelete == null || userToDelete.IsActive != true || userToDelete.EnterpriseId != enterpriseId)
+                    return NoContent();
+
                 Shared.Entities.User user = _userService.Delete(id);
-                if (user == null)
+                if (user == null || user.EnterpriseId != enterpriseId)
                     return NoContent();
 
                 return Ok(await ToUserDtoAsync(user));
@@ -598,6 +661,40 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 throw;
             }
+        }
+
+        private bool TryGetEnterpriseId(out Guid enterpriseId)
+        {
+            var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
+            return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
+        }
+
+        private Guid? TryGetUserId()
+        {
+            var claimValue = User.FindFirst(ClaimTypes.Sid)?.Value
+                             ?? User.FindFirst("uid")?.Value;
+
+            if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
+                return userId;
+
+            return null;
+        }
+
+        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
+        {
+            if (!userId.HasValue || enterpriseId == Guid.Empty)
+                return null;
+
+            var user = await _userRepository.GetByIdAsync(userId.Value);
+            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
+                return null;
+
+            return user.AccessLevel;
+        }
+
+        private static bool IsAdminAccess(short? accessLevel)
+        {
+            return accessLevel.HasValue && accessLevel.Value == (short)EnumAccessLevel.Admin;
         }
     }
 }

@@ -27,7 +27,7 @@ namespace EvangelionERPV2.Shared.DTOs
     public class RunSimulationRequestDTO
     {
         public int HorizonInDays { get; set; }
-        public double CurrentBalance { get; set; }
+        public double? CurrentBalance { get; set; }
         public IEnumerable<ForecastSimulationScenarioDTO> Scenarios { get; set; } = [];
     }
 
