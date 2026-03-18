@@ -18,12 +18,12 @@ namespace EvangelionERPV2.EnterpriseModule.Application.Services
         {
             try
             {
-                var existentEnterprise = _enterpriseRepository.GetById(enterprise.Id);
+                if (enterprise == null)
+                    throw new InsertDatabaseException($"{nameof(Enterprise)} is null");
+
+                enterprise.Id = Guid.NewGuid();
+
                 Enterprise includedEnterprise = new Enterprise();
-
-                if (existentEnterprise != null)
-                    throw new InsertDatabaseException($"{nameof(Enterprise)} already has an register in database");
-
                 enterprise.Currency = NormalizeCurrency(enterprise.Currency);
                 includedEnterprise = await _enterpriseRepository.CreateAsync(enterprise);
                 await _enterpriseRepository.CommitAsync();

@@ -4,7 +4,6 @@ using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Shared.Entities
 {
-    [Index(nameof(PayableBillId), nameof(ProductId), IsUnique = true)]
     [Index(nameof(PayableBillId))]
     [Table("PayableBillProduct")]
     public class PayableBillProduct : BaseEntity

@@ -18,13 +18,8 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
         {
             try
             {
-                var existentCustomer = _customerRepository.GetById(customer.Id);
-                Customer includedCustomer = new Customer();
-
-                if (existentCustomer != null)
-                    throw new InsertDatabaseException($"{nameof(Customer)} already has an register in database");
-
-                includedCustomer = await _customerRepository.CreateAsync(customer);
+                customer.Id = Guid.NewGuid();
+                Customer includedCustomer = await _customerRepository.CreateAsync(customer);
                 await _customerRepository.CommitAsync();
                 return includedCustomer;
 

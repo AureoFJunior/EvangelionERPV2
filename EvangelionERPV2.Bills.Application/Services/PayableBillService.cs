@@ -45,7 +45,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             await ExecuteInTransactionAsync(async () =>
             {
-                payableBill.Id = payableBill.Id == Guid.Empty ? Guid.NewGuid() : payableBill.Id;
+                // Always generate a fresh identifier for create operations.
+                // This allows creating two bills with identical business data.
+                payableBill.Id = Guid.NewGuid();
                 payableBill.CreatedAt = DateTime.UtcNow;
                 payableBill.UpdatedAt = DateTime.UtcNow;
                 payableBill.IsActive = true;
@@ -83,7 +85,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             Guid enterpriseId,
             int? pageNumber = null,
             int? pageSize = null,
-            bool? isActive = null,
+            bool? isActive = true,
             int? billType = null)
         {
             var bills = (await _payableBillRepository.GetAllAsync(

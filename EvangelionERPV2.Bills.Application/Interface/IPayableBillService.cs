@@ -6,7 +6,7 @@ namespace EvangelionERPV2.BillsModule.Application.Interface
     public interface IPayableBillService
     {
         Task<PayableBill> CreateAsync(PayableBill payableBill);
-        Task<IEnumerable<PayableBill>> GetByEnterpriseIdAsync(Guid enterpriseId, int? pageNumber = null, int? pageSize = null, bool? isActive = null, int? billType = null);
+        Task<IEnumerable<PayableBill>> GetByEnterpriseIdAsync(Guid enterpriseId, int? pageNumber = null, int? pageSize = null, bool? isActive = true, int? billType = null);
         Task<PayableBill?> GetByIdAsync(Guid id, Guid enterpriseId);
         Task<PayableBill> UpdateAsync(PayableBill payableBill, Guid enterpriseId);
         Task<PayableBill> MarkProductsReceivedAsync(Guid id, Guid enterpriseId);

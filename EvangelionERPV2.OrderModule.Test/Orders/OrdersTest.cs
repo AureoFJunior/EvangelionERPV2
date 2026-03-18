@@ -103,6 +103,62 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             Assert.Equal(order, result);
         }
 
+        [Fact]
+        public async Task CreateAsync_IgnoresClientProvidedIds_GeneratesServerIds()
+        {
+            // Arrange
+            var incomingOrderId = Guid.NewGuid();
+            var incomingLineId = Guid.NewGuid();
+            var incomingLineOrderId = Guid.NewGuid();
+
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+                    new OrderedProduct
+                    {
+                        Id = incomingLineId,
+                        OrderId = incomingLineOrderId,
+                        CreatedAt = DateTime.Now,
+                        UpdatedAt = DateTime.Now,
+                        IsActive = true,
+                        Quantity = 2,
+                        Value = 50,
+                        ProductId = Guid.NewGuid()
+                    }
+                }, Guid.NewGuid())
+            {
+                Id = incomingOrderId
+            };
+
+            Order? createdOrder = null;
+            IEnumerable<OrderedProduct>? createdLines = null;
+
+            _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>()))
+                .Callback<Order>(entity => createdOrder = entity)
+                .ReturnsAsync((Order entity) => entity);
+
+            _mockIOrderedProductRepository.Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<OrderedProduct>>()))
+                .Callback<IEnumerable<OrderedProduct>>(items => createdLines = items.ToList())
+                .ReturnsAsync((IEnumerable<OrderedProduct> items) => items);
+
+            _mockIOrderRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            _mockIOrderedProductRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            _mockIProductService.Setup(p => p.UpdateForOrder(It.IsAny<Order>())).Returns(Task.CompletedTask);
+
+            // Act
+            var result = await _orderService.CreateAsync(order);
+
+            // Assert
+            Assert.NotNull(createdOrder);
+            Assert.NotEqual(incomingOrderId, result.Id);
+            Assert.Equal(result.Id, createdOrder?.Id);
+
+            var line = createdLines?.SingleOrDefault();
+            Assert.NotNull(line);
+            Assert.NotEqual(incomingLineId, line?.Id ?? Guid.Empty);
+            Assert.Equal(result.Id, line?.OrderId);
+        }
+
         [Theory]
         [MemberData(nameof(GetInvalidOrders))]
         public async Task CreateAsync_InvalidOrder_ThrowsInsertDatabaseException(Order invalidOrder)

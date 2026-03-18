@@ -35,7 +35,7 @@ namespace EvangelionERPV2.Web.Controllers
         public async Task<IActionResult> GetPayableBills(
             int? pageNumber = null,
             int? pageSize = null,
-            [FromQuery] bool? isActive = null,
+            [FromQuery] string? isActive = null,
             [FromQuery] int? billType = null)
         {
             try
@@ -43,7 +43,25 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                var bills = await _payableBillService.GetByEnterpriseIdAsync(enterpriseId, pageNumber, pageSize, isActive, billType);
+                bool? parsedIsActive = true;
+                if (Request.Query.ContainsKey("isActive"))
+                {
+                    var normalized = isActive?.Trim();
+                    if (string.IsNullOrWhiteSpace(normalized) || normalized.Equals("all", StringComparison.OrdinalIgnoreCase))
+                    {
+                        parsedIsActive = null;
+                    }
+                    else if (bool.TryParse(normalized, out var parsed))
+                    {
+                        parsedIsActive = parsed;
+                    }
+                    else
+                    {
+                        return BadRequest("isActive must be true, false or all.");
+                    }
+                }
+
+                var bills = await _payableBillService.GetByEnterpriseIdAsync(enterpriseId, pageNumber, pageSize, parsedIsActive, billType);
                 return Ok(_mapper.Map<IEnumerable<PayableBillDTO>>(bills));
             }
             catch (Exception)
