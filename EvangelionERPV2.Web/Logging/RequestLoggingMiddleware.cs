@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using Serilog;
 
 namespace EvangelionERPV2.Web.Logging
@@ -7,6 +8,16 @@ namespace EvangelionERPV2.Web.Logging
     public class RequestLoggingMiddleware
     {
         private const int MaxBodyLength = 10000;
+        private static readonly string[] SensitiveJsonFields =
+        [
+            "password",
+            "newPassword",
+            "token",
+            "refreshToken",
+            "idToken",
+            "clientSecret"
+        ];
+
         private readonly RequestDelegate _next;
 
         public RequestLoggingMiddleware(RequestDelegate next)
@@ -57,9 +68,13 @@ namespace EvangelionERPV2.Web.Logging
                 if (string.IsNullOrWhiteSpace(body))
                     return string.Empty;
 
-                return body.Length <= MaxBodyLength
-                    ? body
-                    : $"{body[..MaxBodyLength]}... [truncated]";
+                var sanitized = IsSensitiveEndpoint(request.Path)
+                    ? "[redacted: sensitive endpoint]"
+                    : RedactSensitiveContent(body);
+
+                return sanitized.Length <= MaxBodyLength
+                    ? sanitized
+                    : $"{sanitized[..MaxBodyLength]}... [truncated]";
             }
             catch (Exception ex)
             {
@@ -78,6 +93,36 @@ namespace EvangelionERPV2.Web.Logging
                    contentType.StartsWith("application/xml", StringComparison.OrdinalIgnoreCase) ||
                    contentType.StartsWith("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) ||
                    contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsSensitiveEndpoint(PathString path)
+        {
+            var endpoint = path.Value ?? string.Empty;
+            return endpoint.Contains("/User/LogInto", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/RequestPasswordReset", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/ResetPassword", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string RedactSensitiveContent(string body)
+        {
+            var redacted = body;
+
+            foreach (var field in SensitiveJsonFields)
+            {
+                redacted = Regex.Replace(
+                    redacted,
+                    $"(\"{Regex.Escape(field)}\"\\s*:\\s*\")([^\"]*)(\")",
+                    "$1***$3",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            }
+
+            redacted = Regex.Replace(
+                redacted,
+                "(?i)(password|newPassword|token|refreshToken|idToken|clientSecret)=([^&\\s]+)",
+                "$1=***",
+                RegexOptions.CultureInvariant);
+
+            return redacted;
         }
 
         private static string ResolveCaller(HttpContext context)

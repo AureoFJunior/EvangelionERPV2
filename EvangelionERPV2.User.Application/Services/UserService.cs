@@ -32,11 +32,11 @@ namespace EvangelionERPV2.UserModule.Application.Services
         {
             try
             {
-                var existentUser = _userRepository.GetById(user.Id);
-                User includedUser = new User();
+                if (user == null)
+                    throw new InsertDatabaseException($"{nameof(User)} is null");
 
-                if (existentUser != null)
-                    throw new InsertDatabaseException($"{nameof(User)} already has an register in database");
+                user.Id = Guid.NewGuid();
+                User includedUser = new User();
 
                 user.Password = SharedFunctions.IsPasswordHashFormat(user.Password)
                     ? user.Password

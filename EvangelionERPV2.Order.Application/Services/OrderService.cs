@@ -62,6 +62,16 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 if (order == null)
                     throw new InsertDatabaseException($"{nameof(Order)} is null");
 
+                order.Id = Guid.NewGuid();
+
+                var orderedProducts = order.OrderedProduct?.ToList() ?? [];
+                foreach (var orderedProduct in orderedProducts)
+                {
+                    orderedProduct.Id = Guid.NewGuid();
+                    orderedProduct.OrderId = order.Id;
+                }
+                order.OrderedProduct = orderedProducts;
+
                 await ExecuteInTransactionAsync(async () =>
                 {
                     VerifyValidValues(ref order);

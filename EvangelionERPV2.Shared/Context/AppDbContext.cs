@@ -72,6 +72,11 @@ namespace EvangelionERPV2.Shared.Context
                 .HasForeignKey(item => item.ProductId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<PayableBillProduct>()
+                .HasIndex(item => new { item.PayableBillId, item.ProductId })
+                .HasFilter("[IsActive] = 1")
+                .IsUnique();
+
             modelBuilder.Entity<Opportunity>()
                 .Property(opportunity => opportunity.Type)
                 .HasMaxLength(64)
