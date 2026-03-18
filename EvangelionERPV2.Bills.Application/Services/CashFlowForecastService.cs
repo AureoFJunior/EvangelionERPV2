@@ -2,6 +2,7 @@ using System.Text.Json;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 
 namespace EvangelionERPV2.BillsModule.Application.Services
@@ -10,21 +11,24 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     {
         private readonly IRepository<Order> _orderRepository;
         private readonly IRepository<PayableBill> _payableBillRepository;
+        private readonly IRepository<Enterprise> _enterpriseRepository;
         private readonly IRepository<ForecastSimulationLog> _simulationLogRepository;
 
         public CashFlowForecastService(
             IRepository<Order> orderRepository,
             IRepository<PayableBill> payableBillRepository,
+            IRepository<Enterprise> enterpriseRepository,
             IRepository<ForecastSimulationLog> simulationLogRepository)
         {
             _orderRepository = orderRepository;
             _payableBillRepository = payableBillRepository;
+            _enterpriseRepository = enterpriseRepository;
             _simulationLogRepository = simulationLogRepository;
         }
 
-        public async Task<CashFlowForecastDTO> GetForecastAsync(Guid enterpriseId, int horizonInDays, double currentBalance)
+        public async Task<CashFlowForecastDTO> GetForecastAsync(Guid enterpriseId, int horizonInDays, double? currentBalanceOverride = null)
         {
-            return await BuildForecastAsync(enterpriseId, horizonInDays, currentBalance, 0, 1);
+            return await BuildForecastAsync(enterpriseId, horizonInDays, currentBalanceOverride, 0, 1);
         }
 
         public async Task<IEnumerable<SimulationResultDTO>> RunSimulationAsync(Guid enterpriseId, Guid userId, RunSimulationRequestDTO request)
@@ -34,6 +38,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 throw new ArgumentException("At least two scenarios are required.");
 
             var baseline = await BuildForecastAsync(enterpriseId, request.HorizonInDays, request.CurrentBalance, 0, 1);
+            var baselineCurrentBalance = baseline.CurrentBalance;
             var baselineFinalBalance = baseline.FinalProjectedBalance;
             var results = new List<SimulationResultDTO>();
 
@@ -42,7 +47,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 var simulation = await BuildForecastAsync(
                     enterpriseId,
                     request.HorizonInDays,
-                    request.CurrentBalance,
+                    baselineCurrentBalance,
                     scenario.ReceivableDelayInDays,
                     scenario.PayableMultiplier);
 
@@ -75,13 +80,21 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return results;
         }
 
-        private async Task<CashFlowForecastDTO> BuildForecastAsync(Guid enterpriseId, int horizonInDays, double currentBalance, int receivableDelayInDays, double payableMultiplier)
+        private async Task<CashFlowForecastDTO> BuildForecastAsync(Guid enterpriseId, int horizonInDays, double? currentBalanceOverride, int receivableDelayInDays, double payableMultiplier)
         {
             var today = DateTime.UtcNow.Date;
             var endDate = today.AddDays(horizonInDays);
 
             var orders = (await _orderRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId && x.IsActive == true)).ToList();
-            var receivables = orders
+            var payables = (await _payableBillRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId && x.IsActive == true)).ToList();
+            var enterprise = await _enterpriseRepository.GetByIdAsync(enterpriseId);
+            var currentBalance = currentBalanceOverride ?? enterprise?.CurrentBalance ?? 0;
+
+            var forecastOrders = orders
+                .Where(x => !IsOrderRefunded(x) && x.TotalValue > 0)
+                .ToList();
+
+            var receivables = forecastOrders
                 .Select(x => new
                 {
                     Date = ResolveOrderReceivableDate(x, today)?.AddDays(receivableDelayInDays),
@@ -97,8 +110,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 .GroupBy(x => x.Date)
                 .ToDictionary(x => x.Key, x => x.Sum(y => y.Amount));
 
-            var payables = (await _payableBillRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId && x.IsActive == true))
+            var forecastPayables = payables
+                .Where(x => !IsPayableRefunded(x) && x.Amount > 0)
                 .Where(x => !x.IsPaid || x.PaidAt.HasValue)
+                .ToList();
+
+            var projectedPayables = forecastPayables
                 .Select(x => new
                 {
                     Date = ResolvePayableDate(x, today),
@@ -120,7 +137,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             for (var date = today; date <= endDate; date = date.AddDays(1))
             {
                 receivables.TryGetValue(date, out var dayReceivable);
-                payables.TryGetValue(date, out var dayPayable);
+                projectedPayables.TryGetValue(date, out var dayPayable);
                 runningBalance += dayReceivable - dayPayable;
 
                 projection.Add(new CashFlowForecastDayDTO
@@ -151,7 +168,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
 
             var scheduledDate = order.PaymentScheduledDate.Date;
-            return scheduledDate < today ? today : scheduledDate;
+            // When using persisted current balance, realized receivables in the past must not be projected again.
+            return scheduledDate < today ? null : scheduledDate;
         }
 
         private static DateTime? ResolvePayableDate(PayableBill payableBill, DateTime today)
@@ -167,6 +185,16 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var dueDate = payableBill.DueDate.Date;
             return dueDate < today ? today : dueDate;
+        }
+
+        private static bool IsOrderRefunded(Order order)
+        {
+            return order.RefundedAt.HasValue || order.Status == (int)EnumOrderStatus.Refund;
+        }
+
+        private static bool IsPayableRefunded(PayableBill payableBill)
+        {
+            return payableBill.RefundedAt.HasValue;
         }
     }
 }

@@ -7,6 +7,7 @@ using EvangelionERPV2.CustomerModule.Application.DI;
 using EvangelionERPV2.EmailModule.Application.DI;
 using EvangelionERPV2.EnterpriseModule.Application.DI;
 using EvangelionERPV2.NFeModule.Application.DI;
+using EvangelionERPV2.OpportunityRadarModule.Application.DI;
 using EvangelionERPV2.OrderModule.Application.DI;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.Shared.Entities;
@@ -26,6 +27,7 @@ using Microsoft.OpenApi;
 using Microsoft.AspNetCore.ResponseCompression;
 
 var builder = WebApplication.CreateBuilder(args);
+const string DefaultCorsPolicyName = "DefaultCorsPolicy";
 
 // Add services to the container.
 
@@ -47,7 +49,7 @@ try
     #endregion
 
     Log.Logger.Information("Starting CORS");
-    builder.Services.AddCors();
+    SetupCors(builder);
 
     Log.Logger.Information("Starting API Versioning");
     SetupAPIVersioning(builder);
@@ -98,7 +100,7 @@ try
 
     app.UseIpRateLimiting();
 
-    app.UseCors(x => x.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+    app.UseCors(DefaultCorsPolicyName);
 
     app.UseAuthentication();
     app.UseAuthorization();
@@ -254,7 +256,42 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     CustomerIoC.Configure(builder.Services, builder.Configuration);
     EnterpriseIoC.Configure(builder.Services, builder.Configuration);
     EmailIoC.Configure(builder.Services, builder.Configuration);
+    OpportunityRadarIoC.Configure(builder.Services, builder.Configuration);
     SharedIoC.Configure(builder.Services, builder.Configuration);
+}
+
+static void SetupCors(WebApplicationBuilder builder)
+{
+    var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+        ?.Where(origin => !string.IsNullOrWhiteSpace(origin))
+        .Select(origin => origin.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray() ?? [];
+
+    if (!builder.Environment.IsDevelopment() && configuredOrigins.Length == 0)
+        throw new InvalidOperationException("Cors:AllowedOrigins must be configured outside development environments.");
+
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy(DefaultCorsPolicyName, policy =>
+        {
+            if (configuredOrigins.Length > 0)
+            {
+                policy.WithOrigins(configuredOrigins)
+                      .AllowAnyHeader()
+                      .AllowAnyMethod();
+                return;
+            }
+
+            policy.WithOrigins(
+                    "http://localhost:19006",
+                    "http://localhost:8081",
+                    "http://localhost:3000",
+                    "http://localhost:8082")
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        });
+    });
 }
 
 static void AddRequestRateLimit(WebApplicationBuilder builder)

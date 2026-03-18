@@ -22,12 +22,20 @@ namespace EvangelionERPV2.Shared.Configs
                     .ReverseMap();
                 config.CreateMap<Bill, BillDTO>().ReverseMap();
                 config.CreateMap<PayableBill, PayableBillDTO>().ReverseMap();
+                config.CreateMap<PayableBillProduct, PayableBillProductDTO>()
+                    .ForMember(dest => dest.ProductName, opt => opt.MapFrom(src => src.Product != null ? src.Product.Name : string.Empty))
+                    .ReverseMap();
                 config.CreateMap<NFeDocument, NFeDocumentDTO>().ReverseMap();
                 config.CreateMap<Customer, CustomerDTO>().ReverseMap();
                 config.CreateMap<Product, ProductDTO>().ReverseMap();
                 config.CreateMap<AuditTrail, AuditTrailDTO>()
                     .ForMember(dest => dest.UserName,
                         opt => opt.MapFrom(src => src.User != null ? src.User.UserName : string.Empty));
+                config.CreateMap<Opportunity, OpportunityDTO>().ReverseMap();
+                config.CreateMap<OpportunitySignal, OpportunitySignalDTO>().ReverseMap();
+                config.CreateMap<OpportunityRecommendation, OpportunityRecommendationDTO>().ReverseMap();
+                config.CreateMap<OpportunityFeedback, OpportunityFeedbackDTO>().ReverseMap();
+                config.CreateMap<OpportunityRunLog, OpportunityRunLogDTO>().ReverseMap();
             }, loggerFactory);
 
             return mappingsConfigs;

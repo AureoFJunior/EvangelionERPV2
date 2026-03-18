@@ -48,15 +48,13 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         {
             try
             {
+                if (email == null)
+                    throw new InsertDatabaseException($"{nameof(Email)} is null");
+
+                email.Id = Guid.NewGuid();
                 email.Password = SharedFunctions.Encrypt(email.Password);
 
-                var existentEmail = _enterpriseRepository.GetById(email.Id);
-                Email includedEmail= new Email();
-
-                if (existentEmail!= null)
-                    throw new InsertDatabaseException($"{nameof(Email)} already has an register in database");
-
-                
+                Email includedEmail = new Email();
                 includedEmail = await _emailRepository.CreateAsync(email);
                 await _emailRepository.CommitAsync();
                 return includedEmail;

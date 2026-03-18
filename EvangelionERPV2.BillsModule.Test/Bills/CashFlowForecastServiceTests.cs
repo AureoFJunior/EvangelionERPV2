@@ -9,6 +9,29 @@ namespace EvangelionERPV2.BillsModule.Test
     public class CashFlowForecastServiceTests
     {
         [Fact]
+        public async Task GetForecastAsync_WhenOverrideIsNotProvided_ShouldUsePersistedEnterpriseBalance()
+        {
+            var enterpriseId = Guid.NewGuid();
+
+            var orderRepo = new Mock<IRepository<Order>>();
+            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<Order, bool>>())).ReturnsAsync(new List<Order>());
+
+            var payableRepo = new Mock<IRepository<PayableBill>>();
+            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync(new List<PayableBill>());
+
+            var enterpriseRepo = new Mock<IRepository<Enterprise>>();
+            enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(
+                new Enterprise { Id = enterpriseId, IsActive = true, Name = "E", CurrentBalance = 321.45 });
+
+            var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
+
+            var result = await service.GetForecastAsync(enterpriseId, 5);
+
+            Assert.Equal(321.45, result.CurrentBalance, 2);
+        }
+
+        [Fact]
         public async Task GetForecastAsync_ShouldCombineReceivablesAndPayablesAndFlagRiskDays()
         {
             var enterpriseId = Guid.NewGuid();
@@ -31,8 +54,11 @@ namespace EvangelionERPV2.BillsModule.Test
             var payableRepo = new Mock<IRepository<PayableBill>>();
             payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync((Func<PayableBill, bool>? f) => payables.Where(f!).ToList());
 
+            var enterpriseRepo = new Mock<IRepository<Enterprise>>();
+            enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
+
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 100);
 
@@ -49,8 +75,11 @@ namespace EvangelionERPV2.BillsModule.Test
             var payableRepo = new Mock<IRepository<PayableBill>>();
             payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync(new List<PayableBill>());
 
+            var enterpriseRepo = new Mock<IRepository<Enterprise>>();
+            enterpriseRepo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync(new Enterprise { Id = Guid.NewGuid(), CurrentBalance = 0, IsActive = true, Name = "E" });
+
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
 
             await Assert.ThrowsAsync<ArgumentException>(() => service.RunSimulationAsync(Guid.NewGuid(), Guid.NewGuid(), new RunSimulationRequestDTO
             {
@@ -84,8 +113,11 @@ namespace EvangelionERPV2.BillsModule.Test
             var payableRepo = new Mock<IRepository<PayableBill>>();
             payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync((Func<PayableBill, bool>? f) => payables.Where(f!).ToList());
 
+            var enterpriseRepo = new Mock<IRepository<Enterprise>>();
+            enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
+
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 0);
 
@@ -129,8 +161,11 @@ namespace EvangelionERPV2.BillsModule.Test
             var payableRepo = new Mock<IRepository<PayableBill>>();
             payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync((Func<PayableBill, bool>? f) => payables.Where(f!).ToList());
 
+            var enterpriseRepo = new Mock<IRepository<Enterprise>>();
+            enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
+
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 200);
 
@@ -159,8 +194,11 @@ namespace EvangelionERPV2.BillsModule.Test
             var payableRepo = new Mock<IRepository<PayableBill>>();
             payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync((Func<PayableBill, bool>? f) => payables.Where(f!).ToList());
 
+            var enterpriseRepo = new Mock<IRepository<Enterprise>>();
+            enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
+
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 100);
 

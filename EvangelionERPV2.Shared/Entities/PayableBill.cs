@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using EvangelionERPV2.Shared.Enums;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EvangelionERPV2.Shared.Entities
@@ -12,9 +13,15 @@ namespace EvangelionERPV2.Shared.Entities
         public DateTime? PaidAt { get; set; }
         public double Amount { get; set; }
         public bool IsPaid { get; set; }
+        public int BillType { get; set; } = (int)EnumPayableBillType.Other;
+        public DateTime? ProductsReceivedAt { get; set; } = null;
+        public string? RefundReason { get; set; } = null;
+        public DateTime? RefundedAt { get; set; } = null;
 
         [ForeignKey(nameof(Enterprise))]
         public Guid EnterpriseId { get; set; }
         public virtual Enterprise? Enterprise { get; set; }
+
+        public virtual ICollection<PayableBillProduct>? Items { get; set; }
     }
 }
