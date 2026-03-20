@@ -14,6 +14,8 @@ namespace EvangelionERPV2.UserModule.Application.Interface
         Task<User> LoginToSSOAsync(string idToken);
         Task<TEntity> UpdateProfilePictureAsync(User user, string? profilePicturePayload);
         Task<string> GetProfilePictureBase64Async(string? profilePictureAddress);
+        Task<string?> CreatePasswordResetTokenAsync(string email);
+        Task ResetPasswordAsync(string email, string token, string newPassword);
         #endregion
     }
 }
