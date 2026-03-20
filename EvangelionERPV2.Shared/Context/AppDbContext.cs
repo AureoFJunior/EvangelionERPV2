@@ -37,6 +37,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<OpportunityRunLog> OpportunityRunLog { get; set; }
         public DbSet<ForecastSimulationLog> ForecastSimulationLog { get; set; }
         public DbSet<RefreshToken> RefreshToken { get; set; }
+        public DbSet<PasswordResetToken> PasswordResetToken { get; set; }
         public DbSet<User> User { get; set; }
         public DbSet<AuditTrail> AuditTrails { get; set; }
 
@@ -76,6 +77,12 @@ namespace EvangelionERPV2.Shared.Context
                 .HasIndex(item => new { item.PayableBillId, item.ProductId })
                 .HasFilter("[IsActive] = 1")
                 .IsUnique();
+
+            modelBuilder.Entity<PasswordResetToken>()
+                .HasOne(token => token.User)
+                .WithMany()
+                .HasForeignKey(token => token.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<Opportunity>()
                 .Property(opportunity => opportunity.Type)

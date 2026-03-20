@@ -237,7 +237,11 @@ namespace EvangelionERPV2.Shared.Repositories
                     .ToList();
 
             int skip = (pageNumber.Value - 1) * pageSize.Value;
-            return await query.Skip(skip).Take(pageSize.Value).ToListAsync();
+            return await query
+                .OrderBy(entity => entity.Id)
+                .Skip(skip)
+                .Take(pageSize.Value)
+                .ToListAsync();
         }
 
         protected virtual async Task<IEnumerable<TEntity>> GetAllAsyncByFilterInternal(bool descending,
@@ -260,6 +264,9 @@ namespace EvangelionERPV2.Shared.Repositories
 
             if (pageNumber == null || pageSize == null)
                 return await query.ToListAsync();
+
+            if (orderBy == null)
+                query = descending ? query.OrderByDescending(entity => entity.Id) : query.OrderBy(entity => entity.Id);
 
             int skip = (pageNumber.Value - 1) * pageSize.Value;
             return await query.Skip(skip).Take(pageSize.Value).ToListAsync();
@@ -286,6 +293,9 @@ namespace EvangelionERPV2.Shared.Repositories
             int totalItems = await query.CountAsync();
             if (pageNumber == null || pageSize == null)
                 return (await query.ToListAsync(), totalItems);
+
+            if (orderBy == null)
+                query = descending ? query.OrderByDescending(entity => entity.Id) : query.OrderBy(entity => entity.Id);
 
             int skip = (pageNumber.Value - 1) * pageSize.Value;
             var result = await query.Skip(skip).Take(pageSize.Value).ToListAsync();
