@@ -1,4 +1,26 @@
 services:
+  sqlserver:
+    profiles:
+      - localdb
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: evangelionerpv2_sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD:-EvangelionERP_Local!2026}
+      MSSQL_PID: ${SQLSERVER_EDITION:-Developer}
+    ports:
+      - "${SQLSERVER_HOST_PORT:-14333}:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks:
+      - custom_network
+
   evangelionerpv2:
     image: ${WEB_IMAGE:-aureofjunior/evangelionerpv2-repository:latest}
     build:
@@ -111,3 +133,6 @@ services:
 networks:
   custom_network:
     driver: bridge
+
+volumes:
+  sqlserver_data:

@@ -63,6 +63,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     throw new InsertDatabaseException($"{nameof(Order)} is null");
 
                 order.Id = Guid.NewGuid();
+                order.Payday = ResolvePaydayForStatus(order.Payday, order.Status);
 
                 var orderedProducts = order.OrderedProduct?.ToList() ?? [];
                 foreach (var orderedProduct in orderedProducts)
@@ -302,7 +303,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     // Use tracked merge to avoid detached-entity overwrite and preserve immutable fields.
                     existentOrder.CustomerId = order.CustomerId ?? existentOrder.CustomerId;
                     existentOrder.UserId = order.UserId ?? existentOrder.UserId;
-                    existentOrder.Payday = order.Payday;
+                    existentOrder.Payday = ResolvePaydayForStatus(order.Payday, order.Status);
                     if (order.PaymentScheduledDate != default)
                         existentOrder.PaymentScheduledDate = order.PaymentScheduledDate;
 
@@ -394,6 +395,14 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         private static bool IsImmutableStatus(int status)
         {
             return status == (int)EnumOrderStatus.Finished || status == (int)EnumOrderStatus.Refund;
+        }
+
+        private static DateTime? ResolvePaydayForStatus(DateTime? payday, int status)
+        {
+            if (status == (int)EnumOrderStatus.Finished && !payday.HasValue)
+                return DateTime.UtcNow;
+
+            return payday;
         }
 
         private async Task ExecuteInTransactionAsync(Func<Task> operation)

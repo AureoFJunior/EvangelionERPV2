@@ -287,6 +287,48 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         }
 
         [Fact]
+        public void Update_WhenStatusChangesToFinished_AndPaydayIsEmpty_ShouldSetPayday()
+        {
+            // Arrange
+            var orderId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+            var existentOrder = new Order
+            {
+                Id = orderId,
+                EnterpriseId = enterpriseId,
+                IsActive = true,
+                Status = (int)EnumOrderStatus.Delivered,
+                TotalValue = 100,
+                Payday = null,
+                PaymentScheduledDate = DateTime.UtcNow.AddDays(2)
+            };
+
+            var payload = new Order
+            {
+                Id = orderId,
+                EnterpriseId = enterpriseId,
+                IsActive = true,
+                Status = (int)EnumOrderStatus.Finished,
+                TotalValue = 100,
+                Payday = null,
+                PaymentScheduledDate = existentOrder.PaymentScheduledDate
+            };
+
+            _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns(existentOrder);
+            _mockIOrderRepository.Setup(r => r.Update(It.IsAny<Order>())).Returns((Order entity) => entity);
+
+            // Act
+            var result = _orderService.Update(payload, enterpriseId);
+
+            // Assert
+            Assert.Equal((int)EnumOrderStatus.Finished, result.Status);
+            Assert.NotNull(result.Payday);
+            _mockIOrderRepository.Verify(
+                r => r.Update(It.Is<Order>(o => o.Id == orderId && o.Payday.HasValue)),
+                Times.Once);
+        }
+
+        [Fact]
         public async Task RefundAsync_ValidOrder_ShouldRestoreStockAndSetRefundState()
         {
             var enterpriseId = Guid.NewGuid();

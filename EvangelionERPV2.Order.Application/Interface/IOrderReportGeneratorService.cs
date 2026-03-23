@@ -6,5 +6,7 @@ namespace EvangelionERPV2.OrderModule.Application.Interface
     public interface IOrderReportGeneratorService
     {
         Task<string> GenerateMonthlyBillingReportAsync(Enterprise enterprise, IEnumerable<Order> orders);
+        Task<string> GenerateTopProductsByRevenueReportAsync(Enterprise enterprise, IEnumerable<Order> orders);
+        Task<string> GenerateSalesByStatusReportAsync(Enterprise enterprise, IEnumerable<Order> orders);
     }
 }

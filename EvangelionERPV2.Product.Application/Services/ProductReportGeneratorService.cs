@@ -1,6 +1,6 @@
-﻿using EvangelionERPV2.ProductModule.Application.Interface;
-using EvangelionERPV2.ProductModule.Domain.Interface;
+using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
+using System.Net;
 using System.Text;
 
 namespace EvangelionERPV2.ProductModule.Application.Services
@@ -16,9 +16,16 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
         public async Task<string> GenerateStockReportAsync(Enterprise enterprise)
         {
-            var products = await _productRepository.GetAllAsync();
-            var body = new StringBuilder();
+            ArgumentNullException.ThrowIfNull(enterprise);
 
+            var products = await _productRepository.GetAllAsyncByFilter(
+                false,
+                null,
+                null,
+                x => x.IsActive == true && x.EnterpriseId == enterprise.Id,
+                x => x.Name);
+
+            var body = new StringBuilder();
             body.AppendLine("<!DOCTYPE html>");
             body.AppendLine("<html>");
             body.AppendLine("<head>");
@@ -40,287 +47,163 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         {
             return @"
         <style>
-            @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&display=swap');
-            
             * {
-                margin: 0;
-                padding: 0;
                 box-sizing: border-box;
             }
-            
+
             html, body {
-                width: 100%;
-                height: 100%;
-            }
-            
-            body {
-                background: linear-gradient(135deg, #0a0e27 0%, #1a1a2e 50%, #16213e 100%);
-                font-family: 'Rajdhani', sans-serif;
-                color: #00ffff;
-                padding: 40px 20px;
-                min-height: 100vh;
-            }
-            
-            .container {
-                max-width: 1200px;
-                margin: 0 auto;
-                background: rgba(10, 14, 39, 0.95);
-                border: 2px solid #00ffff;
-                border-radius: 20px;
-                padding: 40px;
-                box-shadow: 
-                    0 0 30px rgba(0, 255, 255, 0.3),
-                    inset 0 0 30px rgba(0, 255, 255, 0.1);
-                position: relative;
-                overflow: hidden;
-            }
-            
-            .container::before {
-                content: '';
-                position: absolute;
-                top: -2px;
-                left: -2px;
-                right: -2px;
-                bottom: -2px;
-                background: linear-gradient(45deg, #00ffff, #ff00ff, #00ffff);
-                border-radius: 20px;
-                z-index: -1;
-                opacity: 0.3;
-                filter: blur(10px);
-            }
-            
-            .header-title {
-                font-family: 'Orbitron', sans-serif;
-                font-size: 3em;
-                font-weight: 900;
-                text-align: center;
-                margin-bottom: 10px;
-                text-transform: uppercase;
-                color: #00ffff;
-                background: linear-gradient(90deg, #00ffff, #ff00ff, #00ffff);
-                background-size: 200% auto;
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-                letter-spacing: 4px;
-                text-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
-                animation: glow 2s ease-in-out infinite alternate;
-            }
-            
-            @keyframes glow {
-                from { filter: drop-shadow(0 0 10px #00ffff); }
-                to { filter: drop-shadow(0 0 20px #ff00ff); }
-            }
-            
-            .enterprise-name {
-                font-family: 'Orbitron', sans-serif;
-                text-align: center;
-                font-size: 1.8em;
-                margin-bottom: 40px;
-                color: #ff00ff;
-                text-transform: uppercase;
-                letter-spacing: 3px;
+                margin: 0;
+                padding: 0;
             }
 
-            .legend {
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+                background: #f3f4f6;
+                color: #111827;
+                padding: 24px;
+            }
+
+            .container {
+                max-width: 1100px;
+                margin: 0 auto;
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                padding: 24px;
+            }
+
+            .title {
+                margin: 0 0 8px;
+                font-size: 28px;
+                line-height: 1.2;
+                color: #111827;
+            }
+
+            .subtitle {
+                margin: 0 0 18px;
+                color: #4b5563;
+                font-size: 14px;
+            }
+
+            .meta-row {
+                margin-bottom: 20px;
+                font-size: 12px;
+                color: #6b7280;
+            }
+
+            .status-legend {
                 display: flex;
-                justify-content: center;
-                gap: 30px;
-                margin-bottom: 30px;
+                gap: 10px;
+                margin-bottom: 16px;
                 flex-wrap: wrap;
             }
 
-            .legend-item {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                font-family: 'Orbitron', sans-serif;
-                font-size: 0.9em;
-            }
-
-            .legend-indicator {
-                width: 20px;
-                height: 20px;
-                border-radius: 50%;
-                box-shadow: 0 0 10px currentColor;
-            }
-
-            .legend-indicator.ok {
-                background: #00ff00;
-                box-shadow: 0 0 15px #00ff00;
-            }
-
-            .legend-indicator.out {
-                background: #ff0000;
-                box-shadow: 0 0 15px #ff0000;
-            }
-
-            .legend-item {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                font-family: 'Orbitron', sans-serif;
-                font-size: 1.1em;
-                color: #ffffff;
-                font-weight: 500;
-            }
-            
-            .stock-table {
-                width: 100%;
-                border-collapse: separate;
-                border-spacing: 0;
-                margin-top: 30px;
-                border-radius: 15px;
-                overflow: hidden;
-                box-shadow: 0 0 40px rgba(255, 0, 255, 0.2);
-            }
-            
-            .stock-table thead {
-                background: linear-gradient(135deg, #ff00ff 0%, #00ffff 100%);
-            }
-            
-            .stock-table thead th {
-                font-family: 'Orbitron', sans-serif;
-                padding: 20px;
-                text-align: left;
-                color: #0a0e27;
-                font-weight: 900;
-                font-size: 1.1em;
-                text-transform: uppercase;
-                letter-spacing: 2px;
-                border: none;
-            }
-            
-            .stock-table tbody tr {
-                background: rgba(22, 33, 62, 0.6);
-                border-bottom: 1px solid rgba(0, 255, 255, 0.2);
-                transition: all 0.3s ease;
-            }
-            
-            .stock-table tbody tr:hover {
-                background: rgba(0, 255, 255, 0.1);
-                transform: translateX(5px);
-                box-shadow: -5px 0 15px rgba(255, 0, 255, 0.3);
-            }
-            
-            .stock-table td {
-                padding: 18px 20px;
-                color: #00ffff;
-                font-size: 1.1em;
-                border: none;
-            }
-
-            .stock-indicator {
+            .badge {
                 display: inline-flex;
                 align-items: center;
-                gap: 10px;
-                font-weight: 700;
+                gap: 8px;
+                border-radius: 999px;
+                padding: 6px 10px;
+                font-size: 12px;
+                font-weight: 600;
+                border: 1px solid transparent;
             }
 
-            .status-dot {
-                width: 15px;
-                height: 15px;
-                border-radius: 50%;
-                animation: pulse 2s ease-in-out infinite;
+            .badge-ok {
+                background: #ecfdf5;
+                border-color: #a7f3d0;
+                color: #065f46;
             }
 
-            .status-ok {
-                background: #00ff00;
-                box-shadow: 0 0 15px #00ff00;
+            .badge-out {
+                background: #fef2f2;
+                border-color: #fecaca;
+                color: #991b1b;
             }
 
-            .status-out {
-                background: #ff0000;
-                box-shadow: 0 0 15px #ff0000;
-            }
-
-            @keyframes pulse {
-                0%, 100% { opacity: 1; transform: scale(1); }
-                50% { opacity: 0.6; transform: scale(0.9); }
-            }
-
-            .quantity-ok { color: #00ff00; text-shadow: 0 0 10px #00ff00; }
-            .quantity-out { color: #ff0000; text-shadow: 0 0 10px #ff0000; }
-            
-            @keyframes scan {
-                0% { transform: translateY(-100%); }
-                100% { transform: translateY(100%); }
-            }
-            
-            .scanline {
-                position: absolute;
-                top: 0;
-                left: 0;
+            table {
                 width: 100%;
-                height: 2px;
-                background: rgba(0, 255, 255, 0.3);
-                animation: scan 4s linear infinite;
-                pointer-events: none;
+                border-collapse: collapse;
+                font-size: 14px;
+            }
+
+            thead th {
+                text-align: left;
+                background: #1f2937;
+                color: #ffffff;
+                padding: 10px;
+            }
+
+            tbody td {
+                border-bottom: 1px solid #e5e7eb;
+                padding: 10px;
+            }
+
+            tbody tr:nth-child(even) {
+                background: #f9fafb;
+            }
+
+            .status-text-ok {
+                color: #065f46;
+                font-weight: 600;
+            }
+
+            .status-text-out {
+                color: #991b1b;
+                font-weight: 600;
             }
 
             .summary {
                 display: flex;
-                justify-content: space-around;
-                margin-top: 30px;
-                gap: 20px;
+                gap: 12px;
                 flex-wrap: wrap;
+                margin-top: 16px;
             }
 
             .summary-card {
-                background: rgba(22, 33, 62, 0.8);
-                border: 2px solid;
-                border-radius: 15px;
-                padding: 20px 30px;
-                text-align: center;
-                min-width: 180px;
-                box-shadow: 0 0 20px currentColor;
+                border: 1px solid #e5e7eb;
+                border-radius: 10px;
+                padding: 12px;
+                min-width: 170px;
+                background: #ffffff;
             }
 
-            .summary-card.ok { border-color: #00ff00; }
-            .summary-card.out { border-color: #ff0000; }
-
             .summary-label {
-                font-family: 'Orbitron', sans-serif;
-                font-size: 0.9em;
-                margin-bottom: 10px;
-                text-transform: uppercase;
-                letter-spacing: 2px;
+                font-size: 12px;
+                color: #6b7280;
+                margin-bottom: 4px;
             }
 
             .summary-value {
-                font-family: 'Orbitron', sans-serif;
-                font-size: 2.5em;
-                font-weight: 900;
+                font-size: 20px;
+                font-weight: 700;
+                color: #111827;
             }
         </style>";
         }
 
         private string GetHeaderSection(string enterpriseName)
         {
+            var encodedEnterpriseName = WebUtility.HtmlEncode(enterpriseName ?? string.Empty);
+
             return $@"
         <div class='container'>
-            <div class='scanline'></div>
-            <h2 class='header-title'>Stock Report</h2>
-            <h3 class='enterprise-name'>⟨ {enterpriseName} ⟩</h3>
-            
-            <div class='legend'>
-                <div class='legend-item'>
-                    <div class='legend-indicator ok'></div>
-                    <span class='legend-item'>Stock Available</span>
-                </div>
-                <div class='legend-item'>
-                    <div class='legend-indicator out'></div>
-                    <span class='legend-item'>Out of Stock</span>
-                </div>
+            <h1 class='title'>Stock Report</h1>
+            <p class='subtitle'>{encodedEnterpriseName}</p>
+            <div class='meta-row'>Generated at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC</div>
+
+            <div class='status-legend'>
+                <span class='badge badge-ok'>Stock Available</span>
+                <span class='badge badge-out'>Out of Stock</span>
             </div>
 
-            <table class='stock-table'>
+            <table>
                 <thead>
                     <tr>
-                        <th>▶ Status</th>
-                        <th>▶ Product</th>
-                        <th>▶ Description</th>
-                        <th>▶ Quantity</th>
+                        <th>Status</th>
+                        <th>Product</th>
+                        <th>Description</th>
+                        <th>Quantity</th>
                     </tr>
                 </thead>
                 <tbody>";
@@ -355,19 +238,18 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
         private string GetProductRow(Product product, string status)
         {
-            var statusLabel = status == "ok" ? "OK" : "OUT";
+            var statusLabel = status == "ok" ? "Available" : "Out";
+            var statusClass = status == "ok" ? "status-text-ok" : "status-text-out";
+            var productName = WebUtility.HtmlEncode(product.Name ?? "N/A");
+            var productDescription = WebUtility.HtmlEncode(product.Description ?? "N/A");
+            var unitOfMeasure = WebUtility.HtmlEncode(product.UnitOfMeasure ?? string.Empty);
 
             return $@"
                     <tr>
-                        <td>
-                            <div class='stock-indicator'>
-                                <div class='status-dot status-{status}'></div>
-                                <span>{statusLabel}</span>
-                            </div>
-                        </td>
-                        <td>{product.Name}</td>
-                        <td>{product.Description ?? "N/A"}</td>
-                        <td class='quantity-{status}'>{product.StorageQuantity:N2} {product.UnitOfMeasure}</td>
+                        <td><span class='{statusClass}'>{statusLabel}</span></td>
+                        <td>{productName}</td>
+                        <td>{productDescription}</td>
+                        <td>{product.StorageQuantity:N2} {unitOfMeasure}</td>
                     </tr>";
         }
 
@@ -375,13 +257,13 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         {
             return $@"
             <div class='summary'>
-                <div class='summary-card ok'>
-                    <div class='summary-label quantity-ok'>Available</div>
-                    <div class='summary-value quantity-ok'>{okCount}</div>
+                <div class='summary-card'>
+                    <div class='summary-label'>Available Products</div>
+                    <div class='summary-value'>{okCount}</div>
                 </div>
-                <div class='summary-card out'>
-                    <div class='summary-label quantity-out'>Out of Stock</div>
-                    <div class='summary-value quantity-out'>{outCount}</div>
+                <div class='summary-card'>
+                    <div class='summary-label'>Out of Stock Products</div>
+                    <div class='summary-value'>{outCount}</div>
                 </div>
             </div>";
         }

@@ -1,6 +1,7 @@
 param(
     [string]$EnvFile = ".env.local",
     [switch]$WithWorkers,
+    [switch]$WithOrderWorker,
     [switch]$NoBuild,
     [switch]$SkipIdentityCheck
 )
@@ -47,8 +48,8 @@ if (-not $SkipIdentityCheck) {
     aws @awsArgs | Out-Null
 }
 
-$profiles = @("--profile", "proxy")
-if ($WithWorkers) {
+$profiles = @("--profile", "proxy", "--profile", "localdb")
+if ($WithWorkers -or $WithOrderWorker) {
     $profiles += @("--profile", "workers")
 }
 
@@ -61,10 +62,13 @@ if (-not $NoBuild) {
 }
 
 if ($WithWorkers) {
-    $upArgs += @("evangelionerpv2", "nginx", "worker_order", "worker_email")
+    $upArgs += @("sqlserver", "evangelionerpv2", "nginx", "worker_order", "worker_email")
+}
+elseif ($WithOrderWorker) {
+    $upArgs += @("sqlserver", "evangelionerpv2", "nginx", "worker_order")
 }
 else {
-    $upArgs += @("evangelionerpv2", "nginx")
+    $upArgs += @("sqlserver", "evangelionerpv2", "nginx")
 }
 
 Write-Host "Starting containers..."
