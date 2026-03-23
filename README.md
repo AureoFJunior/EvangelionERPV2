@@ -153,7 +153,7 @@ If you started workers too:
 ### Prerequisites
 
 - Docker Desktop (or Docker Engine + Compose)
-- available host ports (default: `5000` and `8082`, depending on profiles)
+- available host ports (default: `8080`, `8082` and `14333`, depending on profiles)
 - AWS CLI configured locally (`aws configure`) with a profile that can read the `evangelion/dev/*` secrets
 
 ### Local environment
@@ -164,24 +164,27 @@ If you started workers too:
 Copy-Item .env.local.example .env.local
 ```
 
-2. Adjust `AWS_CREDENTIALS_DIR` in `.env.local` to your local AWS folder (for Windows, usually `C:/Users/<your-user>/.aws`).
+2. Adjust `.env.local`:
+   - `AWS_CREDENTIALS_DIR` to your local AWS folder (for Windows, usually `C:/Users/<your-user>/.aws`)
+   - `SQLSERVER_SA_PASSWORD` to a strong local password
+   - keep `EVA_CONN_STR` as `plain:Server=sqlserver,1433;...` for local SQL Server in Docker
 
-3. Start API (build locally):
+3. Start local SQL Server + API (build locally):
 
 ```powershell
-docker compose --env-file .env.local up -d --build evangelionerpv2
+docker compose --env-file .env.local --profile localdb up -d --build sqlserver evangelionerpv2
 ```
 
 4. Optional: start API + nginx reverse proxy:
 
 ```powershell
-docker compose --env-file .env.local --profile proxy up -d --build evangelionerpv2 nginx
+docker compose --env-file .env.local --profile localdb --profile proxy up -d --build sqlserver evangelionerpv2 nginx
 ```
 
 5. Optional: include workers:
 
 ```powershell
-docker compose --env-file .env.local --profile workers up -d --build
+docker compose --env-file .env.local --profile localdb --profile workers up -d --build sqlserver evangelionerpv2 worker_order worker_email
 ```
 
 Workers are profile-based. They do not start unless you pass `--profile workers`.
@@ -189,13 +192,13 @@ Workers are profile-based. They do not start unless you pass `--profile workers`
 6. Optional: start only `nginx` + `worker_order` (without `worker_email`):
 
 ```powershell
-docker compose --env-file .env.local --profile proxy --profile workers up -d --build nginx worker_order
+docker compose --env-file .env.local --profile localdb --profile proxy --profile workers up -d --build sqlserver evangelionerpv2 nginx worker_order
 ```
 
 If images are already built locally:
 
 ```powershell
-docker compose --env-file .env.local --profile proxy --profile workers up -d --no-build nginx worker_order
+docker compose --env-file .env.local --profile localdb --profile proxy --profile workers up -d --no-build sqlserver evangelionerpv2 nginx worker_order
 ```
 
 ### Shortcut scripts (PowerShell)
@@ -210,11 +213,12 @@ What it does:
 
 1. validates AWS identity via `aws sts get-caller-identity`
 2. runs `docker compose ... down --remove-orphans`
-3. runs `docker compose ... up -d --build` with `proxy` profile
+3. runs `docker compose ... up -d --build` with `localdb` and `proxy` profiles
 
 Optional flags:
 
 - `-WithWorkers` includes `worker_order` and `worker_email`
+- `-WithOrderWorker` includes only `worker_order` (with `sqlserver + evangelionerpv2 + nginx`)
 - `-NoBuild` skips image build
 - `-SkipIdentityCheck` skips the AWS STS check
 - `-EnvFile <path>` uses a different env file
@@ -224,6 +228,7 @@ Stop shortcut:
 ```powershell
 .\scripts\local-down.ps1
 .\scripts\local-down.ps1 -WithWorkers
+.\scripts\local-down.ps1 -WithOrderWorker
 ```
 
 ### EC2 environment
@@ -257,7 +262,7 @@ docker compose --env-file .env.ec2 --profile workers up -d --no-build
 Use parent paths:
 
 ```powershell
-docker compose --env-file ..\.env.local -f ..\docker-compose.yml up -d --build evangelionerpv2
+docker compose --env-file ..\.env.local -f ..\docker-compose.yml --profile localdb up -d --build sqlserver evangelionerpv2
 ```
 
 ## Frontend base URLs
@@ -289,7 +294,7 @@ For local runs, define `EVA_RABBITMQ_*` variables in `.env.local` (see `.env.loc
 Stop default services from project root:
 
 ```powershell
-docker compose --env-file .env.local down
+docker compose --env-file .env.local --profile localdb down
 ```
 
 or:
@@ -301,13 +306,13 @@ or:
 Stop everything including profile services (`workers` and `proxy`) and remove orphans:
 
 ```powershell
-docker compose --env-file .env.local --profile workers --profile proxy down --remove-orphans
+docker compose --env-file .env.local --profile localdb --profile workers --profile proxy down --remove-orphans
 ```
 
 If you run commands from `EvangelionERPV2.Web`:
 
 ```powershell
-docker compose --env-file ..\.env.local -f ..\docker-compose.yml --profile workers --profile proxy down --remove-orphans
+docker compose --env-file ..\.env.local -f ..\docker-compose.yml --profile localdb --profile workers --profile proxy down --remove-orphans
 ```
 
 Check what is still running:
@@ -347,21 +352,21 @@ Cause:
 Fix:
 
 1. Confirm `.env.local` includes:
-   - `EVA_CONN_STR=evangelion/dev/database:DefaultConnection`
+   - `EVA_CONN_STR=plain:Server=sqlserver,1433;...`
    - `EVA_AWS_SECRET_NAME=AWSCredentials`
    - `AWS_CREDENTIALS_DIR=.../.aws`
    - `AWS_PROFILE=default`
 2. Rebuild web + nginx:
 
 ```powershell
-docker compose --env-file .env.local --profile proxy up -d --build evangelionerpv2 nginx
+docker compose --env-file .env.local --profile localdb --profile proxy up -d --build sqlserver evangelionerpv2 nginx
 ```
 
 3. If old containers are still cached, recreate them:
 
 ```powershell
-docker compose --env-file .env.local --profile proxy down --remove-orphans
-docker compose --env-file .env.local --profile proxy up -d --build --force-recreate evangelionerpv2 nginx
+docker compose --env-file .env.local --profile localdb --profile proxy down --remove-orphans
+docker compose --env-file .env.local --profile localdb --profile proxy up -d --build --force-recreate sqlserver evangelionerpv2 nginx
 ```
 
 ### Error: `None of the specified endpoints were reachable`

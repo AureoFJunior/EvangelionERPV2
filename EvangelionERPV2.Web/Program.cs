@@ -10,6 +10,7 @@ using EvangelionERPV2.NFeModule.Application.DI;
 using EvangelionERPV2.OpportunityRadarModule.Application.DI;
 using EvangelionERPV2.OrderModule.Application.DI;
 using EvangelionERPV2.ProductModule.Application.DI;
+using EvangelionERPV2.ReportsModule.Application.DI;
 using EvangelionERPV2.Shared.Entities;
 using Prometheus;
 using EvangelionERPV2.Shared.Hubs;
@@ -257,6 +258,7 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     EnterpriseIoC.Configure(builder.Services, builder.Configuration);
     EmailIoC.Configure(builder.Services, builder.Configuration);
     OpportunityRadarIoC.Configure(builder.Services, builder.Configuration);
+    ReportsIoC.Configure(builder.Services, builder.Configuration);
     SharedIoC.Configure(builder.Services, builder.Configuration);
 }
 

@@ -71,6 +71,9 @@
     <ProjectReference Include="..\EvangelionERPV2.OpportunityRadar.Application\EvangelionERPV2.OpportunityRadarModule.Application.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.OpportunityRadar.Domain\EvangelionERPV2.OpportunityRadarModule.Domain.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.OpportunityRadar.Infra\EvangelionERPV2.OpportunityRadarModule.Infra.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Reports.Application\EvangelionERPV2.ReportsModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Reports.Domain\EvangelionERPV2.ReportsModule.Domain.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Reports.Infra\EvangelionERPV2.ReportsModule.Infra.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Order.Application\EvangelionERPV2.OrderModule.Application.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Order.Domain\EvangelionERPV2.OrderModule.Domain.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Order.Infra\EvangelionERPV2.OrderModule.Infra.csproj" />
