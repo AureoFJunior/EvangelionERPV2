@@ -9,6 +9,7 @@ using EvangelionERPV2.Shared.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
+using System.Linq;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -91,16 +92,17 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> AddPayableBill([FromBody] PayableBill payableBill)
+        public async Task<IActionResult> AddPayableBill([FromBody] UpsertPayableBillRequestDTO request)
         {
             try
             {
-                if (!ModelState.IsValid || payableBill == null)
+                if (!ModelState.IsValid || request == null)
                     return BadRequest(ModelState);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
+                var payableBill = MapRequestToPayableBill(request, enterpriseId);
                 payableBill.EnterpriseId = enterpriseId;
                 var created = await _payableBillService.CreateAsync(payableBill);
                 return Ok(_mapper.Map<PayableBillDTO>(created));
@@ -117,16 +119,20 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPut]
-        public async Task<IActionResult> UpdatePayableBill([FromBody] PayableBill payableBill)
+        public async Task<IActionResult> UpdatePayableBill([FromBody] UpsertPayableBillRequestDTO request)
         {
             try
             {
-                if (!ModelState.IsValid || payableBill == null)
+                if (!ModelState.IsValid || request == null)
                     return BadRequest(ModelState);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
+                if (!request.Id.HasValue || request.Id.Value == Guid.Empty)
+                    return BadRequest("Payable bill id is required.");
+
+                var payableBill = MapRequestToPayableBill(request, enterpriseId);
                 var updated = await _payableBillService.UpdateAsync(payableBill, enterpriseId);
                 return Ok(_mapper.Map<PayableBillDTO>(updated));
             }
@@ -254,6 +260,29 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 throw;
             }
+        }
+
+        private static PayableBill MapRequestToPayableBill(UpsertPayableBillRequestDTO request, Guid enterpriseId)
+        {
+            var items = request.Items?.Select(item => new PayableBillProduct
+            {
+                ProductId = item.ProductId,
+                Quantity = item.Quantity,
+                UnitValue = item.UnitValue
+            }).ToList();
+
+            return new PayableBill
+            {
+                Id = request.Id ?? Guid.Empty,
+                Description = request.Description,
+                BillType = request.BillType,
+                DueDate = request.DueDate,
+                IsPaid = request.IsPaid,
+                PaidAt = request.PaidAt,
+                Amount = request.Amount ?? 0,
+                EnterpriseId = enterpriseId,
+                Items = items
+            };
         }
 
         private bool TryGetEnterpriseId(out Guid enterpriseId)

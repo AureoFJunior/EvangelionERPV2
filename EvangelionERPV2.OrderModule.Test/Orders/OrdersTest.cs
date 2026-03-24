@@ -93,6 +93,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                     }
                 }, Guid.NewGuid());
 
+            SetupProductLookupForOrder(_mockIProductRepository, order);
             _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
 
             // Act
@@ -144,6 +145,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIOrderRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
             _mockIOrderedProductRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
             _mockIProductService.Setup(p => p.UpdateForOrder(It.IsAny<Order>())).Returns(Task.CompletedTask);
+            SetupProductLookupForOrder(_mockIProductRepository, order);
 
             // Act
             var result = await _orderService.CreateAsync(order);
@@ -659,6 +661,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             mockOrderedProductRepo.Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<OrderedProduct>>())).ReturnsAsync(order.OrderedProduct);
             mockOrderedProductRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
             mockProductService.Setup(p => p.UpdateForOrder(It.IsAny<Order>())).Returns(Task.CompletedTask);
+            SetupProductLookupForOrder(mockProductRepo, order);
 
             // Setup SignalR mocks
             var mockHubContext = new Mock<IHubContext<OrderHub>>();
@@ -709,6 +712,33 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             repositoryMock
                 .Setup(r => r.ExecuteInTransaction(It.IsAny<Func<Order>>(), It.IsAny<CancellationToken>()))
                 .Returns((Func<Order> operation, CancellationToken _) => operation());
+        }
+
+        private static void SetupProductLookupForOrder(
+            Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>> productRepositoryMock,
+            Order order)
+        {
+            var requestedProducts = (order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>())
+                .Select(item => new Product
+                {
+                    Id = item.ProductId,
+                    EnterpriseId = order.EnterpriseId,
+                    IsActive = true,
+                    Name = "Mock Product",
+                    UnitOfMeasure = "UN",
+                    StorageQuantity = 100
+                })
+                .ToList();
+
+            productRepositoryMock
+                .Setup(r => r.GetAllAsync(It.IsAny<Func<Product, bool>?>()))
+                .ReturnsAsync((Func<Product, bool>? predicate) =>
+                {
+                    IEnumerable<Product> query = requestedProducts;
+                    if (predicate != null)
+                        query = query.Where(predicate);
+                    return query;
+                });
         }
         #endregion
     }

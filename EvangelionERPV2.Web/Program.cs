@@ -11,6 +11,7 @@ using EvangelionERPV2.OpportunityRadarModule.Application.DI;
 using EvangelionERPV2.OrderModule.Application.DI;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.ReportsModule.Application.DI;
+using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using Prometheus;
 using EvangelionERPV2.Shared.Hubs;
@@ -131,6 +132,17 @@ static void BuildValidators(WebApplicationBuilder builder)
     builder.Services.AddTransient<IValidator<Customer>, CustomerValidator>();
     builder.Services.AddTransient<IValidator<Product>, ProductValidator>();
     builder.Services.AddTransient<IValidator<ProductPicture>, ProductPictureValidator>();
+    builder.Services.AddTransient<IValidator<CreateOrderRequestDTO>, CreateOrderRequestValidator>();
+    builder.Services.AddTransient<IValidator<UpdateOrderRequestDTO>, UpdateOrderRequestValidator>();
+    builder.Services.AddTransient<IValidator<OrderFilterRequestDTO>, OrderFilterRequestValidator>();
+    builder.Services.AddTransient<IValidator<UpsertPayableBillRequestDTO>, UpsertPayableBillRequestValidator>();
+    builder.Services.AddTransient<IValidator<ProductFilterRequestDTO>, ProductFilterRequestValidator>();
+    builder.Services.AddTransient<IValidator<CreateProductRequestDTO>, CreateProductRequestValidator>();
+    builder.Services.AddTransient<IValidator<UpdateProductRequestDTO>, UpdateProductRequestValidator>();
+    builder.Services.AddTransient<IValidator<UploadProductPictureRequestDTO>, UploadProductPictureRequestValidator>();
+    builder.Services.AddTransient<IValidator<CustomerFilterRequestDTO>, CustomerFilterRequestValidator>();
+    builder.Services.AddTransient<IValidator<CreateCustomerRequestDTO>, CreateCustomerRequestValidator>();
+    builder.Services.AddTransient<IValidator<UpdateCustomerRequestDTO>, UpdateCustomerRequestValidator>();
 }
 
 static void SetupSwagger(WebApplication app, IWebHostEnvironment env)
