@@ -93,6 +93,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                     }
                 }, Guid.NewGuid());
 
+            SetupProductLookupForOrder(_mockIProductRepository, order);
             _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
 
             // Act
@@ -144,6 +145,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIOrderRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
             _mockIOrderedProductRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
             _mockIProductService.Setup(p => p.UpdateForOrder(It.IsAny<Order>())).Returns(Task.CompletedTask);
+            SetupProductLookupForOrder(_mockIProductRepository, order);
 
             // Act
             var result = await _orderService.CreateAsync(order);
@@ -284,6 +286,48 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns(existentOrder);
 
             Assert.Throws<InsertDatabaseException>(() => _orderService.Update(payload));
+        }
+
+        [Fact]
+        public void Update_WhenStatusChangesToFinished_AndPaydayIsEmpty_ShouldSetPayday()
+        {
+            // Arrange
+            var orderId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+            var existentOrder = new Order
+            {
+                Id = orderId,
+                EnterpriseId = enterpriseId,
+                IsActive = true,
+                Status = (int)EnumOrderStatus.Delivered,
+                TotalValue = 100,
+                Payday = null,
+                PaymentScheduledDate = DateTime.UtcNow.AddDays(2)
+            };
+
+            var payload = new Order
+            {
+                Id = orderId,
+                EnterpriseId = enterpriseId,
+                IsActive = true,
+                Status = (int)EnumOrderStatus.Finished,
+                TotalValue = 100,
+                Payday = null,
+                PaymentScheduledDate = existentOrder.PaymentScheduledDate
+            };
+
+            _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns(existentOrder);
+            _mockIOrderRepository.Setup(r => r.Update(It.IsAny<Order>())).Returns((Order entity) => entity);
+
+            // Act
+            var result = _orderService.Update(payload, enterpriseId);
+
+            // Assert
+            Assert.Equal((int)EnumOrderStatus.Finished, result.Status);
+            Assert.NotNull(result.Payday);
+            _mockIOrderRepository.Verify(
+                r => r.Update(It.Is<Order>(o => o.Id == orderId && o.Payday.HasValue)),
+                Times.Once);
         }
 
         [Fact]
@@ -617,6 +661,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             mockOrderedProductRepo.Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<OrderedProduct>>())).ReturnsAsync(order.OrderedProduct);
             mockOrderedProductRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
             mockProductService.Setup(p => p.UpdateForOrder(It.IsAny<Order>())).Returns(Task.CompletedTask);
+            SetupProductLookupForOrder(mockProductRepo, order);
 
             // Setup SignalR mocks
             var mockHubContext = new Mock<IHubContext<OrderHub>>();
@@ -667,6 +712,33 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             repositoryMock
                 .Setup(r => r.ExecuteInTransaction(It.IsAny<Func<Order>>(), It.IsAny<CancellationToken>()))
                 .Returns((Func<Order> operation, CancellationToken _) => operation());
+        }
+
+        private static void SetupProductLookupForOrder(
+            Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>> productRepositoryMock,
+            Order order)
+        {
+            var requestedProducts = (order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>())
+                .Select(item => new Product
+                {
+                    Id = item.ProductId,
+                    EnterpriseId = order.EnterpriseId,
+                    IsActive = true,
+                    Name = "Mock Product",
+                    UnitOfMeasure = "UN",
+                    StorageQuantity = 100
+                })
+                .ToList();
+
+            productRepositoryMock
+                .Setup(r => r.GetAllAsync(It.IsAny<Func<Product, bool>?>()))
+                .ReturnsAsync((Func<Product, bool>? predicate) =>
+                {
+                    IEnumerable<Product> query = requestedProducts;
+                    if (predicate != null)
+                        query = query.Where(predicate);
+                    return query;
+                });
         }
         #endregion
     }

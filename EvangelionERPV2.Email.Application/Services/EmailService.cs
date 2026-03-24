@@ -73,8 +73,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 // Create the Email object
 
                 var message = new MimeMessage();
-                IEnumerable<Email> emailsSettings = await _emailRepository.GetAllAsync();
-                Email? emailSettings = emailsSettings?.FirstOrDefault();
+                var emailSettings = (await ResolveEmailSettingsCandidatesAsync()).FirstOrDefault();
                 if (emailSettings == null)
                     throw new NotFoundDatabaseException("Email settings were not found.");
 
@@ -105,37 +104,205 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         {
             try
             {
-                IEnumerable<Email> emailsSettings = await _emailRepository.GetAllAsync();
-                Email? emailSettings = emailsSettings?.FirstOrDefault();
-                if (emailSettings == null)
-                    throw new NotFoundDatabaseException("Email settings were not found.");
+                var settingsCandidates = (await ResolveEmailSettingsCandidatesAsync()).ToList();
+                if (settingsCandidates.Count == 0)
+                    throw new InvalidOperationException("Email settings are not configured.");
 
-                // Get the access token (cache and refresh as needed in production)
-                string clientId = _kmsProvider.GetKMSKey(_configuration.GetSection("GoogleSettings")["ClientId"] ?? string.Empty);
-                string clientSecret = _kmsProvider.GetKMSKey(_configuration.GetSection("GoogleSettings")["ClientSecret"] ?? string.Empty);
-                string userEmail = emailSettings.UserName;
-                if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret) || string.IsNullOrWhiteSpace(userEmail))
-                    throw new InvalidOperationException("Google email settings are not configured.");
-                string accessToken = await GetGmailAccessTokenAsync(clientId, clientSecret, userEmail);
+                string? lastFailure = null;
+                foreach (var emailSettings in settingsCandidates)
+                {
+                    string userEmail = emailSettings.UserName;
+                    if (string.IsNullOrWhiteSpace(emailSettings.HostName) || string.IsNullOrWhiteSpace(userEmail))
+                        continue;
 
-                using var smtpClient = new MailKit.Net.Smtp.SmtpClient();
-                await smtpClient.ConnectAsync(emailSettings.HostName, emailSettings.Port == 0 ? 587 : emailSettings.Port, SecureSocketOptions.StartTls);
+                    try
+                    {
+                        using var smtpClient = new MailKit.Net.Smtp.SmtpClient();
+                        await smtpClient.ConnectAsync(emailSettings.HostName, emailSettings.Port == 0 ? 587 : emailSettings.Port, SecureSocketOptions.StartTls);
 
-                // Authenticate using OAuth2
-                var oauth2 = new SaslMechanismOAuth2(userEmail, accessToken);
-                await smtpClient.AuthenticateAsync(oauth2);
+                        var isAuthenticated = false;
+                        string? authFailureReason = null;
 
-                Log.Logger.Information("Sending emails");
+                        foreach (var smtpPassword in ResolveEmailPasswordCandidates(emailSettings.Password))
+                        {
+                            try
+                            {
+                                await smtpClient.AuthenticateAsync(userEmail, smtpPassword);
+                                isAuthenticated = true;
+                                break;
+                            }
+                            catch (Exception ex)
+                            {
+                                authFailureReason = ex.Message;
+                                Log.Logger.Warning(ex, "SMTP authentication failed for sender {Email}. Trying next available authentication option.", userEmail);
+                            }
+                        }
 
-                await smtpClient.SendAsync(message);
-                await smtpClient.DisconnectAsync(true);
+                        if (!isAuthenticated)
+                        {
+                            isAuthenticated = await TryAuthenticateWithGoogleOAuthAsync(smtpClient, userEmail);
+                            if (!isAuthenticated)
+                            {
+                                var reasonSuffix = string.IsNullOrWhiteSpace(authFailureReason) ? string.Empty : $" Reason: {authFailureReason}";
+                                throw new InvalidOperationException($"SMTP authentication failed for sender {userEmail}.{reasonSuffix}");
+                            }
+                        }
 
-                Log.Logger.Information("Emails has been sent");
+                        // Ensure visible sender is consistent with the authenticated account.
+                        message.From.Clear();
+                        message.From.Add(new MailboxAddress(userEmail, userEmail));
+
+                        Log.Logger.Information("Sending emails");
+
+                        await smtpClient.SendAsync(message);
+                        await smtpClient.DisconnectAsync(true);
+
+                        Log.Logger.Information("Emails has been sent");
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        lastFailure = ex.Message;
+                        Log.Logger.Warning(ex, "Email sending failed with configured sender {Email}. Trying next configured sender.", userEmail);
+                    }
+                }
+
+                throw new InvalidOperationException($"Unable to send email with available sender settings. Last error: {lastFailure}");
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Error while sending email: {ex.Message}", ex.Message);
+                Log.Logger.Error(ex, "Error while sending email.");
+                throw new EmailSenderException("Error while sending email.", ex);
             }
+        }
+
+        private async Task<IEnumerable<Email>> ResolveEmailSettingsCandidatesAsync()
+        {
+            var storedSettings = (await _emailRepository.GetAllAsync(x => x.IsActive != false))
+                ?.OrderByDescending(x => x.CreatedAt)
+                .ToList() ?? [];
+
+            var candidates = new List<Email>(storedSettings);
+
+            var configuredSettings = _configuration.GetSection("EmailSettings");
+            var hostName = ResolveConfigValue(configuredSettings["HostName"]);
+            var userName = ResolveConfigValue(configuredSettings["Username"]);
+            var password = ResolveConfigValue(configuredSettings["Password"]);
+            var portRaw = ResolveConfigValue(configuredSettings["Port"]);
+
+            if (!string.IsNullOrWhiteSpace(hostName) && !string.IsNullOrWhiteSpace(userName))
+            {
+                _ = int.TryParse(portRaw, out var port);
+                var configuredCandidate = new Email
+                {
+                    HostName = hostName,
+                    UserName = userName,
+                    Password = password,
+                    Port = port == 0 ? 587 : port,
+                    IsActive = true
+                };
+
+                var hasSameStoredSetting = candidates.Any(x =>
+                    string.Equals(x.HostName?.Trim(), configuredCandidate.HostName?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(x.UserName?.Trim(), configuredCandidate.UserName?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                if (!hasSameStoredSetting)
+                    candidates.Add(configuredCandidate);
+            }
+
+            return candidates;
+        }
+
+        private async Task<bool> TryAuthenticateWithGoogleOAuthAsync(MailKit.Net.Smtp.SmtpClient smtpClient, string userEmail)
+        {
+            try
+            {
+                var clientId = ResolveConfigValue(_configuration.GetSection("GoogleSettings")["ClientId"]);
+                var clientSecret = ResolveConfigValue(_configuration.GetSection("GoogleSettings")["ClientSecret"]);
+                if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+                    return false;
+                if (LooksLikeSecretReference(clientId) || LooksLikeSecretReference(clientSecret))
+                    return false;
+
+                var accessToken = await GetGmailAccessTokenAsync(clientId, clientSecret, userEmail);
+                if (string.IsNullOrWhiteSpace(accessToken))
+                    return false;
+
+                var oauth2 = new SaslMechanismOAuth2(userEmail, accessToken);
+                await smtpClient.AuthenticateAsync(oauth2);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(ex, "Google OAuth authentication failed for email sender {Email}. Falling back to SMTP credentials.", userEmail);
+                return false;
+            }
+        }
+
+        private string ResolveConfigValue(string? rawValue)
+        {
+            if (string.IsNullOrWhiteSpace(rawValue))
+                return string.Empty;
+
+            var value = rawValue.Trim();
+            var mightBeSecretReference = value.StartsWith("plain:", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains('/') ||
+                value.Contains(':');
+
+            if (!mightBeSecretReference)
+                return value;
+
+            try
+            {
+                var resolvedValue = _kmsProvider.GetKMSKey(value);
+                return string.IsNullOrWhiteSpace(resolvedValue) ? value : resolvedValue;
+            }
+            catch
+            {
+                return value;
+            }
+        }
+
+        private static IEnumerable<string> ResolveEmailPasswordCandidates(string? rawPassword)
+        {
+            if (string.IsNullOrWhiteSpace(rawPassword))
+                return Enumerable.Empty<string>();
+
+            var candidates = new List<string>();
+            var normalizedRaw = rawPassword.Trim();
+            var decrypted = SharedFunctions.Decrypt(normalizedRaw);
+
+            AddPasswordCandidate(candidates, decrypted);
+            AddPasswordCandidate(candidates, normalizedRaw);
+
+            return candidates.Where(candidate => !string.IsNullOrWhiteSpace(candidate));
+        }
+
+        private static void AddPasswordCandidate(List<string> candidates, string? rawCandidate)
+        {
+            if (string.IsNullOrWhiteSpace(rawCandidate))
+                return;
+
+            var candidate = rawCandidate.Trim();
+            if (!candidates.Contains(candidate, StringComparer.Ordinal))
+                candidates.Add(candidate);
+
+            var withoutSpaces = candidate.Replace(" ", string.Empty);
+            if (!string.Equals(withoutSpaces, candidate, StringComparison.Ordinal) &&
+                !candidates.Contains(withoutSpaces, StringComparer.Ordinal))
+            {
+                candidates.Add(withoutSpaces);
+            }
+        }
+
+        private static bool LooksLikeSecretReference(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            return value.StartsWith("plain:", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains('/') ||
+                value.Contains(':');
         }
 
         public async Task SendManualEmail(EmailStructure email, Enterprise enterprise)

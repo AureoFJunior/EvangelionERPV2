@@ -63,6 +63,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     throw new InsertDatabaseException($"{nameof(Order)} is null");
 
                 order.Id = Guid.NewGuid();
+                order.Payday = ResolvePaydayForStatus(order.Payday, order.Status);
 
                 var orderedProducts = order.OrderedProduct?.ToList() ?? [];
                 foreach (var orderedProduct in orderedProducts)
@@ -75,6 +76,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 await ExecuteInTransactionAsync(async () =>
                 {
                     VerifyValidValues(ref order);
+                    await ValidateOrderProductsAsync(order);
 
                     await _orderRepository.CreateAsync(order);
                     await _orderedProductRepository.CreateRangeAsync(order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>());
@@ -302,12 +304,9 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     // Use tracked merge to avoid detached-entity overwrite and preserve immutable fields.
                     existentOrder.CustomerId = order.CustomerId ?? existentOrder.CustomerId;
                     existentOrder.UserId = order.UserId ?? existentOrder.UserId;
-                    existentOrder.Payday = order.Payday;
+                    existentOrder.Payday = ResolvePaydayForStatus(order.Payday, order.Status);
                     if (order.PaymentScheduledDate != default)
                         existentOrder.PaymentScheduledDate = order.PaymentScheduledDate;
-
-                    if (order.TotalValue > 0)
-                        existentOrder.TotalValue = order.TotalValue;
 
                     existentOrder.Status = order.Status;
                     existentOrder.OrderedProduct = null;
@@ -394,6 +393,37 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         private static bool IsImmutableStatus(int status)
         {
             return status == (int)EnumOrderStatus.Finished || status == (int)EnumOrderStatus.Refund;
+        }
+
+        private static DateTime? ResolvePaydayForStatus(DateTime? payday, int status)
+        {
+            if (status == (int)EnumOrderStatus.Finished && !payday.HasValue)
+                return DateTime.UtcNow;
+
+            return payday;
+        }
+
+        private async Task ValidateOrderProductsAsync(Order order)
+        {
+            var orderEnterpriseId = order.EnterpriseId ?? Guid.Empty;
+            if (orderEnterpriseId == Guid.Empty)
+                throw new InsertDatabaseException("Order enterprise is required.");
+
+            var requestedProductIds = (order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>())
+                .Select(x => x.ProductId)
+                .Distinct()
+                .ToList();
+
+            if (!requestedProductIds.Any())
+                throw new InsertDatabaseException("Order must contain at least one product.");
+
+            var products = await _productRepository.GetAllAsync(x =>
+                x.IsActive == true &&
+                x.EnterpriseId == orderEnterpriseId &&
+                requestedProductIds.Contains(x.Id));
+
+            if (products.Count() != requestedProductIds.Count)
+                throw new InsertDatabaseException("Some products were not found in enterprise inventory.");
         }
 
         private async Task ExecuteInTransactionAsync(Func<Task> operation)

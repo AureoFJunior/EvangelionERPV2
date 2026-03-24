@@ -1,6 +1,7 @@
 param(
     [string]$EnvFile = ".env.local",
-    [switch]$WithWorkers
+    [switch]$WithWorkers,
+    [switch]$WithOrderWorker
 )
 
 Set-StrictMode -Version Latest
@@ -15,8 +16,8 @@ if (-not (Test-Path $envPath)) {
 
 Set-Location $repoRoot
 
-$profiles = @("--profile", "proxy")
-if ($WithWorkers) {
+$profiles = @("--profile", "proxy", "--profile", "localdb")
+if ($WithWorkers -or $WithOrderWorker) {
     $profiles += @("--profile", "workers")
 }
 

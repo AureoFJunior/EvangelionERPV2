@@ -2,12 +2,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using AutoMapper;
 using Serilog;
-using EvangelionERPV2.OrderModule.Domain.Interface;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
-using EvangelionERPV2.Shared.Utils;
+using EvangelionERPV2.Shared.Repositories;
+using System.Linq;
 using System.Security.Claims;
 
 namespace EvangelionERPV2.Web.Controllers
@@ -17,16 +18,16 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class OrderController : Controller
     {
-        private readonly IOrderRepository<Order> _orderRepository;
         private readonly IOrderService<Order> _orderService;
+        private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
 
         public OrderController(IOrderService<Order> orderService,
-            IOrderRepository<Order> orderRepository,
+            IRepository<User> userRepository,
             IMapper mapper)
         {
             _orderService = orderService;
-            _orderRepository = orderRepository;
+            _userRepository = userRepository;
             _mapper = mapper;
         }
 
@@ -80,23 +81,47 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetOrdersByFilter([FromBody] Order order, bool descending, int? pageNumber = null, int? pageSize = null)
+        public async Task<IActionResult> GetOrdersByFilter([FromBody] OrderFilterRequestDTO? filter, bool descending, int? pageNumber = null, int? pageSize = null)
         {
             try
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                order ??= new Order();
-                order.EnterpriseId = enterpriseId;
-                order.IsActive = true;
+                filter ??= new OrderFilterRequestDTO();
 
-                (IEnumerable<Order> orders, int totalItems) = await _orderRepository.GetAllAsyncFiltering(descending, pageNumber, pageSize, order);
+                var statusFilter = filter.Status;
+                var customerIdFilter = filter.CustomerId;
+                var startDateFilter = filter.StartDate?.Date;
+                var endDateFilter = filter.EndDate?.Date;
+                var isActiveFilter = filter.IsActive;
+
+                var orders = (await _orderService.GetByEnterpriseIdAsync(enterpriseId))
+                    .Where(x =>
+                        (!isActiveFilter.HasValue || x.IsActive == isActiveFilter.Value) &&
+                        (!statusFilter.HasValue || x.Status == statusFilter.Value) &&
+                        (!customerIdFilter.HasValue || x.CustomerId == customerIdFilter.Value) &&
+                        (!startDateFilter.HasValue || x.CreatedAt.Date >= startDateFilter.Value) &&
+                        (!endDateFilter.HasValue || x.CreatedAt.Date <= endDateFilter.Value))
+                    .OrderByDescending(x => x.CreatedAt)
+                    .ToList();
+
+                if (!descending)
+                    orders = orders.OrderBy(x => x.CreatedAt).ToList();
+
+                if (pageNumber.HasValue && pageSize.HasValue && pageNumber.Value > 0 && pageSize.Value > 0)
+                {
+                    orders = orders
+                        .Skip((pageNumber.Value - 1) * pageSize.Value)
+                        .Take(pageSize.Value)
+                        .ToList();
+                }
+
                 if (!orders.Any())
                     return NoContent();
 
                 IEnumerable<OrderDTO> orderDTO = _mapper.Map<IEnumerable<OrderDTO>>(orders);
-                return Ok(orderDTO.ToPaginatedResult(pageNumber ?? 1, pageSize ?? 1, totalItems));
+                return Ok(orderDTO);
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -147,15 +172,15 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> AddOrder([FromBody] Order order)
+        public async Task<IActionResult> AddOrder([FromBody] CreateOrderRequestDTO request)
         {
             try
             {
-                if (!ModelState.IsValid || order == null) return BadRequest(ModelState);
+                if (!ModelState.IsValid || request == null) return BadRequest(ModelState);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                order.EnterpriseId = enterpriseId;
+                var order = MapCreateRequestToOrder(request, enterpriseId, TryGetUserId());
                 await _orderService.InsertOrderInQueue(order);
                 return Ok("Order enqueued successfully");
             }
@@ -174,15 +199,15 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> InsertOrder([FromBody] Order order)
+        public async Task<IActionResult> InsertOrder([FromBody] CreateOrderRequestDTO request)
         {
             try
             {
-                if (!ModelState.IsValid || order == null) return BadRequest(ModelState);
+                if (!ModelState.IsValid || request == null) return BadRequest(ModelState);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                order.EnterpriseId = enterpriseId;
+                var order = MapCreateRequestToOrder(request, enterpriseId, TryGetUserId());
                 await _orderService.CreateAsync(order);
                 return Ok("Order created successfully");
             }
@@ -202,13 +227,18 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateOrder([FromBody] Order order)
+        public async Task<IActionResult> UpdateOrder([FromBody] UpdateOrderRequestDTO request)
         {
             try
             {
-                if (!ModelState.IsValid || order == null) return BadRequest(ModelState);
+                if (!ModelState.IsValid || request == null) return BadRequest(ModelState);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
+
+                var order = MapUpdateRequestToOrder(request);
 
                 Order updatedOrder = _orderService.Update(order, enterpriseId);
 
@@ -240,6 +270,9 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
 
                 var reason = request?.Reason ?? string.Empty;
                 var refundedOrder = await _orderService.RefundAsync(id, enterpriseId, reason);
@@ -277,6 +310,9 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!ModelState.IsValid) return BadRequest(ModelState);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
 
                 Order order = _orderService.Delete(id, enterpriseId);
                 if (order == null)
@@ -299,6 +335,71 @@ namespace EvangelionERPV2.Web.Controllers
         {
             var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
+        }
+
+        private Guid? TryGetUserId()
+        {
+            var claimValue = User.FindFirst(ClaimTypes.Sid)?.Value
+                             ?? User.FindFirst("uid")?.Value;
+
+            if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
+                return userId;
+
+            return null;
+        }
+
+        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
+        {
+            if (!userId.HasValue || enterpriseId == Guid.Empty)
+                return null;
+
+            var user = await _userRepository.GetByIdAsync(userId.Value);
+            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
+                return null;
+
+            return user.AccessLevel;
+        }
+
+        private static bool IsManagementAccess(short? accessLevel)
+        {
+            return accessLevel.HasValue && accessLevel.Value <= (short)EnumAccessLevel.Supervisor;
+        }
+
+        private static Order MapCreateRequestToOrder(CreateOrderRequestDTO request, Guid enterpriseId, Guid? userId)
+        {
+            var orderedProducts = (request.Items ?? Enumerable.Empty<OrderLineItemRequestDTO>())
+                .Select(item => new OrderedProduct
+                {
+                    ProductId = item.ProductId,
+                    Quantity = item.Quantity,
+                    Value = item.Value,
+                    IsActive = true
+                })
+                .ToList();
+
+            return new Order
+            {
+                EnterpriseId = enterpriseId,
+                CustomerId = request.CustomerId,
+                UserId = userId,
+                PaymentScheduledDate = request.PaymentScheduledDate,
+                Status = request.Status,
+                OrderedProduct = orderedProducts
+            };
+        }
+
+        private static Order MapUpdateRequestToOrder(UpdateOrderRequestDTO request)
+        {
+            var order = new Order
+            {
+                Id = request.Id,
+                CustomerId = request.CustomerId,
+                PaymentScheduledDate = request.PaymentScheduledDate ?? default,
+                Status = request.Status,
+                Payday = request.Payday
+            };
+
+            return order;
         }
 
         private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)

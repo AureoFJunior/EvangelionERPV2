@@ -859,6 +859,50 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("OrderedProduct");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PasswordResetToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("int");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
+
+                    b.HasIndex("UserId", "IsActive", "ExpiresAt");
+
+                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
+
+                    b.ToTable("PasswordResetToken");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PayableBill", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1279,6 +1323,17 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("Order");
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PasswordResetToken", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PayableBill", b =>

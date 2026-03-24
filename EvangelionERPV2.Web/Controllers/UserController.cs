@@ -1,5 +1,7 @@
 using AutoMapper;
+using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
@@ -7,7 +9,9 @@ using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Token;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
 using Serilog;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Security.Claims;
 
@@ -24,14 +28,19 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider _kmsProvider;
         private readonly TokenService _tokenService;
+        private readonly IEmailService<EmailStructure> _emailService;
         private static readonly HttpClient _httpClient = new HttpClient();
+        private static readonly ConcurrentDictionary<string, ResetPasswordRateLimitEntry> _resetPasswordRateLimit = new();
+        private static readonly TimeSpan _resetPasswordRateLimitWindow = TimeSpan.FromMinutes(15);
+        private const int ResetPasswordRateLimitMaxFailedAttempts = 5;
 
         public UserController(IUserService<Shared.Entities.User> userService,
             EvangelionERPV2.Shared.Repositories.IRepository<Shared.Entities.User> userRepository,
             IMapper mapper,
             IConfiguration configuration,
             AWSKMSKeyProvider kmsProvider,
-            TokenService tokenService)
+            TokenService tokenService,
+            IEmailService<EmailStructure> emailService)
         {
             _userService = userService;
             _userRepository = userRepository;
@@ -39,6 +48,7 @@ namespace EvangelionERPV2.Web.Controllers
             _configuration = configuration;
             _kmsProvider = kmsProvider;
             _tokenService = tokenService;
+            _emailService = emailService;
         }
 
         /// <summary>
@@ -470,6 +480,84 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        public sealed class RequestPasswordResetRequest
+        {
+            public string Email { get; set; } = string.Empty;
+        }
+
+        public sealed class ResetPasswordRequest
+        {
+            public string Email { get; set; } = string.Empty;
+            public string Token { get; set; } = string.Empty;
+            public string NewPassword { get; set; } = string.Empty;
+        }
+
+        [HttpPost]
+        [AllowAnonymous]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> RequestPasswordReset([FromBody] RequestPasswordResetRequest request)
+        {
+            try
+            {
+                var email = request?.Email?.Trim() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(email))
+                {
+                    var token = await _userService.CreatePasswordResetTokenAsync(email);
+                    if (!string.IsNullOrWhiteSpace(token))
+                        await TrySendPasswordResetEmailAsync(email, token);
+                }
+
+                return Ok(new { message = "If the email exists, reset instructions were sent." });
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        [HttpPost]
+        [AllowAnonymous]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+        {
+            var rateLimitKey = BuildResetPasswordRateLimitKey(request?.Email);
+            if (IsResetPasswordRateLimited(rateLimitKey))
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests, "Too many password reset attempts. Please try again later.");
+            }
+
+            try
+            {
+                if (request == null)
+                {
+                    RegisterResetPasswordFailure(rateLimitKey);
+                    return BadRequest("Invalid password reset request.");
+                }
+
+                await _userService.ResetPasswordAsync(
+                    request.Email ?? string.Empty,
+                    request.Token ?? string.Empty,
+                    request.NewPassword ?? string.Empty);
+
+                ClearResetPasswordFailures(rateLimitKey);
+                return Ok(new { message = "Password updated successfully." });
+            }
+            catch (ArgumentException)
+            {
+                RegisterResetPasswordFailure(rateLimitKey);
+                return BadRequest("Invalid password reset request.");
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
         public sealed class UpdateThemeRequest
         {
             public short Theme { get; set; }
@@ -696,5 +784,99 @@ namespace EvangelionERPV2.Web.Controllers
         {
             return accessLevel.HasValue && accessLevel.Value == (short)EnumAccessLevel.Admin;
         }
+
+
+        private string BuildResetPasswordRateLimitKey(string? email)
+        {
+            var callerIp = ResolveCallerIpAddress();
+            var normalizedEmail = (email ?? string.Empty).Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(normalizedEmail))
+                normalizedEmail = "<empty>";
+
+            return $"{callerIp}:{normalizedEmail}";
+        }
+
+        private string ResolveCallerIpAddress()
+        {
+            if (Request.Headers.TryGetValue("X-Real-IP", out var realIp) && !string.IsNullOrWhiteSpace(realIp))
+                return realIp.ToString().Trim();
+
+            if (Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor) && !string.IsNullOrWhiteSpace(forwardedFor))
+                return forwardedFor.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+
+            return HttpContext?.Connection?.RemoteIpAddress?.ToString() ?? "unknown";
+        }
+
+        private bool IsResetPasswordRateLimited(string key)
+        {
+            var now = DateTime.UtcNow;
+            if (!_resetPasswordRateLimit.TryGetValue(key, out var entry))
+                return false;
+
+            if (now - entry.WindowStartedAt >= _resetPasswordRateLimitWindow)
+            {
+                _resetPasswordRateLimit.TryRemove(key, out _);
+                return false;
+            }
+
+            return entry.FailedAttempts >= ResetPasswordRateLimitMaxFailedAttempts;
+        }
+
+        private void RegisterResetPasswordFailure(string key)
+        {
+            var now = DateTime.UtcNow;
+
+            _resetPasswordRateLimit.AddOrUpdate(
+                key,
+                _ => new ResetPasswordRateLimitEntry(now, 1),
+                (_, existing) => now - existing.WindowStartedAt >= _resetPasswordRateLimitWindow
+                    ? new ResetPasswordRateLimitEntry(now, 1)
+                    : existing with { FailedAttempts = existing.FailedAttempts + 1 });
+        }
+
+        private static void ClearResetPasswordFailures(string key)
+        {
+            _resetPasswordRateLimit.TryRemove(key, out _);
+        }
+
+        private async Task TrySendPasswordResetEmailAsync(string email, string token)
+        {
+            try
+            {
+                var resetLink = BuildPasswordResetLink(email, token);
+                var body = string.IsNullOrWhiteSpace(resetLink)
+                    ? $"Use this code to reset your password: <b>{token}</b><br/>Code expires in 15 minutes."
+                    : $"Use this link to reset your password: <a href=\"{resetLink}\">{resetLink}</a><br/>" +
+                      $"If needed, use this code manually: <b>{token}</b><br/>Code expires in 15 minutes.";
+
+                var emailStructure = new EmailStructure(body, "Password reset", [email]);
+                var message = await _emailService.CreateEmail(emailStructure);
+                await _emailService.SendEmail(message);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(ex, "Unable to send password reset e-mail to {Email}", email);
+            }
+        }
+
+        private string? BuildPasswordResetLink(string email, string token)
+        {
+            var frontendBaseUrl = _configuration.GetSection("Frontend")["BaseUrl"];
+            if (string.IsNullOrWhiteSpace(frontendBaseUrl) ||
+                !Uri.TryCreate(frontendBaseUrl, UriKind.Absolute, out var _))
+            {
+                Log.Logger.Warning("Frontend:BaseUrl is missing or invalid. Sending password reset token without link.");
+                return null;
+            }
+
+            return QueryHelpers.AddQueryString(frontendBaseUrl, new Dictionary<string, string?>
+            {
+                ["mode"] = "reset-password",
+                ["email"] = email,
+                ["token"] = token
+            });
+        }
+
+        private sealed record ResetPasswordRateLimitEntry(DateTime WindowStartedAt, int FailedAttempts);
     }
 }
