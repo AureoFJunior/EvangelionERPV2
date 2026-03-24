@@ -2,12 +2,11 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using AutoMapper;
 using Serilog;
-using EvangelionERPV2.ProductModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Exceptions;
-using EvangelionERPV2.Shared.Utils;
+using System.Linq;
 using System.Security.Claims;
 
 namespace EvangelionERPV2.Web.Controllers
@@ -17,19 +16,16 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class ProductController : Controller
     {
-        private readonly IProductRepository<Product> _productRepository;
         private readonly IProductService<Product> _productService;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _repository;
         private readonly IMapper _mapper;
 
         public ProductController(IProductService<Product> productService,
             EvangelionERPV2.Shared.Repositories.IRepository<Product> repository,
-            IProductRepository<Product> productRepository,
             IMapper mapper)
         {
             _productService = productService;
             _repository = repository;
-            _productRepository = productRepository;
             _mapper = mapper;
         }
 
@@ -72,21 +68,30 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetProductsByFilter([FromBody] Product product, bool descending, int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = false)
+        public async Task<IActionResult> GetProductsByFilter([FromBody] ProductFilterRequestDTO? filter, bool descending, int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = false)
         {
             try
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                product.EnterpriseId = enterpriseId;
+                filter ??= new ProductFilterRequestDTO();
+                var nameFilter = filter.Name?.Trim();
+                var isActiveFilter = filter.IsActive;
 
-                (IEnumerable<Product> products, int totalItems) = await _productRepository.GetAllAsyncFiltering(descending, pageNumber, pageSize, product);
-                if (products == null)
+                var products = await _repository.GetAllAsync(
+                    pageNumber,
+                    pageSize,
+                    x =>
+                        x.EnterpriseId == enterpriseId &&
+                        (!isActiveFilter.HasValue || x.IsActive == isActiveFilter.Value) &&
+                        (string.IsNullOrWhiteSpace(nameFilter) || x.Name.Contains(nameFilter, StringComparison.OrdinalIgnoreCase)));
+
+                if (products == null || !products.Any())
                     return NoContent();
 
                 IEnumerable<ProductDTO> productDTO = await ToProductDtosAsync(products, includePictures);
-                return Ok(productDTO.ToPaginatedResult(pageNumber ?? 1, pageSize ?? 1, totalItems));
+                return Ok(productDTO);
             }
             catch (NotFoundDatabaseException exnf)
             {
@@ -112,8 +117,11 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
                 Product product = await _repository.GetByIdAsync(id);
-                if (product == null)
+                if (product == null || product.EnterpriseId != enterpriseId || product.IsActive != true)
                     return NoContent();
 
                 return Ok(await ToProductDtoAsync(product));
@@ -134,11 +142,32 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> AddProduct([FromBody] ProductPicture product)
+        public async Task<IActionResult> AddProduct([FromBody] CreateProductRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (request == null) return BadRequest();
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var product = new ProductPicture
+                {
+                    Product = new Product
+                    {
+                        Name = request.Name.Trim(),
+                        Description = request.Description?.Trim() ?? string.Empty,
+                        DefaultValue = request.DefaultValue,
+                        StorageQuantity = request.StorageQuantity,
+                        UnitOfMeasure = request.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty,
+                        IsExternal = request.IsExternal,
+                        IsService = request.IsService,
+                        PictureAdress = request.PictureAdress,
+                        EnterpriseId = enterpriseId,
+                        IsActive = true
+                    },
+                    File = request.File ?? string.Empty
+                };
 
                 Product createdProduct = await _productService.CreateAsync(product);
                 if (createdProduct == null)
@@ -162,13 +191,32 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateProduct([FromBody] Product product)
+        public async Task<IActionResult> UpdateProduct([FromBody] UpdateProductRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (request == null) return BadRequest();
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
-                Product updatedProduct = await _productService.UpdateAsync(product);
+                var existentProduct = await _repository.GetByIdAsync(request.Id);
+                if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
+                    return NoContent();
+
+                existentProduct.Name = request.Name.Trim();
+                existentProduct.Description = request.Description?.Trim() ?? string.Empty;
+                existentProduct.DefaultValue = request.DefaultValue;
+                existentProduct.StorageQuantity = request.StorageQuantity;
+                existentProduct.UnitOfMeasure = request.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty;
+                existentProduct.IsExternal = request.IsExternal;
+                existentProduct.IsService = request.IsService;
+                if (!string.IsNullOrWhiteSpace(request.PictureAdress))
+                    existentProduct.PictureAdress = request.PictureAdress.Trim();
+                existentProduct.IsActive = request.IsActive ?? existentProduct.IsActive;
+                existentProduct.UpdatedAt = DateTime.UtcNow;
+
+                Product updatedProduct = await _productService.UpdateAsync(existentProduct);
 
                 if (updatedProduct == null)
                     return NoContent();
@@ -195,6 +243,12 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var existentProduct = await _repository.GetByIdAsync(id);
+                if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
+                    return NoContent();
 
                 Product product = _productService.Delete(id);
                 if (product == null)
@@ -218,13 +272,29 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UploadPicture([FromBody] ProductPicture productPicture)
+        public async Task<IActionResult> UploadPicture([FromBody] UploadProductPictureRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (request == null || request.ProductId == Guid.Empty)
+                    return BadRequest("Product id is required.");
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
-                Product updatedProduct = await _productService.UpdatePictureAsync(productPicture);
+                var existentProduct = await _repository.GetByIdAsync(request.ProductId);
+                if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
+                    return NoContent();
+
+                existentProduct.UpdatedAt = DateTime.UtcNow;
+
+                var normalizedPayload = new ProductPicture
+                {
+                    Product = existentProduct,
+                    File = request.File
+                };
+
+                Product updatedProduct = await _productService.UpdatePictureAsync(normalizedPayload);
 
                 if (updatedProduct == null)
                     return NoContent();

@@ -43,6 +43,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (payableBill == null)
                 throw new InsertDatabaseException($"{nameof(PayableBill)} is null.");
 
+            if (payableBill.EnterpriseId == Guid.Empty)
+                throw new InsertDatabaseException("Payable bill enterprise is required.");
+
             await ExecuteInTransactionAsync(async () =>
             {
                 // Always generate a fresh identifier for create operations.
@@ -54,6 +57,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 payableBill.RefundReason = null;
                 payableBill.RefundedAt = null;
                 payableBill.BillType = NormalizeBillType(payableBill.BillType);
+                payableBill.PaidAt = payableBill.IsPaid
+                    ? (payableBill.PaidAt ?? DateTime.UtcNow)
+                    : null;
 
                 var hasProvidedItems = payableBill.Items?.Any() == true;
                 var normalizedItems = hasProvidedItems
@@ -62,6 +68,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 if (hasProvidedItems)
                     payableBill.Amount = normalizedItems.Sum(x => x.LineAmount);
+                else
+                    payableBill.Amount = payableBill.Amount > 0 ? payableBill.Amount : 0;
 
                 payableBill.Items = null;
 
@@ -141,8 +149,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 existing.Description = payableBill.Description;
                 existing.DueDate = payableBill.DueDate;
-                existing.PaidAt = payableBill.PaidAt;
                 existing.IsPaid = payableBill.IsPaid;
+                existing.PaidAt = payableBill.IsPaid
+                    ? (payableBill.PaidAt ?? DateTime.UtcNow)
+                    : null;
                 existing.BillType = NormalizeBillType(payableBill.BillType);
                 existing.UpdatedAt = DateTime.UtcNow;
                 existing.Amount = hasProvidedItems ? normalizedItems.Sum(x => x.LineAmount) : payableBill.Amount;

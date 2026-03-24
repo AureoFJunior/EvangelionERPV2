@@ -367,3 +367,4 @@ FodyWeavers.xsd
 .env.local
 .env.ec2
 .env
+docs/OpportunityRadar_Diagnostico.md

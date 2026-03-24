@@ -76,6 +76,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 await ExecuteInTransactionAsync(async () =>
                 {
                     VerifyValidValues(ref order);
+                    await ValidateOrderProductsAsync(order);
 
                     await _orderRepository.CreateAsync(order);
                     await _orderedProductRepository.CreateRangeAsync(order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>());
@@ -307,9 +308,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (order.PaymentScheduledDate != default)
                         existentOrder.PaymentScheduledDate = order.PaymentScheduledDate;
 
-                    if (order.TotalValue > 0)
-                        existentOrder.TotalValue = order.TotalValue;
-
                     existentOrder.Status = order.Status;
                     existentOrder.OrderedProduct = null;
                     existentOrder.UpdatedAt = DateTime.UtcNow;
@@ -403,6 +401,29 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 return DateTime.UtcNow;
 
             return payday;
+        }
+
+        private async Task ValidateOrderProductsAsync(Order order)
+        {
+            var orderEnterpriseId = order.EnterpriseId ?? Guid.Empty;
+            if (orderEnterpriseId == Guid.Empty)
+                throw new InsertDatabaseException("Order enterprise is required.");
+
+            var requestedProductIds = (order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>())
+                .Select(x => x.ProductId)
+                .Distinct()
+                .ToList();
+
+            if (!requestedProductIds.Any())
+                throw new InsertDatabaseException("Order must contain at least one product.");
+
+            var products = await _productRepository.GetAllAsync(x =>
+                x.IsActive == true &&
+                x.EnterpriseId == orderEnterpriseId &&
+                requestedProductIds.Contains(x.Id));
+
+            if (products.Count() != requestedProductIds.Count)
+                throw new InsertDatabaseException("Some products were not found in enterprise inventory.");
         }
 
         private async Task ExecuteInTransactionAsync(Func<Task> operation)

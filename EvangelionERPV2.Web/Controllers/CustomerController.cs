@@ -1,13 +1,15 @@
 using System.Security.Claims;
 using AutoMapper;
 using EvangelionERPV2.CustomerModule.Application.Interface;
-using EvangelionERPV2.CustomerModule.Domain.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
+using EvangelionERPV2.Shared.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
+using System.Linq;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -18,17 +20,17 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private readonly ICustomerService<Customer> _customerService;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _repository;
-        private readonly ICustomerRepository<Customer> _customerRepository;
+        private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
 
         public CustomerController(ICustomerService<Customer> customerService,
             EvangelionERPV2.Shared.Repositories.IRepository<Customer> repository,
-            ICustomerRepository<Customer> customerRepository,
+            IRepository<User> userRepository,
             IMapper mapper)
         {
             _customerService = customerService;
             _repository = repository;
-            _customerRepository = customerRepository;
+            _userRepository = userRepository;
             _mapper = mapper;
         }
 
@@ -83,17 +85,32 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetCustomersByFilter([FromBody] Customer customer, bool descending, int? pageNumber = null, int? pageSize = null)
+        public async Task<IActionResult> GetCustomersByFilter([FromBody] CustomerFilterRequestDTO? filter, bool descending, int? pageNumber = null, int? pageSize = null)
         {
             try
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                customer.EnterpriseId = enterpriseId;
+                filter ??= new CustomerFilterRequestDTO();
+                var nameFilter = filter.Name?.Trim();
+                var emailFilter = filter.Email?.Trim();
+                var documentFilter = filter.Document?.Trim();
+                var phoneFilter = filter.PhoneNumber?.Trim();
+                var isActiveFilter = filter.IsActive;
 
-                IEnumerable<Customer> customers = await _customerRepository.GetAllAsyncFiltering(descending, pageNumber, pageSize, customer);
-                if (customers == null)
+                var customers = await _repository.GetAllAsync(
+                    pageNumber,
+                    pageSize,
+                    x =>
+                        x.EnterpriseId == enterpriseId &&
+                        (!isActiveFilter.HasValue || x.IsActive == isActiveFilter.Value) &&
+                        (string.IsNullOrWhiteSpace(nameFilter) || x.Name.Contains(nameFilter, StringComparison.OrdinalIgnoreCase)) &&
+                        (string.IsNullOrWhiteSpace(emailFilter) || x.Email.Contains(emailFilter, StringComparison.OrdinalIgnoreCase)) &&
+                        (string.IsNullOrWhiteSpace(documentFilter) || (x.Document != null && x.Document.Contains(documentFilter, StringComparison.OrdinalIgnoreCase))) &&
+                        (string.IsNullOrWhiteSpace(phoneFilter) || x.PhoneNumber.Contains(phoneFilter, StringComparison.OrdinalIgnoreCase)));
+
+                if (customers == null || !customers.Any())
                     return NoContent();
 
                 IEnumerable<CustomerDTO> customerDTO = _mapper.Map<IEnumerable<CustomerDTO>>(customers);
@@ -123,8 +140,11 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
                 Customer customer = await _repository.GetByIdAsync(id);
-                if (customer == null)
+                if (customer == null || customer.EnterpriseId != enterpriseId || customer.IsActive != true)
                     return NoContent();
 
                 CustomerDTO customerDTO = _mapper.Map<CustomerDTO>(customer);
@@ -146,14 +166,18 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> AddCustomer([FromBody] Customer customer)
+        public async Task<IActionResult> AddCustomer([FromBody] CreateCustomerRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (request == null) return BadRequest();
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
+                var customer = MapCreateCustomerRequest(request, enterpriseId);
                 Customer createdCustomer = await _customerService.CreateAsync(customer);
-                return Ok(createdCustomer);
+                return Ok(_mapper.Map<CustomerDTO>(createdCustomer));
             }
             catch (Exception)
             {
@@ -171,18 +195,36 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateCustomer([FromBody] Customer customer)
+        public async Task<IActionResult> UpdateCustomer([FromBody] UpdateCustomerRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (request == null) return BadRequest();
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
 
-                Customer updatedCustomer = _customerService.Update(customer);
+                var existingCustomer = await _repository.GetByIdAsync(request.Id);
+                if (existingCustomer == null || existingCustomer.EnterpriseId != enterpriseId || existingCustomer.IsActive != true)
+                    return NoContent();
+
+                existingCustomer.Name = request.Name.Trim();
+                existingCustomer.Email = request.Email.Trim();
+                existingCustomer.PhoneNumber = request.PhoneNumber.Trim();
+                existingCustomer.Adress = request.Adress.Trim();
+                existingCustomer.Document = request.Document?.Trim();
+                existingCustomer.IsActive = request.IsActive;
+                existingCustomer.UpdatedAt = DateTime.UtcNow;
+
+                Customer updatedCustomer = _customerService.Update(existingCustomer);
 
                 if (updatedCustomer == null)
                     return NoContent();
 
-                return Ok(customer);
+                return Ok(_mapper.Map<CustomerDTO>(updatedCustomer));
             }
             catch (Exception)
             {
@@ -204,17 +246,68 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
 
-                Customer customer = _customerService.Delete(id);
-                if (customer == null)
+                var customer = await _repository.GetByIdAsync(id);
+                if (customer == null || customer.EnterpriseId != enterpriseId || customer.IsActive != true)
                     return NoContent();
 
-                return Ok(customer);
+                Customer deletedCustomer = _customerService.Delete(id);
+                if (deletedCustomer == null)
+                    return NoContent();
+
+                return Ok(_mapper.Map<CustomerDTO>(deletedCustomer));
             }
             catch (Exception)
             {
                 throw;
             }
+        }
+
+        private static Customer MapCreateCustomerRequest(CreateCustomerRequestDTO request, Guid enterpriseId)
+        {
+            return new Customer
+            {
+                Name = request.Name.Trim(),
+                Email = request.Email.Trim(),
+                PhoneNumber = request.PhoneNumber.Trim(),
+                Adress = request.Adress.Trim(),
+                Document = request.Document?.Trim(),
+                EnterpriseId = enterpriseId,
+                IsActive = request.IsActive ?? true
+            };
+        }
+
+        private Guid? TryGetUserId()
+        {
+            var claimValue = User.FindFirst(ClaimTypes.Sid)?.Value
+                             ?? User.FindFirst("uid")?.Value;
+
+            if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
+                return userId;
+
+            return null;
+        }
+
+        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
+        {
+            if (!userId.HasValue || enterpriseId == Guid.Empty)
+                return null;
+
+            var user = await _userRepository.GetByIdAsync(userId.Value);
+            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
+                return null;
+
+            return user.AccessLevel;
+        }
+
+        private static bool IsManagementAccess(short? accessLevel)
+        {
+            return accessLevel.HasValue && accessLevel.Value <= (short)EnumAccessLevel.Supervisor;
         }
 
         private bool TryGetEnterpriseId(out Guid enterpriseId)
