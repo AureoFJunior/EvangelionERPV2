@@ -7,6 +7,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.EnterpriseModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Exceptions;
+using EvangelionERPV2.Shared.Utils;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -15,6 +16,11 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class EnterpriseController : Controller
     {
+        private const int DefaultPageNumber = 1;
+        private const int DefaultPageSize = 50;
+        private const int MaxPageSize = 200;
+        private const int MaxEnterpriseWriteRequestBodySizeInBytes = 64 * 1024;
+
         private readonly IEnterpriseRepository<Enterprise> _enterpriseRepository;
         private readonly IEnterpriseService<Enterprise> _enterpriseService;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _repository;
@@ -47,8 +53,9 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ModelState);
+                var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
 
-                IEnumerable<Enterprise> enterprises = await _repository.GetAllAsync(pageNumber, pageSize);
+                IEnumerable<Enterprise> enterprises = await _repository.GetAllAsync(normalizedPageNumber, normalizedPageSize);
                 if (enterprises == null)
                     return NoContent();
 
@@ -57,7 +64,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "Enterprises not found");
+                Log.Logger.Error("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -75,6 +82,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="enterprise">Object used to filter data.</param>
         /// <returns></returns>
         [HttpPost("{descending}/{pageNumber?}/{pageSize?}")]
+        [RequestSizeLimit(MaxEnterpriseWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(IEnumerable<EnterpriseDTO>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -83,7 +91,12 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                IEnumerable<Enterprise> enterprises = await _enterpriseRepository.GetAllAsyncFiltering(descending, pageNumber, pageSize, enterprise);
+                var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
+                IEnumerable<Enterprise> enterprises = await _enterpriseRepository.GetAllAsyncFiltering(
+                    descending,
+                    normalizedPageNumber,
+                    normalizedPageSize,
+                    enterprise);
                 if (enterprises == null)
                     return NoContent();
 
@@ -92,7 +105,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "Enterprises not found");
+                Log.Logger.Error("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -133,6 +146,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="enterprise">Enterprise to be added</param>
         /// <returns>The added enterprise</returns>
         [HttpPost]
+        [RequestSizeLimit(MaxEnterpriseWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(EnterpriseDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -158,6 +172,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="enterprise">Enterprise to be updated</param>
         /// <returns>The updated enterprise</returns>
         [HttpPut]
+        [RequestSizeLimit(MaxEnterpriseWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(EnterpriseDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]

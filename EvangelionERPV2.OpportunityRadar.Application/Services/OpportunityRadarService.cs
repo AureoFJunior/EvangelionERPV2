@@ -352,14 +352,14 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     stopwatch.Stop();
 
                     runLog.Status = "failed";
-                    runLog.ErrorMessage = ex.Message;
+                    runLog.ErrorMessage = $"ErrorType={ex.GetType().Name}";
                     runLog.DurationMs = (int)stopwatch.ElapsedMilliseconds;
                     runLog.FinishedAt = DateTime.UtcNow;
                     runLog.UpdatedAt = DateTime.UtcNow;
                     _runLogRepository.Update(runLog);
                     await _runLogRepository.CommitAsync();
 
-                    Log.Error(ex, "Radar recompute failed for enterprise {EnterpriseId}", enterpriseId);
+                    Log.Error("Radar recompute failed for enterprise {EnterpriseId}. ErrorType={ErrorType}", enterpriseId, ex.GetType().Name);
                     throw;
                 }
             }

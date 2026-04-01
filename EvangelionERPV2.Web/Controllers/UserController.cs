@@ -7,13 +7,17 @@ using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Token;
+using EvangelionERPV2.Web.FluentValidator;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Serilog;
 using System.Collections.Concurrent;
-using System.Text.Json;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -31,8 +35,21 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IEmailService<EmailStructure> _emailService;
         private static readonly HttpClient _httpClient = new HttpClient();
         private static readonly ConcurrentDictionary<string, ResetPasswordRateLimitEntry> _resetPasswordRateLimit = new();
+        private static readonly object _resetPasswordRateLimitSync = new();
         private static readonly TimeSpan _resetPasswordRateLimitWindow = TimeSpan.FromMinutes(15);
+        private static readonly TimeSpan _resetPasswordRateLimitCleanupInterval = TimeSpan.FromMinutes(1);
+        private static long _lastResetPasswordRateLimitCleanupTicks;
         private const int ResetPasswordRateLimitMaxFailedAttempts = 5;
+        private const int ResetPasswordRateLimitMaxEntries = 5000;
+        private const int MaxProfilePictureSizeInBytes = 5 * 1024 * 1024;
+        private const int MaxProfilePictureRequestBodySizeInBytes = 8 * 1024 * 1024;
+        private const int MaxPasswordResetRequestBodySizeInBytes = 16 * 1024;
+        private const int MaxAnonymousLoginRequestBodySizeInBytes = 32 * 1024;
+        private const int MaxUserWriteRequestBodySizeInBytes = 64 * 1024;
+        private const int DefaultPageNumber = 1;
+        private const int DefaultPageSize = 50;
+        private const int MaxPageSize = 200;
+        private const int MaxPageSizeWithPictures = 50;
 
         public UserController(IUserService<Shared.Entities.User> userService,
             EvangelionERPV2.Shared.Repositories.IRepository<Shared.Entities.User> userRepository,
@@ -58,6 +75,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <returns></returns>
         [HttpPost]
         [AllowAnonymous]
+        [RequestSizeLimit(MaxAnonymousLoginRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -91,7 +109,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "User not found");
+                Log.Logger.Error("User not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -107,6 +125,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         [HttpPost]
         [AllowAnonymous]
+        [RequestSizeLimit(MaxAnonymousLoginRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -151,6 +170,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         [HttpPost]
         [AllowAnonymous]
+        [RequestSizeLimit(MaxAnonymousLoginRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -185,7 +205,8 @@ namespace EvangelionERPV2.Web.Controllers
 
                 if (!string.IsNullOrWhiteSpace(tokenResponse.Error))
                 {
-                    Log.Logger.Error("Google token exchange failed: {Error} {Description}", tokenResponse.Error, tokenResponse.ErrorDescription);
+                    var safeProviderErrorCode = GetSafeGoogleProviderErrorCode(tokenResponse.Error);
+                    Log.Logger.Warning("Google token exchange failed. ProviderError={ProviderError}", safeProviderErrorCode);
                     return Unauthorized(tokenResponse.ErrorDescription ?? "Invalid Google authorization code.");
                 }
 
@@ -321,7 +342,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetUsers([FromQuery] bool includePictures = false)
+        public async Task<IActionResult> GetUsers(int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = false)
         {
             try
             {
@@ -335,7 +356,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!IsAdminAccess(callerAccess))
                     return Forbid();
 
-                var users = await _userRepository.GetAllAsync(x =>
+                var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
+                if (includePictures && normalizedPageSize > MaxPageSizeWithPictures)
+                    normalizedPageSize = MaxPageSizeWithPictures;
+
+                var users = await _userRepository.GetAllAsync(normalizedPageNumber, normalizedPageSize, x =>
                     x.IsActive == true &&
                     x.EnterpriseId.HasValue &&
                     x.EnterpriseId.Value == enterpriseId);
@@ -347,7 +372,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "Enterprises not found");
+                Log.Logger.Error("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -387,7 +412,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "User not found");
+                Log.Logger.Error("User not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -402,6 +427,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="user">User to be added</param>
         /// <returns>The added user</returns>
         [HttpPost]
+        [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -439,6 +465,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="user">User to be updated</param>
         /// <returns>The updated user</returns>
         [HttpPut]
+        [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -494,6 +521,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [HttpPost]
         [AllowAnonymous]
+        [RequestSizeLimit(MaxPasswordResetRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -502,7 +530,9 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 var email = request?.Email?.Trim() ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(email))
+                if (!string.IsNullOrWhiteSpace(email) &&
+                    email.Length <= 254 &&
+                    await SharedFunctions.IsEmailValid<string>(email))
                 {
                     var token = await _userService.CreatePasswordResetTokenAsync(email);
                     if (!string.IsNullOrWhiteSpace(token))
@@ -519,6 +549,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [HttpPost]
         [AllowAnonymous]
+        [RequestSizeLimit(MaxPasswordResetRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
@@ -577,6 +608,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// Update the current user's theme preference.
         /// </summary>
         [HttpPut]
+        [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -615,6 +647,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// Update the current user's language preference.
         /// </summary>
         [HttpPut]
+        [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -656,6 +689,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// Update the current user's profile picture.
         /// </summary>
         [HttpPut]
+        [RequestSizeLimit(MaxProfilePictureRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -668,6 +702,19 @@ namespace EvangelionERPV2.Web.Controllers
                 var userName = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
                 if (string.IsNullOrWhiteSpace(userName))
                     return Unauthorized();
+
+                var profilePicturePayload = request?.ProfilePicture;
+                if (!string.IsNullOrWhiteSpace(profilePicturePayload))
+                {
+                    if (!Base64PayloadValidationHelper.IsValidBase64Payload(profilePicturePayload))
+                        return BadRequest("ProfilePicture must be a valid base64 payload.");
+
+                    if (!Base64PayloadValidationHelper.IsWithinDecodedSizeLimit(profilePicturePayload, MaxProfilePictureSizeInBytes))
+                        return BadRequest("ProfilePicture must be 5 MB or smaller.");
+
+                    if (!Base64PayloadValidationHelper.HasSupportedImageSignature(profilePicturePayload))
+                        return BadRequest("ProfilePicture must be PNG, JPEG, GIF, or WEBP.");
+                }
 
                 Shared.Entities.User? user = _userRepository
                     .GetByCondition(x => x != null && x.UserName == userName)
@@ -785,6 +832,21 @@ namespace EvangelionERPV2.Web.Controllers
             return accessLevel.HasValue && accessLevel.Value == (short)EnumAccessLevel.Admin;
         }
 
+        private static string GetSafeGoogleProviderErrorCode(string? providerError)
+        {
+            var rawError = (providerError ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(rawError))
+                return "unknown";
+
+            var normalized = Regex.Replace(rawError, "[^a-zA-Z0-9_.-]+", string.Empty, RegexOptions.CultureInvariant);
+            if (string.IsNullOrWhiteSpace(normalized))
+                return "unknown";
+
+            return normalized.Length <= 64
+                ? normalized
+                : normalized[..64];
+        }
+
 
         private string BuildResetPasswordRateLimitKey(string? email)
         {
@@ -793,23 +855,36 @@ namespace EvangelionERPV2.Web.Controllers
             if (string.IsNullOrWhiteSpace(normalizedEmail))
                 normalizedEmail = "<empty>";
 
-            return $"{callerIp}:{normalizedEmail}";
+            return ComputeStableRateLimitKey($"{callerIp}:{normalizedEmail}");
+        }
+
+        private static string ComputeStableRateLimitKey(string source)
+        {
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(source ?? string.Empty));
+            return Convert.ToHexString(bytes).ToLowerInvariant();
+        }
+
+        private static string GetLogSafeEmailIdentifier(string? email)
+        {
+            var normalizedEmail = (email ?? string.Empty).Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(normalizedEmail))
+                return "empty";
+
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedEmail));
+            return Convert.ToHexString(bytes).ToLowerInvariant()[..12];
         }
 
         private string ResolveCallerIpAddress()
         {
-            if (Request.Headers.TryGetValue("X-Real-IP", out var realIp) && !string.IsNullOrWhiteSpace(realIp))
-                return realIp.ToString().Trim();
-
-            if (Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor) && !string.IsNullOrWhiteSpace(forwardedFor))
-                return forwardedFor.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries)[0].Trim();
-
-            return HttpContext?.Connection?.RemoteIpAddress?.ToString() ?? "unknown";
+            var remoteIp = HttpContext?.Connection?.RemoteIpAddress?.ToString();
+            return string.IsNullOrWhiteSpace(remoteIp) ? "unknown" : remoteIp.Trim();
         }
 
         private bool IsResetPasswordRateLimited(string key)
         {
             var now = DateTime.UtcNow;
+            TryCleanupExpiredResetPasswordFailures(now);
+
             if (!_resetPasswordRateLimit.TryGetValue(key, out var entry))
                 return false;
 
@@ -825,13 +900,64 @@ namespace EvangelionERPV2.Web.Controllers
         private void RegisterResetPasswordFailure(string key)
         {
             var now = DateTime.UtcNow;
+            TryCleanupExpiredResetPasswordFailures(now);
 
-            _resetPasswordRateLimit.AddOrUpdate(
-                key,
-                _ => new ResetPasswordRateLimitEntry(now, 1),
-                (_, existing) => now - existing.WindowStartedAt >= _resetPasswordRateLimitWindow
-                    ? new ResetPasswordRateLimitEntry(now, 1)
-                    : existing with { FailedAttempts = existing.FailedAttempts + 1 });
+            lock (_resetPasswordRateLimitSync)
+            {
+                if (!_resetPasswordRateLimit.ContainsKey(key) &&
+                    _resetPasswordRateLimit.Count >= ResetPasswordRateLimitMaxEntries)
+                {
+                    TryRemoveOldestResetPasswordRateLimitEntry();
+                }
+
+                if (!_resetPasswordRateLimit.ContainsKey(key) &&
+                    _resetPasswordRateLimit.Count >= ResetPasswordRateLimitMaxEntries)
+                {
+                    return;
+                }
+
+                _resetPasswordRateLimit.AddOrUpdate(
+                    key,
+                    _ => new ResetPasswordRateLimitEntry(now, 1),
+                    (_, existing) => now - existing.WindowStartedAt >= _resetPasswordRateLimitWindow
+                        ? new ResetPasswordRateLimitEntry(now, 1)
+                        : existing with { FailedAttempts = existing.FailedAttempts + 1 });
+            }
+        }
+
+        private static void TryRemoveOldestResetPasswordRateLimitEntry()
+        {
+            string? oldestKey = null;
+            var oldestWindowStartedAt = DateTime.MaxValue;
+
+            foreach (var entry in _resetPasswordRateLimit)
+            {
+                if (entry.Value.WindowStartedAt < oldestWindowStartedAt)
+                {
+                    oldestWindowStartedAt = entry.Value.WindowStartedAt;
+                    oldestKey = entry.Key;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(oldestKey))
+                _resetPasswordRateLimit.TryRemove(oldestKey, out _);
+        }
+
+        private static void TryCleanupExpiredResetPasswordFailures(DateTime now)
+        {
+            var nowTicks = now.Ticks;
+            var lastCleanupTicks = Interlocked.Read(ref _lastResetPasswordRateLimitCleanupTicks);
+            if (lastCleanupTicks != 0 && nowTicks - lastCleanupTicks < _resetPasswordRateLimitCleanupInterval.Ticks)
+                return;
+
+            if (Interlocked.CompareExchange(ref _lastResetPasswordRateLimitCleanupTicks, nowTicks, lastCleanupTicks) != lastCleanupTicks)
+                return;
+
+            foreach (var entry in _resetPasswordRateLimit)
+            {
+                if (now - entry.Value.WindowStartedAt >= _resetPasswordRateLimitWindow)
+                    _resetPasswordRateLimit.TryRemove(entry.Key, out _);
+            }
         }
 
         private static void ClearResetPasswordFailures(string key)
@@ -843,10 +969,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                var resetLink = BuildPasswordResetLink(email, token);
+                var resetLink = BuildPasswordResetLink();
                 var body = string.IsNullOrWhiteSpace(resetLink)
                     ? $"Use this code to reset your password: <b>{token}</b><br/>Code expires in 15 minutes."
-                    : $"Use this link to reset your password: <a href=\"{resetLink}\">{resetLink}</a><br/>" +
+                    : $"Open this page to reset your password: <a href=\"{resetLink}\">{resetLink}</a><br/>" +
                       $"If needed, use this code manually: <b>{token}</b><br/>Code expires in 15 minutes.";
 
                 var emailStructure = new EmailStructure(body, "Password reset", [email]);
@@ -855,25 +981,24 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (Exception ex)
             {
-                Log.Logger.Warning(ex, "Unable to send password reset e-mail to {Email}", email);
+                var emailFingerprint = GetLogSafeEmailIdentifier(email);
+                Log.Logger.Warning("Unable to send password reset e-mail. ErrorType={ErrorType} EmailId={EmailId}", ex.GetType().Name, emailFingerprint);
             }
         }
 
-        private string? BuildPasswordResetLink(string email, string token)
+        private string? BuildPasswordResetLink()
         {
             var frontendBaseUrl = _configuration.GetSection("Frontend")["BaseUrl"];
             if (string.IsNullOrWhiteSpace(frontendBaseUrl) ||
                 !Uri.TryCreate(frontendBaseUrl, UriKind.Absolute, out var _))
             {
-                Log.Logger.Warning("Frontend:BaseUrl is missing or invalid. Sending password reset token without link.");
+                Log.Logger.Warning("Frontend:BaseUrl is missing or invalid. Sending password reset code without link.");
                 return null;
             }
 
             return QueryHelpers.AddQueryString(frontendBaseUrl, new Dictionary<string, string?>
             {
-                ["mode"] = "reset-password",
-                ["email"] = email,
-                ["token"] = token
+                ["mode"] = "reset-password"
             });
         }
 

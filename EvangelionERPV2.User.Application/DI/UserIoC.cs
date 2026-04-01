@@ -27,16 +27,14 @@ namespace EvangelionERPV2.UserModule.Application.DI
                     return new AmazonSecretsManagerClient(region);
                 });
                 services.AddSingleton<AWSKMSKeyProvider>();
-
-                var serviceProvider = services.BuildServiceProvider();
-                var kmsProvider = serviceProvider.GetRequiredService<AWSKMSKeyProvider>();
                 #endregion
 
                 services.AddLogging();
 
                 #region DataBase
-                services.AddDbContextPool<AppDbContext>(options =>
+                services.AddDbContextPool<AppDbContext>((serviceProvider, options) =>
                 {
+                    var kmsProvider = serviceProvider.GetRequiredService<AWSKMSKeyProvider>();
                     var connectionString = kmsProvider.GetKMSKey(configuration.GetConnectionString("DefaultConnection") ?? string.Empty);
 
                     options.UseSqlServer(connectionString, sqlServerOptionsAction: sqlOptions =>
@@ -71,7 +69,9 @@ namespace EvangelionERPV2.UserModule.Application.DI
             }
             catch (Exception ex)
             {
-                Log.Logger.Error(ex, $"Error at DI User IoC: {ex.Message}");
+                Log.Logger.Error(
+                    "Error at DI User IoC. ErrorType={ErrorType}",
+                    ex.GetType().Name);
             }
 
         }

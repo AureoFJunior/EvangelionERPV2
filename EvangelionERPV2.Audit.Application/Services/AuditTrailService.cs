@@ -18,12 +18,13 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             _auditTrailRepository = auditTrailRepository;
         }
 
-        public Task<AuditTrail?> GetByIdAsync(Guid id)
+        public Task<AuditTrail?> GetByIdAsync(Guid id, Guid enterpriseId)
         {
-            return _auditTrailRepository.GetByIdAsync(id);
+            return _auditTrailRepository.GetByIdAsync(id, enterpriseId);
         }
 
         public Task<(IEnumerable<AuditTrail> AuditTrails, int TotalItems)> GetAllAsyncFiltering(
+            Guid enterpriseId,
             bool descending,
             int? pageNumber,
             int? pageSize,
@@ -33,6 +34,7 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             int resolvedPageSize = ResolvePageSize(pageSize);
 
             return _auditTrailRepository.GetAllAsyncFiltering(
+                enterpriseId,
                 descending,
                 resolvedPageNumber,
                 resolvedPageSize,

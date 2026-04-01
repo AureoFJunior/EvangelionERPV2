@@ -601,34 +601,10 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
 
         #region SignalR
         [Fact]
-        public async Task SendOrderUpdate_CallsClientsAllSendAsync()
+        public void OrderHub_IsProtectedByAuthorizeAttribute()
         {
-            // Arrange
-            var hub = new OrderHub();
-
-            var mockClients = new Mock<IHubCallerClients>();
-            var mockClientProxy = new Mock<IClientProxy>();
-
-            mockClients.Setup(c => c.All).Returns(mockClientProxy.Object);
-
-            // Set the non-public setter for Hub.Clients via reflection
-            var clientsProperty = typeof(Hub).GetProperty("Clients", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            var setMethod = clientsProperty.GetSetMethod(true);
-            setMethod.Invoke(hub, new object[] { mockClients.Object });
-
-            var orderId = Guid.NewGuid().ToString();
-            var status = "Created";
-
-            // Act
-            await hub.SendOrderUpdate(orderId, status);
-
-            // Assert
-            mockClientProxy.Verify(
-                p => p.SendCoreAsync(
-                    "ReceiveOrderUpdate",
-                    It.Is<object[]>(o => o != null && o.Length == 2 && (string)o[0] == orderId && (string)o[1] == status),
-                    It.IsAny<CancellationToken>()),
-                Times.Once);
+            var hasAuthorize = typeof(OrderHub).GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true).Any();
+            Assert.True(hasAuthorize);
         }
 
         [Fact]

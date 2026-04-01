@@ -50,7 +50,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                     }
                     catch (Exception ex)
                     {
-                        Log.Logger.Error(ex, "Email Stock Sender Worker with error.");
+                        Log.Logger.Error("Email Stock Sender Worker with error. ErrorType={ErrorType}", ex.GetType().Name);
                         await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
                     }
                 }

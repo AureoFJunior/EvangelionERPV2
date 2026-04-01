@@ -4,6 +4,7 @@ using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.BillsModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PuppeteerSharp;
 using PuppeteerSharp.Media;
@@ -92,7 +93,24 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             };
 
             await _billRepository.CreateAsync(bill);
-            await _billRepository.CommitAsync();
+            try
+            {
+                await _billRepository.CommitAsync();
+            }
+            catch (DbUpdateException commitException)
+            {
+                var concurrentBill = await _billRepositoryCustom.GetByOrderIdAsync(orderId);
+                if (concurrentBill == null)
+                    throw;
+
+                Log.Logger.Warning(
+                    commitException,
+                    "Bill generation duplicate detected for order {OrderId}. Returning existing bill {BillId}.",
+                    orderId,
+                    concurrentBill.Id);
+
+                return concurrentBill;
+            }
 
             return bill;
         }

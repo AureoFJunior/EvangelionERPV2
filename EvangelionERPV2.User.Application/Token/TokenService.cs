@@ -97,28 +97,31 @@ namespace EvangelionERPV2.UserModule.Application.Token
             if (userId == Guid.Empty || string.IsNullOrWhiteSpace(refreshToken))
                 throw new ArgumentException("UserId and refreshToken are required.");
 
-            var now = DateTime.UtcNow;
-            var activeTokens = await _refreshTokenRepository.GetAllAsyncByFilter(
-                descending: false,
-                pageNumber: 1,
-                pageSize: int.MaxValue,
-                predicate: x => x.UserId == userId && x.RevokedAt == null && x.ExpiresAt > now);
-
-            foreach (var token in activeTokens ?? Enumerable.Empty<RefreshToken>())
+            await _refreshTokenRepository.ExecuteInTransactionAsync(async () =>
             {
-                token.RevokedAt = now;
-                _refreshTokenRepository.Update(token);
-            }
+                var now = DateTime.UtcNow;
+                var activeTokens = await _refreshTokenRepository.GetAllAsyncByFilter(
+                    descending: false,
+                    pageNumber: 1,
+                    pageSize: int.MaxValue,
+                    predicate: x => x.UserId == userId && x.RevokedAt == null && x.ExpiresAt > now);
 
-            var refreshTokenEntity = new RefreshToken
-            {
-                UserId = userId,
-                TokenHash = HashToken(refreshToken),
-                ExpiresAt = now.AddDays(GetRefreshTokenDays())
-            };
+                foreach (var token in activeTokens ?? Enumerable.Empty<RefreshToken>())
+                {
+                    token.RevokedAt = now;
+                    _refreshTokenRepository.Update(token);
+                }
 
-            await _refreshTokenRepository.CreateAsync(refreshTokenEntity);
-            await _refreshTokenRepository.CommitAsync();
+                var refreshTokenEntity = new RefreshToken
+                {
+                    UserId = userId,
+                    TokenHash = HashToken(refreshToken),
+                    ExpiresAt = now.AddDays(GetRefreshTokenDays())
+                };
+
+                await _refreshTokenRepository.CreateAsync(refreshTokenEntity);
+                await _refreshTokenRepository.CommitAsync();
+            });
         }
 
         public async Task<bool> ValidateRefreshTokenAsync(Guid userId, string refreshToken)
@@ -131,7 +134,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
             var tokens = await _refreshTokenRepository.GetAllAsyncByFilter(
                 descending: false,
                 pageNumber: 1,
-                pageSize: int.MaxValue,
+                pageSize: 1,
                 predicate: x => x.UserId == userId && x.TokenHash == tokenHash);
 
             var token = tokens?.FirstOrDefault();
@@ -147,7 +150,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
             var tokens = await _refreshTokenRepository.GetAllAsyncByFilter(
                 descending: false,
                 pageNumber: 1,
-                pageSize: int.MaxValue,
+                pageSize: 1,
                 predicate: x => x.UserId == userId && x.TokenHash == tokenHash);
             var token = tokens?.FirstOrDefault();
             if (token == null || token.RevokedAt != null)

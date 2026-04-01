@@ -27,6 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\EvangelionERPV2.Web\EvangelionERPV2.Web.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Shared\EvangelionERPV2.Shared.csproj" />
   </ItemGroup>
 

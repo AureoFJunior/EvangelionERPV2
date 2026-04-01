@@ -6,6 +6,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Shared.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
@@ -18,6 +19,11 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class CustomerController : Controller
     {
+        private const int DefaultPageNumber = 1;
+        private const int DefaultPageSize = 50;
+        private const int MaxPageSize = 200;
+        private const int MaxCustomerWriteRequestBodySizeInBytes = 64 * 1024;
+
         private readonly ICustomerService<Customer> _customerService;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _repository;
         private readonly IRepository<User> _userRepository;
@@ -54,7 +60,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                IEnumerable<Customer> customers = await _repository.GetAllAsync(pageNumber, pageSize, x => x.EnterpriseId != null && (x.EnterpriseId != default(Guid) && x.EnterpriseId == enterpriseId));
+                var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
+                IEnumerable<Customer> customers = await _repository.GetAllAsync(
+                    normalizedPageNumber,
+                    normalizedPageSize,
+                    x => x.EnterpriseId != null && (x.EnterpriseId != default(Guid) && x.EnterpriseId == enterpriseId));
                 if (customers == null)
                     return NoContent();
 
@@ -63,7 +73,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "Customers not found");
+                Log.Logger.Error("Customers not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -81,6 +91,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="customer">Object used to filter data.</param>
         /// <returns></returns>
         [HttpPost("{descending}/{pageNumber?}/{pageSize?}")]
+        [RequestSizeLimit(MaxCustomerWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(IEnumerable<CustomerDTO>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -98,10 +109,11 @@ namespace EvangelionERPV2.Web.Controllers
                 var documentFilter = filter.Document?.Trim();
                 var phoneFilter = filter.PhoneNumber?.Trim();
                 var isActiveFilter = filter.IsActive;
+                var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
 
                 var customers = await _repository.GetAllAsync(
-                    pageNumber,
-                    pageSize,
+                    normalizedPageNumber,
+                    normalizedPageSize,
                     x =>
                         x.EnterpriseId == enterpriseId &&
                         (!isActiveFilter.HasValue || x.IsActive == isActiveFilter.Value) &&
@@ -118,7 +130,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "Customers not found");
+                Log.Logger.Error("Customers not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -162,6 +174,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="customer">Customer to be added</param>
         /// <returns>The added customer</returns>
         [HttpPost]
+        [RequestSizeLimit(MaxCustomerWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(CustomerDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -191,6 +204,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="customer">Customer to be updated</param>
         /// <returns>The updated customer</returns>
         [HttpPut]
+        [RequestSizeLimit(MaxCustomerWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(CustomerDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]

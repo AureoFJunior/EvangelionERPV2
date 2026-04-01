@@ -26,7 +26,7 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while creating customer.", ex);
             }
         }
 
@@ -51,7 +51,7 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while updating customer.", ex);
             }
         }
 
@@ -77,7 +77,7 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while deleting customer.", ex);
             }
         }
     }

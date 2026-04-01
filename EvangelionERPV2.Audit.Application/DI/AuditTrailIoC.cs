@@ -21,7 +21,7 @@ namespace EvangelionERPV2.AuditModule.Application.DI
             }
             catch (Exception ex)
             {
-                Log.Logger.Error(ex, "Error at DI IoC AuditTrail");
+                Log.Logger.Error("Error at DI IoC AuditTrail. ErrorType={ErrorType}", ex.GetType().Name);
             }
         }
     }

@@ -12,6 +12,8 @@ using Google.Apis.Auth.OAuth2;
 using Google.Apis.Util.Store;
 using Microsoft.Extensions.Configuration;
 using EvangelionERPV2.ProductModule.Application.Interface;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace EvangelionERPV2.EmailModule.Application.Services
 {
@@ -62,7 +64,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while creating email settings.", ex);
             }
         }
 
@@ -95,7 +97,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Error while creating email: {ex.Message}", ex.Message);
+                Log.Logger.Error("Error while creating email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw new EmailSenderException();
             }
         }
@@ -133,8 +135,11 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                             }
                             catch (Exception ex)
                             {
-                                authFailureReason = ex.Message;
-                                Log.Logger.Warning(ex, "SMTP authentication failed for sender {Email}. Trying next available authentication option.", userEmail);
+                                authFailureReason = GetSafeExceptionType(ex);
+                                Log.Logger.Warning(
+                                    "SMTP authentication failed for sender EmailId={EmailId}. Trying next available authentication option. ErrorType={ErrorType}",
+                                    GetLogSafeEmailIdentifier(userEmail),
+                                    authFailureReason);
                             }
                         }
 
@@ -143,8 +148,8 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                             isAuthenticated = await TryAuthenticateWithGoogleOAuthAsync(smtpClient, userEmail);
                             if (!isAuthenticated)
                             {
-                                var reasonSuffix = string.IsNullOrWhiteSpace(authFailureReason) ? string.Empty : $" Reason: {authFailureReason}";
-                                throw new InvalidOperationException($"SMTP authentication failed for sender {userEmail}.{reasonSuffix}");
+                                var reasonSuffix = string.IsNullOrWhiteSpace(authFailureReason) ? string.Empty : $" ErrorType={authFailureReason}";
+                                throw new InvalidOperationException($"SMTP authentication failed for sender EmailId={GetLogSafeEmailIdentifier(userEmail)}.{reasonSuffix}");
                             }
                         }
 
@@ -162,16 +167,19 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                     }
                     catch (Exception ex)
                     {
-                        lastFailure = ex.Message;
-                        Log.Logger.Warning(ex, "Email sending failed with configured sender {Email}. Trying next configured sender.", userEmail);
+                        lastFailure = GetSafeExceptionType(ex);
+                        Log.Logger.Warning(
+                            "Email sending failed with configured sender EmailId={EmailId}. Trying next configured sender. ErrorType={ErrorType}",
+                            GetLogSafeEmailIdentifier(userEmail),
+                            lastFailure);
                     }
                 }
 
-                throw new InvalidOperationException($"Unable to send email with available sender settings. Last error: {lastFailure}");
+                throw new InvalidOperationException($"Unable to send email with available sender settings. LastErrorType={lastFailure}");
             }
             catch (Exception ex)
             {
-                Log.Logger.Error(ex, "Error while sending email.");
+                Log.Logger.Error("Error while sending email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw new EmailSenderException("Error while sending email.", ex);
             }
         }
@@ -234,9 +242,24 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (Exception ex)
             {
-                Log.Logger.Warning(ex, "Google OAuth authentication failed for email sender {Email}. Falling back to SMTP credentials.", userEmail);
+                Log.Logger.Warning("Google OAuth authentication failed for email sender EmailId={EmailId}. Falling back to SMTP credentials. ErrorType={ErrorType}", GetLogSafeEmailIdentifier(userEmail), GetSafeExceptionType(ex));
                 return false;
             }
+        }
+
+        private static string GetLogSafeEmailIdentifier(string? email)
+        {
+            var normalizedEmail = (email ?? string.Empty).Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(normalizedEmail))
+                return "empty";
+
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedEmail));
+            return Convert.ToHexString(bytes).ToLowerInvariant()[..12];
+        }
+
+        private static string GetSafeExceptionType(Exception? exception)
+        {
+            return exception?.GetType().Name ?? "UnknownError";
         }
 
         private string ResolveConfigValue(string? rawValue)
@@ -340,7 +363,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Couldn't send email.", ex.Message);
+                Log.Logger.Error("Couldn't send manual email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw;
             }
         }
@@ -351,7 +374,11 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             try
             {
                 var enterprises = await _enterpriseRepository
-                    .GetAllAsync(x => (x.Id == (enterpriseId ?? Guid.NewGuid()) || x.ShouldSendMonthlyBilling) && !string.IsNullOrEmpty(x.Email)) ?? new List<Enterprise>();
+                    .GetAllAsync(x =>
+                        !string.IsNullOrEmpty(x.Email) &&
+                        (enterpriseId.HasValue
+                            ? x.Id == enterpriseId.Value
+                            : x.ShouldSendMonthlyBilling)) ?? new List<Enterprise>();
 
                 foreach (Enterprise enterprise in enterprises)
                 {
@@ -377,11 +404,11 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (EmailSenderException ex)
             {
-                Log.Logger.Warning(ex.Message);
+                Log.Logger.Warning("Email sender failure during monthly email dispatch. ErrorType={ErrorType}", GetSafeExceptionType(ex));
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Couldn't send email.", ex.Message);
+                Log.Logger.Error("Couldn't send monthly email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw;
             }
         }
@@ -392,12 +419,14 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         #endregion
 
         #region Stock Email 
-        public async Task SendStockEmail()
+        public async Task SendStockEmail(Guid? enterpriseId = null)
         {
             try
             {
                 var enterprises = await _enterpriseRepository
-                    .GetAllAsync(x => !string.IsNullOrEmpty(x.Email)) ?? new List<Enterprise>();
+                    .GetAllAsync(x =>
+                        !string.IsNullOrEmpty(x.Email) &&
+                        (!enterpriseId.HasValue || x.Id == enterpriseId.Value)) ?? new List<Enterprise>();
 
                 foreach (Enterprise enterprise in enterprises)
                 {
@@ -414,11 +443,11 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (EmailSenderException ex)
             {
-                Log.Logger.Warning(ex.Message);
+                Log.Logger.Warning("Email sender failure during stock email dispatch. ErrorType={ErrorType}", GetSafeExceptionType(ex));
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Couldn't send email.", ex.Message);
+                Log.Logger.Error("Couldn't send stock email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw;
             }
         }
@@ -435,17 +464,25 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
 
             // Validate recipients's email
-            foreach (var recipientEmail in email.RecipientEmails)
-            {
+            var validRecipients = new List<string>();
 
-                if (await SharedFunctions.IsEmailValid<string>(recipientEmail) == false)
+            foreach (var recipientEmail in email.RecipientEmails ?? Enumerable.Empty<string>())
+            {
+                var normalizedRecipient = (recipientEmail ?? string.Empty).Trim();
+
+                if (!await SharedFunctions.IsEmailValid<string>(normalizedRecipient))
                 {
-                    Log.Logger.Error($"Invalid Email {recipientEmail}.");
-                    email.RecipientEmails.ToList().Remove(recipientEmail);
+                    Log.Logger.Error(
+                        "Invalid recipient email. EmailId={EmailId}.",
+                        GetLogSafeEmailIdentifier(normalizedRecipient));
+                    continue;
                 }
+
+                validRecipients.Add(normalizedRecipient);
             }
 
-            return email.RecipientEmails.Any();
+            email.RecipientEmails = validRecipients;
+            return validRecipients.Any();
         }
 
         private async Task<string> GetGmailAccessTokenAsync(string clientId, string clientSecret, string userEmail)

@@ -18,6 +18,8 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class PayableBillsController : Controller
     {
+        private const int MaxPayableBillWriteRequestBodySizeInBytes = 1 * 1024 * 1024;
+
         private readonly IPayableBillService _payableBillService;
         private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
@@ -92,6 +94,7 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPost]
+        [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
         public async Task<IActionResult> AddPayableBill([FromBody] UpsertPayableBillRequestDTO request)
         {
             try
@@ -101,6 +104,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
 
                 var payableBill = MapRequestToPayableBill(request, enterpriseId);
                 payableBill.EnterpriseId = enterpriseId;
@@ -109,7 +115,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Invalid payable bill payload");
+                Log.Logger.Error("Invalid payable bill payload. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (Exception)
@@ -119,6 +125,7 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPut]
+        [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
         public async Task<IActionResult> UpdatePayableBill([FromBody] UpsertPayableBillRequestDTO request)
         {
             try
@@ -128,6 +135,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
 
                 if (!request.Id.HasValue || request.Id.Value == Guid.Empty)
                     return BadRequest("Payable bill id is required.");
@@ -138,12 +148,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Invalid payable bill update");
+                Log.Logger.Error("Invalid payable bill update. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Payable bill not found");
+                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -159,18 +169,21 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
 
                 var updated = await _payableBillService.MarkProductsReceivedAsync(id, enterpriseId);
                 return Ok(_mapper.Map<PayableBillDTO>(updated));
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Invalid receive action for payable bill");
+                Log.Logger.Error("Invalid receive action for payable bill. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Payable bill not found");
+                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -180,12 +193,16 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPost("{id}")]
+        [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
         public async Task<IActionResult> RefundPayableBill(Guid id, [FromBody] RefundRequestDTO request)
         {
             try
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
 
                 var reason = request?.Reason ?? string.Empty;
                 var updated = await _payableBillService.RefundAsync(id, enterpriseId, reason);
@@ -193,12 +210,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Invalid refund action for payable bill");
+                Log.Logger.Error("Invalid refund action for payable bill. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Payable bill not found");
+                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -208,12 +225,16 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPost]
+        [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
         public async Task<IActionResult> GetReplenishmentSuggestions([FromBody] ReplenishmentSuggestionRequestDTO? request)
         {
             try
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
 
                 var suggestions = await _payableBillService.GetReplenishmentSuggestionsAsync(
                     enterpriseId,
@@ -248,12 +269,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Invalid payable bill delete");
+                Log.Logger.Error("Invalid payable bill delete. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Payable bill not found");
+                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -319,11 +340,79 @@ namespace EvangelionERPV2.Web.Controllers
             return accessLevel.HasValue && accessLevel.Value == (short)EnumAccessLevel.Admin;
         }
 
+        private static bool IsManagementAccess(short? accessLevel)
+        {
+            return accessLevel.HasValue && accessLevel.Value <= (short)EnumAccessLevel.Supervisor;
+        }
+
         private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)
         {
-            return ex.InnerException == null
-                ? ex.Message
-                : "An internal error occurred. Please try again later.";
+            if (ex.InnerException != null)
+                return "An internal error occurred. Please try again later.";
+
+            var message = ex.Message?.Trim() ?? string.Empty;
+
+            if (message.StartsWith("Product [", StringComparison.OrdinalIgnoreCase) &&
+                message.EndsWith("] was not found.", StringComparison.OrdinalIgnoreCase))
+            {
+                return "A product for this payable bill was not found.";
+            }
+
+            if (string.Equals(message, "Payable bill enterprise is required.", StringComparison.OrdinalIgnoreCase))
+                return "Payable bill enterprise is required.";
+
+            if (string.Equals(message, "Payable bill is refunded and cannot be edited.", StringComparison.OrdinalIgnoreCase))
+                return "Payable bill is refunded and cannot be edited.";
+
+            if (string.Equals(message, "Products were already received. Item lines cannot be changed.", StringComparison.OrdinalIgnoreCase))
+                return "Products were already received. Item lines cannot be changed.";
+
+            if (string.Equals(message, "Refunded payable bills cannot receive products.", StringComparison.OrdinalIgnoreCase))
+                return "Refunded payable bills cannot receive products.";
+
+            if (string.Equals(message, "Products were already received for this payable bill.", StringComparison.OrdinalIgnoreCase))
+                return "Products were already received for this payable bill.";
+
+            if (string.Equals(message, "Payable bill has no product items to receive.", StringComparison.OrdinalIgnoreCase))
+                return "Payable bill has no product items to receive.";
+
+            if (string.Equals(message, "Some products were not found for this payable bill.", StringComparison.OrdinalIgnoreCase))
+                return "Some products were not found for this payable bill.";
+
+            if (string.Equals(message, "Payable bill was already refunded.", StringComparison.OrdinalIgnoreCase))
+                return "Payable bill was already refunded.";
+
+            if (string.Equals(message, "Refund reason is required.", StringComparison.OrdinalIgnoreCase))
+                return "Refund reason is required.";
+
+            if (string.Equals(message, "Refund is only allowed when payable bill has product items.", StringComparison.OrdinalIgnoreCase))
+                return "Refund is only allowed when payable bill has product items.";
+
+            if (string.Equals(message, "Payable bill refund failed.", StringComparison.OrdinalIgnoreCase))
+                return "Payable bill refund failed.";
+
+            if (string.Equals(message, "Some products for this payable bill were not found.", StringComparison.OrdinalIgnoreCase))
+                return "Some products for this payable bill were not found.";
+
+            if (string.Equals(message, "Payable bill deletion failed.", StringComparison.OrdinalIgnoreCase))
+                return "Payable bill deletion failed.";
+
+            if (string.Equals(message, "Each payable item must have quantity greater than zero.", StringComparison.OrdinalIgnoreCase))
+                return "Each payable item must have quantity greater than zero.";
+
+            if (string.Equals(message, "Payable bill has duplicate products.", StringComparison.OrdinalIgnoreCase))
+                return "Payable bill has duplicate products.";
+
+            if (string.Equals(message, "Some payable bill products were not found in enterprise inventory.", StringComparison.OrdinalIgnoreCase))
+                return "Some payable bill products were not found in enterprise inventory.";
+
+            if (string.Equals(message, "Invalid payable bill type.", StringComparison.OrdinalIgnoreCase))
+                return "Invalid payable bill type.";
+
+            if (string.Equals(message, "Enterprise was not found for balance update.", StringComparison.OrdinalIgnoreCase))
+                return "Enterprise was not found for balance update.";
+
+            return "An internal error occurred. Please try again later.";
         }
     }
 }

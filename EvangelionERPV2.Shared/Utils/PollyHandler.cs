@@ -33,14 +33,24 @@ namespace EvangelionERPV2.Shared.Utils
                 .WaitAndRetry(_retryCount, retryAttempt => _retryDelay,
                     (exception, timeSpan, retryCount, context) =>
                     {
-                        Log.Logger.Information($"Retry {retryCount} of {_retryCount} after {timeSpan.TotalSeconds}s due to: {exception.Message}");
+                        Log.Logger.Information(
+                            "Retry {RetryCount} of {MaxRetries} after {DelaySeconds}s. ErrorType={ErrorType}",
+                            retryCount,
+                            _retryCount,
+                            timeSpan.TotalSeconds,
+                            GetSafeExceptionType(exception));
                     });
 
             var asyncRetryPolicy = Policy.Handle<Exception>()
                 .WaitAndRetryAsync(_retryCount, retryAttempt => _retryDelay,
                     (exception, timeSpan, retryCount, context) =>
                     {
-                        Log.Logger.Information($"Retry {retryCount} of {_retryCount} after {timeSpan.TotalSeconds}s due to: {exception.Message}");
+                        Log.Logger.Information(
+                            "Retry {RetryCount} of {MaxRetries} after {DelaySeconds}s. ErrorType={ErrorType}",
+                            retryCount,
+                            _retryCount,
+                            timeSpan.TotalSeconds,
+                            GetSafeExceptionType(exception));
                     });
 
             var timeoutPolicy = Policy.Timeout(_timeoutDuration, TimeoutStrategy.Pessimistic,
@@ -60,7 +70,10 @@ namespace EvangelionERPV2.Shared.Utils
                 .CircuitBreaker(_circuitBreakerFailures, _circuitBreakerDuration,
                     (exception, duration) =>
                     {
-                        Log.Logger.Error($"Circuit broken due to: {exception.Message}. Breaking for {duration.TotalSeconds}s.");
+                        Log.Logger.Error(
+                            "Circuit broken. ErrorType={ErrorType}. Breaking for {DurationSeconds}s.",
+                            GetSafeExceptionType(exception),
+                            duration.TotalSeconds);
                     },
                     () =>
                     {
@@ -71,7 +84,10 @@ namespace EvangelionERPV2.Shared.Utils
                 .CircuitBreakerAsync(_circuitBreakerFailures, _circuitBreakerDuration,
                     (exception, duration) =>
                     {
-                        Log.Logger.Error($"Circuit broken due to: {exception.Message}. Breaking for {duration.TotalSeconds}s.");
+                        Log.Logger.Error(
+                            "Circuit broken. ErrorType={ErrorType}. Breaking for {DurationSeconds}s.",
+                            GetSafeExceptionType(exception),
+                            duration.TotalSeconds);
                     },
                     () =>
                     {
@@ -80,6 +96,11 @@ namespace EvangelionERPV2.Shared.Utils
 
             SyncPolicyWrap = Policy.Wrap(retryPolicy, timeoutPolicy, circuitBreakerPolicy);
             AsyncPolicyWrap = Policy.WrapAsync(asyncRetryPolicy, asyncTimeoutPolicy, asyncCircuitBreakerPolicy);
+        }
+
+        private static string GetSafeExceptionType(Exception? exception)
+        {
+            return exception?.GetType().Name ?? "UnknownError";
         }
     }
 }

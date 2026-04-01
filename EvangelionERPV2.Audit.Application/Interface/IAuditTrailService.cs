@@ -6,11 +6,12 @@ namespace EvangelionERPV2.AuditModule.Application.Interface
     public interface IAuditTrailService
     {
         Task<(IEnumerable<AuditTrail> AuditTrails, int TotalItems)> GetAllAsyncFiltering(
+            Guid enterpriseId,
             bool descending,
             int? pageNumber,
             int? pageSize,
             AuditTrailFilterDTO? filter = null);
 
-        Task<AuditTrail?> GetByIdAsync(Guid id);
+        Task<AuditTrail?> GetByIdAsync(Guid id, Guid enterpriseId);
     }
 }

@@ -1,11 +1,16 @@
 using AutoMapper;
 using EvangelionERPV2.NFeModule.Application.Interface;
+using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
+using EvangelionERPV2.Shared.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
+using System.Security.Claims;
+using System.Text.RegularExpressions;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -14,12 +19,24 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class NFeController : Controller
     {
+        private const int MaxNFeCancelRequestBodySizeInBytes = 16 * 1024;
+        private const int NFeAccessKeyLength = 44;
+        private const int MaxNFeCancelReasonLength = 500;
+        private static readonly Regex NFeAccessKeyRegex = new($"^[0-9]{{{NFeAccessKeyLength}}}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private readonly INFeService<NFeDocument> _nfeService;
+        private readonly IOrderService<Order> _orderService;
+        private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
 
-        public NFeController(INFeService<NFeDocument> nfeService, IMapper mapper)
+        public NFeController(
+            INFeService<NFeDocument> nfeService,
+            IOrderService<Order> orderService,
+            IRepository<User> userRepository,
+            IMapper mapper)
         {
             _nfeService = nfeService;
+            _orderService = orderService;
+            _userRepository = userRepository;
             _mapper = mapper;
         }
 
@@ -31,6 +48,16 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
+
+                var order = await _orderService.GetByIdAsync(orderId, enterpriseId);
+                if (order == null)
+                    return NoContent();
+
                 var document = await _nfeService.GetByOrderIdAsync(orderId, type);
                 if (document == null)
                     return NoContent();
@@ -52,6 +79,16 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
+
+                var order = await _orderService.GetByIdAsync(orderId, enterpriseId);
+                if (order == null)
+                    return NoContent();
+
                 var document = await _nfeService.IssueAsync(orderId, type);
                 if (document == null)
                     return NoContent();
@@ -61,7 +98,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, $"Order not found for NFe issuance: {orderId}");
+                Log.Logger.Error("Order not found for NFe issuance. OrderId={OrderId} ErrorType={ErrorType}", orderId, exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -78,8 +115,18 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                if (!IsValidAccessKey(accessKey))
+                    return BadRequest($"accessKey must be exactly {NFeAccessKeyLength} numeric characters.");
+
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
                 var document = await _nfeService.ConsultAsync(accessKey);
                 if (document == null)
+                    return NoContent();
+
+                var order = await _orderService.GetByIdAsync(document.OrderId, enterpriseId);
+                if (order == null)
                     return NoContent();
 
                 var dto = _mapper.Map<NFeDocumentDTO>(document);
@@ -92,6 +139,7 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPost("{accessKey}")]
+        [RequestSizeLimit(MaxNFeCancelRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(NFeDocumentDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -99,7 +147,30 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                var reason = request?.Reason ?? string.Empty;
+                if (!IsValidAccessKey(accessKey))
+                    return BadRequest($"accessKey must be exactly {NFeAccessKeyLength} numeric characters.");
+
+                var reason = (request?.Reason ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(reason))
+                    return BadRequest("Reason is required.");
+
+                if (reason.Length > MaxNFeCancelReasonLength)
+                    return BadRequest($"Reason must be {MaxNFeCancelReasonLength} characters or fewer.");
+
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
+                if (!IsManagementAccess(accessLevel))
+                    return Forbid();
+
+                var existingDocument = await _nfeService.ConsultAsync(accessKey);
+                if (existingDocument == null)
+                    return NoContent();
+
+                var order = await _orderService.GetByIdAsync(existingDocument.OrderId, enterpriseId);
+                if (order == null)
+                    return NoContent();
+
                 var document = await _nfeService.CancelAsync(accessKey, reason);
                 if (document == null)
                     return NoContent();
@@ -111,6 +182,46 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 throw;
             }
+        }
+
+        private bool TryGetEnterpriseId(out Guid enterpriseId)
+        {
+            var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
+            return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
+        }
+
+        private Guid? TryGetUserId()
+        {
+            var claimValue = User.FindFirst(ClaimTypes.Sid)?.Value
+                             ?? User.FindFirst("uid")?.Value;
+
+            if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
+                return userId;
+
+            return null;
+        }
+
+        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
+        {
+            if (!userId.HasValue || enterpriseId == Guid.Empty)
+                return null;
+
+            var user = await _userRepository.GetByIdAsync(userId.Value);
+            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
+                return null;
+
+            return user.AccessLevel;
+        }
+
+        private static bool IsManagementAccess(short? accessLevel)
+        {
+            return accessLevel.HasValue && accessLevel.Value <= (short)EnumAccessLevel.Supervisor;
+        }
+
+        private static bool IsValidAccessKey(string accessKey)
+        {
+            var normalizedAccessKey = (accessKey ?? string.Empty).Trim();
+            return NFeAccessKeyRegex.IsMatch(normalizedAccessKey);
         }
     }
 }

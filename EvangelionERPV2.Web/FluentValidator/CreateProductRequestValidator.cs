@@ -5,6 +5,8 @@ namespace EvangelionERPV2.Web.FluentValidator
 {
     public sealed class CreateProductRequestValidator : AbstractValidator<CreateProductRequestDTO>
     {
+        private const int MaxImageSizeInBytes = 5 * 1024 * 1024;
+
         public CreateProductRequestValidator()
         {
             RuleFor(x => x.Name)
@@ -22,7 +24,13 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .MaximumLength(30).WithMessage("UnitOfMeasure is too long.");
 
             RuleFor(x => x.File)
-                .NotEmpty().WithMessage("Product image file is required.");
+                .NotEmpty().WithMessage("Product image file is required.")
+                .Must(Base64PayloadValidationHelper.IsValidBase64Payload)
+                    .WithMessage("Product image file must be a valid base64 payload.")
+                .Must(file => Base64PayloadValidationHelper.IsWithinDecodedSizeLimit(file, MaxImageSizeInBytes))
+                    .WithMessage("Product image file must be 5 MB or smaller.")
+                .Must(Base64PayloadValidationHelper.HasSupportedImageSignature)
+                    .WithMessage("Product image file must be PNG, JPEG, GIF, or WEBP.");
         }
     }
 }

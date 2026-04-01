@@ -28,6 +28,7 @@ namespace EvangelionERPV2.Shared.Utils
             const string plainPrefix = "plain:";
             if (secretName.StartsWith(plainPrefix, StringComparison.OrdinalIgnoreCase))
             {
+                EnsurePlainSecretUsageIsAllowed();
                 return secretName.Substring(plainPrefix.Length);
             }
 
@@ -85,7 +86,10 @@ namespace EvangelionERPV2.Shared.Utils
 
             var configuredSecretName = _configuration.GetSection("AWSSettings")["SecretName"] ?? string.Empty;
             if (TryGetPlainCredentials(configuredSecretName, out var plainCredentials) && plainCredentials != null)
+            {
+                EnsurePlainSecretUsageIsAllowed();
                 return plainCredentials;
+            }
 
             if (string.IsNullOrWhiteSpace(configuredSecretName))
                 throw new InvalidOperationException("AWSSettings:SecretName is not configured.");
@@ -151,6 +155,24 @@ namespace EvangelionERPV2.Shared.Utils
             {
                 return false;
             }
+        }
+
+        private static void EnsurePlainSecretUsageIsAllowed()
+        {
+            if (IsDevelopmentEnvironment())
+                return;
+
+            throw new InvalidOperationException("The plain secret prefix is only allowed in development environments.");
+        }
+
+        private static bool IsDevelopmentEnvironment()
+        {
+            var environmentName =
+                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? string.Empty;
+
+            return environmentName.Equals("Development", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

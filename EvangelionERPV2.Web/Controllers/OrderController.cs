@@ -8,6 +8,7 @@ using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Shared.Utils;
 using System.Linq;
 using System.Security.Claims;
 
@@ -18,6 +19,11 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class OrderController : Controller
     {
+        private const int MaxOrderRequestBodySizeInBytes = 1 * 1024 * 1024;
+        private const int DefaultPageNumber = 1;
+        private const int DefaultPageSize = 50;
+        private const int MaxPageSize = 200;
+
         private readonly IOrderService<Order> _orderService;
         private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
@@ -50,7 +56,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                IEnumerable<Order> orders = await _orderService.GetByEnterpriseIdAsync(enterpriseId, pageNumber, pageSize);
+                var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
+                IEnumerable<Order> orders = await _orderService.GetByEnterpriseIdAsync(
+                    enterpriseId,
+                    normalizedPageNumber,
+                    normalizedPageSize);
                 if (!orders.Any())
                     return NoContent();
 
@@ -59,7 +69,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "Orders not found");
+                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -77,6 +87,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="order">Object used to filter data.</param>
         /// <returns></returns>
         [HttpPost("{descending}/{pageNumber?}/{pageSize?}")]
+        [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(IEnumerable<OrderDTO>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -109,13 +120,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!descending)
                     orders = orders.OrderBy(x => x.CreatedAt).ToList();
 
-                if (pageNumber.HasValue && pageSize.HasValue && pageNumber.Value > 0 && pageSize.Value > 0)
-                {
-                    orders = orders
-                        .Skip((pageNumber.Value - 1) * pageSize.Value)
-                        .Take(pageSize.Value)
-                        .ToList();
-                }
+                var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
+                orders = orders
+                    .Skip((normalizedPageNumber - 1) * normalizedPageSize)
+                    .Take(normalizedPageSize)
+                    .ToList();
 
                 if (!orders.Any())
                     return NoContent();
@@ -125,7 +134,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "Orders not found");
+                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -169,6 +178,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="order">Order to be added</param>
         /// <returns>The added order</returns>
         [HttpPost]
+        [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -196,6 +206,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="order">Order to be added</param>
         /// <returns>The added order</returns>
         [HttpPost]
+        [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -223,6 +234,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="order">Order to be updated</param>
         /// <returns>The updated order</returns>
         [HttpPut]
+        [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(OrderDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -249,7 +261,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "Orders not found");
+                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -259,6 +271,7 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPost("{id}")]
+        [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(OrderDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -280,12 +293,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Invalid refund action for order");
+                Log.Logger.Error("Invalid refund action for order. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error(ex, "Order not found for refund");
+                Log.Logger.Error("Order not found for refund. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -322,7 +335,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error(exnf, "Orders not found");
+                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -404,9 +417,30 @@ namespace EvangelionERPV2.Web.Controllers
 
         private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)
         {
-            return ex.InnerException == null
-                ? ex.Message
-                : "An internal error occurred. Please try again later.";
+            if (ex.InnerException != null)
+                return "An internal error occurred. Please try again later.";
+
+            var message = ex.Message?.Trim() ?? string.Empty;
+
+            if (string.Equals(message, "Refund reason is required.", StringComparison.OrdinalIgnoreCase))
+                return "Refund reason is required.";
+
+            if (string.Equals(message, "Orders with status Finished or Refund cannot be edited.", StringComparison.OrdinalIgnoreCase))
+                return "Orders with status Finished or Refund cannot be edited.";
+
+            if (string.Equals(message, "Order has no items to refund.", StringComparison.OrdinalIgnoreCase))
+                return "Order has no items to refund.";
+
+            if (string.Equals(message, "Some products for this order were not found in the inventory.", StringComparison.OrdinalIgnoreCase))
+                return "Some products for this order were not found in the inventory.";
+
+            if (message.StartsWith("Product [", StringComparison.OrdinalIgnoreCase) &&
+                message.EndsWith("] was not found.", StringComparison.OrdinalIgnoreCase))
+            {
+                return "A product for this order was not found.";
+            }
+
+            return "An internal error occurred. Please try again later.";
         }
     }
 }

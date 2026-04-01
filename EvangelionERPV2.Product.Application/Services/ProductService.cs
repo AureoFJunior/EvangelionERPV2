@@ -55,7 +55,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while creating product.", ex);
             }
         }
 
@@ -82,7 +82,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while updating product.", ex);
             }
         }
 
@@ -129,7 +129,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while updating product stock for order.", ex);
             }
         }
 
@@ -155,7 +155,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while updating product picture.", ex);
             }
         }
 
@@ -171,20 +171,28 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 if (string.IsNullOrWhiteSpace(bucketName))
                     throw new InvalidOperationException("AWS bucket name is not configured.");
 
-                string keyName = $"{productPicture.Product.Name.ClearString().Replace(" ", "-")}{DateTime.UtcNow.ToString("MM-dd-yyyy-HH:mm:ss:fff")}";
+                string keyName = SharedFunctions.GenerateStorageObjectKey("products", productPicture.Product.Id);
                 string encryptedkeyName = SharedFunctions.EnsureEncryptedAddress(keyName);
                 productPicture.Product.UpdatedAt = DateTime.UtcNow;
                 productPicture.Product.PictureAdress = encryptedkeyName;
+                var oldPictureAddress = existentProduct.PictureAdress;
 
                 var s3Client = await GetS3ClientAsync();
-                await DeleteOldPicture(existentProduct, bucketName, s3Client);
-
-                existentProduct = null;
                 using var content = SharedFunctions.GetMemoryStreamFromBase64Payload(productPicture.File);
                 await s3Client.CreateItemAsync(bucketName, keyName, content);
 
-                _productRepository.Update(productPicture.Product);
-                await _productRepository.CommitAsync();
+                try
+                {
+                    _productRepository.Update(productPicture.Product);
+                    await _productRepository.CommitAsync();
+                }
+                catch
+                {
+                    await s3Client.DeleteItemIfExistsAsync(bucketName, keyName);
+                    throw;
+                }
+
+                await TryDeleteOldPictureAsync(s3Client, bucketName, oldPictureAddress);
                 return productPicture.Product;
             }
             catch (NotFoundDatabaseException)
@@ -193,16 +201,22 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while updating product picture.", ex);
             }
         }
 
-        private static async Task DeleteOldPicture(Product? existentProduct, string bucketName, IAmazonS3 s3Client)
+        private static async Task TryDeleteOldPictureAsync(IAmazonS3 s3Client, string bucketName, string? oldPictureAddress)
         {
-            if (existentProduct == null)
-                return;
-
-            await s3Client.DeleteItemIfExistsAsync(bucketName, existentProduct.PictureAdress);
+            try
+            {
+                await s3Client.DeleteItemIfExistsAsync(bucketName, oldPictureAddress);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(
+                    "Unable to delete old product image from S3 after successful picture update. ErrorType={ErrorType}",
+                    ex.GetType().Name);
+            }
         }
 
         /// <summary>
@@ -237,12 +251,14 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
             {
-                Log.Logger.Warning("Product image not found in S3 for key {KeyName}", pictureAddress);
+                Log.Logger.Warning("Product image not found in S3.");
                 return string.Empty;
             }
             catch (Exception ex)
             {
-                Log.Logger.Warning(ex, "Unable to load product image from S3 for key {KeyName}", pictureAddress);
+                Log.Logger.Warning(
+                    "Unable to load product image from S3. ErrorType={ErrorType}",
+                    ex.GetType().Name);
                 return string.Empty;
             }
         }

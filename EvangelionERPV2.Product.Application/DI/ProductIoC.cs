@@ -21,15 +21,12 @@ namespace EvangelionERPV2.ProductModule.Application.DI
             try
             {
                 #region AWS
-                services.AddSingleton<IAmazonSecretsManager, AmazonSecretsManagerClient>(sp =>
-                {
-                    var region = Amazon.RegionEndpoint.USEast1;
-                    return new AmazonSecretsManagerClient(region);
-                });
-                services.AddSingleton<AWSKMSKeyProvider>();
+                var region = Amazon.RegionEndpoint.USEast1;
+                var secretsManagerClient = new AmazonSecretsManagerClient(region);
+                services.AddSingleton<IAmazonSecretsManager>(secretsManagerClient);
 
-                var serviceProvider = services.BuildServiceProvider();
-                var kmsProvider = serviceProvider.GetRequiredService<AWSKMSKeyProvider>();
+                var kmsProvider = new AWSKMSKeyProvider(secretsManagerClient, configuration);
+                services.AddSingleton(kmsProvider);
                 #endregion
 
                 services.AddLogging();
@@ -73,7 +70,7 @@ namespace EvangelionERPV2.ProductModule.Application.DI
             }
             catch (Exception ex)
             {
-                Log.Logger.Error(ex, $"Error at DI IoC: {ex.Message}");
+                Log.Logger.Error("Error at DI IoC Product. ErrorType={ErrorType}", ex.GetType().Name);
             }
 
         }

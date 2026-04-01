@@ -229,10 +229,29 @@ namespace EvangelionERPV2.Shared.Utils
             return GetProductBucketName(configuration);
         }
 
+        public static string GenerateStorageObjectKey(string prefix, Guid entityId)
+        {
+            var normalizedPrefix = Regex.Replace(
+                (prefix ?? string.Empty).Trim().ToLowerInvariant(),
+                "[^a-z0-9/_-]+",
+                string.Empty,
+                RegexOptions.CultureInvariant)
+                .Trim('/');
+
+            if (string.IsNullOrWhiteSpace(normalizedPrefix))
+                normalizedPrefix = "files";
+
+            var entitySegment = entityId != Guid.Empty
+                ? $"{entityId:N}-"
+                : string.Empty;
+
+            return $"{normalizedPrefix}/{DateTime.UtcNow:yyyyMMddHHmmssfff}-{entitySegment}{Guid.NewGuid():N}";
+        }
+
         #endregion
 
         #region HTTP/HTTPS
-        public static async Task<T?> GetAsync<T>(string apiEndpoint, string parameters = "", string token = "", string apiBaseUrl = "")
+        public static async Task<T?> GetAsync<T>(string apiEndpoint, string parameters = "", string token = "", string apiBaseUrl = "", CancellationToken cancellationToken = default)
         {
             apiBaseUrl = string.IsNullOrEmpty(apiBaseUrl) ? _defaultApiUrl : apiBaseUrl;
             var request = new HttpRequestMessage(HttpMethod.Get, $"{apiBaseUrl}/{apiEndpoint}/{parameters}");
@@ -240,7 +259,7 @@ namespace EvangelionERPV2.Shared.Utils
             if (!string.IsNullOrEmpty(token))
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            var response = await _httpClient.SendAsync(request);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
@@ -253,7 +272,7 @@ namespace EvangelionERPV2.Shared.Utils
             return default(T);
         }
 
-        public static async Task<T?> PostAsync<T>(string apiEndpoint, object resource, string token = "", string apiBaseUrl = "")
+        public static async Task<T?> PostAsync<T>(string apiEndpoint, object resource, string token = "", string apiBaseUrl = "", CancellationToken cancellationToken = default)
         {
             apiBaseUrl = string.IsNullOrEmpty(apiBaseUrl) ? _defaultApiUrl : apiBaseUrl;
             var request = new HttpRequestMessage(HttpMethod.Post, $"{apiBaseUrl}/{apiEndpoint}");
@@ -264,7 +283,7 @@ namespace EvangelionERPV2.Shared.Utils
             var serializedResource = JsonSerializer.Serialize(resource);
             request.Content = new StringContent(serializedResource, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.SendAsync(request);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 var responseContent = await response.Content.ReadAsStringAsync();
@@ -276,7 +295,7 @@ namespace EvangelionERPV2.Shared.Utils
             return default(T);
         }
 
-        public static async Task<bool> PutAsync(string apiEndpoint, string parameters, object updatedResource, string token = "", string apiBaseUrl = "")
+        public static async Task<bool> PutAsync(string apiEndpoint, string parameters, object updatedResource, string token = "", string apiBaseUrl = "", CancellationToken cancellationToken = default)
         {
             apiBaseUrl = string.IsNullOrEmpty(apiBaseUrl) ? _defaultApiUrl : apiBaseUrl;
             var request = new HttpRequestMessage(HttpMethod.Put, $"{apiBaseUrl}/{apiEndpoint}/{parameters}");
@@ -287,11 +306,11 @@ namespace EvangelionERPV2.Shared.Utils
             var serializedResource = JsonSerializer.Serialize(updatedResource);
             request.Content = new StringContent(serializedResource, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.SendAsync(request);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
             return response.IsSuccessStatusCode;
         }
 
-        public static async Task<bool> DeleteAsync(string apiEndpoint, string parameters, string token = "", string apiBaseUrl = "")
+        public static async Task<bool> DeleteAsync(string apiEndpoint, string parameters, string token = "", string apiBaseUrl = "", CancellationToken cancellationToken = default)
         {
             apiBaseUrl = string.IsNullOrEmpty(apiBaseUrl) ? _defaultApiUrl : apiBaseUrl;
             var request = new HttpRequestMessage(HttpMethod.Delete, $"{apiBaseUrl}/{apiEndpoint}/{parameters}");
@@ -299,7 +318,7 @@ namespace EvangelionERPV2.Shared.Utils
             if (!string.IsNullOrEmpty(token))
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            var response = await _httpClient.SendAsync(request);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
             return response.IsSuccessStatusCode;
         }
 

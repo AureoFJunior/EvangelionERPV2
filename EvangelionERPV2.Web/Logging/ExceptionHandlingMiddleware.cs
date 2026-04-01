@@ -57,12 +57,23 @@ namespace EvangelionERPV2.Web.Logging
 
         private static void LogException(Exception ex, HttpContext context)
         {
-            Log.Logger.Error(
-                ex,
-                "Unhandled exception. Method={Method}, Path={Path}, TraceId={TraceId}",
+            if (ShouldLogExceptionDetails(ex))
+            {
+                Log.Logger.Error(
+                    ex,
+                    "Unhandled exception. Method={Method}, Path={Path}, TraceId={TraceId}",
+                    context.Request.Method,
+                    context.Request.Path,
+                    context.TraceIdentifier);
+                return;
+            }
+
+            Log.Logger.Warning(
+                "Handled client exception. Method={Method}, Path={Path}, TraceId={TraceId}, ErrorType={ErrorType}",
                 context.Request.Method,
                 context.Request.Path,
-                context.TraceIdentifier);
+                context.TraceIdentifier,
+                GetSafeExceptionType(ex));
         }
 
         private static int GetStatusCodeFromException(Exception ex)
@@ -73,6 +84,11 @@ namespace EvangelionERPV2.Web.Logging
                 NotFoundDatabaseException => StatusCodes.Status204NoContent,
                 _ => StatusCodes.Status500InternalServerError
             };
+        }
+
+        private static bool ShouldLogExceptionDetails(Exception ex)
+        {
+            return ex is not (ArgumentException or FormatException or NotFoundDatabaseException);
         }
 
         private ProblemDetails CreateProblemDetails(Exception ex, int statusCode, string traceId)
@@ -91,12 +107,17 @@ namespace EvangelionERPV2.Web.Logging
         private string? GetErrorDetail(Exception ex, int statusCode)
         {
             if (statusCode == StatusCodes.Status400BadRequest)
-                return ex.Message;
+                return GetSafeBadRequestDetail(ex);
 
-            if (statusCode == StatusCodes.Status500InternalServerError && _environment.IsDevelopment())
-                return ex.Message;
+            if (statusCode == StatusCodes.Status500InternalServerError)
+                return null;
 
             return null;
+        }
+
+        private static string GetSafeBadRequestDetail(Exception ex)
+        {
+            return "The request could not be processed due to invalid input.";
         }
 
         private static string GetErrorMessage(int statusCode)
@@ -107,6 +128,11 @@ namespace EvangelionERPV2.Web.Logging
                 StatusCodes.Status500InternalServerError => "An internal server error occurred. Please try again later.",
                 _ => "An unexpected error occurred."
             };
+        }
+
+        private static string GetSafeExceptionType(Exception? exception)
+        {
+            return exception?.GetType().Name ?? "UnknownError";
         }
     }
 }

@@ -26,7 +26,6 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
         {
             try
             {
-                string key = string.Empty;
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     using (var scope = _serviceScopeFactory.CreateScope())
@@ -34,32 +33,28 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                         try
                         {
                             var rabbitMQManager = scope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
-
-                            // Get from Email Queue and send
-                            var rawMessage = await rabbitMQManager.DequeueAndProcessAsync<string>();
-
-                            if (!string.IsNullOrEmpty(rawMessage))
+                            await rabbitMQManager.DequeueAndProcessAsync<string>(async rawMessage =>
                             {
-                                UserDTO? user;
-                                user = await GetAPIToken(scope);
+                                if (string.IsNullOrWhiteSpace(rawMessage))
+                                    throw new InvalidOperationException("Email Consumer Worker received an empty message payload.");
+
+                                var user = await GetAPIToken(scope, stoppingToken);
 
                                 Log.Logger.Information($"Sending Email at: {DateTime.UtcNow}");
 
                                 if (user == null || string.IsNullOrWhiteSpace(user.Token))
-                                {
-                                    Log.Logger.Warning("Email Consumer Worker could not obtain an API token.");
-                                }
-                                else
-                                {
-                                    await SharedFunctions.PostAsync<object>("Email/SendEmail", rawMessage, user.Token);
-                                }
-                            }
+                                    throw new InvalidOperationException("Email Consumer Worker could not obtain an API token.");
+
+                                var sentEmail = await SharedFunctions.PostAsync<object>("Email/SendEmail", rawMessage, user.Token, cancellationToken: stoppingToken);
+                                if (sentEmail == null)
+                                    throw new InvalidOperationException("Email Consumer Worker failed to send email through API.");
+                            }, stoppingToken);
 
                             Log.Logger.Information($"Email Consumer Worker running at: {DateTime.UtcNow}");
                         }
                         catch (Exception ex)
                         {
-                            Log.Logger.Error(ex, "Email Consumer Worker error.");
+                            Log.Logger.Error("Email Consumer Worker error. ErrorType={ErrorType}", ex.GetType().Name);
                         }
                         finally
                         {
@@ -71,11 +66,11 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
             }
             catch (Exception ex)
             {
-                Log.Logger.Error(ex, "Email Consumer scope error.");
+                Log.Logger.Error("Email Consumer scope error. ErrorType={ErrorType}", ex.GetType().Name);
             }
         }
 
-        private async Task<UserDTO?> GetAPIToken(IServiceScope scope)
+        private async Task<UserDTO?> GetAPIToken(IServiceScope scope, CancellationToken cancellationToken)
         {
             string key = string.Empty;
 
@@ -89,7 +84,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                 return null;
             }
 
-            return await SharedFunctions.PostAsync<UserDTO>("User/LogInto", loginRequest);
+            return await SharedFunctions.PostAsync<UserDTO>("User/LogInto", loginRequest, cancellationToken: cancellationToken);
         }
 
         private static LoginRequestDTO? BuildLoginRequest(string key)

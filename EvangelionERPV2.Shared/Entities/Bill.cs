@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Shared.Entities
 {
+    [Index(nameof(OrderId), IsUnique = true)]
     [Index(nameof(OrderId))]
     [Index(nameof(CreatedAt), nameof(UpdatedAt), nameof(IsActive), nameof(OrderId))]
     [Table("Boleto")]

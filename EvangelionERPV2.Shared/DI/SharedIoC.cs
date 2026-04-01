@@ -38,7 +38,9 @@ namespace EvangelionERPV2.OrderModule.Application.DI
             }
             catch (Exception ex)
             {
-                Log.Logger.Error(ex, $"Error at DI IoC Shared: {ex.Message}");
+                Log.Logger.Error(
+                    "Error at DI IoC Shared. ErrorType={ErrorType}",
+                    ex.GetType().Name);
             }
 
         }

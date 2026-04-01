@@ -95,7 +95,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 Log.Logger.Information($"Order [{order.Id}] created at: {DateTime.UtcNow}");
 
                 // Send notification to Order Hub
-                await SendOrderUpdate(order.Id.ToString(), "Created");
+                await SendOrderUpdate(order.Id.ToString(), "Created", order.EnterpriseId ?? Guid.Empty);
 
                 return order;
 
@@ -103,7 +103,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             catch (Exception ex)
             {
                 if (order != null && order.Id != Guid.Empty)
-                    await SendOrderUpdate(order.Id.ToString(), "Failed");
+                    await SendOrderUpdate(order.Id.ToString(), "Failed", order.EnterpriseId ?? Guid.Empty);
 
                 throw new InsertDatabaseException("Unexpected error while creating the order.", ex);
             }
@@ -132,18 +132,23 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             return order;
         }
 
-        private async Task SendOrderUpdate(string orderId, string status)
+        private async Task SendOrderUpdate(string orderId, string status, Guid enterpriseId)
         {
             try
             {
                 if (_orderHubContext == null)
                     return;
 
-                await _orderHubContext.Clients.All.SendAsync("ReceiveOrderUpdate", orderId, status);
+                if (enterpriseId == Guid.Empty)
+                    return;
+
+                await _orderHubContext.Clients
+                    .Group(enterpriseId.ToString())
+                    .SendAsync("ReceiveOrderUpdate", orderId, status);
             }
             catch (Exception ex)
             {
-                Log.Logger.Warning(ex, "SignalR notification failed for Order {OrderId}", orderId);
+                Log.Logger.Warning("SignalR notification failed for Order {OrderId}. ErrorType={ErrorType}", orderId, ex.GetType().Name);
             }
         }
 
@@ -243,7 +248,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     refundedOrder = existentOrder;
                 });
 
-                await SendOrderUpdate(refundedOrder.Id.ToString(), EnumOrderStatus.Refund.ToString());
+                await SendOrderUpdate(
+                    refundedOrder.Id.ToString(),
+                    EnumOrderStatus.Refund.ToString(),
+                    refundedOrder.EnterpriseId ?? Guid.Empty);
 
                 return refundedOrder;
             }
@@ -385,7 +393,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             }
             catch (Exception ex)
             {
-                Log.Logger.Error(ex, $"Order was not able to be enqueued at: {DateTime.UtcNow}");
+                Log.Logger.Error("Order was not able to be enqueued at: {OccurredAt}. ErrorType={ErrorType}", DateTime.UtcNow, ex.GetType().Name);
                 throw;
             }
         }

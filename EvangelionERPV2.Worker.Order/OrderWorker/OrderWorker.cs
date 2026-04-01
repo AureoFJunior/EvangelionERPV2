@@ -36,22 +36,20 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
                             var scopedRabbitMQ = messageScope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
                             _kmsProvider = messageScope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
                             key = _kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
-                            // Get Order from Queue and save
-                            var order = await scopedRabbitMQ.DequeueAndProcessAsync<Order>();
-                            if (order != null)
+
+                            await scopedRabbitMQ.DequeueAndProcessAsync<Order>(async order =>
                             {
                                 Log.Logger.Information($"Creating Order at: {DateTime.UtcNow}");
 
-                                var user = await GetAPIToken(messageScope, key);
+                                var user = await GetAPIToken(messageScope, key, stoppingToken);
                                 if (user == null || string.IsNullOrWhiteSpace(user.Token))
-                                {
-                                    Log.Logger.Warning("Order Worker could not obtain an API token.");
-                                }
-                                else
-                                {
-                                    await SharedFunctions.PostAsync<object>("Order/InsertOrder", order, user.Token);
-                                }
-                            }
+                                    throw new InvalidOperationException("Order Worker could not obtain an API token.");
+
+                                var createdOrder = await SharedFunctions.PostAsync<object>("Order/InsertOrder", order, user.Token, cancellationToken: stoppingToken);
+                                if (createdOrder == null)
+                                    throw new InvalidOperationException("Order Worker failed to persist order through API.");
+                            }, stoppingToken);
+
                             Log.Logger.Information($"Order Worker running at: {DateTime.UtcNow}");
                         }
 
@@ -59,7 +57,7 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
                     }
                     catch (Exception ex)
                     {
-                        Log.Logger.Error(ex, "Order Worker with error.");
+                        Log.Logger.Error("Order Worker with error. ErrorType={ErrorType}", ex.GetType().Name);
                         await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
 
                     }
@@ -67,11 +65,11 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
             }
             catch (Exception ex)
             {
-                Log.Logger.Error(ex, "Order Worker scope with error.");
+                Log.Logger.Error("Order Worker scope with error. ErrorType={ErrorType}", ex.GetType().Name);
             }
         }
 
-        private async Task<UserDTO?> GetAPIToken(IServiceScope scope, string key)
+        private async Task<UserDTO?> GetAPIToken(IServiceScope scope, string key, CancellationToken cancellationToken)
         {
             var loginRequest = BuildLoginRequest(key);
             if (loginRequest == null)
@@ -80,7 +78,7 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
                 return null;
             }
 
-            return await SharedFunctions.PostAsync<UserDTO>("User/LogInto", loginRequest);
+            return await SharedFunctions.PostAsync<UserDTO>("User/LogInto", loginRequest, cancellationToken: cancellationToken);
         }
 
         private static LoginRequestDTO? BuildLoginRequest(string key)

@@ -4,6 +4,7 @@ using EvangelionERPV2.NFeModule.Application.Providers;
 using EvangelionERPV2.NFeModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Serilog;
 
@@ -11,6 +12,9 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 {
     public class NFeService : INFeService<NFeDocument>, IDisposable
     {
+        private const int IssuanceLockPoolSize = 256;
+        private static readonly SemaphoreSlim[] IssuanceLocks = CreateIssuanceLocks();
+
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<NFeDocument> _nfeRepository;
         private readonly INFeRepository<NFeDocument> _nfeRepositoryCustom;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Order> _orderRepository;
@@ -57,39 +61,66 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (orderId == Guid.Empty)
                 throw new InsertDatabaseException("Order Id is invalid for NFe issuance.");
 
-            var existing = await _nfeRepositoryCustom.GetByOrderIdAsync(orderId, type);
-            if (existing != null)
-                return existing;
-
-            var order = await _orderRepository.GetByIdAsync(orderId);
-            if (order == null)
-                throw new NotFoundDatabaseException($"{nameof(Order)} was not found.");
-
-            var enterprise = order.EnterpriseId.HasValue ? await _enterpriseRepository.GetByIdAsync(order.EnterpriseId.Value) : null;
-            var customer = order.CustomerId.HasValue ? await _customerRepository.GetByIdAsync(order.CustomerId.Value) : null;
-
-            var result = await _provider.IssueAsync(order, enterprise, customer, type, _settings);
-
-            var document = new NFeDocument
+            var issuanceLock = GetIssuanceLock(orderId, type);
+            await issuanceLock.WaitAsync();
+            try
             {
-                Id = Guid.NewGuid(),
-                OrderId = order.Id,
-                Type = type,
-                Status = result.Status,
-                AccessKey = result.AccessKey,
-                Series = result.Series,
-                Number = result.Number,
-                Environment = result.Environment,
-                Protocol = result.Protocol,
-                IssuedAt = result.IssuedAt ?? DateTime.UtcNow,
-                TotalValue = result.TotalValue,
-                XmlContent = result.XmlContent
-            };
+                var existing = await _nfeRepositoryCustom.GetByOrderIdAsync(orderId, type);
+                if (existing != null)
+                    return existing;
 
-            await _nfeRepository.CreateAsync(document);
-            await _nfeRepository.CommitAsync();
+                var order = await _orderRepository.GetByIdAsync(orderId);
+                if (order == null)
+                    throw new NotFoundDatabaseException($"{nameof(Order)} was not found.");
 
-            return document;
+                var enterprise = order.EnterpriseId.HasValue ? await _enterpriseRepository.GetByIdAsync(order.EnterpriseId.Value) : null;
+                var customer = order.CustomerId.HasValue ? await _customerRepository.GetByIdAsync(order.CustomerId.Value) : null;
+
+                var result = await _provider.IssueAsync(order, enterprise, customer, type, _settings);
+
+                var document = new NFeDocument
+                {
+                    Id = Guid.NewGuid(),
+                    OrderId = order.Id,
+                    Type = type,
+                    Status = result.Status,
+                    AccessKey = result.AccessKey,
+                    Series = result.Series,
+                    Number = result.Number,
+                    Environment = result.Environment,
+                    Protocol = result.Protocol,
+                    IssuedAt = result.IssuedAt ?? DateTime.UtcNow,
+                    TotalValue = result.TotalValue,
+                    XmlContent = result.XmlContent
+                };
+
+                await _nfeRepository.CreateAsync(document);
+                try
+                {
+                    await _nfeRepository.CommitAsync();
+                }
+                catch (DbUpdateException commitException)
+                {
+                    var concurrentDocument = await _nfeRepositoryCustom.GetByOrderIdAsync(orderId, type);
+                    if (concurrentDocument == null)
+                        throw;
+
+                    Log.Logger.Warning(
+                        commitException,
+                        "NFe issuance duplicate detected for order {OrderId} and type {Type}. Returning existing document {DocumentId}.",
+                        orderId,
+                        type,
+                        concurrentDocument.Id);
+
+                    return concurrentDocument;
+                }
+
+                return document;
+            }
+            finally
+            {
+                issuanceLock.Release();
+            }
         }
 
         public async Task<NFeDocument?> ConsultAsync(string accessKey)
@@ -152,5 +183,23 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             Dispose(false);
         }
         #endregion
+
+        private static SemaphoreSlim[] CreateIssuanceLocks()
+        {
+            var locks = new SemaphoreSlim[IssuanceLockPoolSize];
+            for (var i = 0; i < IssuanceLockPoolSize; i++)
+            {
+                locks[i] = new SemaphoreSlim(1, 1);
+            }
+
+            return locks;
+        }
+
+        private static SemaphoreSlim GetIssuanceLock(Guid orderId, NFeDocumentType type)
+        {
+            var hash = HashCode.Combine(orderId, type);
+            var index = (hash & int.MaxValue) % IssuanceLockPoolSize;
+            return IssuanceLocks[index];
+        }
     }
 }

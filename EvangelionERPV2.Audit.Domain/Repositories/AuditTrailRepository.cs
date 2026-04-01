@@ -17,15 +17,21 @@ namespace EvangelionERPV2.AuditModule.Domain.Repositories
         }
 
         public async Task<(IEnumerable<AuditTrail> AuditTrails, int TotalItems)> GetAllAsyncFiltering(
+            Guid enterpriseId,
             bool descending,
             int? pageNumber,
             int? pageSize,
             AuditTrailFilterDTO? filter = null)
         {
+            if (enterpriseId == Guid.Empty)
+                return (Enumerable.Empty<AuditTrail>(), 0);
+
             IQueryable<AuditTrail> query = _context.Set<AuditTrail>()
                 .AsNoTracking()
                 .Include(x => x.User)
-                .Where(x => AuditedEntities.Contains(x.EntityName));
+                .Where(x => x.User != null
+                            && x.User.EnterpriseId == enterpriseId
+                            && AuditedEntities.Contains(x.EntityName));
 
             query = ApplyFilter(query, filter);
             query = descending ? query.OrderByDescending(x => x.ChangedAt) : query.OrderBy(x => x.ChangedAt);
@@ -41,15 +47,18 @@ namespace EvangelionERPV2.AuditModule.Domain.Repositories
             return (result, totalItems);
         }
 
-        public async Task<AuditTrail?> GetByIdAsync(Guid id)
+        public async Task<AuditTrail?> GetByIdAsync(Guid id, Guid enterpriseId)
         {
-            if (id == Guid.Empty)
+            if (id == Guid.Empty || enterpriseId == Guid.Empty)
                 return null;
 
             return await _context.Set<AuditTrail>()
                 .AsNoTracking()
                 .Include(x => x.User)
-                .FirstOrDefaultAsync(x => x.Id == id && AuditedEntities.Contains(x.EntityName));
+                .FirstOrDefaultAsync(x => x.Id == id
+                                          && x.User != null
+                                          && x.User.EnterpriseId == enterpriseId
+                                          && AuditedEntities.Contains(x.EntityName));
         }
 
         private static IQueryable<AuditTrail> ApplyFilter(IQueryable<AuditTrail> query, AuditTrailFilterDTO? filter)

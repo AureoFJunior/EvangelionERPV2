@@ -112,7 +112,8 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OrderId");
+                    b.HasIndex("OrderId")
+                        .IsUnique();
 
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt");
 
@@ -394,6 +395,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasIndex("AccessKey");
 
                     b.HasIndex("OrderId");
+
+                    b.HasIndex("OrderId", "Type")
+                        .IsUnique();
 
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt");
 

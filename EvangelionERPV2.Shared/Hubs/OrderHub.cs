@@ -1,12 +1,36 @@
-﻿using Microsoft.AspNetCore.SignalR;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
 
 namespace EvangelionERPV2.Shared.Hubs
 {
+    [Authorize]
     public class OrderHub : Hub
     {
-        public async Task SendOrderUpdate(string orderId, string status)
+        public override async Task OnConnectedAsync()
         {
-            await Clients.All.SendAsync("ReceiveOrderUpdate", orderId, status);
+            var enterpriseClaim = Context.User?.FindFirst(ClaimTypes.GroupSid)?.Value;
+            if (!string.IsNullOrWhiteSpace(enterpriseClaim) &&
+                Guid.TryParse(enterpriseClaim, out var enterpriseId) &&
+                enterpriseId != Guid.Empty)
+            {
+                await Groups.AddToGroupAsync(Context.ConnectionId, enterpriseId.ToString());
+            }
+
+            await base.OnConnectedAsync();
+        }
+
+        public override async Task OnDisconnectedAsync(Exception? exception)
+        {
+            var enterpriseClaim = Context.User?.FindFirst(ClaimTypes.GroupSid)?.Value;
+            if (!string.IsNullOrWhiteSpace(enterpriseClaim) &&
+                Guid.TryParse(enterpriseClaim, out var enterpriseId) &&
+                enterpriseId != Guid.Empty)
+            {
+                await Groups.RemoveFromGroupAsync(Context.ConnectionId, enterpriseId.ToString());
+            }
+
+            await base.OnDisconnectedAsync(exception);
         }
     }
 }

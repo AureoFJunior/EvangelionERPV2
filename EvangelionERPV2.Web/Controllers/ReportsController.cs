@@ -14,6 +14,7 @@ namespace EvangelionERPV2.Web.Controllers
     [Route("api/v{version:apiVersion}/reports")]
     public class ReportsController : ControllerBase
     {
+        private const int MaxGenerateReportRequestBodySizeInBytes = 16 * 1024;
         private readonly IReportsService _reportsService;
 
         public ReportsController(IReportsService reportsService)
@@ -40,7 +41,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Warning(ex, "Unable to list reports");
+                Log.Logger.Warning("Unable to list reports. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeErrorMessage(ex));
             }
             catch (Exception)
@@ -50,6 +51,7 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPost]
+        [RequestSizeLimit(MaxGenerateReportRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(ReportListItemDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -72,12 +74,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Warning(ex, "Unable to generate report");
+                Log.Logger.Warning("Unable to generate report. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeErrorMessage(ex));
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Warning(ex, "Unable to generate report due to missing data");
+                Log.Logger.Warning("Unable to generate report due to missing data. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -109,7 +111,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Warning(ex, "Unable to fetch report detail");
+                Log.Logger.Warning("Unable to fetch report detail. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeErrorMessage(ex));
             }
             catch (Exception)
@@ -134,9 +136,30 @@ namespace EvangelionERPV2.Web.Controllers
 
         private static string GetSafeErrorMessage(InsertDatabaseException ex)
         {
-            return ex.InnerException == null
-                ? ex.Message
-                : "An internal error occurred. Please try again later.";
+            if (ex.InnerException != null)
+                return "An internal error occurred. Please try again later.";
+
+            var message = ex.Message?.Trim() ?? string.Empty;
+
+            if (string.Equals(message, "No data available to generate report.", StringComparison.OrdinalIgnoreCase))
+                return "No data available to generate report.";
+
+            if (string.Equals(message, "Invalid report type.", StringComparison.OrdinalIgnoreCase))
+                return "Invalid report type.";
+
+            if (string.Equals(message, "No payable bills found in the current month to generate this report.", StringComparison.OrdinalIgnoreCase))
+                return "No payable bills found in the current month to generate this report.";
+
+            if (string.Equals(message, "No orders found in the current month to generate this report.", StringComparison.OrdinalIgnoreCase))
+                return "No orders found in the current month to generate this report.";
+
+            if (string.Equals(message, "Enterprise context is required.", StringComparison.OrdinalIgnoreCase))
+                return "Enterprise context is required.";
+
+            if (string.Equals(message, "User context is required.", StringComparison.OrdinalIgnoreCase))
+                return "User context is required.";
+
+            return "An internal error occurred. Please try again later.";
         }
     }
 }

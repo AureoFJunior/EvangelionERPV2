@@ -14,7 +14,7 @@ namespace EvangelionERPV2.EmailModule.Application.Interface
         Task SendEmail(MimeMessage message);
         Task SendManualEmail(EmailStructure email, Enterprise enterprise);
         Task SendMonthEmail(Guid? enterpriseId = null);
-        Task SendStockEmail();
+        Task SendStockEmail(Guid? enterpriseId = null);
         #endregion
     }
 }

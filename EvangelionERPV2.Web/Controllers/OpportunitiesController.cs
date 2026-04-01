@@ -17,6 +17,7 @@ namespace EvangelionERPV2.Web.Controllers
     [Route("api/v{version:apiVersion}/opportunities")]
     public class OpportunitiesController : ControllerBase
     {
+        private const int MaxOpportunityWriteRequestBodySizeInBytes = 64 * 1024;
         private readonly IOpportunityRadarService _opportunityRadarService;
         private readonly IRepository<User> _userRepository;
 
@@ -39,7 +40,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Warning(ex, "Opportunity radar list was blocked by feature flag");
+                Log.Logger.Warning("Opportunity radar list was blocked by feature flag. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (Exception)
@@ -64,7 +65,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Warning(ex, "Opportunity radar detail was blocked by feature flag");
+                Log.Logger.Warning("Opportunity radar detail was blocked by feature flag. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (Exception)
@@ -74,6 +75,7 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPost("{id:guid}/feedback")]
+        [RequestSizeLimit(MaxOpportunityWriteRequestBodySizeInBytes)]
         public async Task<IActionResult> AddFeedback(Guid id, [FromBody] OpportunityFeedbackRequestDTO request)
         {
             try
@@ -96,12 +98,12 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Warning(ex, "Opportunity feedback failed validation");
+                Log.Logger.Warning("Opportunity feedback failed validation. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Warning(ex, "Opportunity feedback target was not found");
+                Log.Logger.Warning("Opportunity feedback target was not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -111,6 +113,7 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPost("recompute")]
+        [RequestSizeLimit(MaxOpportunityWriteRequestBodySizeInBytes)]
         public async Task<IActionResult> Recompute([FromBody] OpportunityRecomputeRequestDTO request)
         {
             try
@@ -133,7 +136,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Warning(ex, "Opportunity recompute was blocked or invalid");
+                Log.Logger.Warning("Opportunity recompute was blocked or invalid. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (Exception)
@@ -155,7 +158,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                Log.Logger.Warning(ex, "Opportunity summary was blocked by feature flag");
+                Log.Logger.Warning("Opportunity summary was blocked by feature flag. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (Exception)
@@ -200,9 +203,20 @@ namespace EvangelionERPV2.Web.Controllers
 
         private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)
         {
-            return ex.InnerException == null
-                ? ex.Message
-                : "An internal error occurred. Please try again later.";
+            if (ex.InnerException != null)
+                return "An internal error occurred. Please try again later.";
+
+            var message = ex.Message?.Trim() ?? string.Empty;
+            if (string.Equals(message, "Invalid feedback status. Use in_analysis, accepted, rejected, ignored or implemented.", StringComparison.OrdinalIgnoreCase))
+                return "Invalid feedback status. Use in_analysis, accepted, rejected, ignored or implemented.";
+
+            if (string.Equals(message, "Only managers can accept or implement opportunities.", StringComparison.OrdinalIgnoreCase))
+                return "Only managers can accept or implement opportunities.";
+
+            if (string.Equals(message, "Opportunity radar is disabled by feature flag.", StringComparison.OrdinalIgnoreCase))
+                return "Opportunity radar is disabled by feature flag.";
+
+            return "An internal error occurred. Please try again later.";
         }
     }
 }

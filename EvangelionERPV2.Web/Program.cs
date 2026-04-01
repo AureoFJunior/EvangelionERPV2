@@ -27,6 +27,7 @@ using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Microsoft.OpenApi;
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.Net.Http.Headers;
 
 var builder = WebApplication.CreateBuilder(args);
 const string DefaultCorsPolicyName = "DefaultCorsPolicy";
@@ -40,6 +41,8 @@ try
     #region IoC
     ConfigureIoC(builder);
     #endregion
+
+    SetupRequestLimits(builder);
 
     LogConfig.Configure();
 
@@ -61,6 +64,7 @@ try
 
     builder.Services.AddFluentValidationAutoValidation();
     builder.Services.AddFluentValidationClientsideAdapters();
+    builder.Services.Configure<RequestLoggingOptions>(builder.Configuration.GetSection("RequestLogging"));
 
     Log.Logger.Information("Starting JWT"); 
     SetupJWT(builder);
@@ -95,6 +99,13 @@ try
     app.UseHttpMetrics();
 
     app.UseHttpsRedirection();
+    if (!app.Environment.IsDevelopment())
+        app.UseHsts();
+    app.Use(async (context, next) =>
+    {
+        ApplySecurityHeaders(context.Response.Headers);
+        await next();
+    });
 
     app.UseResponseCompression();
 
@@ -108,7 +119,7 @@ try
     app.UseAuthorization();
 
     app.MapMetrics("/metrics");
-    app.MapHub<OrderHub>("/orderHub");
+    app.MapHub<OrderHub>("/orderHub").RequireAuthorization();
 
     app.MapControllers();
     app.MapHealthChecks("/health");
@@ -120,7 +131,7 @@ try
 }
 catch (Exception ex)
 {
-    Log.Logger.Error(ex.Message + ex.StackTrace);
+    Log.Logger.Error("Application startup failed. ErrorType={ErrorType}", ex.GetType().Name);
 }
 
 static void BuildValidators(WebApplicationBuilder builder)
@@ -253,6 +264,25 @@ static void SetupControllers(WebApplicationBuilder builder)
        });
 }
 
+static void SetupRequestLimits(WebApplicationBuilder builder)
+{
+    const long defaultMaxRequestBodySizeBytes = 256 * 1024;
+    var configuredMaxRequestBodySize = builder.Configuration.GetValue<long?>("RequestLimits:MaxRequestBodySizeBytes");
+    var maxRequestBodySizeBytes = configuredMaxRequestBodySize.HasValue && configuredMaxRequestBodySize.Value > 0
+        ? configuredMaxRequestBodySize.Value
+        : defaultMaxRequestBodySizeBytes;
+
+    builder.WebHost.ConfigureKestrel(options =>
+    {
+        options.Limits.MaxRequestBodySize = maxRequestBodySizeBytes;
+    });
+
+    builder.Services.Configure<IISServerOptions>(options =>
+    {
+        options.MaxRequestBodySize = maxRequestBodySizeBytes;
+    });
+}
+
 static void SetupHealthCheck(WebApplicationBuilder builder)
 {
     builder.Services.AddHealthChecks();
@@ -316,6 +346,15 @@ static void AddRequestRateLimit(WebApplicationBuilder builder)
     builder.Services.Configure<IpRateLimitPolicies>(builder.Configuration.GetSection("IpRateLimitPolicies"));
     builder.Services.AddInMemoryRateLimiting();
     builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
+}
+
+static void ApplySecurityHeaders(IHeaderDictionary headers)
+{
+    headers[HeaderNames.XContentTypeOptions] = "nosniff";
+    headers[HeaderNames.XFrameOptions] = "DENY";
+    headers["Referrer-Policy"] = "no-referrer";
+    headers["Permissions-Policy"] = "accelerometer=(), autoplay=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()";
+    headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 }
 #endregion
 

@@ -12,6 +12,7 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class CashFlowForecastController : Controller
     {
+        private const int MaxSimulationRequestBodySizeInBytes = 128 * 1024;
         private readonly ICashFlowForecastService _cashFlowForecastService;
 
         public CashFlowForecastController(ICashFlowForecastService cashFlowForecastService)
@@ -60,6 +61,7 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         [HttpPost]
+        [RequestSizeLimit(MaxSimulationRequestBodySizeInBytes)]
         public async Task<IActionResult> RunSimulation([FromBody] RunSimulationRequestDTO request)
         {
             try
@@ -75,7 +77,8 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(ex.Message);
+                Log.Logger.Warning("Invalid cash flow simulation request. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest(GetSafeArgumentErrorMessage(ex));
             }
             catch (Exception)
             {
@@ -95,6 +98,18 @@ namespace EvangelionERPV2.Web.Controllers
                              ?? User.FindFirst("uid")?.Value
                              ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             return Guid.TryParse(claimValue, out userId) && userId != Guid.Empty;
+        }
+
+        private static string GetSafeArgumentErrorMessage(ArgumentException ex)
+        {
+            if (ex.InnerException != null)
+                return "Invalid simulation request.";
+
+            var message = ex.Message?.Trim() ?? string.Empty;
+            if (string.Equals(message, "At least two scenarios are required.", StringComparison.OrdinalIgnoreCase))
+                return "At least two scenarios are required.";
+
+            return "Invalid simulation request.";
         }
     }
 }

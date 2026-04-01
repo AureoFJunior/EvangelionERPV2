@@ -61,7 +61,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while creating user.", ex);
             }
         }
 
@@ -116,7 +116,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
             }
             catch (Exception exValidate)
             {
-                Log.Logger.Error(exValidate, "Invalid Google IdToken");
+                Log.Logger.Error("Invalid Google IdToken. ErrorType={ErrorType}", exValidate.GetType().Name);
                 throw new UnauthorizedAccessException("Invalid Google IdToken", exValidate);
             }
 
@@ -155,22 +155,48 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 throw new InvalidOperationException("AWS bucket name is not configured.");
 
             var s3Client = await GetS3ClientAsync();
-            await s3Client.DeleteItemIfExistsAsync(bucketName, existentUser.ProfilePicture);
+            var oldProfilePictureAddress = existentUser.ProfilePicture;
 
             if (string.IsNullOrWhiteSpace(profilePicturePayload))
             {
                 user.ProfilePicture = string.Empty;
                 user.UpdatedAt = DateTime.UtcNow;
-                return Update(user);
+                var updatedUser = Update(user);
+                await TryDeleteOldProfilePictureAsync(s3Client, bucketName, oldProfilePictureAddress);
+                return updatedUser;
             }
 
-            var keyName = $"users/{user.UserName.ClearString().ToLowerInvariant()}-{DateTime.UtcNow:yyyyMMddHHmmssfff}";
+            var keyName = SharedFunctions.GenerateStorageObjectKey("users", user.Id);
             using var content = SharedFunctions.GetMemoryStreamFromBase64Payload(profilePicturePayload);
             await s3Client.CreateItemAsync(bucketName, keyName, content);
+            try
+            {
+                user.ProfilePicture = SharedFunctions.EnsureEncryptedAddress(keyName);
+                user.UpdatedAt = DateTime.UtcNow;
+                var updatedUser = Update(user);
+                await TryDeleteOldProfilePictureAsync(s3Client, bucketName, oldProfilePictureAddress);
+                return updatedUser;
+            }
+            catch
+            {
+                await s3Client.DeleteItemIfExistsAsync(bucketName, keyName);
+                throw;
+            }
+        }
 
-            user.ProfilePicture = SharedFunctions.EnsureEncryptedAddress(keyName);
-            user.UpdatedAt = DateTime.UtcNow;
-            return Update(user);
+        private static async Task TryDeleteOldProfilePictureAsync(IAmazonS3 s3Client, string bucketName, string? oldProfilePictureAddress)
+        {
+            try
+            {
+                await s3Client.DeleteItemIfExistsAsync(bucketName, oldProfilePictureAddress);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(
+                    "Unable to delete old profile image from S3 after successful profile update. KeyId={KeyId} ErrorType={ErrorType}",
+                    GetLogSafeStorageIdentifier(oldProfilePictureAddress),
+                    ex.GetType().Name);
+            }
         }
 
         public async Task<string> GetProfilePictureBase64Async(string? profilePictureAddress)
@@ -186,12 +212,17 @@ namespace EvangelionERPV2.UserModule.Application.Services
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
             {
-                Log.Logger.Warning("User profile image not found in S3 for key {KeyName}", profilePictureAddress);
+                Log.Logger.Warning(
+                    "User profile image not found in S3 for KeyId={KeyId}",
+                    GetLogSafeStorageIdentifier(profilePictureAddress));
                 return string.Empty;
             }
             catch (Exception ex)
             {
-                Log.Logger.Warning(ex, "Unable to load user profile image from S3 for key {KeyName}", profilePictureAddress);
+                Log.Logger.Warning(
+                    "Unable to load user profile image from S3 for KeyId={KeyId}. ErrorType={ErrorType}",
+                    GetLogSafeStorageIdentifier(profilePictureAddress),
+                    ex.GetType().Name);
                 return string.Empty;
             }
         }
@@ -357,6 +388,16 @@ namespace EvangelionERPV2.UserModule.Application.Services
         {
             var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input ?? string.Empty));
             return Convert.ToBase64String(bytes);
+        }
+
+        private static string GetLogSafeStorageIdentifier(string? storageObjectKey)
+        {
+            var normalizedStorageObjectKey = (storageObjectKey ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(normalizedStorageObjectKey))
+                return "empty";
+
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedStorageObjectKey));
+            return Convert.ToHexString(bytes).ToLowerInvariant()[..12];
         }
 
         private static bool IsValidResetPassword(string candidatePassword)
