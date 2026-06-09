@@ -19,9 +19,12 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.DI;
 using EvangelionERPV2.Web.FluentValidator;
 using EvangelionERPV2.Web.Logging;
+using EvangelionERPV2.Web.Security;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
@@ -69,6 +72,9 @@ try
     Log.Logger.Information("Starting JWT"); 
     SetupJWT(builder);
 
+    Log.Logger.Information("Starting Authorization");
+    SetupAuthorization(builder);
+
     Log.Logger.Information("Starting Health Check");
     SetupHealthCheck(builder);
 
@@ -89,7 +95,6 @@ try
 
     Log.Logger.Information("Swagger Config");
 
-    app.UseMiddleware<RequestLoggingMiddleware>();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
     // Configure the HTTP request pipeline.
@@ -116,13 +121,21 @@ try
     app.UseCors(DefaultCorsPolicyName);
 
     app.UseAuthentication();
+    app.UseMiddleware<RequestLoggingMiddleware>();
+    app.UseMiddleware<ActiveTenantEnforcementMiddleware>();
     app.UseAuthorization();
 
-    app.MapMetrics("/metrics");
-    app.MapHub<OrderHub>("/orderHub").RequireAuthorization();
+    app.MapMetrics("/metrics").RequireAuthorization(RbacPolicies.Metrics.Read);
+    app.MapHub<OrderHub>("/orderHub", options =>
+    {
+        options.Transports =
+            HttpTransportType.WebSockets |
+            HttpTransportType.ServerSentEvents |
+            HttpTransportType.LongPolling;
+    }).RequireAuthorization(RbacPolicies.Orders.Read);
 
     app.MapControllers();
-    app.MapHealthChecks("/health");
+    app.MapHealthChecks("/health").AllowAnonymous();
 
     SharedFunctions.Initialize(app.Services);
 
@@ -132,6 +145,7 @@ try
 catch (Exception ex)
 {
     Log.Logger.Error("Application startup failed. ErrorType={ErrorType}", ex.GetType().Name);
+    throw;
 }
 
 static void BuildValidators(WebApplicationBuilder builder)
@@ -207,14 +221,32 @@ static void SetupJWT(WebApplicationBuilder builder)
                 {
                     var accessToken = context.Request.Query["access_token"].FirstOrDefault();
                     var path = context.HttpContext.Request.Path;
-                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/orderHub"))
+                    var isOrderHubRequest = path.StartsWithSegments("/orderHub");
+
+                    if (!string.IsNullOrEmpty(accessToken) && isOrderHubRequest)
                     {
                         context.Token = accessToken;
                     }
+
                     return Task.CompletedTask;
                 }
             };
         });
+}
+
+static void SetupAuthorization(WebApplicationBuilder builder)
+{
+    builder.Services.AddAuthorization(options =>
+    {
+        options.FallbackPolicy = new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser()
+            .Build();
+
+        options.AddRbacPolicies();
+    });
+
+    builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+    builder.Services.AddScoped<IAuthorizationHandler, SelfOrPermissionAuthorizationHandler>();
 }
 
 static void AddSwaggerGen(WebApplicationBuilder builder)
@@ -357,4 +389,3 @@ static void ApplySecurityHeaders(IHeaderDictionary headers)
     headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 }
 #endregion
-

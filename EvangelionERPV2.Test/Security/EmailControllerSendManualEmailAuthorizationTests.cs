@@ -4,6 +4,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
@@ -28,28 +29,11 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
-        public async Task SendManualEmail_ReturnsForbid_WhenCallerIsNotAdmin()
+        public void SendManualEmail_RequiresEmailSendPolicy()
         {
-            var enterpriseId = Guid.NewGuid();
-            var userId = Guid.NewGuid();
-
-            var emailService = new Mock<IEmailService<EmailStructure>>(MockBehavior.Strict);
-            var userRepository = new Mock<IRepository<Shared.Entities.User>>(MockBehavior.Strict);
-            userRepository
-                .Setup(repository => repository.GetByIdAsync(userId))
-                .ReturnsAsync(BuildUser(userId, enterpriseId, EnumAccessLevel.Manager));
-
-            var controller = CreateController(emailService, userRepository, new[]
-            {
-                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
-                new Claim(ClaimTypes.Sid, userId.ToString())
-            });
-
-            var response = await controller.SendManualEmail(new EmailStructure());
-
-            Assert.IsType<ForbidResult>(response);
-            emailService.VerifyNoOtherCalls();
-            userRepository.Verify(repository => repository.GetByIdAsync(userId), Times.Once);
+            ControllerPolicyTestHelper.AssertActionPolicy<EmailController>(
+                nameof(EmailController.SendManualEmail),
+                "rbac:" + RbacPermissions.Email.Send);
         }
 
         [Fact]
@@ -86,7 +70,6 @@ namespace EvangelionERPV2.Test.Security
                     It.IsAny<EmailStructure>(),
                     It.Is<Enterprise>(enterprise => enterprise.Id == enterpriseId)),
                 Times.Once);
-            userRepository.Verify(repository => repository.GetByIdAsync(userId), Times.Once);
         }
 
         private static EmailController CreateController(

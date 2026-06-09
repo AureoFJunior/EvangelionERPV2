@@ -13,7 +13,6 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
     public sealed class OrderWorker : BackgroundService
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private AWSKMSKeyProvider _kmsProvider;
         private readonly IConfiguration _configuration;
 
         public OrderWorker(IServiceScopeFactory serviceScopeFactory, IConfiguration configuration)
@@ -26,7 +25,6 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
         {
             try
             {
-                string key = string.Empty;
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     try
@@ -34,18 +32,19 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
                         using (var messageScope = _serviceScopeFactory.CreateScope())
                         {
                             var scopedRabbitMQ = messageScope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
-                            _kmsProvider = messageScope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-                            key = _kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+                            var kmsProvider = messageScope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
+                            var key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
 
                             await scopedRabbitMQ.DequeueAndProcessAsync<Order>(async order =>
                             {
                                 Log.Logger.Information($"Creating Order at: {DateTime.UtcNow}");
 
-                                var user = await GetAPIToken(messageScope, key, stoppingToken);
+                                var user = await GetAPIToken(key, stoppingToken);
                                 if (user == null || string.IsNullOrWhiteSpace(user.Token))
                                     throw new InvalidOperationException("Order Worker could not obtain an API token.");
 
-                                var createdOrder = await SharedFunctions.PostAsync<object>("Order/InsertOrder", order, user.Token, cancellationToken: stoppingToken);
+                                var request = MapQueuedOrderToCreateRequest(order);
+                                var createdOrder = await SharedFunctions.PostAsync<object>("Order/InsertOrder", request, user.Token, cancellationToken: stoppingToken);
                                 if (createdOrder == null)
                                     throw new InvalidOperationException("Order Worker failed to persist order through API.");
                             }, stoppingToken);
@@ -69,7 +68,7 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
             }
         }
 
-        private async Task<UserDTO?> GetAPIToken(IServiceScope scope, string key, CancellationToken cancellationToken)
+        private async Task<UserDTO?> GetAPIToken(string key, CancellationToken cancellationToken)
         {
             var loginRequest = BuildLoginRequest(key);
             if (loginRequest == null)
@@ -79,6 +78,35 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
             }
 
             return await SharedFunctions.PostAsync<UserDTO>("User/LogInto", loginRequest, cancellationToken: cancellationToken);
+        }
+
+        private static CreateOrderRequestDTO MapQueuedOrderToCreateRequest(Order order)
+        {
+            if (order == null)
+                throw new InvalidOperationException("Queued order payload is required.");
+
+            if (!order.CustomerId.HasValue || order.CustomerId.Value == Guid.Empty)
+                throw new InvalidOperationException("Queued order customer is required.");
+
+            var items = (order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>())
+                .Select(item => new OrderLineItemRequestDTO
+                {
+                    ProductId = item.ProductId,
+                    Quantity = item.Quantity,
+                    Value = item.Value
+                })
+                .ToList();
+
+            if (items.Count == 0)
+                throw new InvalidOperationException("Queued order must include at least one item.");
+
+            return new CreateOrderRequestDTO
+            {
+                CustomerId = order.CustomerId.Value,
+                PaymentScheduledDate = order.PaymentScheduledDate,
+                Status = order.Status,
+                Items = items
+            };
         }
 
         private static LoginRequestDTO? BuildLoginRequest(string key)

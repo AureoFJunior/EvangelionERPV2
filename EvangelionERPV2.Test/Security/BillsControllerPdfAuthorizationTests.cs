@@ -2,6 +2,7 @@ using AutoMapper;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using Microsoft.AspNetCore.Http;
@@ -30,7 +31,7 @@ namespace EvangelionERPV2.Test.Security
                 x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>()),
                 Times.Never);
             _billsServiceMock.Verify(
-                x => x.GetPdfAsync(It.IsAny<Guid>()),
+                x => x.GetPdfAsync(It.IsAny<Guid>(), It.IsAny<Guid>()),
                 Times.Never);
         }
 
@@ -39,6 +40,7 @@ namespace EvangelionERPV2.Test.Security
         {
             var orderId = Guid.NewGuid();
             var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
 
             _orderServiceMock
                 .Setup(x => x.GetByIdAsync(orderId, enterpriseId))
@@ -46,14 +48,15 @@ namespace EvangelionERPV2.Test.Security
 
             var controller = CreateController(new[]
             {
-                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString())
+                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
+                new Claim(ClaimTypes.Sid, userId.ToString())
             });
 
             var response = await controller.Pdf(orderId);
 
             Assert.IsType<NoContentResult>(response);
             _billsServiceMock.Verify(
-                x => x.GetPdfAsync(It.IsAny<Guid>()),
+                x => x.GetPdfAsync(It.IsAny<Guid>(), It.IsAny<Guid>()),
                 Times.Never);
         }
 
@@ -62,6 +65,7 @@ namespace EvangelionERPV2.Test.Security
         {
             var orderId = Guid.NewGuid();
             var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
             var expectedContent = new byte[] { 1, 2, 3 };
 
             _orderServiceMock
@@ -69,12 +73,13 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync(new Order { Id = orderId, EnterpriseId = enterpriseId });
 
             _billsServiceMock
-                .Setup(x => x.GetPdfAsync(orderId))
+                .Setup(x => x.GetPdfAsync(orderId, enterpriseId))
                 .ReturnsAsync(expectedContent);
 
             var controller = CreateController(new[]
             {
-                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString())
+                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
+                new Claim(ClaimTypes.Sid, userId.ToString())
             });
 
             var response = await controller.Pdf(orderId);
@@ -86,6 +91,8 @@ namespace EvangelionERPV2.Test.Security
 
         private BillsController CreateController(IEnumerable<Claim> claims)
         {
+            SetupManagementUserIfPossible(claims);
+
             var controller = new BillsController(
                 _billsServiceMock.Object,
                 _orderServiceMock.Object,
@@ -102,6 +109,27 @@ namespace EvangelionERPV2.Test.Security
             };
 
             return controller;
+        }
+
+        private void SetupManagementUserIfPossible(IEnumerable<Claim> claims)
+        {
+            var userClaim = claims.FirstOrDefault(x => x.Type == ClaimTypes.Sid)?.Value;
+            var enterpriseClaim = claims.FirstOrDefault(x => x.Type == ClaimTypes.GroupSid)?.Value;
+
+            if (!Guid.TryParse(userClaim, out var userId) || userId == Guid.Empty)
+                return;
+            if (!Guid.TryParse(enterpriseClaim, out var enterpriseId) || enterpriseId == Guid.Empty)
+                return;
+
+            _userRepositoryMock
+                .Setup(x => x.GetByIdAsync(userId))
+                .ReturnsAsync(new User
+                {
+                    Id = userId,
+                    EnterpriseId = enterpriseId,
+                    AccessLevel = (short)EnumAccessLevel.Supervisor,
+                    IsActive = true
+                });
         }
     }
 }

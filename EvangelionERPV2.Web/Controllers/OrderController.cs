@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using AutoMapper;
 using Serilog;
@@ -20,6 +21,7 @@ namespace EvangelionERPV2.Web.Controllers
     public class OrderController : Controller
     {
         private const int MaxOrderRequestBodySizeInBytes = 1 * 1024 * 1024;
+        private const int MaxRefundReasonLength = 500;
         private const int DefaultPageNumber = 1;
         private const int DefaultPageSize = 50;
         private const int MaxPageSize = 200;
@@ -43,6 +45,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="pageNumber">Number of the current page</param>
         /// <param name="pageSize">Size of the desired page</param>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Orders.Read)]
         [HttpGet("{pageNumber?}/{pageSize?}")]
         [ProducesResponseType(typeof(IEnumerable<OrderDTO>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -52,8 +55,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+                if (!await HasActiveTenantMembershipAsync(TryGetUserId(), enterpriseId))
                     return Unauthorized();
 
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
@@ -86,6 +91,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="pageSize">Size of the desired page</param>
         /// <param name="order">Object used to filter data.</param>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Orders.Read)]
         [HttpPost("{descending}/{pageNumber?}/{pageSize?}")]
         [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(IEnumerable<OrderDTO>), StatusCodes.Status200OK)]
@@ -96,7 +102,12 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                if (!ModelState.IsValid)
+                    return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
                 if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+                if (!await HasActiveTenantMembershipAsync(TryGetUserId(), enterpriseId))
                     return Unauthorized();
 
                 filter ??= new OrderFilterRequestDTO();
@@ -148,6 +159,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="id">Id of the order</param>
         /// <returns>The order that match with the id parameter.</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Orders.Read)]
         [HttpGet("{id}")]
         [ProducesResponseType(typeof(OrderDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -157,6 +169,8 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+                if (!await HasActiveTenantMembershipAsync(TryGetUserId(), enterpriseId))
                     return Unauthorized();
 
                 Order? order = await _orderService.GetByIdAsync(id, enterpriseId);
@@ -177,6 +191,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="order">Order to be added</param>
         /// <returns>The added order</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Orders.Create)]
         [HttpPost]
         [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -186,13 +201,21 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid || request == null) return BadRequest(ModelState);
+                if (!ModelState.IsValid || request == null) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+                var userId = TryGetUserId();
+                if (!await HasActiveTenantMembershipAsync(userId, enterpriseId))
+                    return Unauthorized();
 
-                var order = MapCreateRequestToOrder(request, enterpriseId, TryGetUserId());
+                var order = MapCreateRequestToOrder(request, enterpriseId, userId);
                 await _orderService.InsertOrderInQueue(order);
                 return Ok("Order enqueued successfully");
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error("Invalid order payload. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (Exception)
             {
@@ -205,6 +228,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="order">Order to be added</param>
         /// <returns>The added order</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Orders.Create)]
         [HttpPost]
         [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -214,13 +238,21 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid || request == null) return BadRequest(ModelState);
+                if (!ModelState.IsValid || request == null) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+                var userId = TryGetUserId();
+                if (!await HasActiveTenantMembershipAsync(userId, enterpriseId))
+                    return Unauthorized();
 
-                var order = MapCreateRequestToOrder(request, enterpriseId, TryGetUserId());
+                var order = MapCreateRequestToOrder(request, enterpriseId, userId);
                 await _orderService.CreateAsync(order);
                 return Ok("Order created successfully");
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error("Invalid order payload. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (Exception)
             {
@@ -233,6 +265,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="order">Order to be updated</param>
         /// <returns>The updated order</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Orders.Update)]
         [HttpPut]
         [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(OrderDTO), StatusCodes.Status200OK)]
@@ -243,13 +276,9 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid || request == null) return BadRequest(ModelState);
+                if (!ModelState.IsValid || request == null) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var order = MapUpdateRequestToOrder(request);
 
                 Order updatedOrder = _orderService.Update(order, enterpriseId);
@@ -270,6 +299,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.Orders.Refund)]
         [HttpPost("{id}")]
         [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(OrderDTO), StatusCodes.Status200OK)]
@@ -283,11 +313,10 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var reason = request?.Reason ?? string.Empty;
+                if (reason.Length > MaxRefundReasonLength)
+                    return BadRequest($"Reason must be {MaxRefundReasonLength} characters or fewer.");
+
                 var refundedOrder = await _orderService.RefundAsync(id, enterpriseId, reason);
                 return Ok(_mapper.Map<OrderDTO>(refundedOrder));
             }
@@ -312,6 +341,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="id">Order's Id</param>
         /// <returns>The deleted order</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Orders.Delete)]
         [HttpDelete]
         [ProducesResponseType(typeof(OrderDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -320,13 +350,9 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 Order order = _orderService.Delete(id, enterpriseId);
                 if (order == null)
                     return NoContent();
@@ -361,22 +387,16 @@ namespace EvangelionERPV2.Web.Controllers
             return null;
         }
 
-        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
+
+        private async Task<bool> HasActiveTenantMembershipAsync(Guid? userId, Guid enterpriseId)
         {
             if (!userId.HasValue || enterpriseId == Guid.Empty)
-                return null;
+                return false;
 
             var user = await _userRepository.GetByIdAsync(userId.Value);
-            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
-                return null;
-
-            return user.AccessLevel;
+            return user != null && user.IsActive == true && user.EnterpriseId == enterpriseId;
         }
 
-        private static bool IsManagementAccess(short? accessLevel)
-        {
-            return accessLevel.HasValue && accessLevel.Value <= (short)EnumAccessLevel.Supervisor;
-        }
 
         private static Order MapCreateRequestToOrder(CreateOrderRequestDTO request, Guid enterpriseId, Guid? userId)
         {
@@ -433,6 +453,12 @@ namespace EvangelionERPV2.Web.Controllers
 
             if (string.Equals(message, "Some products for this order were not found in the inventory.", StringComparison.OrdinalIgnoreCase))
                 return "Some products for this order were not found in the inventory.";
+
+            if (message.StartsWith("Insufficient stock for product [", StringComparison.OrdinalIgnoreCase) &&
+                message.EndsWith("].", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Insufficient stock for one or more products in this order.";
+            }
 
             if (message.StartsWith("Product [", StringComparison.OrdinalIgnoreCase) &&
                 message.EndsWith("] was not found.", StringComparison.OrdinalIgnoreCase))

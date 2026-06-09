@@ -23,7 +23,7 @@ namespace EvangelionERPV2.Test.Security
             var userService = new Mock<IUserService<User>>(MockBehavior.Strict);
             var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
             var controller = CreateController(userService.Object, userRepository.Object);
-            SetAuthenticatedUser(controller, "unit-user");
+            SetAuthenticatedUser(controller, Guid.NewGuid(), Guid.NewGuid());
 
             var result = await controller.UpdateProfilePicture(new UserController.UpdateProfilePictureRequest
             {
@@ -42,7 +42,7 @@ namespace EvangelionERPV2.Test.Security
             var userService = new Mock<IUserService<User>>(MockBehavior.Strict);
             var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
             var controller = CreateController(userService.Object, userRepository.Object);
-            SetAuthenticatedUser(controller, "unit-user");
+            SetAuthenticatedUser(controller, Guid.NewGuid(), Guid.NewGuid());
 
             var bytes = new byte[(5 * 1024 * 1024) + 1];
             var payload = Convert.ToBase64String(bytes);
@@ -64,7 +64,7 @@ namespace EvangelionERPV2.Test.Security
             var userService = new Mock<IUserService<User>>(MockBehavior.Strict);
             var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
             var controller = CreateController(userService.Object, userRepository.Object);
-            SetAuthenticatedUser(controller, "unit-user");
+            SetAuthenticatedUser(controller, Guid.NewGuid(), Guid.NewGuid());
 
             var payload = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("not-an-image"));
 
@@ -98,11 +98,16 @@ namespace EvangelionERPV2.Test.Security
                 emailService);
         }
 
-        private static void SetAuthenticatedUser(Controller controller, string userName)
+        private static void SetAuthenticatedUser(Controller controller, Guid userId, Guid enterpriseId)
         {
             var claimsPrincipal = new ClaimsPrincipal(
                 new ClaimsIdentity(
-                    [new Claim(ClaimTypes.NameIdentifier, userName)],
+                    [
+                        new Claim(ClaimTypes.Sid, userId.ToString()),
+                        new Claim("uid", userId.ToString()),
+                        new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+                        new Claim(ClaimTypes.GroupSid, enterpriseId.ToString())
+                    ],
                     "UnitTestAuth"));
 
             controller.ControllerContext = new ControllerContext

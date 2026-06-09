@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace EvangelionERPV2.Shared.DTOs
 {
     public sealed class BillDTO : BaseDTO
@@ -11,6 +13,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public double Amount { get; set; } = 0;
         public string DigitableLine { get; set; } = "";
         public string BarCode { get; set; } = "";
+        [JsonIgnore]
         public string HtmlContent { get; set; } = "";
     }
 }

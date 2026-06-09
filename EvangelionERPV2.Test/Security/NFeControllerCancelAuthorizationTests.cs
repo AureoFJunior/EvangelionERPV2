@@ -29,8 +29,8 @@ namespace EvangelionERPV2.Test.Security
             var response = await controller.Cancel(ValidAccessKey, new NFeCancelRequestDTO { Reason = "duplicate" });
 
             Assert.IsType<UnauthorizedResult>(response);
-            _nfeServiceMock.Verify(x => x.ConsultAsync(It.IsAny<string>()), Times.Never);
-            _nfeServiceMock.Verify(x => x.CancelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _nfeServiceMock.Verify(x => x.ConsultAsync(It.IsAny<string>(), It.IsAny<Guid>()), Times.Never);
+            _nfeServiceMock.Verify(x => x.CancelAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>()), Times.Never);
         }
 
         [Fact]
@@ -50,7 +50,7 @@ namespace EvangelionERPV2.Test.Security
             };
 
             _nfeServiceMock
-                .Setup(x => x.ConsultAsync(accessKey))
+                .Setup(x => x.ConsultAsync(accessKey, enterpriseId))
                 .ReturnsAsync(existingDocument);
 
             _orderServiceMock
@@ -66,7 +66,7 @@ namespace EvangelionERPV2.Test.Security
             var response = await controller.Cancel(accessKey, new NFeCancelRequestDTO { Reason = "duplicate" });
 
             Assert.IsType<NoContentResult>(response);
-            _nfeServiceMock.Verify(x => x.CancelAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            _nfeServiceMock.Verify(x => x.CancelAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>()), Times.Never);
         }
 
         [Fact]
@@ -103,7 +103,7 @@ namespace EvangelionERPV2.Test.Security
             };
 
             _nfeServiceMock
-                .Setup(x => x.ConsultAsync(accessKey))
+                .Setup(x => x.ConsultAsync(accessKey, enterpriseId))
                 .ReturnsAsync(existingDocument);
 
             _orderServiceMock
@@ -111,7 +111,7 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync(new Order { Id = orderId, EnterpriseId = enterpriseId });
 
             _nfeServiceMock
-                .Setup(x => x.CancelAsync(accessKey, reason))
+                .Setup(x => x.CancelAsync(accessKey, enterpriseId, reason))
                 .ReturnsAsync(cancelledDocument);
 
             _mapperMock

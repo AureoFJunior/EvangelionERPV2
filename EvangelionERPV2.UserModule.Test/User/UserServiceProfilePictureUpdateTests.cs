@@ -178,12 +178,14 @@ namespace EvangelionERPV2.UserModule.Test.User
 
             var kmsProvider = new AWSKMSKeyProvider(secretsManager.Object, configuration);
             var userRepository = new Mock<IRepository<Shared.Entities.User>>();
+            var enterpriseRepository = new Mock<IRepository<Enterprise>>();
             var refreshTokenRepository = new Mock<IRepository<RefreshToken>>();
             var passwordResetTokenRepository = new Mock<IRepository<PasswordResetToken>>();
             var s3ClientMock = new Mock<IAmazonS3>();
 
             var service = new UserService(
                 userRepository.Object,
+                enterpriseRepository.Object,
                 refreshTokenRepository.Object,
                 passwordResetTokenRepository.Object,
                 configuration,

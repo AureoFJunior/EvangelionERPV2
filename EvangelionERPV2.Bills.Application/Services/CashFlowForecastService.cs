@@ -9,6 +9,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 {
     public class CashFlowForecastService : ICashFlowForecastService
     {
+        private const int MaxSimulationScenarioNameLength = 100;
         private readonly IRepository<Order> _orderRepository;
         private readonly IRepository<PayableBill> _payableBillRepository;
         private readonly IRepository<Enterprise> _enterpriseRepository;
@@ -33,9 +34,33 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         public async Task<IEnumerable<SimulationResultDTO>> RunSimulationAsync(Guid enterpriseId, Guid userId, RunSimulationRequestDTO request)
         {
+            if (request == null)
+                throw new ArgumentException("Invalid simulation request.");
+
+            if (request.HorizonInDays is not (30 or 60 or 90))
+                throw new ArgumentException("Horizon must be 30, 60 or 90 days.");
+
+            if (request.CurrentBalance.HasValue && !double.IsFinite(request.CurrentBalance.Value))
+                throw new ArgumentException("Invalid simulation request.");
+
             var scenarios = request.Scenarios?.ToList() ?? [];
             if (scenarios.Count < 2)
                 throw new ArgumentException("At least two scenarios are required.");
+
+            foreach (var scenario in scenarios)
+            {
+                if (scenario == null)
+                    throw new ArgumentException("Invalid simulation request.");
+
+                if (string.IsNullOrWhiteSpace(scenario.ScenarioName))
+                    throw new ArgumentException("Invalid simulation request.");
+
+                if (scenario.ScenarioName.Length > MaxSimulationScenarioNameLength)
+                    throw new ArgumentException("Invalid simulation request.");
+
+                if (!double.IsFinite(scenario.PayableMultiplier))
+                    throw new ArgumentException("Invalid simulation request.");
+            }
 
             var baseline = await BuildForecastAsync(enterpriseId, request.HorizonInDays, request.CurrentBalance, 0, 1);
             var baselineCurrentBalance = baseline.CurrentBalance;

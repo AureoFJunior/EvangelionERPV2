@@ -8,11 +8,13 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Token;
 using EvangelionERPV2.Web.FluentValidator;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Serilog;
 using System.Collections.Concurrent;
+using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -46,6 +48,9 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxPasswordResetRequestBodySizeInBytes = 16 * 1024;
         private const int MaxAnonymousLoginRequestBodySizeInBytes = 32 * 1024;
         private const int MaxUserWriteRequestBodySizeInBytes = 64 * 1024;
+        private const int MaxGoogleAuthorizationCodeLength = 2048;
+        private const int MaxGoogleRedirectUriLength = 2048;
+        private static readonly Regex GooglePkceCodeVerifierRegex = new("^[A-Za-z0-9\\-._~]{43,128}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private const int DefaultPageNumber = 1;
         private const int DefaultPageSize = 50;
         private const int MaxPageSize = 200;
@@ -87,12 +92,19 @@ namespace EvangelionERPV2.Web.Controllers
                 if (request == null || string.IsNullOrWhiteSpace(request.UserName) || string.IsNullOrWhiteSpace(request.Password))
                     return BadRequest("userName and password are required.");
 
-                Shared.Entities.User? user = _userRepository.GetByCondition(x => x != null && x.UserName == request.UserName).FirstOrDefault();
+                var normalizedUserName = NormalizeUserName(request.UserName);
+                if (string.IsNullOrWhiteSpace(normalizedUserName))
+                    return BadRequest("userName and password are required.");
+
+                var user = await ResolveUniqueActivePasswordLoginUserAsync(normalizedUserName);
                 if (user == null)
                     return Unauthorized();
 
                 var isValidPassword = SharedFunctions.VerifyPassword(request.Password, user.Password, out var needsRehash);
                 if (!isValidPassword)
+                    return Unauthorized();
+
+                if (!await CanIssueTokensToUserAsync(user))
                     return Unauthorized();
 
                 if (needsRehash)
@@ -104,6 +116,10 @@ namespace EvangelionERPV2.Web.Controllers
                 var (token, refreshToken) = await GenerateTokensAsync(user);
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
                     throw new InvalidOperationException("Token generation failed.");
+
+                Log.Logger.Information(
+                    "Password login succeeded. EmailId={EmailId}",
+                    GetLogSafeEmailIdentifier(user.Email ?? user.UserName));
 
                 return Ok(await BuildUserDtoAsync(user, token, refreshToken));
             }
@@ -152,11 +168,28 @@ namespace EvangelionERPV2.Web.Controllers
                 }
 
                 var user = await _userService.LoginToSSOAsync(idToken);
+                if (!await CanIssueTokensToUserAsync(user))
+                {
+                    Log.Logger.Warning(
+                        "Google login rejected for inactive account. EmailId={EmailId}",
+                        GetLogSafeEmailIdentifier(user?.Email));
+                    return Unauthorized();
+                }
+
                 var (token, refreshToken) = await GenerateTokensAsync(user);
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
                     throw new InvalidOperationException("Token generation failed.");
 
+                Log.Logger.Information(
+                    "Google login succeeded. EmailId={EmailId}",
+                    GetLogSafeEmailIdentifier(user.Email));
+
                 return Ok(await BuildUserDtoAsync(user, token, refreshToken));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log.Logger.Warning("Google login rejected. ErrorType={ErrorType}", ex.GetType().Name);
+                return Unauthorized();
             }
             catch (Exception)
             {
@@ -182,6 +215,15 @@ namespace EvangelionERPV2.Web.Controllers
                 return BadRequest("code and redirectUri are required.");
             }
 
+            if (!IsValidGoogleAuthorizationCode(request.Code))
+                return BadRequest("Invalid Google authorization code.");
+
+            if (!IsAllowedGoogleRedirectUri(request.RedirectUri))
+                return BadRequest("redirectUri is not allowed.");
+
+            if (!IsValidGoogleCodeVerifier(request.CodeVerifier))
+                return BadRequest("codeVerifier is required and must be a valid PKCE value.");
+
             try
             {
                 var clientIdName = _configuration.GetSection("GoogleSettings")["ClientId"] ?? string.Empty;  
@@ -193,21 +235,21 @@ namespace EvangelionERPV2.Web.Controllers
                 if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
                 {
                     Log.Logger.Error("Google client settings are missing.");
-                    return Problem("Google client settings are missing.");
+                    return Problem("Unable to complete Google sign-in.");
                 }
 
                 var tokenResponse = await ExchangeGoogleCodeAsync(request, clientId, clientSecret);
 
                 if (tokenResponse == null)
                 {
-                    return Problem("Unable to exchange Google code.");
+                    return Problem("Unable to complete Google sign-in.");
                 }
 
                 if (!string.IsNullOrWhiteSpace(tokenResponse.Error))
                 {
                     var safeProviderErrorCode = GetSafeGoogleProviderErrorCode(tokenResponse.Error);
                     Log.Logger.Warning("Google token exchange failed. ProviderError={ProviderError}", safeProviderErrorCode);
-                    return Unauthorized(tokenResponse.ErrorDescription ?? "Invalid Google authorization code.");
+                    return Unauthorized("Invalid Google authorization code.");
                 }
 
                 if (string.IsNullOrWhiteSpace(tokenResponse.IdToken))
@@ -216,11 +258,28 @@ namespace EvangelionERPV2.Web.Controllers
                 }
 
                 var user = await _userService.LoginToSSOAsync(tokenResponse.IdToken);
+                if (!await CanIssueTokensToUserAsync(user))
+                {
+                    Log.Logger.Warning(
+                        "Google code login rejected for inactive account. EmailId={EmailId}",
+                        GetLogSafeEmailIdentifier(user?.Email));
+                    return Unauthorized();
+                }
+
                 var (token, refreshToken) = await GenerateTokensAsync(user);
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
                     throw new InvalidOperationException("Token generation failed.");
 
+                Log.Logger.Information(
+                    "Google code login succeeded. EmailId={EmailId}",
+                    GetLogSafeEmailIdentifier(user.Email));
+
                 return Ok(await BuildUserDtoAsync(user, token, refreshToken));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log.Logger.Warning("Google code login rejected. ErrorType={ErrorType}", ex.GetType().Name);
+                return Unauthorized();
             }
             catch (Exception)
             {
@@ -240,12 +299,8 @@ namespace EvangelionERPV2.Web.Controllers
                 ["client_secret"] = clientSecret,
                 ["redirect_uri"] = request.RedirectUri,
                 ["grant_type"] = "authorization_code",
+                ["code_verifier"] = request.CodeVerifier
             };
-
-            if (!string.IsNullOrWhiteSpace(request.CodeVerifier))
-            {
-                payload["code_verifier"] = request.CodeVerifier;
-            }
 
             using var content = new FormUrlEncodedContent(payload);
             var response = await _httpClient.PostAsync("https://oauth2.googleapis.com/token", content);
@@ -273,6 +328,48 @@ namespace EvangelionERPV2.Web.Controllers
             var refreshToken = _tokenService.GenerateRefreshToken();
             await _tokenService.SaveRefreshTokenAsync(user.Id, refreshToken);
             return (token, refreshToken);
+        }
+
+        private async Task<Shared.Entities.User?> ResolveUniqueActivePasswordLoginUserAsync(string normalizedUserName)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedUserName))
+                return null;
+
+            var normalizedUserNameLower = normalizedUserName.ToLowerInvariant();
+            var matchingUsers = (await _userRepository.GetAllAsyncByFilter(
+                    descending: false,
+                    pageNumber: 1,
+                    pageSize: 2,
+                    predicate: x =>
+                        x.IsActive == true &&
+                        x.UserName != null &&
+                        x.UserName.ToLower() == normalizedUserNameLower,
+                    orderBy: x => x.Id))
+                .ToList();
+
+            if (matchingUsers.Count != 1)
+                return null;
+
+            return matchingUsers[0];
+        }
+
+        private static string NormalizeUserName(string? userName)
+        {
+            return (userName ?? string.Empty).Trim();
+        }
+
+        private async Task<bool> CanIssueTokensToUserAsync(Shared.Entities.User? user)
+        {
+            if (user == null || user.IsActive != true || !user.EnterpriseId.HasValue || user.EnterpriseId.Value == Guid.Empty)
+                return false;
+
+            var enterpriseRepository = HttpContext?.RequestServices?.GetService(typeof(EvangelionERPV2.Shared.Repositories.IRepository<Enterprise>))
+                as EvangelionERPV2.Shared.Repositories.IRepository<Enterprise>;
+            if (enterpriseRepository == null)
+                return false;
+
+            var enterprise = await enterpriseRepository.GetByIdAsync(user.EnterpriseId.Value);
+            return enterprise != null && enterprise.IsActive == true;
         }
 
         private async Task<UserDTO> BuildUserDtoAsync(Shared.Entities.User user, string token, string refreshToken)
@@ -337,6 +434,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// Return all the users.
         /// </summary>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.Read)]
         [HttpGet]
         [ProducesResponseType(typeof(IEnumerable<UserDTO>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -346,15 +444,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
-                var callerId = TryGetUserId();
-                var callerAccess = await ResolveAccessLevelAsync(callerId, enterpriseId);
-                if (!IsAdminAccess(callerAccess))
-                    return Forbid();
 
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
                 if (includePictures && normalizedPageSize > MaxPageSizeWithPictures)
@@ -386,6 +479,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="id">Id of the user</param>
         /// <returns>The user that match with the id parameter.</returns>
+        [Authorize(Policy = RbacPolicies.Users.ReadSelfOrRead)]
         [HttpGet("{id}")]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -397,16 +491,9 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                var callerId = TryGetUserId();
-                var callerAccess = await ResolveAccessLevelAsync(callerId, enterpriseId);
-
                 Shared.Entities.User user = await _userRepository.GetByIdAsync(id);
                 if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
                     return NoContent();
-
-                var callerIsTargetUser = callerId.HasValue && callerId.Value == user.Id;
-                if (!callerIsTargetUser && !IsAdminAccess(callerAccess))
-                    return Forbid();
 
                 return Ok(await ToUserDtoAsync(user));
             }
@@ -426,6 +513,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="user">User to be added</param>
         /// <returns>The added user</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.Create)]
         [HttpPost]
         [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
@@ -436,15 +524,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
-                var callerId = TryGetUserId();
-                var callerAccess = await ResolveAccessLevelAsync(callerId, enterpriseId);
-                if (!IsAdminAccess(callerAccess))
-                    return Forbid();
 
                 user.EnterpriseId = enterpriseId;
                 user.AccessLevel = (short)EnumAccessLevel.Employee;
@@ -452,6 +535,10 @@ namespace EvangelionERPV2.Web.Controllers
 
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
                 return Ok(await ToUserDtoAsync(createdUser));
+            }
+            catch (ArgumentException ex) when (IsDuplicateEmailException(ex))
+            {
+                return BadRequest("Email is already in use.");
             }
             catch (Exception)
             {
@@ -464,6 +551,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="user">User to be updated</param>
         /// <returns>The updated user</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.Update)]
         [HttpPut]
         [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
@@ -474,15 +562,13 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (user == null)
+                    return BadRequest("User payload is required.");
+
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
-                var callerId = TryGetUserId();
-                var callerAccess = await ResolveAccessLevelAsync(callerId, enterpriseId);
-                if (!IsAdminAccess(callerAccess))
-                    return Forbid();
 
                 var existentUser = await _userRepository.GetByIdAsync(user.Id);
                 if (existentUser == null || existentUser.IsActive != true || existentUser.EnterpriseId != enterpriseId)
@@ -493,6 +579,8 @@ namespace EvangelionERPV2.Web.Controllers
 
                 user.EnterpriseId = existentUser.EnterpriseId;
                 user.IsLogged = existentUser.IsLogged;
+                user.Password = string.IsNullOrWhiteSpace(user.Password) ? existentUser.Password : user.Password;
+                user.ProfilePicture = string.IsNullOrWhiteSpace(user.ProfilePicture) ? existentUser.ProfilePicture : user.ProfilePicture;
 
                 Shared.Entities.User updatedUser = _userService.Update(user);
 
@@ -500,6 +588,10 @@ namespace EvangelionERPV2.Web.Controllers
                     return NoContent();
 
                 return Ok(await ToUserDtoAsync(updatedUser));
+            }
+            catch (ArgumentException ex) when (IsDuplicateEmailException(ex))
+            {
+                return BadRequest("Email is already in use.");
             }
             catch (Exception)
             {
@@ -534,9 +626,14 @@ namespace EvangelionERPV2.Web.Controllers
                     email.Length <= 254 &&
                     await SharedFunctions.IsEmailValid<string>(email))
                 {
-                    var token = await _userService.CreatePasswordResetTokenAsync(email);
+                    var (token, enterpriseId) = await _userService.CreatePasswordResetTokenContextAsync(email);
                     if (!string.IsNullOrWhiteSpace(token))
-                        await TrySendPasswordResetEmailAsync(email, token);
+                    {
+                        Log.Logger.Information(
+                            "Password reset requested. EmailId={EmailId}",
+                            GetLogSafeEmailIdentifier(email));
+                        await TrySendPasswordResetEmailAsync(email, token, enterpriseId);
+                    }
                 }
 
                 return Ok(new { message = "If the email exists, reset instructions were sent." });
@@ -576,6 +673,9 @@ namespace EvangelionERPV2.Web.Controllers
                     request.NewPassword ?? string.Empty);
 
                 ClearResetPasswordFailures(rateLimitKey);
+                Log.Logger.Information(
+                    "Password reset completed. EmailId={EmailId}",
+                    GetLogSafeEmailIdentifier(request.Email));
                 return Ok(new { message = "Password updated successfully." });
             }
             catch (ArgumentException)
@@ -607,6 +707,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Update the current user's theme preference.
         /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
         [HttpPut]
         [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
@@ -618,16 +719,22 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                var userName = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                if (string.IsNullOrWhiteSpace(userName))
+                if (request == null)
+                    return BadRequest("Theme is required.");
+
+                var userId = TryGetUserId();
+                if (!userId.HasValue)
                     return Unauthorized();
 
-                Shared.Entities.User? user = _userRepository
-                    .GetByCondition(x => x != null && x.UserName == userName)
-                    .FirstOrDefault();
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
-                if (user == null)
+                var user = await _userRepository.GetByIdAsync(userId.Value);
+                if (user == null || user.IsActive != true)
                     return NotFound();
+
+                if (user.EnterpriseId != enterpriseId)
+                    return Forbid();
 
                 user.ActualTheme = request.Theme;
 
@@ -646,6 +753,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Update the current user's language preference.
         /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
         [HttpPut]
         [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
@@ -657,19 +765,25 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                if (request == null)
+                    return BadRequest("Language is required.");
+
                 if (!Enum.IsDefined(typeof(EnumLanguage), request.Language))
                     return BadRequest("Invalid language value.");
 
-                var userName = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                if (string.IsNullOrWhiteSpace(userName))
+                var userId = TryGetUserId();
+                if (!userId.HasValue)
                     return Unauthorized();
 
-                Shared.Entities.User? user = _userRepository
-                    .GetByCondition(x => x != null && x.UserName == userName)
-                    .FirstOrDefault();
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
 
-                if (user == null)
+                var user = await _userRepository.GetByIdAsync(userId.Value);
+                if (user == null || user.IsActive != true)
                     return NotFound();
+
+                if (user.EnterpriseId != enterpriseId)
+                    return Forbid();
 
                 user.Language = (short)request.Language;
 
@@ -688,6 +802,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Update the current user's profile picture.
         /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
         [HttpPut]
         [RequestSizeLimit(MaxProfilePictureRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
@@ -699,8 +814,11 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                var userName = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                if (string.IsNullOrWhiteSpace(userName))
+                var userId = TryGetUserId();
+                if (!userId.HasValue)
+                    return Unauthorized();
+
+                if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
                 var profilePicturePayload = request?.ProfilePicture;
@@ -716,12 +834,12 @@ namespace EvangelionERPV2.Web.Controllers
                         return BadRequest("ProfilePicture must be PNG, JPEG, GIF, or WEBP.");
                 }
 
-                Shared.Entities.User? user = _userRepository
-                    .GetByCondition(x => x != null && x.UserName == userName)
-                    .FirstOrDefault();
-
-                if (user == null)
+                var user = await _userRepository.GetByIdAsync(userId.Value);
+                if (user == null || user.IsActive != true)
                     return NotFound();
+
+                if (user.EnterpriseId != enterpriseId)
+                    return Forbid();
 
                 var updatedUser = await _userService.UpdateProfilePictureAsync(user, request?.ProfilePicture);
                 if (updatedUser == null)
@@ -740,6 +858,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="id">User's Id</param>
         /// <returns>The deleted user</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.Delete)]
         [HttpDelete("{id}")]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -748,15 +867,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
-                var callerId = TryGetUserId();
-                var callerAccess = await ResolveAccessLevelAsync(callerId, enterpriseId);
-                if (!IsAdminAccess(callerAccess))
-                    return Forbid();
 
                 var userToDelete = await _userRepository.GetByIdAsync(id);
                 if (userToDelete == null || userToDelete.IsActive != true || userToDelete.EnterpriseId != enterpriseId)
@@ -778,6 +892,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// Return all the users.
         /// </summary>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.ReadSelf)]
         [HttpGet]
         [ProducesResponseType(typeof(EnumAccessLevel), StatusCodes.Status200OK)]
 
@@ -812,24 +927,11 @@ namespace EvangelionERPV2.Web.Controllers
             if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
                 return userId;
 
+            var legacyClaimValue = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (Guid.TryParse(legacyClaimValue, out userId) && userId != Guid.Empty)
+                return userId;
+
             return null;
-        }
-
-        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
-        {
-            if (!userId.HasValue || enterpriseId == Guid.Empty)
-                return null;
-
-            var user = await _userRepository.GetByIdAsync(userId.Value);
-            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
-                return null;
-
-            return user.AccessLevel;
-        }
-
-        private static bool IsAdminAccess(short? accessLevel)
-        {
-            return accessLevel.HasValue && accessLevel.Value == (short)EnumAccessLevel.Admin;
         }
 
         private static string GetSafeGoogleProviderErrorCode(string? providerError)
@@ -845,6 +947,135 @@ namespace EvangelionERPV2.Web.Controllers
             return normalized.Length <= 64
                 ? normalized
                 : normalized[..64];
+        }
+
+        private static bool IsDuplicateEmailException(ArgumentException exception)
+        {
+            return string.Equals(
+                exception.Message?.Trim(),
+                "Email is already in use.",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsValidGoogleAuthorizationCode(string? code)
+        {
+            var normalized = (code ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(normalized) || normalized.Length > MaxGoogleAuthorizationCodeLength)
+                return false;
+
+            foreach (var character in normalized)
+            {
+                if (character < 33 || character > 126)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsValidGoogleCodeVerifier(string? codeVerifier)
+        {
+            var normalized = (codeVerifier ?? string.Empty).Trim();
+            return GooglePkceCodeVerifierRegex.IsMatch(normalized);
+        }
+
+        private bool IsAllowedGoogleRedirectUri(string? redirectUri)
+        {
+            var normalized = (redirectUri ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(normalized) || normalized.Length > MaxGoogleRedirectUriLength)
+                return false;
+
+            if (!TryNormalizeAbsoluteUri(normalized, out var normalizedCandidateUri, out var candidateUri))
+                return false;
+
+            if (!IsAllowedRedirectUriScheme(candidateUri))
+                return false;
+
+            var explicitAllowList = GetConfiguredGoogleRedirectUris();
+            if (explicitAllowList.Count > 0)
+                return explicitAllowList.Contains(normalizedCandidateUri);
+
+            var frontendBaseUrl = (_configuration.GetSection("Frontend")["BaseUrl"] ?? string.Empty).Trim();
+            if (!TryNormalizeAbsoluteUri(frontendBaseUrl, out var normalizedFrontendUri, out var frontendUri))
+                return false;
+
+            if (!IsAllowedRedirectUriScheme(frontendUri))
+                return false;
+
+            return string.Equals(GetUriOrigin(candidateUri), GetUriOrigin(frontendUri), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private HashSet<string> GetConfiguredGoogleRedirectUris()
+        {
+            var redirectUris = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var googleSection = _configuration.GetSection("GoogleSettings");
+
+            foreach (var value in googleSection.GetSection("AllowedRedirectUris").GetChildren().Select(child => child.Value))
+            {
+                if (TryNormalizeAbsoluteUri(value, out var normalizedUri, out var uri) && IsAllowedRedirectUriScheme(uri))
+                    redirectUris.Add(normalizedUri);
+            }
+
+            var legacySingleRedirectUri = googleSection["RedirectUri"];
+            if (TryNormalizeAbsoluteUri(legacySingleRedirectUri, out var normalizedLegacyUri, out var legacyUri) &&
+                IsAllowedRedirectUriScheme(legacyUri))
+            {
+                redirectUris.Add(normalizedLegacyUri);
+            }
+
+            return redirectUris;
+        }
+
+        private static bool TryNormalizeAbsoluteUri(string? value, out string normalizedAbsoluteUri, out Uri parsedUri)
+        {
+            normalizedAbsoluteUri = string.Empty;
+            parsedUri = null!;
+
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri))
+                return false;
+
+            var builder = new UriBuilder(uri)
+            {
+                Fragment = string.Empty
+            };
+
+            if (builder.Uri.IsDefaultPort)
+                builder.Port = -1;
+
+            var path = builder.Path;
+            if (string.IsNullOrEmpty(path))
+                path = "/";
+            else if (path.Length > 1)
+                path = path.TrimEnd('/');
+
+            builder.Path = path;
+            normalizedAbsoluteUri = builder.Uri.AbsoluteUri;
+            parsedUri = builder.Uri;
+            return true;
+        }
+
+        private static bool IsAllowedRedirectUriScheme(Uri uri)
+        {
+            if (uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (!uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return IPAddress.TryParse(uri.Host, out var address) && IPAddress.IsLoopback(address);
+        }
+
+        private static string GetUriOrigin(Uri uri)
+        {
+            if (uri.IsDefaultPort)
+                return $"{uri.Scheme}://{uri.Host}".ToLowerInvariant();
+
+            return $"{uri.Scheme}://{uri.Host}:{uri.Port}".ToLowerInvariant();
         }
 
 
@@ -965,10 +1196,16 @@ namespace EvangelionERPV2.Web.Controllers
             _resetPasswordRateLimit.TryRemove(key, out _);
         }
 
-        private async Task TrySendPasswordResetEmailAsync(string email, string token)
+        private async Task TrySendPasswordResetEmailAsync(string email, string token, Guid? enterpriseId)
         {
             try
             {
+                if (!enterpriseId.HasValue || enterpriseId.Value == Guid.Empty)
+                {
+                    Log.Logger.Warning("Password reset email skipped due to missing tenant scope. EmailId={EmailId}", GetLogSafeEmailIdentifier(email));
+                    return;
+                }
+
                 var resetLink = BuildPasswordResetLink();
                 var body = string.IsNullOrWhiteSpace(resetLink)
                     ? $"Use this code to reset your password: <b>{token}</b><br/>Code expires in 15 minutes."
@@ -976,8 +1213,8 @@ namespace EvangelionERPV2.Web.Controllers
                       $"If needed, use this code manually: <b>{token}</b><br/>Code expires in 15 minutes.";
 
                 var emailStructure = new EmailStructure(body, "Password reset", [email]);
-                var message = await _emailService.CreateEmail(emailStructure);
-                await _emailService.SendEmail(message);
+                var message = await _emailService.CreateEmail(emailStructure, enterpriseId);
+                await _emailService.SendEmail(message, enterpriseId);
             }
             catch (Exception ex)
             {

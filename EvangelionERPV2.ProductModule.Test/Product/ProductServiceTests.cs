@@ -86,15 +86,16 @@ namespace EvangelionERPV2.ProductModule.Test
         }
 
         [Fact]
-        public async Task UpdateForOrder_WhenQuantityExceedsStorage_ClampsToZero()
+        public async Task UpdateForOrder_WhenQuantityExceedsStorage_ThrowsAndLeavesStockUnchanged()
         {
             var (service, productRepository, _) = CreateService();
             var productId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
             var order = new Order(
                 DateTime.UtcNow,
                 DateTime.UtcNow.AddDays(2),
                 100,
-                Guid.NewGuid(),
+                enterpriseId,
                 Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
@@ -109,9 +110,10 @@ namespace EvangelionERPV2.ProductModule.Test
                     }
                 },
                 Guid.NewGuid());
-            var existingProduct = new Product("Product", "Desc", 10, 2, false, false, "pic", Guid.NewGuid())
+            var existingProduct = new Product("Product", "Desc", 10, 2, false, false, "pic", enterpriseId)
             {
-                Id = productId
+                Id = productId,
+                IsActive = true
             };
             Product? updatedProduct = null;
 
@@ -121,10 +123,12 @@ namespace EvangelionERPV2.ProductModule.Test
                 .Returns((Product p) => p);
             productRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-            await service.UpdateForOrder(order);
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.UpdateForOrder(order));
 
-            Assert.NotNull(updatedProduct);
-            Assert.Equal(0, updatedProduct?.StorageQuantity);
+            Assert.Null(updatedProduct);
+            Assert.Equal(2, existingProduct.StorageQuantity);
+            productRepository.Verify(r => r.Update(It.IsAny<Product>()), Times.Never);
+            productRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
         }
 
         [Fact]
@@ -231,6 +235,81 @@ namespace EvangelionERPV2.ProductModule.Test
                     It.Is<DeleteObjectRequest>(request => request.Key == "products/old-picture-key"),
                     It.IsAny<CancellationToken>()),
                 Times.Once);
+        }
+
+        [Fact]
+        public async Task CreateAsync_WhenFileIsMissing_CreatesProductWithoutUploadingImage()
+        {
+            var (service, productRepository, _, s3ClientMock) = CreateServiceWithS3Mock();
+            var enterpriseId = Guid.NewGuid();
+            Product? createdEntity = null;
+
+            productRepository
+                .Setup(r => r.CreateAsync(It.IsAny<Product>()))
+                .ReturnsAsync((Product product) =>
+                {
+                    createdEntity = product;
+                    return product;
+                });
+
+            productRepository
+                .Setup(r => r.CommitAsync(It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var request = new ProductPicture
+            {
+                Product = new Product("Product", "Desc", 10, 5, false, false, string.Empty, enterpriseId),
+                File = string.Empty
+            };
+
+            var result = await service.CreateAsync(request);
+
+            Assert.NotNull(result);
+            Assert.Same(createdEntity, result);
+            productRepository.Verify(r => r.CreateAsync(It.IsAny<Product>()), Times.Once);
+            productRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+            s3ClientMock.Verify(
+                s => s.PutObjectAsync(It.IsAny<PutObjectRequest>(), It.IsAny<CancellationToken>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public async Task CreateAsync_WhenImageUploadFails_ThrowsInsertDatabaseException()
+        {
+            EnsureEncryptionKeyInitialized();
+
+            var (service, productRepository, _, s3ClientMock) = CreateServiceWithS3Mock();
+            var enterpriseId = Guid.NewGuid();
+            Product? createdEntity = null;
+
+            productRepository
+                .Setup(r => r.CreateAsync(It.IsAny<Product>()))
+                .ReturnsAsync((Product product) =>
+                {
+                    createdEntity = product;
+                    return product;
+                });
+
+            productRepository
+                .Setup(r => r.CommitAsync(It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            productRepository
+                .Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
+                .ReturnsAsync(() => createdEntity!);
+
+            var request = new ProductPicture
+            {
+                Product = new Product("Product", "Desc", 10, 5, false, false, string.Empty, enterpriseId),
+                File = "not-a-valid-base64"
+            };
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.CreateAsync(request));
+            productRepository.Verify(r => r.CreateAsync(It.IsAny<Product>()), Times.Once);
+            productRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+            s3ClientMock.Verify(
+                s => s.PutObjectAsync(It.IsAny<PutObjectRequest>(), It.IsAny<CancellationToken>()),
+                Times.Never);
         }
 
         private static (ProductService service,

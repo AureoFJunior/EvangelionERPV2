@@ -18,7 +18,14 @@ namespace EvangelionERPV2.Web.Logging
             "newPassword",
             "token",
             "refreshToken",
+            "refresh_token",
+            "authorizationCode",
+            "code",
+            "codeVerifier",
             "idToken",
+            "id_token",
+            "accessToken",
+            "access_token",
             "userName",
             "email",
             "document",
@@ -33,6 +40,7 @@ namespace EvangelionERPV2.Web.Logging
             "birthDate",
             "metadataJson",
             "clientSecret",
+            "accessKey",
             "file",
             "profilePicture"
         ];
@@ -142,10 +150,16 @@ namespace EvangelionERPV2.Web.Logging
 
             var contentType = request.ContentType;
 
+            if (contentType.StartsWith("application/xml", StringComparison.OrdinalIgnoreCase) ||
+                contentType.StartsWith("text/xml", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
             return contentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) ||
-                   contentType.StartsWith("application/xml", StringComparison.OrdinalIgnoreCase) ||
                    contentType.StartsWith("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) ||
-                   contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase);
+                   contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) &&
+                   !contentType.StartsWith("text/plain", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsSensitiveEndpoint(PathString path)
@@ -231,7 +245,13 @@ namespace EvangelionERPV2.Web.Logging
 
             redacted = Regex.Replace(
                 redacted,
-                "(?i)(password|newPassword|token|refreshToken|idToken|userName|email|document|cpf|cnpj|cpfCnpj|phoneNumber|firstName|lastName|adress|address|birthDate|metadataJson|clientSecret|file|profilePicture)=([^&\\s]+)",
+                "(?i)(password|newPassword|token|refreshToken|refresh_token|authorizationCode|code|codeVerifier|idToken|id_token|accessToken|access_token|userName|email|document|cpf|cnpj|cpfCnpj|phoneNumber|firstName|lastName|adress|address|birthDate|metadataJson|clientSecret|client_secret|accessKey|file|profilePicture)=([^&\\s]+)",
+                "$1=***",
+                RegexOptions.CultureInvariant);
+
+            redacted = Regex.Replace(
+                redacted,
+                "(?i)(authorizationCode|code|codeVerifier|accessKey)=([^&\\s]+)",
                 "$1=***",
                 RegexOptions.CultureInvariant);
 

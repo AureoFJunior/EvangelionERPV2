@@ -89,8 +89,9 @@ Each module follows a consistent layering model:
 
 - Request logging middleware tracks: endpoint, caller, body, response time, status code
 - JWT bearer authentication is enabled globally
-- IP rate limiting via `AspNetCoreRateLimit`
-- `/metrics` and `/health` are public endpoints
+- IP rate limiting via `AspNetCoreRateLimit`; public traffic should enter through nginx or another trusted proxy that sets `X-Real-IP`
+- `/health` is public for liveness probes
+- `/metrics` requires an authenticated user with the metrics read permission
 - Swagger UI is available only in `Development`
 
 ## Running with Docker Compose (single file)
@@ -167,7 +168,7 @@ Copy-Item .env.local.example .env.local
 2. Adjust `.env.local`:
    - `AWS_CREDENTIALS_DIR` to your local AWS folder (for Windows, usually `C:/Users/<your-user>/.aws`)
    - `SQLSERVER_SA_PASSWORD` to a strong local password
-   - keep `EVA_CONN_STR` as `plain:Server=sqlserver,1433;...` for local SQL Server in Docker
+   - keep `EVA_WORKER_SELF_API_AUTH`, `EVA_RABBITMQ_*`, `EVA_TOKEN_KEY`, and `EVA_ENCRYPTION_KEY` pointed at the `evangelion/dev/*` AWS Secrets Manager references
 
 3. Start local SQL Server + API (build locally):
 
@@ -280,14 +281,15 @@ Use Grafana Cloud to scrape the API endpoint directly:
 
 1. Expose `https://<your-domain-or-alb>/metrics`.
 2. In Grafana Cloud scrape job, configure the target URL `/metrics`.
-3. Keep access restricted at network level (security group / WAF / allowlist) if exposure should be limited.
+3. Configure the scrape job to send an authorization token for an account with metrics read access.
+4. Keep access restricted at network level (security group / WAF / allowlist) when possible.
 
 ## RabbitMQ note
 
 `docker-compose.yml` does not start a RabbitMQ container.
 
-When `--profile workers` is enabled, workers expect a reachable external broker configured through secrets/environment values.
-For local runs, define `EVA_RABBITMQ_*` variables in `.env.local` (see `.env.local.example`) and point them to a reachable broker (for example `host.docker.internal:5672`).
+When `--profile workers` is enabled, workers expect a reachable broker configured through AWS Secrets Manager references or environment values.
+For local runs, `.env.local` should use the `evangelion/dev/rabbitmq-*` AWS secret references shown in `.env.local.example`.
 
 ## Stop and cleanup
 
@@ -341,6 +343,7 @@ Fix:
 
 - confirm `.env.local` has a valid `AWS_CREDENTIALS_DIR` path
 - confirm the profile exists in `<AWS_CREDENTIALS_DIR>/credentials` (default `profile = default`)
+- compose mounts that folder at `/home/app/.aws` and sets `AWS_SHARED_CREDENTIALS_FILE` / `AWS_CONFIG_FILE` for non-root containers
 - check AWS access from host: `aws sts get-caller-identity`
 
 ### Error on login API: `Failed to resolve AWS credentials`
@@ -352,7 +355,7 @@ Cause:
 Fix:
 
 1. Confirm `.env.local` includes:
-   - `EVA_CONN_STR=plain:Server=sqlserver,1433;...`
+   - `EVA_CONN_STR=plain:Server=sqlserver,1433;...;TrustServerCertificate=True;Encrypt=False`
    - `EVA_AWS_SECRET_NAME=AWSCredentials`
    - `AWS_CREDENTIALS_DIR=.../.aws`
    - `AWS_PROFILE=default`
@@ -369,6 +372,24 @@ docker compose --env-file .env.local --profile localdb --profile proxy down --re
 docker compose --env-file .env.local --profile localdb --profile proxy up -d --build --force-recreate sqlserver evangelionerpv2 nginx
 ```
 
+### Password reset e-mail fails with Google OAuth logs
+
+Cause:
+
+- Docker containers cannot complete the interactive Google OAuth browser flow used by the old fallback path.
+- Password reset e-mail delivery must use the configured SMTP sender credentials in Docker.
+
+Fix:
+
+1. Configure the sender with a valid SMTP password or Gmail app password.
+2. Keep `EVA_ENABLE_INTERACTIVE_EMAIL_OAUTH=false` for Docker and EC2.
+3. Rebuild the API after changing `.env.local` or sender settings:
+
+```powershell
+docker compose --env-file .env.local --profile localdb --profile workers up -d --build sqlserver evangelionerpv2 worker_order worker_email
+docker compose --env-file .env.local logs --tail=200 evangelionerpv2
+```
+
 ### Error: `None of the specified endpoints were reachable`
 
 Cause:
@@ -377,18 +398,33 @@ Cause:
 
 Fix options:
 
-1. Point `EVA_RABBITMQ_URI` / `EVA_RABBITMQ_*` to a reachable broker.
-2. Start a local RabbitMQ:
-
-```powershell
-docker run -d --name rabbitmq-local -p 5672:5672 -p 15672:15672 rabbitmq:3-management
-```
-
-3. Restart workers:
+1. Point `EVA_RABBITMQ_URI` / `EVA_RABBITMQ_*` to a reachable broker. `EVA_RABBITMQ_URI` is optional, but when set it must resolve to a full `amqp://...` or `amqps://...` URI; otherwise the app falls back to host/port settings.
+2. Restart workers after fixing the RabbitMQ secret values:
 
 ```powershell
 docker compose --env-file .env.local --profile workers up -d --build
 docker compose --env-file .env.local logs --tail=200 worker_order worker_email
+```
+
+### Worker order retries after `User/LogInto` returns `401`
+
+Cause:
+
+- `worker_order` could reach the API, but `SelfAPIAuth` did not resolve to credentials for exactly one active user in an active enterprise.
+- Local runs use the AWS dev self-auth secret; a local SQL database without that matching user will return `401`.
+- Common AWS Secrets Manager formats:
+  - secret value `{"log":"worker-user:worker-password"}` with `EVA_WORKER_SELF_API_AUTH=evangelion/prd/selfapilogin:log`
+  - secret value `{"username":"worker-user","password":"worker-password"}` with `EVA_WORKER_SELF_API_AUTH=evangelion/prd/selfapilogin`
+
+Fix:
+
+1. Confirm the worker credential user exists, is active, and belongs to an active enterprise.
+2. Confirm the user has the RBAC permission needed by the worker, currently `orders.create`.
+3. Restart `worker_order` after changing the secret or `.env` value:
+
+```powershell
+docker compose --env-file .env.local --profile workers up -d --build worker_order
+docker compose --env-file .env.local logs --tail=200 worker_order evangelionerpv2
 ```
 
 ## Database migrations

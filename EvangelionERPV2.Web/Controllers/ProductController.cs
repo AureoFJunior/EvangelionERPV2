@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using AutoMapper;
 using Serilog;
@@ -47,19 +48,19 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="pageNumber">Number of the current page</param>
         /// <param name="pageSize">Size of the desired page</param>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Read)]
         [HttpGet("{pageNumber?}/{pageSize?}")]
         [ProducesResponseType(typeof(IEnumerable<ProductDTO>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetProducts(int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = false)
+        public async Task<IActionResult> GetProducts(int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = true)
         {
 
-            if (!ModelState.IsValid) return BadRequest(ModelState);
+            if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
             if (!TryGetEnterpriseId(out var enterpriseId))
                 return Unauthorized();
-
             var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
             if (includePictures && normalizedPageSize > MaxPageSizeWithPictures)
                 normalizedPageSize = MaxPageSizeWithPictures;
@@ -82,19 +83,22 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="pageSize">Size of the desired page</param>
         /// <param name="product">Object used to filter data.</param>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Read)]
         [HttpPost("{descending}/{pageNumber?}/{pageSize?}")]
         [RequestSizeLimit(MaxImageUploadRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(IEnumerable<ProductDTO>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetProductsByFilter([FromBody] ProductFilterRequestDTO? filter, bool descending, int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = false)
+        public async Task<IActionResult> GetProductsByFilter([FromBody] ProductFilterRequestDTO? filter, bool descending, int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = true)
         {
             try
             {
+                if (!ModelState.IsValid)
+                    return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
                 filter ??= new ProductFilterRequestDTO();
                 var nameFilter = filter.Name?.Trim();
                 var isActiveFilter = filter.IsActive;
@@ -132,6 +136,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="id">Id of the product</param>
         /// <returns>The product that match with the id parameter.</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Read)]
         [HttpGet("{id}")]
         [ProducesResponseType(typeof(ProductDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -142,7 +147,6 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
                 Product product = await _repository.GetByIdAsync(id);
                 if (product == null || product.EnterpriseId != enterpriseId || product.IsActive != true)
                     return NoContent();
@@ -160,6 +164,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="product">Product to be added</param>
         /// <returns>The added product</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Create)]
         [HttpPost]
         [RequestSizeLimit(MaxImageUploadRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(ProductDTO), StatusCodes.Status200OK)]
@@ -170,30 +175,28 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (request == null) return BadRequest();
-                if (!TryGetEnterpriseId(out var enterpriseId))
+                var normalizedRequest = NormalizeCreateProductRequest(request);
+                var enterpriseId = await ResolveCallerEnterpriseIdAsync();
+                if (!enterpriseId.HasValue)
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var product = new ProductPicture
                 {
                     Product = new Product
                     {
-                        Name = request.Name.Trim(),
-                        Description = request.Description?.Trim() ?? string.Empty,
-                        DefaultValue = request.DefaultValue,
-                        StorageQuantity = request.StorageQuantity,
-                        UnitOfMeasure = request.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty,
-                        IsExternal = request.IsExternal,
-                        IsService = request.IsService,
-                        PictureAdress = request.PictureAdress,
-                        EnterpriseId = enterpriseId,
+                        Name = normalizedRequest.Name.Trim(),
+                        Description = normalizedRequest.Description?.Trim() ?? string.Empty,
+                        DefaultValue = normalizedRequest.DefaultValue.GetValueOrDefault(),
+                        StorageQuantity = normalizedRequest.StorageQuantity.GetValueOrDefault(),
+                        UnitOfMeasure = normalizedRequest.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty,
+                        IsExternal = normalizedRequest.IsExternal.GetValueOrDefault(),
+                        IsService = normalizedRequest.IsService.GetValueOrDefault(),
+                        PictureAdress = string.Empty,
+                        EnterpriseId = enterpriseId.Value,
                         IsActive = true
                     },
-                    File = request.File ?? string.Empty
+                    File = normalizedRequest.File ?? string.Empty
                 };
 
                 Product createdProduct = await _productService.CreateAsync(product);
@@ -213,6 +216,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="product">Product to be updated</param>
         /// <returns>The updated product</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Update)]
         [HttpPut]
         [RequestSizeLimit(MaxImageUploadRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(ProductDTO), StatusCodes.Status200OK)]
@@ -223,14 +227,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (request == null) return BadRequest();
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var existentProduct = await _repository.GetByIdAsync(request.Id);
                 if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
                     return NoContent();
@@ -243,7 +243,7 @@ namespace EvangelionERPV2.Web.Controllers
                 existentProduct.IsExternal = request.IsExternal;
                 existentProduct.IsService = request.IsService;
                 if (!string.IsNullOrWhiteSpace(request.PictureAdress))
-                    existentProduct.PictureAdress = request.PictureAdress.Trim();
+                    return BadRequest("PictureAdress cannot be updated here. Use UploadPicture.");
                 existentProduct.IsActive = request.IsActive ?? existentProduct.IsActive;
                 existentProduct.UpdatedAt = DateTime.UtcNow;
 
@@ -265,6 +265,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="id">Product's Id</param>
         /// <returns>The deleted product</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Delete)]
         [HttpDelete]
         [ProducesResponseType(typeof(ProductDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -273,13 +274,9 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var existentProduct = await _repository.GetByIdAsync(id);
                 if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
                     return NoContent();
@@ -301,6 +298,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="product">Product to be updated</param>
         /// <returns>The updated product</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.UploadPicture)]
         [HttpPatch]
         [RequestSizeLimit(MaxImageUploadRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(ProductDTO), StatusCodes.Status200OK)]
@@ -311,15 +309,11 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (request == null || request.ProductId == Guid.Empty)
                     return BadRequest("Product id is required.");
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var existentProduct = await _repository.GetByIdAsync(request.ProductId);
                 if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
                     return NoContent();
@@ -354,7 +348,8 @@ namespace EvangelionERPV2.Web.Controllers
         private Guid? TryGetUserId()
         {
             var claimValue = User.FindFirst(ClaimTypes.Sid)?.Value
-                             ?? User.FindFirst("uid")?.Value;
+                ?? User.FindFirst("uid")?.Value
+                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
             if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
                 return userId;
@@ -362,22 +357,64 @@ namespace EvangelionERPV2.Web.Controllers
             return null;
         }
 
-        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
+        private async Task<Guid?> ResolveCallerEnterpriseIdAsync()
         {
-            if (!userId.HasValue || enterpriseId == Guid.Empty)
-                return null;
+            var userId = TryGetUserId();
+            if (userId.HasValue)
+            {
+                try
+                {
+                    var user = await _userRepository.GetByIdAsync(userId.Value);
+                    if (user != null && user.IsActive == true && user.EnterpriseId.HasValue && user.EnterpriseId.Value != Guid.Empty)
+                        return user.EnterpriseId.Value;
+                }
+                catch (NotFoundDatabaseException)
+                {
+                }
+            }
 
-            var user = await _userRepository.GetByIdAsync(userId.Value);
-            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
-                return null;
-
-            return user.AccessLevel;
+            return TryGetEnterpriseId(out var claimEnterpriseId) ? claimEnterpriseId : null;
         }
 
-        private static bool IsManagementAccess(short? accessLevel)
+        private static CreateProductRequestDTO NormalizeCreateProductRequest(CreateProductRequestDTO request)
         {
-            return accessLevel.HasValue && accessLevel.Value <= (short)EnumAccessLevel.Supervisor;
+            if (request.Product == null)
+                return request;
+
+            return new CreateProductRequestDTO
+            {
+                Name = ResolveLegacyOrRootValue(request.Name, request.Product.Name),
+                Description = ResolveLegacyOrRootValue(request.Description, request.Product.Description),
+                DefaultValue = ResolveLegacyOrRootNumericValue(request.DefaultValue, request.Product.DefaultValue),
+                StorageQuantity = ResolveLegacyOrRootNumericValue(request.StorageQuantity, request.Product.StorageQuantity),
+                UnitOfMeasure = ResolveLegacyOrRootValue(request.UnitOfMeasure, request.Product.UnitOfMeasure),
+                IsExternal = ResolveLegacyOrRootBoolValue(request.IsExternal, request.Product.IsExternal),
+                IsService = ResolveLegacyOrRootBoolValue(request.IsService, request.Product.IsService),
+                PictureAdress = ResolveLegacyOrRootValue(request.PictureAdress, request.Product.PictureAdress),
+                File = request.File
+            };
         }
+
+        private static string ResolveLegacyOrRootValue(string? rootValue, string? legacyValue)
+        {
+            if (!string.IsNullOrWhiteSpace(rootValue))
+                return rootValue;
+
+            return legacyValue ?? string.Empty;
+        }
+
+        private static double ResolveLegacyOrRootNumericValue(double? rootValue, double legacyValue)
+        {
+            return rootValue ?? legacyValue;
+        }
+
+        private static bool ResolveLegacyOrRootBoolValue(bool? rootValue, bool legacyValue)
+        {
+            return rootValue ?? legacyValue;
+        }
+
+
+
 
         private async Task<IEnumerable<ProductDTO>> ToProductDtosAsync(IEnumerable<Product> products, bool includePictures = true)
         {

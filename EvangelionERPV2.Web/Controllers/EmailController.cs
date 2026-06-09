@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using AutoMapper;
 using Serilog;
@@ -8,6 +9,8 @@ using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using System.Security.Claims;
 using MimeKit;
+using System.Net;
+using System.Net.Sockets;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -41,6 +44,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="email">The email entire object to send.</param>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Email.Send)]
         [HttpPost]
         [RequestSizeLimit(MaxEmailConfigRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -53,10 +57,6 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
-                var callerAccess = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsAdminAccess(callerAccess))
-                    return Forbid();
 
                 if (email == null)
                     return BadRequest("Email payload is required.");
@@ -81,7 +81,7 @@ namespace EvangelionERPV2.Web.Controllers
 
                 email.RecipientEmails = recipients;
 
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 var enterprise = new Enterprise
                 {
@@ -103,6 +103,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="email">The email entire object to send.</param>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Email.Send)]
         [HttpPost]
         [RequestSizeLimit(MaxEmailConfigRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -117,9 +118,8 @@ namespace EvangelionERPV2.Web.Controllers
             if (!TryGetEnterpriseId(out var enterpriseId))
                 return Unauthorized();
 
-            var callerAccess = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-            if (!IsAdminAccess(callerAccess))
-                return Forbid();
+            if (await _emailService.TrySendQueuedEmail(email))
+                return Ok("Emails sent");
 
             MimeMessage message;
             try
@@ -136,14 +136,17 @@ namespace EvangelionERPV2.Web.Controllers
 
             if (!message.From.Mailboxes.Any() || !message.To.Mailboxes.Any())
                 return BadRequest("Email payload must include valid From and To headers.");
-            if (message.To.Mailboxes.Count() > MaxManualEmailRecipients)
+            var recipientCount = message.To.Mailboxes.Count() +
+                                 message.Cc.Mailboxes.Count() +
+                                 message.Bcc.Mailboxes.Count();
+            if (recipientCount > MaxManualEmailRecipients)
                 return BadRequest($"Recipient count must be {MaxManualEmailRecipients} or lower.");
             if ((message.Subject ?? string.Empty).Length > MaxManualEmailSubjectLength)
                 return BadRequest($"Subject must be {MaxManualEmailSubjectLength} characters or fewer.");
 
             try
             {
-                await _emailService.SendEmail(message);
+                await _emailService.SendEmail(message, enterpriseId);
 
                 return Ok("Emails sent");
             }
@@ -154,9 +157,31 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
+        /// Sends a signed queued email payload while preserving the tenant captured when it was enqueued.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Email.Send)]
+        [HttpPost]
+        [RequestSizeLimit(MaxEmailConfigRequestBodySizeInBytes)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> SendQueuedEmail([FromBody] string queuedEmail)
+        {
+            if (string.IsNullOrWhiteSpace(queuedEmail))
+                return BadRequest("Queued email payload is required.");
+
+            var sent = await _emailService.TrySendQueuedEmail(queuedEmail);
+            if (!sent)
+                return BadRequest("Queued email payload must be a valid signed queued email message.");
+
+            return Ok("Queued email sent");
+        }
+
+        /// <summary>
         /// Send monthly email.
         /// </summary>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Email.Send)]
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -166,14 +191,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
-                var callerAccess = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsAdminAccess(callerAccess))
-                    return Forbid();
 
                 await _emailService.SendMonthEmail(enterpriseId);
 
@@ -190,6 +211,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="email">Add the email to be used for sending notifications.</param>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Email.Manage)]
         [HttpPost]
         [RequestSizeLimit(MaxEmailConfigRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -210,15 +232,12 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!IsValidEmailSettingsPayload(email))
                     return BadRequest("Invalid email settings payload.");
 
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                var callerAccess = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsAdminAccess(callerAccess))
-                    return Forbid();
-
+                email.EnterpriseId = enterpriseId;
                 await _emailService.CreateAsync(email);
 
                 return Ok("Email created successfully");
@@ -233,6 +252,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// Send stock email.
         /// </summary>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Email.Send)]
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -242,14 +262,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
-                var callerAccess = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsAdminAccess(callerAccess))
-                    return Forbid();
 
                 await _emailService.SendStockEmail(enterpriseId);
 
@@ -267,33 +283,8 @@ namespace EvangelionERPV2.Web.Controllers
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
         }
 
-        private Guid? TryGetUserId()
-        {
-            var claimValue = User?.FindFirst(ClaimTypes.Sid)?.Value
-                             ?? User?.FindFirst("uid")?.Value;
 
-            if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
-                return userId;
 
-            return null;
-        }
-
-        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
-        {
-            if (!userId.HasValue || enterpriseId == Guid.Empty)
-                return null;
-
-            var user = await _userRepository.GetByIdAsync(userId.Value);
-            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
-                return null;
-
-            return user.AccessLevel;
-        }
-
-        private static bool IsAdminAccess(short? accessLevel)
-        {
-            return accessLevel.HasValue && accessLevel.Value == (short)EnumAccessLevel.Admin;
-        }
 
         private static bool IsValidEmailSettingsPayload(Email email)
         {
@@ -311,7 +302,7 @@ namespace EvangelionERPV2.Web.Controllers
                 return false;
             }
 
-            if (email.Port is < 1 or > 65535)
+            if (!IsAllowedSmtpPort(email.Port))
                 return false;
 
             if (HasHeaderControlCharacters(email.HostName) ||
@@ -324,7 +315,75 @@ namespace EvangelionERPV2.Web.Controllers
             if (Uri.CheckHostName(email.HostName) == UriHostNameType.Unknown)
                 return false;
 
+            if (IsBlockedSmtpHost(email.HostName))
+                return false;
+
             return MailboxAddress.TryParse(email.UserName, out _);
+        }
+
+        private static bool IsAllowedSmtpPort(int port)
+        {
+            return port is 25 or 465 or 587;
+        }
+
+        private static bool IsBlockedSmtpHost(string host)
+        {
+            var normalizedHost = (host ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(normalizedHost))
+                return true;
+
+            if (normalizedHost.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (!IPAddress.TryParse(normalizedHost, out var ip))
+                return false;
+
+            return IsRestrictedAddress(ip);
+        }
+
+        private static bool IsRestrictedAddress(IPAddress address)
+        {
+            if (IPAddress.IsLoopback(address))
+                return true;
+
+            if (address.AddressFamily == AddressFamily.InterNetwork)
+            {
+                var bytes = address.GetAddressBytes();
+                var first = bytes[0];
+                var second = bytes[1];
+
+                if (first == 10 || first == 127 || first == 0)
+                    return true;
+
+                if (first == 172 && second >= 16 && second <= 31)
+                    return true;
+
+                if (first == 192 && second == 168)
+                    return true;
+
+                if (first == 169 && second == 254)
+                    return true;
+
+                if (first >= 224)
+                    return true;
+
+                return false;
+            }
+
+            if (address.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                if (address.IsIPv6LinkLocal || address.IsIPv6Multicast || address.IsIPv6SiteLocal)
+                    return true;
+
+                var bytes = address.GetAddressBytes();
+                var first = bytes[0];
+                if ((first & 0xFE) == 0xFC)
+                    return true;
+
+                return false;
+            }
+
+            return true;
         }
 
         private static bool HasHeaderControlCharacters(string value)

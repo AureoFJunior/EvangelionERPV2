@@ -99,6 +99,57 @@ namespace EvangelionERPV2.BillsModule.Test
         }
 
         [Fact]
+        public async Task CreateAsync_SamePayloadTwice_CreatesTwoIndependentBills()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Keyboard",
+                UnitOfMeasure = "Unit",
+                DefaultValue = 25,
+                IsActive = true
+            };
+            var now = DateTime.UtcNow;
+
+            PayableBill BuildBill()
+            {
+                return new PayableBill
+                {
+                    Description = "Office supply",
+                    EnterpriseId = enterpriseId,
+                    IsPaid = true,
+                    PaidAt = now,
+                    BillType = 3,
+                    DueDate = now.AddDays(30),
+                    Amount = 999,
+                    Items =
+                    [
+                        new PayableBillProduct
+                        {
+                            ProductId = product.Id,
+                            Quantity = 2,
+                            UnitValue = 12.5,
+                            UnitOfMeasure = "Box"
+                        }
+                    ]
+                };
+            }
+
+            var (payableBillRepo, _, _, _, _, service, _) = BuildSut(products: [product]);
+            payableBillRepo
+                .Setup(x => x.CommitAsync(It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var firstResult = await service.CreateAsync(BuildBill());
+            var secondResult = await service.CreateAsync(BuildBill());
+
+            Assert.NotEqual(firstResult.Id, secondResult.Id);
+            payableBillRepo.Verify(x => x.CreateAsync(It.IsAny<PayableBill>()), Times.Exactly(2));
+        }
+
+        [Fact]
         public async Task CreateAsync_WithInvalidBillType_ShouldThrow()
         {
             var enterpriseId = Guid.NewGuid();

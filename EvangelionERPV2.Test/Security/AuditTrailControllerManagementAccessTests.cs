@@ -4,6 +4,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
@@ -36,38 +37,11 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
-        public async Task GetAuditTrails_ReturnsForbid_WhenUserIsNotManagement()
+        public void GetAuditTrails_RequiresAuditReadPolicy()
         {
-            var userId = Guid.NewGuid();
-            var enterpriseId = Guid.NewGuid();
-
-            _userRepositoryMock
-                .Setup(x => x.GetByIdAsync(userId))
-                .ReturnsAsync(new User
-                {
-                    Id = userId,
-                    EnterpriseId = enterpriseId,
-                    IsActive = true,
-                    AccessLevel = (short)EnumAccessLevel.Employee
-                });
-
-            var controller = CreateController(new[]
-            {
-                new Claim(ClaimTypes.Sid, userId.ToString()),
-                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString())
-            });
-
-            var response = await controller.GetAuditTrails();
-
-            Assert.IsType<ForbidResult>(response);
-            _auditTrailServiceMock.Verify(
-                x => x.GetAllAsyncFiltering(
-                    It.IsAny<Guid>(),
-                    It.IsAny<bool>(),
-                    It.IsAny<int?>(),
-                    It.IsAny<int?>(),
-                    It.IsAny<Shared.DTOs.AuditTrailFilterDTO?>()),
-                Times.Never);
+            ControllerPolicyTestHelper.AssertActionPolicy<AuditTrailController>(
+                nameof(AuditTrailController.GetAuditTrails),
+                "rbac:" + RbacPermissions.Audit.Read);
         }
 
         [Fact]

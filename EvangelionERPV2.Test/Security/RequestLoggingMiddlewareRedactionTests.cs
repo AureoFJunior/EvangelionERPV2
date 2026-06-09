@@ -43,6 +43,44 @@ namespace EvangelionERPV2.Test.Security
             Assert.Contains("address=***", redacted, StringComparison.Ordinal);
         }
 
+        [Fact]
+        public void RedactSensitiveContent_RedactsOAuthTokenFieldVariants()
+        {
+            const string body = "{\"accessToken\":\"abc123\",\"access_token\":\"def456\",\"refresh_token\":\"ghi789\",\"id_token\":\"jkl012\"}";
+
+            var redacted = InvokeRedactSensitiveContent(body);
+
+            Assert.DoesNotContain("abc123", redacted, StringComparison.Ordinal);
+            Assert.DoesNotContain("def456", redacted, StringComparison.Ordinal);
+            Assert.DoesNotContain("ghi789", redacted, StringComparison.Ordinal);
+            Assert.DoesNotContain("jkl012", redacted, StringComparison.Ordinal);
+            Assert.Contains("\"accessToken\":\"***\"", redacted, StringComparison.Ordinal);
+            Assert.Contains("\"access_token\":\"***\"", redacted, StringComparison.Ordinal);
+            Assert.Contains("\"refresh_token\":\"***\"", redacted, StringComparison.Ordinal);
+            Assert.Contains("\"id_token\":\"***\"", redacted, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void RedactSensitiveContent_RedactsOAuthTokenFieldVariantsInFormEncodedBody()
+        {
+            const string body = "accessToken=abc123&access_token=def456&refresh_token=ghi789&id_token=jkl012&authorizationCode=mno345&codeVerifier=pqr678";
+
+            var redacted = InvokeRedactSensitiveContent(body);
+
+            Assert.DoesNotContain("abc123", redacted, StringComparison.Ordinal);
+            Assert.DoesNotContain("def456", redacted, StringComparison.Ordinal);
+            Assert.DoesNotContain("ghi789", redacted, StringComparison.Ordinal);
+            Assert.DoesNotContain("jkl012", redacted, StringComparison.Ordinal);
+            Assert.DoesNotContain("mno345", redacted, StringComparison.Ordinal);
+            Assert.DoesNotContain("pqr678", redacted, StringComparison.Ordinal);
+            Assert.Contains("accessToken=***", redacted, StringComparison.Ordinal);
+            Assert.Contains("access_token=***", redacted, StringComparison.Ordinal);
+            Assert.Contains("refresh_token=***", redacted, StringComparison.Ordinal);
+            Assert.Contains("id_token=***", redacted, StringComparison.Ordinal);
+            Assert.Contains("authorizationCode=***", redacted, StringComparison.Ordinal);
+            Assert.Contains("codeVerifier=***", redacted, StringComparison.Ordinal);
+        }
+
         private static string InvokeRedactSensitiveContent(string body)
         {
             var result = RedactSensitiveContentMethod.Invoke(null, [body]);

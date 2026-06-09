@@ -7,6 +7,7 @@ using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Utils;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
@@ -46,6 +47,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="pageNumber">Number of the current page</param>
         /// <param name="pageSize">Size of the desired page</param>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Read)]
         [HttpGet("{pageNumber?}/{pageSize?}")]
         [ProducesResponseType(typeof(IEnumerable<CustomerDTO>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -55,11 +57,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
                 IEnumerable<Customer> customers = await _repository.GetAllAsync(
                     normalizedPageNumber,
@@ -90,6 +91,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="pageSize">Size of the desired page</param>
         /// <param name="customer">Object used to filter data.</param>
         /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Read)]
         [HttpPost("{descending}/{pageNumber?}/{pageSize?}")]
         [RequestSizeLimit(MaxCustomerWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(IEnumerable<CustomerDTO>), StatusCodes.Status200OK)]
@@ -100,9 +102,11 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                if (!ModelState.IsValid)
+                    return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
                 filter ??= new CustomerFilterRequestDTO();
                 var nameFilter = filter.Name?.Trim();
                 var emailFilter = filter.Email?.Trim();
@@ -144,6 +148,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="id">Id of the customer</param>
         /// <returns>The customer that match with the id parameter.</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Read)]
         [HttpGet("{id}")]
         [ProducesResponseType(typeof(CustomerDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -154,7 +159,6 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
                 Customer customer = await _repository.GetByIdAsync(id);
                 if (customer == null || customer.EnterpriseId != enterpriseId || customer.IsActive != true)
                     return NoContent();
@@ -173,6 +177,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="customer">Customer to be added</param>
         /// <returns>The added customer</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Create)]
         [HttpPost]
         [RequestSizeLimit(MaxCustomerWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(CustomerDTO), StatusCodes.Status200OK)]
@@ -183,9 +188,11 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (request == null) return BadRequest();
                 if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+                if (!await HasActiveTenantMembershipAsync(TryGetUserId(), enterpriseId))
                     return Unauthorized();
 
                 var customer = MapCreateCustomerRequest(request, enterpriseId);
@@ -203,6 +210,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="customer">Customer to be updated</param>
         /// <returns>The updated customer</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Update)]
         [HttpPut]
         [RequestSizeLimit(MaxCustomerWriteRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(CustomerDTO), StatusCodes.Status200OK)]
@@ -213,14 +221,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (request == null) return BadRequest();
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var existingCustomer = await _repository.GetByIdAsync(request.Id);
                 if (existingCustomer == null || existingCustomer.EnterpriseId != enterpriseId || existingCustomer.IsActive != true)
                     return NoContent();
@@ -251,6 +255,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="id">Customer's Id</param>
         /// <returns>The deleted customer</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Delete)]
         [HttpDelete("{id}")]
         [ProducesResponseType(typeof(CustomerDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -259,13 +264,9 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var customer = await _repository.GetByIdAsync(id);
                 if (customer == null || customer.EnterpriseId != enterpriseId || customer.IsActive != true)
                     return NoContent();
@@ -307,22 +308,16 @@ namespace EvangelionERPV2.Web.Controllers
             return null;
         }
 
-        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
+
+        private async Task<bool> HasActiveTenantMembershipAsync(Guid? userId, Guid enterpriseId)
         {
             if (!userId.HasValue || enterpriseId == Guid.Empty)
-                return null;
+                return false;
 
             var user = await _userRepository.GetByIdAsync(userId.Value);
-            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
-                return null;
-
-            return user.AccessLevel;
+            return user != null && user.IsActive == true && user.EnterpriseId == enterpriseId;
         }
 
-        private static bool IsManagementAccess(short? accessLevel)
-        {
-            return accessLevel.HasValue && accessLevel.Value <= (short)EnumAccessLevel.Supervisor;
-        }
 
         private bool TryGetEnterpriseId(out Guid enterpriseId)
         {

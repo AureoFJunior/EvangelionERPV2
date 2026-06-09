@@ -1,6 +1,10 @@
 using System.Security.Claims;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
+using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
@@ -14,18 +18,26 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private const int MaxSimulationRequestBodySizeInBytes = 128 * 1024;
         private readonly ICashFlowForecastService _cashFlowForecastService;
+        private readonly IRepository<User> _userRepository;
 
-        public CashFlowForecastController(ICashFlowForecastService cashFlowForecastService)
+        public CashFlowForecastController(
+            ICashFlowForecastService cashFlowForecastService,
+            IRepository<User> userRepository)
         {
             _cashFlowForecastService = cashFlowForecastService;
+            _userRepository = userRepository;
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.CashFlowForecast.Read)]
         [HttpGet("{horizonInDays}")]
         public async Task<IActionResult> GetForecast(int horizonInDays)
         {
             try
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                if (!TryGetUserId(out var userId))
                     return Unauthorized();
 
                 if (horizonInDays is not (30 or 60 or 90))
@@ -40,6 +52,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.CashFlowForecast.Read)]
         [HttpGet("{horizonInDays}/{currentBalance}")]
         public async Task<IActionResult> GetForecastWithBalanceOverride(int horizonInDays, double currentBalance)
         {
@@ -48,8 +61,14 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
+                if (!TryGetUserId(out var userId))
+                    return Unauthorized();
+
                 if (horizonInDays is not (30 or 60 or 90))
                     return BadRequest("Horizon must be 30, 60 or 90 days.");
+
+                if (!double.IsFinite(currentBalance))
+                    return BadRequest("Current balance is invalid.");
 
                 var result = await _cashFlowForecastService.GetForecastAsync(enterpriseId, horizonInDays, currentBalance);
                 return Ok(result);
@@ -60,6 +79,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.CashFlowForecast.Simulate)]
         [HttpPost]
         [RequestSizeLimit(MaxSimulationRequestBodySizeInBytes)]
         public async Task<IActionResult> RunSimulation([FromBody] RunSimulationRequestDTO request)
@@ -99,6 +119,8 @@ namespace EvangelionERPV2.Web.Controllers
                              ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             return Guid.TryParse(claimValue, out userId) && userId != Guid.Empty;
         }
+
+
 
         private static string GetSafeArgumentErrorMessage(ArgumentException ex)
         {

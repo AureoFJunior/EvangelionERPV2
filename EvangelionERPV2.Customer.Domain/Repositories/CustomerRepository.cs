@@ -1,6 +1,7 @@
 using EvangelionERPV2.CustomerModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
+using EvangelionERPV2.Shared.Utils;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 using EvangelionERPV2.Shared.Context;
@@ -70,12 +71,21 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
             if (customer == null)
                 throw new NotFoundDatabaseException("Empty filter with no data found.");
 
+            const int MaxNameFilterLength = 150;
+            const int MaxEmailFilterLength = 150;
+            const int MaxDocumentFilterLength = 30;
+            const int MaxPhoneFilterLength = 30;
+
             Expression<Func<Customer, object>> orderBy = FillOrderByPerField(customer);
 
-            var nameFilter = customer.Name?.Trim();
-            var emailFilter = customer.Email?.Trim();
-            var documentFilter = customer.Document?.Trim();
-            var phoneFilter = customer.PhoneNumber?.Trim();
+            var nameFilter = SharedFunctions.EnsureSearchFilterLength(customer.Name, MaxNameFilterLength, nameof(customer.Name));
+            var emailFilter = SharedFunctions.EnsureSearchFilterLength(customer.Email, MaxEmailFilterLength, nameof(customer.Email));
+            var documentFilter = SharedFunctions.EnsureSearchFilterLength(customer.Document, MaxDocumentFilterLength, nameof(customer.Document));
+            var phoneFilter = SharedFunctions.EnsureSearchFilterLength(customer.PhoneNumber, MaxPhoneFilterLength, nameof(customer.PhoneNumber));
+            var escapedNameFilter = SharedFunctions.EscapeLikePattern(nameFilter ?? string.Empty);
+            var escapedEmailFilter = SharedFunctions.EscapeLikePattern(emailFilter ?? string.Empty);
+            var escapedDocumentFilter = SharedFunctions.EscapeLikePattern(documentFilter ?? string.Empty);
+            var escapedPhoneFilter = SharedFunctions.EscapeLikePattern(phoneFilter ?? string.Empty);
 
             return await this.GetAllAsyncByFilter(
             descending,
@@ -83,10 +93,10 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
             pageSize,
             x =>
             (customer.EnterpriseId == Guid.Empty || x.EnterpriseId == customer.EnterpriseId)
-            && (string.IsNullOrEmpty(nameFilter) || EF.Functions.Like(x.Name, $"%{nameFilter}%"))
-            && (string.IsNullOrEmpty(emailFilter) || EF.Functions.Like(x.Email, $"%{emailFilter}%"))
-            && (string.IsNullOrEmpty(documentFilter) || (x.Document != null && EF.Functions.Like(x.Document, $"%{documentFilter}%")))
-            && (string.IsNullOrEmpty(phoneFilter) || EF.Functions.Like(x.PhoneNumber, $"%{phoneFilter}%")),
+            && (string.IsNullOrEmpty(nameFilter) || EF.Functions.Like(x.Name, $"%{escapedNameFilter}%", "\\"))
+            && (string.IsNullOrEmpty(emailFilter) || EF.Functions.Like(x.Email, $"%{escapedEmailFilter}%", "\\"))
+            && (string.IsNullOrEmpty(documentFilter) || (x.Document != null && EF.Functions.Like(x.Document, $"%{escapedDocumentFilter}%", "\\")))
+            && (string.IsNullOrEmpty(phoneFilter) || EF.Functions.Like(x.PhoneNumber, $"%{escapedPhoneFilter}%", "\\")),
             orderBy
             );
         }

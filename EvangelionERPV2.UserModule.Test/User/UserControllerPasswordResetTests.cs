@@ -23,11 +23,12 @@ namespace EvangelionERPV2.UserModule.Test.User
         public async Task RequestPasswordReset_WhenUserExists_ReturnsOkAndSendsEmail()
         {
             var (controller, userService, emailService) = CreateController();
-            userService.Setup(s => s.CreatePasswordResetTokenAsync("user@evangelion.com"))
-                .ReturnsAsync("token-123");
-            emailService.Setup(s => s.CreateEmail(It.IsAny<EmailStructure>()))
+            var enterpriseId = Guid.NewGuid();
+            userService.Setup(s => s.CreatePasswordResetTokenContextAsync("user@evangelion.com"))
+                .ReturnsAsync(("token-123", enterpriseId));
+            emailService.Setup(s => s.CreateEmail(It.IsAny<EmailStructure>(), enterpriseId))
                 .ReturnsAsync(new MimeMessage());
-            emailService.Setup(s => s.SendEmail(It.IsAny<MimeMessage>()))
+            emailService.Setup(s => s.SendEmail(It.IsAny<MimeMessage>(), enterpriseId))
                 .Returns(Task.CompletedTask);
 
             var result = await controller.RequestPasswordReset(new UserController.RequestPasswordResetRequest
@@ -37,15 +38,15 @@ namespace EvangelionERPV2.UserModule.Test.User
 
             var ok = Assert.IsType<OkObjectResult>(result);
             Assert.Equal(200, ok.StatusCode ?? 200);
-            emailService.Verify(s => s.SendEmail(It.IsAny<MimeMessage>()), Times.Once);
+            emailService.Verify(s => s.SendEmail(It.IsAny<MimeMessage>(), enterpriseId), Times.Once);
         }
 
         [Fact]
         public async Task RequestPasswordReset_WhenUserMissing_ReturnsOkAndDoesNotSendEmail()
         {
             var (controller, userService, emailService) = CreateController();
-            userService.Setup(s => s.CreatePasswordResetTokenAsync(It.IsAny<string>()))
-                .ReturnsAsync((string?)null);
+            userService.Setup(s => s.CreatePasswordResetTokenContextAsync(It.IsAny<string>()))
+                .ReturnsAsync(((string?)null, (Guid?)null));
 
             var result = await controller.RequestPasswordReset(new UserController.RequestPasswordResetRequest
             {
@@ -54,7 +55,7 @@ namespace EvangelionERPV2.UserModule.Test.User
 
             var ok = Assert.IsType<OkObjectResult>(result);
             Assert.Equal(200, ok.StatusCode ?? 200);
-            emailService.Verify(s => s.SendEmail(It.IsAny<MimeMessage>()), Times.Never);
+            emailService.Verify(s => s.SendEmail(It.IsAny<MimeMessage>(), It.IsAny<Guid?>()), Times.Never);
         }
 
         [Fact]
@@ -69,8 +70,8 @@ namespace EvangelionERPV2.UserModule.Test.User
 
             var ok = Assert.IsType<OkObjectResult>(result);
             Assert.Equal(200, ok.StatusCode ?? 200);
-            userService.Verify(s => s.CreatePasswordResetTokenAsync(It.IsAny<string>()), Times.Never);
-            emailService.Verify(s => s.SendEmail(It.IsAny<MimeMessage>()), Times.Never);
+            userService.Verify(s => s.CreatePasswordResetTokenContextAsync(It.IsAny<string>()), Times.Never);
+            emailService.Verify(s => s.SendEmail(It.IsAny<MimeMessage>(), It.IsAny<Guid?>()), Times.Never);
         }
 
         [Fact]

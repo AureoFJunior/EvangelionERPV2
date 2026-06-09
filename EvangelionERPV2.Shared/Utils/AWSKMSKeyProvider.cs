@@ -32,33 +32,118 @@ namespace EvangelionERPV2.Shared.Utils
                 return secretName.Substring(plainPrefix.Length);
             }
 
+            var (secretId, requestedKey) = SplitSecretReference(secretName);
             var secretValueResponse = _secretsManager.GetSecretValueAsync(new GetSecretValueRequest
             {
-                SecretId = secretName.Split(":")?[0] ?? string.Empty
+                SecretId = secretId
             }).GetAwaiter().GetResult();
 
             string secretString = secretValueResponse.SecretString ?? string.Empty;
             if (string.IsNullOrWhiteSpace(secretString))
                 return string.Empty;
 
-            string keyIdentifier = secretString.Replace("'", string.Empty).Replace("\"", string.Empty);
+            return ResolveSecretValue(secretString, requestedKey);
+        }
 
+        private static (string SecretId, string? RequestedKey) SplitSecretReference(string secretName)
+        {
+            var normalizedSecretName = secretName.Trim();
+            var separatorIndex = normalizedSecretName.LastIndexOf(':');
+            if (separatorIndex <= 0 || separatorIndex == normalizedSecretName.Length - 1)
+                return (normalizedSecretName, null);
+
+            return (
+                normalizedSecretName[..separatorIndex],
+                normalizedSecretName[(separatorIndex + 1)..]);
+        }
+
+        private static string ResolveSecretValue(string secretString, string? requestedKey)
+        {
             try
             {
-                if (keyIdentifier.StartsWith("{") && keyIdentifier.Contains(":"))
+                var token = JToken.Parse(secretString);
+                if (token is JObject secretObject)
                 {
-                    var keyValue = keyIdentifier.Trim('{', '}').Split(':', 2);
-                    if (keyValue.Length == 2)
+                    var properties = secretObject.Properties().ToList();
+                    if (!string.IsNullOrWhiteSpace(requestedKey))
                     {
-                        return keyValue[1];
+                        var property = properties
+                            .FirstOrDefault(x => x.Name.Equals(requestedKey, StringComparison.OrdinalIgnoreCase));
+
+                        if (property != null)
+                            return ConvertSecretTokenToString(property.Value);
+
+                        return properties.Count == 1
+                            ? ConvertSecretTokenToString(properties[0].Value)
+                            : string.Empty;
+                    }
+
+                    return properties.Count == 1
+                        ? ConvertSecretTokenToString(properties[0].Value)
+                        : secretObject.ToString(Formatting.None);
+                }
+
+                return ResolvePlainSecretValue(ConvertSecretTokenToString(token), requestedKey);
+            }
+            catch (JsonReaderException)
+            {
+                return ResolvePlainSecretValue(secretString, requestedKey);
+            }
+        }
+
+        private static string ResolvePlainSecretValue(string secretString, string? requestedKey)
+        {
+            if (TryResolvePlainKeyedSecret(secretString, requestedKey, out var resolvedValue))
+                return resolvedValue;
+
+            return secretString;
+        }
+
+        private static bool TryResolvePlainKeyedSecret(string secretString, string? requestedKey, out string resolvedValue)
+        {
+            resolvedValue = string.Empty;
+            if (string.IsNullOrWhiteSpace(secretString) || string.IsNullOrWhiteSpace(requestedKey))
+                return false;
+
+            var trimmedSecret = secretString.Trim();
+            var normalizedKey = requestedKey.Trim();
+            var separators = new[] { ":", "=" };
+            foreach (var candidate in EnumeratePlainSecretCandidates(trimmedSecret))
+            {
+                foreach (var separator in separators)
+                {
+                    var prefix = normalizedKey + separator;
+                    if (candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        resolvedValue = candidate.Substring(prefix.Length).Trim();
+                        return true;
                     }
                 }
-                return keyIdentifier;
             }
-            catch (JsonReaderException ex)
+
+            return false;
+        }
+
+        private static IEnumerable<string> EnumeratePlainSecretCandidates(string trimmedSecret)
+        {
+            yield return trimmedSecret;
+
+            if (trimmedSecret.Length >= 2 &&
+                trimmedSecret.StartsWith("{", StringComparison.Ordinal) &&
+                trimmedSecret.EndsWith("}", StringComparison.Ordinal))
             {
-                throw new FormatException("The secret is not in a valid JSON format.", ex);
+                yield return trimmedSecret[1..^1].Trim();
             }
+        }
+
+        private static string ConvertSecretTokenToString(JToken token)
+        {
+            if (token.Type == JTokenType.String)
+                return token.Value<string>() ?? string.Empty;
+
+            return token is JObject or JArray
+                ? token.ToString(Formatting.None)
+                : token.ToString();
         }
 
         public async Task<Dictionary<string, string>> GetAllKMSKeysAsync()

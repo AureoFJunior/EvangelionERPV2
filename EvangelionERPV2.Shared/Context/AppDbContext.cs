@@ -57,6 +57,12 @@ namespace EvangelionERPV2.Shared.Context
             modelBuilder.Entity<Bill>()
                 .ToTable("Boleto");
 
+            modelBuilder.Entity<Email>()
+                .HasOne(email => email.Enterprise)
+                .WithMany()
+                .HasForeignKey(email => email.EnterpriseId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             modelBuilder.Entity<NFeDocument>()
                 .Property(document => document.AccessKey)
                 .HasMaxLength(44);
@@ -83,6 +89,44 @@ namespace EvangelionERPV2.Shared.Context
                 .WithMany()
                 .HasForeignKey(token => token.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<PasswordResetToken>()
+                .HasIndex(token => token.UserId)
+                .HasDatabaseName("IX_PasswordResetToken_UserId_Active")
+                .IsUnique()
+                .HasFilter("[IsActive] = 1");
+
+            modelBuilder.Entity<RefreshToken>()
+                .HasIndex(token => token.UserId)
+                .HasDatabaseName("IX_RefreshToken_UserId_Active")
+                .IsUnique()
+                .HasFilter("[IsActive] = 1");
+
+            modelBuilder.Entity<User>()
+                .Property<string>("NormalizedActiveUserName")
+                .HasMaxLength(450)
+                .HasComputedColumnSql(
+                    "CASE WHEN [IsActive] = 1 THEN CONVERT(nvarchar(450), UPPER(LTRIM(RTRIM([UserName])))) END",
+                    stored: true);
+
+            modelBuilder.Entity<User>()
+                .Property<string>("NormalizedActiveEmail")
+                .HasMaxLength(450)
+                .HasComputedColumnSql(
+                    "CASE WHEN [IsActive] = 1 THEN CONVERT(nvarchar(450), UPPER(LTRIM(RTRIM([Email])))) END",
+                    stored: true);
+
+            modelBuilder.Entity<User>()
+                .HasIndex("EnterpriseId", "NormalizedActiveUserName")
+                .HasDatabaseName("IX_User_EnterpriseId_NormalizedActiveUserName_Active")
+                .IsUnique()
+                .HasFilter("[IsActive] = 1 AND [EnterpriseId] IS NOT NULL");
+
+            modelBuilder.Entity<User>()
+                .HasIndex("NormalizedActiveEmail")
+                .HasDatabaseName("IX_User_NormalizedActiveEmail_Active")
+                .IsUnique()
+                .HasFilter("[IsActive] = 1 AND [NormalizedActiveEmail] IS NOT NULL");
 
             modelBuilder.Entity<Opportunity>()
                 .Property(opportunity => opportunity.Type)
@@ -244,6 +288,8 @@ namespace EvangelionERPV2.Shared.Context
 
         private void AppendAuditTrails()
         {
+            var now = DateTime.UtcNow;
+
             ChangeTracker.DetectChanges();
 
             var auditableEntries = ChangeTracker.Entries<BaseEntity>()
@@ -254,12 +300,12 @@ namespace EvangelionERPV2.Shared.Context
                 return;
 
             var userId = ResolveCurrentUserId();
-            var now = DateTime.UtcNow;
 
             if (_auditTrailEntryFactory == null)
                 throw new InvalidOperationException("IAuditTrailEntryFactory is not registered. Configure AuditTrailIoC before using AppDbContext.");
 
-            var pendingAuditEntries = _auditTrailEntryFactory.Create(auditableEntries, userId, now);
+            var enterpriseId = ResolveCurrentEnterpriseId();
+            var pendingAuditEntries = _auditTrailEntryFactory.Create(auditableEntries, userId, enterpriseId, now);
 
             if (pendingAuditEntries.Count == 0)
                 return;
@@ -300,6 +346,23 @@ namespace EvangelionERPV2.Shared.Context
                 .Where(entity => entity.UserName == userName)
                 .Select(entity => (Guid?)entity.Id)
                 .FirstOrDefault();
+        }
+
+        private Guid? ResolveCurrentEnterpriseId()
+        {
+            var user = _httpContextAccessor?.HttpContext?.User;
+            if (user?.Identity?.IsAuthenticated != true)
+                return null;
+
+            var enterpriseClaim = user.FindFirst(ClaimTypes.GroupSid)?.Value
+                                  ?? user.FindFirst("enterprise_id")?.Value
+                                  ?? user.FindFirst("tenant_id")?.Value;
+
+            return !string.IsNullOrWhiteSpace(enterpriseClaim) &&
+                   Guid.TryParse(enterpriseClaim, out var enterpriseId) &&
+                   enterpriseId != Guid.Empty
+                ? enterpriseId
+                : null;
         }
 
     }

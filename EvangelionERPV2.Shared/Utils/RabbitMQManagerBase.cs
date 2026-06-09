@@ -17,11 +17,8 @@ namespace EvangelionERPV2.Shared.Utils
         private readonly IConnection _connection;
         private readonly IChannel _channel;
         private readonly JsonSerializerOptions _jsonOptions;
-        private AsyncEventingBasicConsumer? _consumer;
         private readonly TChannelSettings _channelSettings;
         private readonly AWSKMSKeyProvider _kmsProvider;
-        private readonly SemaphoreSlim _consumerStartLock = new(1, 1);
-        private bool _consumerStarted;
 
         public RabbitMQManagerBase(IOptions<RabbitMQSettings> rabbitMQSettings,
                              IOptions<TChannelSettings> channelSettings,
@@ -35,12 +32,12 @@ namespace EvangelionERPV2.Shared.Utils
                 UserName = _kmsProvider.GetKMSKey(rabbitMQSettings.Value.UserName),
                 Password = _kmsProvider.GetKMSKey(rabbitMQSettings.Value.Password),
                 VirtualHost = _kmsProvider.GetKMSKey(rabbitMQSettings.Value.VirtualHost),
-                Port = SharedFunctions.SafeConvertToNumber<int>(_kmsProvider.GetKMSKey(rabbitMQSettings.Value.Port.ToString())),
-                Uri = new Uri(_kmsProvider.GetKMSKey(rabbitMQSettings.Value.Uri)),
+                Port = ResolveRabbitMqPort(_kmsProvider.GetKMSKey(rabbitMQSettings.Value.Port.ToString())),
                 AutomaticRecoveryEnabled = true,
                 ConsumerDispatchConcurrency = 10,
                 NetworkRecoveryInterval = TimeSpan.FromSeconds(10)
             };
+            ApplyRabbitMqUriIfConfigured(factory, _kmsProvider.GetKMSKey(rabbitMQSettings.Value.Uri));
 
             _connection = factory.CreateConnectionAsync().GetAwaiter().GetResult();
             _channel = _connection.CreateChannelAsync().GetAwaiter().GetResult();
@@ -55,6 +52,29 @@ namespace EvangelionERPV2.Shared.Utils
                 NumberHandling = JsonNumberHandling.AllowReadingFromString
             };
             
+        }
+
+        private static int ResolveRabbitMqPort(string? rawPort)
+        {
+            var port = SharedFunctions.SafeConvertToNumber<int>(rawPort ?? string.Empty);
+            return port > 0 ? port : 5672;
+        }
+
+        private static void ApplyRabbitMqUriIfConfigured(ConnectionFactory factory, string? rawUri)
+        {
+            if (string.IsNullOrWhiteSpace(rawUri))
+                return;
+
+            var normalizedUri = rawUri.Trim();
+            if (Uri.TryCreate(normalizedUri, UriKind.Absolute, out var rabbitMqUri) &&
+                (rabbitMqUri.Scheme.Equals("amqp", StringComparison.OrdinalIgnoreCase) ||
+                 rabbitMqUri.Scheme.Equals("amqps", StringComparison.OrdinalIgnoreCase)))
+            {
+                factory.Uri = rabbitMqUri;
+                return;
+            }
+
+            Log.Logger.Warning("RabbitMQ URI setting is not a valid amqp/amqps URI. Falling back to host/port settings.");
         }
 
         public void SetupChannel()
@@ -123,8 +143,6 @@ namespace EvangelionERPV2.Shared.Utils
 
         public async Task<T> DequeueAndProcessAsync<T>()
         {
-            await EnsureConsumerStartedAsync();
-
             T? processedMessage = default;
             var hasProcessedMessage = false;
 
@@ -146,12 +164,11 @@ namespace EvangelionERPV2.Shared.Utils
             if (processMessageAsync is null)
                 throw new ArgumentNullException(nameof(processMessageAsync));
 
-            await EnsureConsumerStartedAsync();
-            var consumer = _consumer ?? throw new InvalidOperationException("RabbitMQ consumer was not initialized.");
-
             Log.Logger.Information("Starting Dequeue and Process");
+            var consumer = new AsyncEventingBasicConsumer(_channel);
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             CancellationTokenRegistration cancellationRegistration = default;
+            var consumerCancelled = 0;
 
             AsyncEventHandler<BasicDeliverEventArgs>? handler = null;
             handler = async (_, ea) =>
@@ -167,11 +184,14 @@ namespace EvangelionERPV2.Shared.Utils
                         throw new InvalidOperationException("Failed to deserialize message payload.");
 
                     await processMessageAsync(resultObject);
+                    await TryCancelConsumerAsync(ea.ConsumerTag);
                     await _channel.BasicAckAsync(ea.DeliveryTag, false);
                     tcs.TrySetResult(true);
                 }
                 catch (Exception ex)
                 {
+                    await TryCancelConsumerAsync(ea.ConsumerTag);
+
                     try
                     {
                         if (await TryScheduleRetryAsync(ea, ex))
@@ -194,45 +214,58 @@ namespace EvangelionERPV2.Shared.Utils
                 finally
                 {
                     consumer.ReceivedAsync -= handler;
-                    cancellationRegistration.Dispose();
                 }
             };
 
             consumer.ReceivedAsync += handler;
 
-            if (cancellationToken.CanBeCanceled)
-            {
-                cancellationRegistration = cancellationToken.Register(() =>
-                {
-                    consumer.ReceivedAsync -= handler;
-                    tcs.TrySetCanceled(cancellationToken);
-                });
-            }
-
-            await tcs.Task;
-        }
-
-        private async Task EnsureConsumerStartedAsync()
-        {
-            if (_consumerStarted)
-                return;
-
-            await _consumerStartLock.WaitAsync();
             try
             {
-                if (_consumerStarted)
-                    return;
+                if (cancellationToken.CanBeCanceled)
+                {
+                    cancellationRegistration = cancellationToken.Register(() =>
+                    {
+                        tcs.TrySetCanceled(cancellationToken);
+                    });
+                }
 
-                _consumer = new AsyncEventingBasicConsumer(_channel);
                 await _channel.BasicConsumeAsync(
                     queue: _channelSettings.QueueName,
                     autoAck: false,
-                    consumer: _consumer);
-                _consumerStarted = true;
+                    consumer: consumer,
+                    cancellationToken: cancellationToken);
+
+                await tcs.Task;
             }
             finally
             {
-                _consumerStartLock.Release();
+                consumer.ReceivedAsync -= handler;
+                cancellationRegistration.Dispose();
+                await TryCancelConsumerAsync();
+            }
+
+            async Task TryCancelConsumerAsync(string? deliveredConsumerTag = null)
+            {
+                if (Interlocked.Exchange(ref consumerCancelled, 1) == 1)
+                    return;
+
+                var consumerTags = string.IsNullOrWhiteSpace(deliveredConsumerTag)
+                    ? consumer.ConsumerTags.ToArray()
+                    : [deliveredConsumerTag];
+
+                foreach (var consumerTag in consumerTags.Where(tag => !string.IsNullOrWhiteSpace(tag)).Distinct())
+                {
+                    try
+                    {
+                        await _channel.BasicCancelAsync(consumerTag, false, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Logger.Warning(
+                            "Error canceling RabbitMQ consumer. ErrorType={ErrorType}",
+                            GetSafeExceptionType(ex));
+                    }
+                }
             }
         }
 

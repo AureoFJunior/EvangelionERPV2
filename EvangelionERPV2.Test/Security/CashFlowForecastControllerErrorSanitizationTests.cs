@@ -1,5 +1,8 @@
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
+using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -16,6 +19,16 @@ namespace EvangelionERPV2.Test.Security
             var enterpriseId = Guid.NewGuid();
             var userId = Guid.NewGuid();
             var service = new Mock<ICashFlowForecastService>(MockBehavior.Strict);
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
+            userRepository
+                .Setup(x => x.GetByIdAsync(userId))
+                .ReturnsAsync(new User
+                {
+                    Id = userId,
+                    EnterpriseId = enterpriseId,
+                    IsActive = true,
+                    AccessLevel = (short)EnumAccessLevel.Supervisor
+                });
 
             service
                 .Setup(x => x.RunSimulationAsync(enterpriseId, userId, It.IsAny<RunSimulationRequestDTO>()))
@@ -23,7 +36,7 @@ namespace EvangelionERPV2.Test.Security
                     "Database timeout. Connection string=Server=prod;User Id=admin;",
                     new InvalidOperationException("Sensitive internal error")));
 
-            var controller = CreateController(service.Object, enterpriseId, userId);
+            var controller = CreateController(service.Object, userRepository.Object, enterpriseId, userId);
 
             var result = await controller.RunSimulation(new RunSimulationRequestDTO());
 
@@ -37,12 +50,22 @@ namespace EvangelionERPV2.Test.Security
             var enterpriseId = Guid.NewGuid();
             var userId = Guid.NewGuid();
             var service = new Mock<ICashFlowForecastService>(MockBehavior.Strict);
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
+            userRepository
+                .Setup(x => x.GetByIdAsync(userId))
+                .ReturnsAsync(new User
+                {
+                    Id = userId,
+                    EnterpriseId = enterpriseId,
+                    IsActive = true,
+                    AccessLevel = (short)EnumAccessLevel.Supervisor
+                });
 
             service
                 .Setup(x => x.RunSimulationAsync(enterpriseId, userId, It.IsAny<RunSimulationRequestDTO>()))
                 .ThrowsAsync(new ArgumentException("Horizon must be 30, 60 or 90 days."));
 
-            var controller = CreateController(service.Object, enterpriseId, userId);
+            var controller = CreateController(service.Object, userRepository.Object, enterpriseId, userId);
 
             var result = await controller.RunSimulation(new RunSimulationRequestDTO());
 
@@ -52,10 +75,11 @@ namespace EvangelionERPV2.Test.Security
 
         private static CashFlowForecastController CreateController(
             ICashFlowForecastService service,
+            IRepository<User> userRepository,
             Guid enterpriseId,
             Guid userId)
         {
-            var controller = new CashFlowForecastController(service);
+            var controller = new CashFlowForecastController(service, userRepository);
             var claims = new ClaimsPrincipal(new ClaimsIdentity(
             [
                 new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),

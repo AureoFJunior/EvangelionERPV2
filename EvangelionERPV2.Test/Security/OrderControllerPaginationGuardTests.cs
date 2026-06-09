@@ -2,6 +2,7 @@ using AutoMapper;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using Microsoft.AspNetCore.Http;
@@ -17,11 +18,14 @@ namespace EvangelionERPV2.Test.Security
         public async Task GetOrders_WhenPaginationMissing_UsesSafeDefaults()
         {
             var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
             var orderService = new Mock<IOrderService<Order>>(MockBehavior.Strict);
             var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
             var mapper = CreateMapper();
             int? capturedPageNumber = null;
             int? capturedPageSize = null;
+
+            SetupActiveTenantMembership(userRepository, userId, enterpriseId);
 
             orderService
                 .Setup(s => s.GetByEnterpriseIdAsync(It.IsAny<Guid>(), It.IsAny<int?>(), It.IsAny<int?>()))
@@ -32,7 +36,7 @@ namespace EvangelionERPV2.Test.Security
                 })
                 .ReturnsAsync([CreateOrder(enterpriseId)]);
 
-            var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId);
+            var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId, userId);
 
             var result = await controller.GetOrders();
 
@@ -45,11 +49,14 @@ namespace EvangelionERPV2.Test.Security
         public async Task GetOrders_WhenPageSizeTooLarge_ClampsToMaximum()
         {
             var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
             var orderService = new Mock<IOrderService<Order>>(MockBehavior.Strict);
             var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
             var mapper = CreateMapper();
             int? capturedPageNumber = null;
             int? capturedPageSize = null;
+
+            SetupActiveTenantMembership(userRepository, userId, enterpriseId);
 
             orderService
                 .Setup(s => s.GetByEnterpriseIdAsync(It.IsAny<Guid>(), It.IsAny<int?>(), It.IsAny<int?>()))
@@ -60,7 +67,7 @@ namespace EvangelionERPV2.Test.Security
                 })
                 .ReturnsAsync([CreateOrder(enterpriseId)]);
 
-            var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId);
+            var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId, userId);
 
             var result = await controller.GetOrders(pageNumber: 3, pageSize: 5000);
 
@@ -73,15 +80,18 @@ namespace EvangelionERPV2.Test.Security
         public async Task GetOrdersByFilter_WhenPaginationMissing_UsesSafeDefaults()
         {
             var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
             var orderService = new Mock<IOrderService<Order>>(MockBehavior.Strict);
             var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
             var mapper = CreateMapper();
+
+            SetupActiveTenantMembership(userRepository, userId, enterpriseId);
 
             orderService
                 .Setup(s => s.GetByEnterpriseIdAsync(enterpriseId, null, null))
                 .ReturnsAsync(CreateOrders(enterpriseId, 120));
 
-            var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId);
+            var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId, userId);
 
             var result = await controller.GetOrdersByFilter(new OrderFilterRequestDTO(), descending: true);
 
@@ -94,21 +104,60 @@ namespace EvangelionERPV2.Test.Security
         public async Task GetOrdersByFilter_WhenPageSizeTooLarge_ClampsToMaximum()
         {
             var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
             var orderService = new Mock<IOrderService<Order>>(MockBehavior.Strict);
             var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
             var mapper = CreateMapper();
+
+            SetupActiveTenantMembership(userRepository, userId, enterpriseId);
 
             orderService
                 .Setup(s => s.GetByEnterpriseIdAsync(enterpriseId, null, null))
                 .ReturnsAsync(CreateOrders(enterpriseId, 400));
 
-            var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId);
+            var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId, userId);
 
             var result = await controller.GetOrdersByFilter(new OrderFilterRequestDTO(), descending: true, pageNumber: 1, pageSize: 5000);
 
             var ok = Assert.IsType<OkObjectResult>(result);
             var orders = Assert.IsAssignableFrom<IEnumerable<OrderDTO>>(ok.Value);
             Assert.Equal(200, orders.Count());
+        }
+
+        [Fact]
+        public async Task InsertOrder_WhenStockIsInsufficient_ReturnsBadRequest()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
+            var orderService = new Mock<IOrderService<Order>>(MockBehavior.Strict);
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
+            var mapper = CreateMapper();
+
+            SetupActiveTenantMembership(userRepository, userId, enterpriseId);
+
+            orderService
+                .Setup(s => s.CreateAsync(It.IsAny<Order>()))
+                .ThrowsAsync(new InsertDatabaseException("Insufficient stock for product [aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa]."));
+
+            var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId, userId);
+
+            var result = await controller.InsertOrder(new CreateOrderRequestDTO
+            {
+                PaymentScheduledDate = DateTime.UtcNow.AddDays(1),
+                Status = 0,
+                Items =
+                [
+                    new OrderLineItemRequestDTO
+                    {
+                        ProductId = Guid.NewGuid(),
+                        Quantity = 1,
+                        Value = 10
+                    }
+                ]
+            });
+
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Equal("Insufficient stock for one or more products in this order.", badRequest.Value);
         }
 
         private static Mock<IMapper> CreateMapper()
@@ -125,16 +174,33 @@ namespace EvangelionERPV2.Test.Security
             return mapper;
         }
 
+        private static void SetupActiveTenantMembership(
+            Mock<IRepository<User>> userRepository,
+            Guid userId,
+            Guid enterpriseId)
+        {
+            userRepository
+                .Setup(r => r.GetByIdAsync(userId))
+                .ReturnsAsync(new User
+                {
+                    Id = userId,
+                    EnterpriseId = enterpriseId,
+                    IsActive = true
+                });
+        }
+
         private static OrderController CreateController(
             IOrderService<Order> orderService,
             IRepository<User> userRepository,
             IMapper mapper,
-            Guid enterpriseId)
+            Guid enterpriseId,
+            Guid? userId = null)
         {
             var controller = new OrderController(orderService, userRepository, mapper);
             var claims = new ClaimsPrincipal(new ClaimsIdentity(
             [
-                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString())
+                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
+                new Claim(ClaimTypes.Sid, (userId ?? Guid.NewGuid()).ToString())
             ], "TestAuth"));
 
             controller.ControllerContext = new ControllerContext

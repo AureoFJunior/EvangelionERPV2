@@ -96,11 +96,19 @@ namespace EvangelionERPV2.Test.Resilience
                 providerMock.Object,
                 Options.Create(new NFeSettings { Enabled = true }));
 
-            var result = await service.IssueAsync(orderId, NFeDocumentType.NFe);
+            var result = await service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
 
             Assert.NotNull(result);
             Assert.Equal(existingDocument.Id, result!.Id);
             Assert.Equal(existingDocument.AccessKey, result.AccessKey);
+            providerMock.Verify(
+                x => x.IssueAsync(
+                    It.IsAny<Order>(),
+                    It.IsAny<Enterprise>(),
+                    It.IsAny<Customer>(),
+                    NFeDocumentType.NFe,
+                    It.IsAny<NFeSettings>()),
+                Times.Never);
         }
 
         [Fact]
@@ -204,8 +212,8 @@ namespace EvangelionERPV2.Test.Resilience
                 providerMock.Object,
                 Options.Create(new NFeSettings { Enabled = true }));
 
-            var issuanceTask1 = service.IssueAsync(orderId, NFeDocumentType.NFe);
-            var issuanceTask2 = service.IssueAsync(orderId, NFeDocumentType.NFe);
+            var issuanceTask1 = service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
+            var issuanceTask2 = service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
             await Task.WhenAll(issuanceTask1, issuanceTask2);
 
             var issuedDocument1 = await issuanceTask1;
@@ -215,7 +223,107 @@ namespace EvangelionERPV2.Test.Resilience
             Assert.NotNull(issuedDocument2);
             Assert.Equal(issuedDocument1!.Id, issuedDocument2!.Id);
             Assert.Equal(1, providerCalls);
-            Assert.Equal(1, commitCalls);
+            Assert.Equal(2, commitCalls);
+        }
+
+        [Fact]
+        public async Task IssueAsync_ExistingErroredDocument_RetriesIssuance()
+        {
+            var orderId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+            var customerId = Guid.NewGuid();
+            var erroredDocument = new NFeDocument
+            {
+                Id = Guid.NewGuid(),
+                OrderId = orderId,
+                Type = NFeDocumentType.NFe,
+                Status = NFeStatus.Error,
+                AccessKey = "failed-key",
+                XmlContent = "<failed />",
+                IsActive = true
+            };
+
+            var nfeRepositoryMock = new Mock<IRepository<NFeDocument>>();
+            var nfeRepositoryCustomMock = new Mock<INFeRepository<NFeDocument>>();
+            var orderRepositoryMock = new Mock<IRepository<Order>>();
+            var customerRepositoryMock = new Mock<IRepository<Customer>>();
+            var enterpriseRepositoryMock = new Mock<IRepository<Enterprise>>();
+            var providerMock = new Mock<INFeProvider>();
+
+            orderRepositoryMock
+                .Setup(x => x.GetByIdAsync(orderId))
+                .ReturnsAsync(new Order
+                {
+                    Id = orderId,
+                    EnterpriseId = enterpriseId,
+                    CustomerId = customerId,
+                    TotalValue = 100
+                });
+
+            customerRepositoryMock
+                .Setup(x => x.GetByIdAsync(customerId))
+                .ReturnsAsync(new Customer { Id = customerId, Name = "Customer" });
+
+            enterpriseRepositoryMock
+                .Setup(x => x.GetByIdAsync(enterpriseId))
+                .ReturnsAsync(new Enterprise { Id = enterpriseId, Name = "Enterprise" });
+
+            nfeRepositoryCustomMock
+                .Setup(x => x.GetByOrderIdAsync(orderId, NFeDocumentType.NFe))
+                .ReturnsAsync(erroredDocument);
+
+            nfeRepositoryMock
+                .Setup(x => x.Update(It.IsAny<NFeDocument>()))
+                .Returns((NFeDocument document) => document);
+
+            nfeRepositoryMock
+                .Setup(x => x.CommitAsync(It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            providerMock
+                .Setup(x => x.IssueAsync(
+                    It.IsAny<Order>(),
+                    It.IsAny<Enterprise>(),
+                    It.IsAny<Customer>(),
+                    NFeDocumentType.NFe,
+                    It.IsAny<NFeSettings>()))
+                .ReturnsAsync(new NFeProviderResult
+                {
+                    AccessKey = "authorized-key",
+                    Protocol = "PROT-RETRY",
+                    XmlContent = "<authorized />",
+                    Number = "2",
+                    Series = "1",
+                    Environment = "Homologation",
+                    IssuedAt = DateTime.UtcNow,
+                    TotalValue = 100,
+                    Status = NFeStatus.Authorized
+                });
+
+            var service = new NFeService(
+                nfeRepositoryMock.Object,
+                nfeRepositoryCustomMock.Object,
+                orderRepositoryMock.Object,
+                customerRepositoryMock.Object,
+                enterpriseRepositoryMock.Object,
+                providerMock.Object,
+                Options.Create(new NFeSettings { Enabled = true }));
+
+            var result = await service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
+
+            Assert.NotNull(result);
+            Assert.Equal(erroredDocument.Id, result!.Id);
+            Assert.Equal(NFeStatus.Authorized, result.Status);
+            Assert.Equal("authorized-key", result.AccessKey);
+            providerMock.Verify(
+                x => x.IssueAsync(
+                    It.IsAny<Order>(),
+                    It.IsAny<Enterprise>(),
+                    It.IsAny<Customer>(),
+                    NFeDocumentType.NFe,
+                    It.IsAny<NFeSettings>()),
+                Times.Once);
+            nfeRepositoryMock.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
         }
     }
 }

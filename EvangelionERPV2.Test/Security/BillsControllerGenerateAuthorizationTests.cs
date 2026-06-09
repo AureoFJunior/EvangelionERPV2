@@ -32,7 +32,7 @@ namespace EvangelionERPV2.Test.Security
                 x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>()),
                 Times.Never);
             _billsServiceMock.Verify(
-                x => x.GenerateAsync(It.IsAny<Guid>()),
+                x => x.GenerateAsync(It.IsAny<Guid>(), It.IsAny<Guid>()),
                 Times.Never);
         }
 
@@ -57,7 +57,7 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.IsType<NoContentResult>(response);
             _billsServiceMock.Verify(
-                x => x.GenerateAsync(It.IsAny<Guid>()),
+                x => x.GenerateAsync(It.IsAny<Guid>(), It.IsAny<Guid>()),
                 Times.Never);
         }
 
@@ -83,7 +83,7 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync(new Order { Id = orderId, EnterpriseId = enterpriseId });
 
             _billsServiceMock
-                .Setup(x => x.GenerateAsync(orderId))
+                .Setup(x => x.GenerateAsync(orderId, enterpriseId))
                 .ReturnsAsync(bill);
 
             _mapperMock

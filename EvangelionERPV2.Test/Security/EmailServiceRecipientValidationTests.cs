@@ -8,6 +8,7 @@ using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Utils;
 using Microsoft.Extensions.Configuration;
 using Moq;
+using System.Net;
 using System.Reflection;
 
 namespace EvangelionERPV2.Test.Security
@@ -43,6 +44,20 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.False(result);
             Assert.Empty(email.RecipientEmails);
+        }
+
+        [Fact]
+        public async Task ResolveAllowedSmtpAddressesAsync_WhenHostResolvesToLocalhost_ReturnsEmpty()
+        {
+            var method = typeof(EmailService).GetMethod(
+                "ResolveAllowedSmtpAddressesAsync",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.NotNull(method);
+            var task = method!.Invoke(null, ["localhost"]) as Task<IPAddress[]>;
+
+            Assert.NotNull(task);
+            Assert.Empty(await task!);
         }
 
         private static EmailService CreateService()

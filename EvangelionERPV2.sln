@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.3.11520.95 d18.3
+VisualStudioVersion = 18.3.11520.95
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EvangelionERPV2.Web", "EvangelionERPV2.Web\EvangelionERPV2.Web.csproj", "{727D7D4F-9D9E-450B-9AAD-6F7A1148892B}"
 EndProject
@@ -128,6 +128,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.ReportsModule.Infra", "EvangelionERPV2.Reports.Infra\EvangelionERPV2.ReportsModule.Infra.csproj", "{AC82C542-8F46-49B1-AA9F-5825BA040681}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.ReportsModule.Test", "EvangelionERPV2.ReportsModule.Test\EvangelionERPV2.ReportsModule.Test.csproj", "{6FA1B4DE-8668-41EB-A032-189686D0F0CD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.Test", "EvangelionERPV2.Test\EvangelionERPV2.Test.csproj", "{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -667,6 +669,18 @@ Global
 		{6FA1B4DE-8668-41EB-A032-189686D0F0CD}.Release|x64.Build.0 = Release|Any CPU
 		{6FA1B4DE-8668-41EB-A032-189686D0F0CD}.Release|x86.ActiveCfg = Release|Any CPU
 		{6FA1B4DE-8668-41EB-A032-189686D0F0CD}.Release|x86.Build.0 = Release|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Debug|x64.Build.0 = Debug|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Debug|x86.Build.0 = Debug|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Release|x64.ActiveCfg = Release|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Release|x64.Build.0 = Release|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Release|x86.ActiveCfg = Release|Any CPU
+		{F1CCC6C3-B0A4-4697-B3E6-EE2E40874EC3}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

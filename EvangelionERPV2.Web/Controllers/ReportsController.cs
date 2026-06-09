@@ -1,7 +1,11 @@
 using System.Security.Claims;
 using EvangelionERPV2.ReportsModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
+using EvangelionERPV2.Shared.Enums;
+using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
@@ -22,6 +26,7 @@ namespace EvangelionERPV2.Web.Controllers
             _reportsService = reportsService;
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.Reports.Read)]
         [HttpGet]
         [ProducesResponseType(typeof(IEnumerable<ReportListItemDTO>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -35,7 +40,8 @@ namespace EvangelionERPV2.Web.Controllers
 
                 if (!TryGetUserId(out var userId))
                     return Unauthorized();
-
+                if (!await HasActiveTenantMembershipAsync(userId, enterpriseId))
+                    return Unauthorized();
                 var reports = await _reportsService.GetUserReportsAsync(enterpriseId, userId);
                 return Ok(reports);
             }
@@ -50,6 +56,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.Reports.Generate)]
         [HttpPost]
         [RequestSizeLimit(MaxGenerateReportRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(ReportListItemDTO), StatusCodes.Status200OK)]
@@ -65,7 +72,8 @@ namespace EvangelionERPV2.Web.Controllers
 
                 if (!TryGetUserId(out var userId))
                     return Unauthorized();
-
+                if (!await HasActiveTenantMembershipAsync(userId, enterpriseId))
+                    return Unauthorized();
                 if (request == null)
                     return BadRequest("Invalid report request.");
 
@@ -88,6 +96,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.Reports.Read)]
         [HttpGet("{id:guid}")]
         [ProducesResponseType(typeof(ReportDetailDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -102,7 +111,8 @@ namespace EvangelionERPV2.Web.Controllers
 
                 if (!TryGetUserId(out var userId))
                     return Unauthorized();
-
+                if (!await HasActiveTenantMembershipAsync(userId, enterpriseId))
+                    return Unauthorized();
                 var report = await _reportsService.GetByIdAsync(enterpriseId, userId, id);
                 if (report == null)
                     return NoContent();
@@ -133,6 +143,20 @@ namespace EvangelionERPV2.Web.Controllers
 
             return Guid.TryParse(claimValue, out userId) && userId != Guid.Empty;
         }
+
+        private async Task<bool> HasActiveTenantMembershipAsync(Guid userId, Guid enterpriseId)
+        {
+            if (userId == Guid.Empty || enterpriseId == Guid.Empty)
+                return false;
+
+            var userRepository = HttpContext?.RequestServices?.GetService(typeof(IRepository<User>)) as IRepository<User>;
+            if (userRepository == null)
+                return false;
+
+            var user = await userRepository.GetByIdAsync(userId);
+            return user != null && user.IsActive == true && user.EnterpriseId == enterpriseId;
+        }
+
 
         private static string GetSafeErrorMessage(InsertDatabaseException ex)
         {

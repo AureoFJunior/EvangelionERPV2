@@ -12,7 +12,6 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly IConfiguration _configuration;
-        private AWSKMSKeyProvider _kmsProvider;
 
         public EmailStockSenderWorker(IServiceScopeFactory serviceScopeFactory, IConfiguration configuration)
         {
@@ -61,8 +60,8 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
         {
             string key = string.Empty;
 
-            _kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-            key = _kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+            var kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
+            key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
 
             var loginRequest = BuildLoginRequest(key);
             if (loginRequest == null)

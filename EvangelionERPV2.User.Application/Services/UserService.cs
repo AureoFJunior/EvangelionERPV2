@@ -1,11 +1,12 @@
-using Amazon;
 using Amazon.S3;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
 using Google.Apis.Auth;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using System.Net;
@@ -16,9 +17,17 @@ namespace EvangelionERPV2.UserModule.Application.Services
 {
     public class UserService : IUserService<User>
     {
+        private const int MaxTokenPersistAttempts = 2;
+        private const int PasswordResetCleanupBatchSize = 200;
+        private const string PasswordResetTokenHashPrefix = "HMAC256:";
+        private static readonly TimeSpan PasswordResetRetentionWindow = TimeSpan.FromDays(7);
+        private static readonly TimeSpan PasswordResetCleanupInterval = TimeSpan.FromMinutes(10);
+        private static long _lastPasswordResetCleanupTicks;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<User> _userRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _enterpriseRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<RefreshToken> _refreshTokenRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<PasswordResetToken> _passwordResetTokenRepository;
+        private readonly AppDbContext? _appDbContext;
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider _kmsProvider;
         private IAmazonS3? _s3Client;
@@ -29,14 +38,18 @@ namespace EvangelionERPV2.UserModule.Application.Services
             "Password must have at least 8 characters, at least 1 number, and at least 1 uppercase letter or special character.";
 
         public UserService(EvangelionERPV2.Shared.Repositories.IRepository<User> userRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> enterpriseRepository,
             EvangelionERPV2.Shared.Repositories.IRepository<RefreshToken> refreshTokenRepository,
             EvangelionERPV2.Shared.Repositories.IRepository<PasswordResetToken> passwordResetTokenRepository,
             IConfiguration configuration,
-            AWSKMSKeyProvider kmsProvider)
+            AWSKMSKeyProvider kmsProvider,
+            AppDbContext? appDbContext = null)
         {
             _userRepository = userRepository;
+            _enterpriseRepository = enterpriseRepository;
             _refreshTokenRepository = refreshTokenRepository;
             _passwordResetTokenRepository = passwordResetTokenRepository;
+            _appDbContext = appDbContext;
             _configuration = configuration;
             _kmsProvider = kmsProvider;
         }
@@ -48,6 +61,8 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 if (user == null)
                     throw new InsertDatabaseException($"{nameof(User)} is null");
 
+                await EnsureActiveEmailIsGloballyUniqueAsync(user.Email, user.Id);
+
                 user.Id = Guid.NewGuid();
                 User includedUser = new User();
 
@@ -58,6 +73,14 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 includedUser = await _userRepository.CreateAsync(user);
                 await _userRepository.CommitAsync();
                 return includedUser;
+            }
+            catch (DbUpdateException ex) when (IsUniqueActiveEmailViolation(ex))
+            {
+                throw new ArgumentException("Email is already in use.", ex);
+            }
+            catch (ArgumentException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -73,12 +96,31 @@ namespace EvangelionERPV2.UserModule.Application.Services
             if (existentUser == null)
                 throw new NotFoundDatabaseException($"{nameof(User)} was not found in database.");
 
+            EnsureActiveEmailIsGloballyUnique(user.Email, user.Id);
+
             if (!string.IsNullOrWhiteSpace(user.Password) && !SharedFunctions.IsPasswordHashFormat(user.Password))
                 user.Password = SharedFunctions.HashPassword(user.Password);
+            else if (string.IsNullOrWhiteSpace(user.Password))
+                user.Password = existentUser.Password;
 
-            user.ProfilePicture = SharedFunctions.EnsureEncryptedAddress(user.ProfilePicture);
-            updatedUser = _userRepository.Update(user);
-            _userRepository.Commit();
+            user.ProfilePicture = string.IsNullOrWhiteSpace(user.ProfilePicture)
+                ? existentUser.ProfilePicture
+                : SharedFunctions.EnsureEncryptedAddress(user.ProfilePicture);
+            user.CreatedAt = existentUser.CreatedAt;
+            user.IsActive = existentUser.IsActive;
+            user.EnterpriseId = user.EnterpriseId.HasValue && user.EnterpriseId.Value != Guid.Empty
+                ? user.EnterpriseId
+                : existentUser.EnterpriseId;
+            try
+            {
+                updatedUser = _userRepository.Update(user);
+                _userRepository.Commit();
+            }
+            catch (DbUpdateException ex) when (IsUniqueActiveEmailViolation(ex))
+            {
+                throw new ArgumentException("Email is already in use.", ex);
+            }
+
             return updatedUser;
         }
 
@@ -116,8 +158,8 @@ namespace EvangelionERPV2.UserModule.Application.Services
             }
             catch (Exception exValidate)
             {
-                Log.Logger.Error("Invalid Google IdToken. ErrorType={ErrorType}", exValidate.GetType().Name);
-                throw new UnauthorizedAccessException("Invalid Google IdToken", exValidate);
+                Log.Logger.Warning("Invalid Google IdToken. ErrorType={ErrorType}", exValidate.GetType().Name);
+                throw new UnauthorizedAccessException("Invalid Google IdToken");
             }
 
             if (payload == null || string.IsNullOrWhiteSpace(payload.Email) ||
@@ -127,18 +169,59 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 throw new UnauthorizedAccessException("Email not verified by Google.");
             }
 
-            // Use payload to find/create the user
-            var user = _userRepository.GetByCondition(u => u != null && u.Email == payload.Email).FirstOrDefault();
+            var normalizedEmail = payload.Email.Trim().ToLowerInvariant();
+            var matchingUsers = (await _userRepository.GetAllAsyncByFilter(
+                descending: false,
+                pageNumber: 1,
+                pageSize: 10,
+                predicate: u =>
+                    u.Email != null &&
+                    u.Email.ToLower() == normalizedEmail,
+                orderBy: u => u.Id))
+                .ToList();
 
-            if (user != null)
+            if (matchingUsers.Count == 0)
+                throw new UnauthorizedAccessException("Invalid Google sign-in.");
+
+            var activeUsers = matchingUsers
+                .Where(x => x.IsActive == true)
+                .ToList();
+
+            if (activeUsers.Count == 1)
             {
+                var user = activeUsers[0];
+
+                if (user.IsActive != true)
+                {
+                    Log.Logger.Warning("Rejected Google login for inactive user. EmailId={EmailId}", GetLogSafeStorageIdentifier(payload.Email));
+                    throw new UnauthorizedAccessException("User is inactive.");
+                }
+
+                if (!user.EnterpriseId.HasValue || user.EnterpriseId.Value == Guid.Empty || !await IsEnterpriseActiveAsync(user.EnterpriseId.Value))
+                {
+                    Log.Logger.Warning("Rejected Google login for inactive tenant. EmailId={EmailId}", GetLogSafeStorageIdentifier(payload.Email));
+                    throw new UnauthorizedAccessException("Tenant is inactive.");
+                }
+
                 user.IsLogged = 1;
                 _userRepository.Update(user);
                 _userRepository.Commit();
                 return user;
             }
 
-            throw new NotFoundDatabaseException("User not found. Please register before logging in with SSO.");
+            if (activeUsers.Count == 0)
+            {
+                Log.Logger.Warning("Rejected Google login for inactive user. EmailId={EmailId}", GetLogSafeStorageIdentifier(payload.Email));
+                throw new UnauthorizedAccessException("User is inactive.");
+            }
+
+            if (activeUsers.Count > 1)
+            {
+                Log.Logger.Warning("Rejected Google login due to ambiguous active users. EmailId={EmailId}", GetLogSafeStorageIdentifier(payload.Email));
+                throw new UnauthorizedAccessException("Invalid account state.");
+            }
+
+            throw new UnauthorizedAccessException("Invalid account state.");
         }
 
         public async Task<User> UpdateProfilePictureAsync(User user, string? profilePicturePayload)
@@ -227,57 +310,65 @@ namespace EvangelionERPV2.UserModule.Application.Services
             }
         }
 
-        public async Task<string?> CreatePasswordResetTokenAsync(string email)
+        public async Task<(string? Token, Guid? EnterpriseId)> CreatePasswordResetTokenContextAsync(string email)
         {
             var normalizedEmail = (email ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(normalizedEmail))
-                return null;
+                return (null, null);
 
-            var user = _userRepository.GetByCondition(x =>
-                x.IsActive == true &&
-                string.Equals(x.Email, normalizedEmail, StringComparison.OrdinalIgnoreCase))
-                .FirstOrDefault();
-
-            if (user == null)
-                return null;
-
-            var rawToken = GenerateSecureToken();
-            var tokenHash = ComputeSha256(rawToken);
             var now = DateTime.UtcNow;
+            await TryCleanupStalePasswordResetTokensAsync(now);
 
-            await _passwordResetTokenRepository.ExecuteInTransactionAsync(async () =>
+            var user = await ResolveUniqueActiveUserByEmailAsync(normalizedEmail);
+
+            if (user == null || !user.EnterpriseId.HasValue || user.EnterpriseId.Value == Guid.Empty)
+                return (null, null);
+
+            if (!await IsEnterpriseActiveAsync(user.EnterpriseId.Value))
+                return (null, null);
+
+            for (var attempt = 1; attempt <= MaxTokenPersistAttempts; attempt++)
             {
-                var activeTokens = await _passwordResetTokenRepository.GetAllAsyncByFilter(
-                    descending: false,
-                    pageNumber: 1,
-                    pageSize: int.MaxValue,
-                    predicate: x =>
-                        x.UserId == user.Id &&
-                        x.IsActive == true &&
-                        x.UsedAt == null &&
-                        x.ExpiresAt > now);
+                var rawToken = GenerateSecureToken();
+                var tokenHash = ComputePasswordResetTokenHash(rawToken);
 
-                foreach (var activeToken in activeTokens ?? Enumerable.Empty<PasswordResetToken>())
+                try
                 {
-                    activeToken.IsActive = false;
-                    activeToken.UpdatedAt = now;
-                    _passwordResetTokenRepository.Update(activeToken);
+                    await _passwordResetTokenRepository.ExecuteInTransactionAsync(async () =>
+                    {
+                        await DeactivateActivePasswordResetTokensForUserAsync(user.Id, now);
+
+                        await _passwordResetTokenRepository.CreateAsync(new PasswordResetToken
+                        {
+                            UserId = user.Id,
+                            TokenHash = tokenHash,
+                            ExpiresAt = now.Add(PasswordResetTokenTtl),
+                            UsedAt = null,
+                            FailedAttempts = 0,
+                            IsActive = true,
+                            CreatedAt = now,
+                            UpdatedAt = now
+                        });
+
+                        await _passwordResetTokenRepository.CommitAsync();
+                    });
+
+                    return (rawToken, user.EnterpriseId);
                 }
-
-                await _passwordResetTokenRepository.CreateAsync(new PasswordResetToken
+                catch (DbUpdateException ex) when (attempt < MaxTokenPersistAttempts && IsUniqueActiveTokenViolation(ex, "IX_PasswordResetToken_UserId_Active"))
                 {
-                    UserId = user.Id,
-                    TokenHash = tokenHash,
-                    ExpiresAt = now.Add(PasswordResetTokenTtl),
-                    UsedAt = null,
-                    FailedAttempts = 0,
-                    IsActive = true
-                });
+                    DetachPendingPasswordResetTokenChanges();
+                    continue;
+                }
+            }
 
-                await _passwordResetTokenRepository.CommitAsync();
-            });
+            throw new InsertDatabaseException("Unable to create password reset token.");
+        }
 
-            return rawToken;
+        public async Task<string?> CreatePasswordResetTokenAsync(string email)
+        {
+            var (token, _) = await CreatePasswordResetTokenContextAsync(email);
+            return token;
         }
 
         public async Task ResetPasswordAsync(string email, string token, string newPassword)
@@ -285,6 +376,9 @@ namespace EvangelionERPV2.UserModule.Application.Services
             var normalizedEmail = (email ?? string.Empty).Trim();
             var normalizedToken = (token ?? string.Empty).Trim();
             var candidatePassword = newPassword ?? string.Empty;
+            var now = DateTime.UtcNow;
+
+            await TryCleanupStalePasswordResetTokensAsync(now);
 
             if (string.IsNullOrWhiteSpace(normalizedEmail) ||
                 string.IsNullOrWhiteSpace(normalizedToken) ||
@@ -299,16 +393,11 @@ namespace EvangelionERPV2.UserModule.Application.Services
             if (!IsValidResetPassword(candidatePassword))
                 throw new ArgumentException(ResetPasswordPolicyMessage);
 
-            var user = _userRepository.GetByCondition(x =>
-                x.IsActive == true &&
-                string.Equals(x.Email, normalizedEmail, StringComparison.OrdinalIgnoreCase))
-                .FirstOrDefault();
+            var user = await ResolveUniqueActiveUserByEmailAsync(normalizedEmail);
 
             if (user == null)
                 throw new ArgumentException("Invalid password reset request.");
 
-            var now = DateTime.UtcNow;
-            var tokenHash = ComputeSha256(normalizedToken);
             var tokenEntity = (await _passwordResetTokenRepository.GetAllAsyncByFilter(
                 descending: true,
                 pageNumber: 1,
@@ -329,7 +418,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 throw new ArgumentException("Invalid password reset request.");
             }
 
-            if (!TokenHashMatches(tokenHash, tokenEntity.TokenHash))
+            if (!PasswordResetTokenHashMatches(normalizedToken, tokenEntity.TokenHash))
             {
                 await RegisterPasswordResetFailedAttemptAsync(tokenEntity, now);
                 throw new ArgumentException("Invalid password reset request.");
@@ -337,14 +426,25 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
             await _userRepository.ExecuteInTransactionAsync(async () =>
             {
+                if (_appDbContext != null)
+                {
+                    var claimedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
+                        $"UPDATE PasswordResetToken SET UsedAt = {now}, IsActive = 0, UpdatedAt = {now} WHERE Id = {tokenEntity.Id} AND UserId = {user.Id} AND TokenHash = {tokenEntity.TokenHash} AND IsActive = 1 AND UsedAt IS NULL AND ExpiresAt > {now}");
+
+                    if (claimedRows <= 0)
+                        throw new ArgumentException("Invalid password reset request.");
+                }
+                else
+                {
+                    tokenEntity.UsedAt = now;
+                    tokenEntity.IsActive = false;
+                    tokenEntity.UpdatedAt = now;
+                    _passwordResetTokenRepository.Update(tokenEntity);
+                }
+
                 user.Password = SharedFunctions.HashPassword(candidatePassword);
                 user.UpdatedAt = now;
                 _userRepository.Update(user);
-
-                tokenEntity.UsedAt = now;
-                tokenEntity.IsActive = false;
-                tokenEntity.UpdatedAt = now;
-                _passwordResetTokenRepository.Update(tokenEntity);
 
                 var activeRefreshTokens = await _refreshTokenRepository.GetAllAsyncByFilter(
                     descending: false,
@@ -359,6 +459,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 foreach (var refreshToken in activeRefreshTokens ?? Enumerable.Empty<RefreshToken>())
                 {
                     refreshToken.RevokedAt = now;
+                    refreshToken.IsActive = false;
                     refreshToken.UpdatedAt = now;
                     _refreshTokenRepository.Update(refreshToken);
                 }
@@ -367,13 +468,88 @@ namespace EvangelionERPV2.UserModule.Application.Services
             });
         }
 
+        private async Task<User?> ResolveUniqueActiveUserByEmailAsync(string normalizedEmail)
+        {
+            var lowerEmail = (normalizedEmail ?? string.Empty).Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(lowerEmail))
+                return null;
+
+            var matchingUsers = (await _userRepository.GetAllAsyncByFilter(
+                descending: false,
+                pageNumber: 1,
+                pageSize: 2,
+                predicate: x =>
+                    x.IsActive == true &&
+                    x.Email != null &&
+                    x.Email.ToLower() == lowerEmail,
+                orderBy: x => x.Id))
+                .ToList();
+
+            return matchingUsers.Count == 1 ? matchingUsers[0] : null;
+        }
+
+        private async Task EnsureActiveEmailIsGloballyUniqueAsync(string? email, Guid userId)
+        {
+            var normalizedEmail = NormalizeEmail(email);
+            if (string.IsNullOrWhiteSpace(normalizedEmail))
+                return;
+
+            var matchingUser = (await _userRepository.GetAllAsyncByFilter(
+                descending: false,
+                pageNumber: 1,
+                pageSize: 1,
+                predicate: x =>
+                    x.IsActive == true &&
+                    x.Id != userId &&
+                    x.Email != null &&
+                    x.Email.Trim().ToLower() == normalizedEmail,
+                orderBy: x => x.Id))
+                .FirstOrDefault();
+
+            if (matchingUser != null)
+                throw new ArgumentException("Email is already in use.");
+        }
+
+        private void EnsureActiveEmailIsGloballyUnique(string? email, Guid userId)
+        {
+            var normalizedEmail = NormalizeEmail(email);
+            if (string.IsNullOrWhiteSpace(normalizedEmail))
+                return;
+
+            var matchingUser = _userRepository
+                .GetByCondition(x =>
+                    x.IsActive == true &&
+                    x.Id != userId &&
+                    x.Email != null &&
+                    x.Email.Trim().ToLowerInvariant() == normalizedEmail)
+                .FirstOrDefault();
+
+            if (matchingUser != null)
+                throw new ArgumentException("Email is already in use.");
+        }
+
+        private static string NormalizeEmail(string? email)
+        {
+            return (email ?? string.Empty).Trim().ToLowerInvariant();
+        }
+
+        private async Task<bool> IsEnterpriseActiveAsync(Guid enterpriseId)
+        {
+            if (enterpriseId == Guid.Empty)
+                return false;
+
+            var enterprise = await _enterpriseRepository.GetByIdAsync(enterpriseId);
+            return enterprise != null && enterprise.IsActive == true;
+        }
+
         private async Task<IAmazonS3> GetS3ClientAsync()
         {
             if (_s3Client != null)
                 return _s3Client;
 
             var awsCredentials = await _kmsProvider.GetAWSCredentialsAsync();
-            _s3Client = new AmazonS3Client(awsCredentials, RegionEndpoint.USEast1);
+            var awsRegion = SharedFunctions.GetAWSRegion(_configuration);
+            _s3Client = new AmazonS3Client(awsCredentials, awsRegion);
             return _s3Client;
         }
 
@@ -384,7 +560,15 @@ namespace EvangelionERPV2.UserModule.Application.Services
             return value.ToString($"D{PasswordResetCodeLength}");
         }
 
-        private static string ComputeSha256(string input)
+        private string ComputePasswordResetTokenHash(string input)
+        {
+            var key = GetPasswordResetHashKey();
+            using var hmac = new HMACSHA256(key);
+            var bytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(input ?? string.Empty));
+            return $"{PasswordResetTokenHashPrefix}{Convert.ToBase64String(bytes)}";
+        }
+
+        private static string ComputeLegacyPasswordResetTokenHash(string input)
         {
             var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input ?? string.Empty));
             return Convert.ToBase64String(bytes);
@@ -419,11 +603,28 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 token.All(char.IsDigit);
         }
 
-        private static bool TokenHashMatches(string providedTokenHash, string storedTokenHash)
+        private bool PasswordResetTokenHashMatches(string providedToken, string storedTokenHash)
         {
-            var providedBytes = Encoding.UTF8.GetBytes(providedTokenHash ?? string.Empty);
-            var storedBytes = Encoding.UTF8.GetBytes(storedTokenHash ?? string.Empty);
-            return CryptographicOperations.FixedTimeEquals(providedBytes, storedBytes);
+            if (string.IsNullOrWhiteSpace(storedTokenHash))
+                return false;
+
+            var normalizedStoredTokenHash = storedTokenHash.Trim();
+            var expectedHash = normalizedStoredTokenHash.StartsWith(PasswordResetTokenHashPrefix, StringComparison.Ordinal)
+                ? ComputePasswordResetTokenHash(providedToken)
+                : ComputeLegacyPasswordResetTokenHash(providedToken);
+
+            return FixedTimeEqualsStrings(expectedHash, normalizedStoredTokenHash);
+        }
+
+        private static bool FixedTimeEqualsStrings(string left, string right)
+        {
+            var leftBytes = Encoding.UTF8.GetBytes(left ?? string.Empty);
+            var rightBytes = Encoding.UTF8.GetBytes(right ?? string.Empty);
+
+            if (leftBytes.Length != rightBytes.Length)
+                return false;
+
+            return CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
         }
 
         private async Task RegisterPasswordResetFailedAttemptAsync(PasswordResetToken tokenEntity, DateTime now)
@@ -441,6 +642,49 @@ namespace EvangelionERPV2.UserModule.Application.Services
             });
         }
 
+        private async Task DeactivateActivePasswordResetTokensForUserAsync(Guid userId, DateTime now)
+        {
+            if (_appDbContext != null)
+            {
+                await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE PasswordResetToken SET IsActive = 0, UpdatedAt = {now} WHERE UserId = {userId} AND IsActive = 1");
+                return;
+            }
+
+            var activeTokens = await _passwordResetTokenRepository.GetAllAsyncByFilter(
+                descending: false,
+                pageNumber: 1,
+                pageSize: int.MaxValue,
+                predicate: x =>
+                    x.UserId == userId &&
+                    x.IsActive == true);
+
+            var tokensToDeactivate = (activeTokens ?? Enumerable.Empty<PasswordResetToken>()).ToList();
+            foreach (var activeToken in tokensToDeactivate)
+            {
+                activeToken.IsActive = false;
+                activeToken.UpdatedAt = now;
+                _passwordResetTokenRepository.Update(activeToken);
+            }
+
+            if (tokensToDeactivate.Count > 0)
+                await _passwordResetTokenRepository.CommitAsync();
+        }
+
+        private void DetachPendingPasswordResetTokenChanges()
+        {
+            if (_appDbContext == null)
+                return;
+
+            var entries = _appDbContext.ChangeTracker
+                .Entries<PasswordResetToken>()
+                .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+                .ToList();
+
+            foreach (var entry in entries)
+                entry.State = EntityState.Detached;
+        }
+
         private async Task DeactivatePasswordResetTokenAsync(PasswordResetToken tokenEntity, DateTime now)
         {
             await _passwordResetTokenRepository.ExecuteInTransactionAsync(async () =>
@@ -450,6 +694,62 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 _passwordResetTokenRepository.Update(tokenEntity);
                 await _passwordResetTokenRepository.CommitAsync();
             });
+        }
+
+        private byte[] GetPasswordResetHashKey()
+        {
+            var secret = SharedFunctions.GetEncryptionKey();
+            return SHA256.HashData(Encoding.UTF8.GetBytes($"password-reset:{secret}"));
+        }
+
+        private async Task TryCleanupStalePasswordResetTokensAsync(DateTime now)
+        {
+            var nowTicks = now.Ticks;
+            var lastCleanupTicks = Interlocked.Read(ref _lastPasswordResetCleanupTicks);
+            if (lastCleanupTicks != 0 && nowTicks - lastCleanupTicks < PasswordResetCleanupInterval.Ticks)
+                return;
+
+            if (Interlocked.CompareExchange(ref _lastPasswordResetCleanupTicks, nowTicks, lastCleanupTicks) != lastCleanupTicks)
+                return;
+
+            var retentionCutoff = now.Subtract(PasswordResetRetentionWindow);
+
+            await _passwordResetTokenRepository.ExecuteInTransactionAsync(async () =>
+            {
+                var staleTokens = (await _passwordResetTokenRepository.GetAllAsyncByFilter(
+                    descending: false,
+                    pageNumber: 1,
+                    pageSize: PasswordResetCleanupBatchSize,
+                    predicate: token =>
+                        token.ExpiresAt <= retentionCutoff ||
+                        (token.UsedAt.HasValue && token.UsedAt.Value <= retentionCutoff) ||
+                        (token.IsActive != true && token.UpdatedAt.HasValue && token.UpdatedAt.Value <= retentionCutoff),
+                    orderBy: token => token.CreatedAt))
+                    .ToList();
+
+                if (staleTokens.Count == 0)
+                    return;
+
+                _passwordResetTokenRepository.DeleteRange(staleTokens);
+                await _passwordResetTokenRepository.CommitAsync();
+            });
+        }
+
+        private static bool IsUniqueActiveTokenViolation(DbUpdateException ex, string indexName)
+        {
+            var errorText = ex.GetBaseException().Message ?? ex.Message ?? string.Empty;
+            return errorText.Contains(indexName, StringComparison.OrdinalIgnoreCase) ||
+                   (errorText.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) &&
+                    errorText.Contains("UserId", StringComparison.OrdinalIgnoreCase) &&
+                    errorText.Contains("IsActive", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsUniqueActiveEmailViolation(DbUpdateException ex)
+        {
+            var errorText = ex.GetBaseException().Message ?? ex.Message ?? string.Empty;
+            return errorText.Contains("IX_User_NormalizedActiveEmail_Active", StringComparison.OrdinalIgnoreCase) ||
+                   (errorText.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) &&
+                    errorText.Contains("NormalizedActiveEmail", StringComparison.OrdinalIgnoreCase));
         }
     }
 }

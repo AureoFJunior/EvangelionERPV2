@@ -17,6 +17,8 @@ namespace EvangelionERPV2.Test.Resilience
         {
             var orderId = Guid.NewGuid();
             var customerId = Guid.NewGuid();
+            var order = CreateOrder(orderId, customerId);
+            var enterpriseId = order.EnterpriseId ?? Guid.NewGuid();
             var existingBill = new Bill
             {
                 Id = Guid.NewGuid(),
@@ -31,7 +33,7 @@ namespace EvangelionERPV2.Test.Resilience
 
             orderRepositoryMock
                 .Setup(x => x.GetByIdAsync(orderId))
-                .ReturnsAsync(CreateOrder(orderId, customerId));
+                .ReturnsAsync(order);
 
             customerRepositoryMock
                 .Setup(x => x.GetByIdAsync(customerId))
@@ -64,7 +66,7 @@ namespace EvangelionERPV2.Test.Resilience
                 customerRepositoryMock.Object,
                 Options.Create(settings));
 
-            var result = await service.GenerateAsync(orderId);
+            var result = await service.GenerateAsync(orderId, enterpriseId);
 
             Assert.NotNull(result);
             Assert.Equal(existingBill.Id, result!.Id);

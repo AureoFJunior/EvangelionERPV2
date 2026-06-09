@@ -6,6 +6,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
@@ -40,6 +41,7 @@ namespace EvangelionERPV2.Web.Controllers
             _mapper = mapper;
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.NFe.Read)]
         [HttpGet("{orderId}")]
         [ProducesResponseType(typeof(NFeDocumentDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -50,15 +52,11 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var order = await _orderService.GetByIdAsync(orderId, enterpriseId);
                 if (order == null)
                     return NoContent();
 
-                var document = await _nfeService.GetByOrderIdAsync(orderId, type);
+                var document = await _nfeService.GetByOrderIdAsync(orderId, enterpriseId, type);
                 if (document == null)
                     return NoContent();
 
@@ -71,6 +69,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.NFe.Issue)]
         [HttpPost("{orderId}")]
         [ProducesResponseType(typeof(NFeDocumentDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -81,15 +80,11 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var order = await _orderService.GetByIdAsync(orderId, enterpriseId);
                 if (order == null)
                     return NoContent();
 
-                var document = await _nfeService.IssueAsync(orderId, type);
+                var document = await _nfeService.IssueAsync(orderId, enterpriseId, type);
                 if (document == null)
                     return NoContent();
 
@@ -107,6 +102,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.NFe.Read)]
         [HttpGet("{accessKey}")]
         [ProducesResponseType(typeof(NFeDocumentDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -121,7 +117,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                var document = await _nfeService.ConsultAsync(accessKey);
+                var document = await _nfeService.ConsultAsync(accessKey, enterpriseId);
                 if (document == null)
                     return NoContent();
 
@@ -138,6 +134,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.NFe.Cancel)]
         [HttpPost("{accessKey}")]
         [RequestSizeLimit(MaxNFeCancelRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(NFeDocumentDTO), StatusCodes.Status200OK)]
@@ -159,11 +156,7 @@ namespace EvangelionERPV2.Web.Controllers
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
-                var existingDocument = await _nfeService.ConsultAsync(accessKey);
+                var existingDocument = await _nfeService.ConsultAsync(accessKey, enterpriseId);
                 if (existingDocument == null)
                     return NoContent();
 
@@ -171,7 +164,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (order == null)
                     return NoContent();
 
-                var document = await _nfeService.CancelAsync(accessKey, reason);
+                var document = await _nfeService.CancelAsync(accessKey, enterpriseId, reason);
                 if (document == null)
                     return NoContent();
 
@@ -190,33 +183,8 @@ namespace EvangelionERPV2.Web.Controllers
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
         }
 
-        private Guid? TryGetUserId()
-        {
-            var claimValue = User.FindFirst(ClaimTypes.Sid)?.Value
-                             ?? User.FindFirst("uid")?.Value;
 
-            if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
-                return userId;
 
-            return null;
-        }
-
-        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
-        {
-            if (!userId.HasValue || enterpriseId == Guid.Empty)
-                return null;
-
-            var user = await _userRepository.GetByIdAsync(userId.Value);
-            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
-                return null;
-
-            return user.AccessLevel;
-        }
-
-        private static bool IsManagementAccess(short? accessLevel)
-        {
-            return accessLevel.HasValue && accessLevel.Value <= (short)EnumAccessLevel.Supervisor;
-        }
 
         private static bool IsValidAccessKey(string accessKey)
         {

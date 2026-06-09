@@ -13,5 +13,10 @@ namespace EvangelionERPV2.AuditModule.Domain.Interface
             AuditTrailFilterDTO? filter = null);
 
         Task<AuditTrail?> GetByIdAsync(Guid id, Guid enterpriseId);
+
+        Task<int> DeleteOlderThanAsync(
+            Guid enterpriseId,
+            DateTime cutoffDateUtc,
+            CancellationToken cancellationToken = default);
     }
 }

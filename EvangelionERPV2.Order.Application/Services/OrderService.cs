@@ -63,6 +63,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     throw new InsertDatabaseException($"{nameof(Order)} is null");
 
                 order.Id = Guid.NewGuid();
+
                 order.Payday = ResolvePaydayForStatus(order.Payday, order.Status);
 
                 var orderedProducts = order.OrderedProduct?.ToList() ?? [];
@@ -91,14 +92,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                         order.EnterpriseId ?? Guid.Empty,
                         EnterpriseBalanceContributionHelper.GetOrderRealizedContribution(order, DateTime.UtcNow.Date));
                 });
+            }
+            catch (DbUpdateException ex)
+            {
+                if (order != null && order.Id != Guid.Empty)
+                    await SendOrderUpdate(order.Id.ToString(), "Failed", order.EnterpriseId ?? Guid.Empty);
 
-                Log.Logger.Information($"Order [{order.Id}] created at: {DateTime.UtcNow}");
-
-                // Send notification to Order Hub
-                await SendOrderUpdate(order.Id.ToString(), "Created", order.EnterpriseId ?? Guid.Empty);
-
-                return order;
-
+                throw new InsertDatabaseException("Unexpected error while creating the order.", ex);
             }
             catch (Exception ex)
             {
@@ -107,6 +107,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
                 throw new InsertDatabaseException("Unexpected error while creating the order.", ex);
             }
+
+            Log.Logger.Information($"Order [{order.Id}] created at: {DateTime.UtcNow}");
+
+            // Send notification to Order Hub
+            await SendOrderUpdate(order.Id.ToString(), "Created", order.EnterpriseId ?? Guid.Empty);
+
+            return order;
         }
 
         public async Task<IEnumerable<Order>> GetByEnterpriseIdAsync(Guid enterpriseId, int? pageNumber = null, int? pageSize = null)
@@ -189,6 +196,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
                 await ExecuteInTransactionAsync(async () =>
                 {
+                    var now = DateTime.UtcNow;
                     var existentOrder = await _orderRepository.GetByIdAsync(id);
 
                     if (existentOrder == null || existentOrder.EnterpriseId != enterpriseId || existentOrder.IsActive != true)
@@ -216,7 +224,14 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (productsById.Count != productIds.Count)
                         throw new InsertDatabaseException("Some products for this order were not found in the inventory.");
 
-                    var now = DateTime.UtcNow;
+                    if (_appDbContext != null)
+                    {
+                        var affectedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
+                            $"UPDATE [Order] SET TotalValue = 0, Status = {(int)EnumOrderStatus.Refund}, RefundReason = {trimmedReason}, RefundedAt = {now}, UpdatedAt = {now} WHERE Id = {id} AND EnterpriseId = {enterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished}");
+
+                        if (affectedRows <= 0)
+                            throw new InsertDatabaseException("Order was already refunded or finalized.");
+                    }
 
                     foreach (var orderedProduct in orderedProducts)
                     {
@@ -308,17 +323,32 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                         throw new InsertDatabaseException("Invalid order status.");
 
                     var oldContribution = EnterpriseBalanceContributionHelper.GetOrderRealizedContribution(existentOrder, DateTime.UtcNow.Date);
+                    var now = DateTime.UtcNow;
+
+                    if (_appDbContext != null)
+                    {
+                        var guardedRows = _appDbContext.Database.ExecuteSqlInterpolated(
+                            $"UPDATE [Order] SET UpdatedAt = {now} WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished}");
+
+                        if (guardedRows <= 0)
+                            throw new InsertDatabaseException("Order was concurrently finalized or already refunded.");
+                    }
 
                     // Use tracked merge to avoid detached-entity overwrite and preserve immutable fields.
                     existentOrder.CustomerId = order.CustomerId ?? existentOrder.CustomerId;
                     existentOrder.UserId = order.UserId ?? existentOrder.UserId;
-                    existentOrder.Payday = ResolvePaydayForStatus(order.Payday, order.Status);
+                    existentOrder.Payday = ResolvePaydayForStatus(
+                        existentOrder.Payday,
+                        order.Payday,
+                        existentOrder.Status,
+                        order.Status,
+                        now);
                     if (order.PaymentScheduledDate != default)
                         existentOrder.PaymentScheduledDate = order.PaymentScheduledDate;
 
                     existentOrder.Status = order.Status;
                     existentOrder.OrderedProduct = null;
-                    existentOrder.UpdatedAt = DateTime.UtcNow;
+                    existentOrder.UpdatedAt = now;
 
                     var updatedOrder = _orderRepository.Update(existentOrder);
 
@@ -350,6 +380,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             {
                 return ExecuteInTransaction(() =>
                 {
+                    var now = DateTime.UtcNow;
                     Order order = _orderRepository.GetById(id);
                     Order deletedOrder = new Order();
 
@@ -364,8 +395,17 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
                     var oldContribution = EnterpriseBalanceContributionHelper.GetOrderRealizedContribution(order, DateTime.UtcNow.Date);
 
+                    if (_appDbContext != null)
+                    {
+                        var affectedRows = _appDbContext.Database.ExecuteSqlInterpolated(
+                            $"UPDATE [Order] SET IsActive = 0, UpdatedAt = {now} WHERE Id = {id} AND EnterpriseId = {enterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished}");
+
+                        if (affectedRows <= 0)
+                            throw new InsertDatabaseException("Order was concurrently finalized or already refunded.");
+                    }
+
                     order.IsActive = false;
-                    order.UpdatedAt = DateTime.UtcNow;
+                    order.UpdatedAt = now;
                     deletedOrder = _orderRepository.Update(order);
                     _orderRepository.Commit();
                     ApplyEnterpriseBalanceDelta(order.EnterpriseId ?? Guid.Empty, -oldContribution);
@@ -405,10 +445,34 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
         private static DateTime? ResolvePaydayForStatus(DateTime? payday, int status)
         {
-            if (status == (int)EnumOrderStatus.Finished && !payday.HasValue)
+            if (IsPaydayStatus(status) && !payday.HasValue)
                 return DateTime.UtcNow;
 
-            return payday;
+            return IsPaydayStatus(status) ? payday : null;
+        }
+
+        private static DateTime? ResolvePaydayForStatus(
+            DateTime? currentPayday,
+            DateTime? requestedPayday,
+            int currentStatus,
+            int requestedStatus,
+            DateTime transitionDate)
+        {
+            if (!IsPaydayStatus(requestedStatus))
+                return null;
+
+            if (currentStatus != requestedStatus)
+                return transitionDate;
+
+            return requestedPayday ?? currentPayday ?? transitionDate;
+        }
+
+        private static bool IsPaydayStatus(int status)
+        {
+            return status == (int)EnumOrderStatus.Paid
+                || status == (int)EnumOrderStatus.Shipped
+                || status == (int)EnumOrderStatus.Delivered
+                || status == (int)EnumOrderStatus.Finished;
         }
 
         private async Task ValidateOrderProductsAsync(Order order)

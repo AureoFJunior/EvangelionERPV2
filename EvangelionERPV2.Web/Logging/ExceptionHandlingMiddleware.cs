@@ -1,5 +1,6 @@
 using EvangelionERPV2.Shared.Exceptions;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using System.Text.Json;
 
@@ -57,21 +58,23 @@ namespace EvangelionERPV2.Web.Logging
 
         private static void LogException(Exception ex, HttpContext context)
         {
+            var sanitizedPath = SanitizeEndpointPath(context.Request.Path);
+
             if (ShouldLogExceptionDetails(ex))
             {
                 Log.Logger.Error(
-                    ex,
-                    "Unhandled exception. Method={Method}, Path={Path}, TraceId={TraceId}",
+                    "Unhandled exception. Method={Method}, Path={Path}, TraceId={TraceId}, ErrorType={ErrorType}",
                     context.Request.Method,
-                    context.Request.Path,
-                    context.TraceIdentifier);
+                    sanitizedPath,
+                    context.TraceIdentifier,
+                    GetSafeExceptionType(ex));
                 return;
             }
 
             Log.Logger.Warning(
                 "Handled client exception. Method={Method}, Path={Path}, TraceId={TraceId}, ErrorType={ErrorType}",
                 context.Request.Method,
-                context.Request.Path,
+                sanitizedPath,
                 context.TraceIdentifier,
                 GetSafeExceptionType(ex));
         }
@@ -81,6 +84,7 @@ namespace EvangelionERPV2.Web.Logging
             return ex switch
             {
                 ArgumentException or FormatException => StatusCodes.Status400BadRequest,
+                UnauthorizedAccessException or SecurityTokenException => StatusCodes.Status401Unauthorized,
                 NotFoundDatabaseException => StatusCodes.Status204NoContent,
                 _ => StatusCodes.Status500InternalServerError
             };
@@ -88,7 +92,7 @@ namespace EvangelionERPV2.Web.Logging
 
         private static bool ShouldLogExceptionDetails(Exception ex)
         {
-            return ex is not (ArgumentException or FormatException or NotFoundDatabaseException);
+            return ex is not (ArgumentException or FormatException or NotFoundDatabaseException or UnauthorizedAccessException or SecurityTokenException);
         }
 
         private ProblemDetails CreateProblemDetails(Exception ex, int statusCode, string traceId)
@@ -109,6 +113,9 @@ namespace EvangelionERPV2.Web.Logging
             if (statusCode == StatusCodes.Status400BadRequest)
                 return GetSafeBadRequestDetail(ex);
 
+            if (statusCode == StatusCodes.Status401Unauthorized)
+                return null;
+
             if (statusCode == StatusCodes.Status500InternalServerError)
                 return null;
 
@@ -125,6 +132,7 @@ namespace EvangelionERPV2.Web.Logging
             return statusCode switch
             {
                 StatusCodes.Status400BadRequest => "The request was invalid. Please check the input and try again.",
+                StatusCodes.Status401Unauthorized => "The request could not be authorized.",
                 StatusCodes.Status500InternalServerError => "An internal server error occurred. Please try again later.",
                 _ => "An unexpected error occurred."
             };
@@ -133,6 +141,41 @@ namespace EvangelionERPV2.Web.Logging
         private static string GetSafeExceptionType(Exception? exception)
         {
             return exception?.GetType().Name ?? "UnknownError";
+        }
+
+        private static string SanitizeEndpointPath(PathString path)
+        {
+            var endpoint = path.HasValue ? path.Value! : "/";
+            if (string.IsNullOrWhiteSpace(endpoint))
+                return "/";
+
+            endpoint = RedactRouteValueSegment(endpoint, "/NFe/Consult/");
+            endpoint = RedactRouteValueSegment(endpoint, "/NFe/Cancel/");
+
+            return endpoint;
+        }
+
+        private static string RedactRouteValueSegment(string endpoint, string routePrefix)
+        {
+            var routePrefixIndex = endpoint.IndexOf(routePrefix, StringComparison.OrdinalIgnoreCase);
+            if (routePrefixIndex < 0)
+                return endpoint;
+
+            var valueStartIndex = routePrefixIndex + routePrefix.Length;
+            if (valueStartIndex >= endpoint.Length)
+                return endpoint;
+
+            var valueEndIndex = endpoint.IndexOf('/', valueStartIndex);
+            if (valueEndIndex < 0)
+                valueEndIndex = endpoint.Length;
+
+            if (valueEndIndex <= valueStartIndex)
+                return endpoint;
+
+            return string.Concat(
+                endpoint.AsSpan(0, valueStartIndex),
+                "[redacted]",
+                endpoint.AsSpan(valueEndIndex));
         }
     }
 }

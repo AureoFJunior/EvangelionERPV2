@@ -40,7 +40,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
             var customTheme = new SystemConsoleTheme(customThemeStyles);
 
             Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Debug()
+                .MinimumLevel.Information()
                 .MinimumLevel.Override("Microsoft", LogEventLevel.Information)  // Adjust the log level for Microsoft logs
                 .Enrich.FromLogContext()
                 .WriteTo.Console(theme: customTheme) // Log to console and use a custom theme to the log

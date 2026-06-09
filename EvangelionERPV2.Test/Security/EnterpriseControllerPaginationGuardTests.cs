@@ -3,10 +3,13 @@ using EvangelionERPV2.EnterpriseModule.Application.Interface;
 using EvangelionERPV2.EnterpriseModule.Domain.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
+using System.Security.Claims;
 
 namespace EvangelionERPV2.Test.Security
 {
@@ -15,12 +18,19 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task GetEnterprises_WhenPaginationMissing_UsesSafeDefaults()
         {
+            var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
             var enterpriseService = new Mock<IEnterpriseService<Enterprise>>(MockBehavior.Strict);
             var enterpriseRepository = new Mock<IRepository<Enterprise>>(MockBehavior.Strict);
             var customEnterpriseRepository = new Mock<IEnterpriseRepository<Enterprise>>(MockBehavior.Strict);
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
             var mapper = CreateMapper();
             int? capturedPageNumber = null;
             int? capturedPageSize = null;
+
+            userRepository
+                .Setup(r => r.GetByIdAsync(userId))
+                .ReturnsAsync(CreateUser(userId, enterpriseId, EnumAccessLevel.Admin));
 
             enterpriseRepository
                 .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Enterprise, bool>>()))
@@ -35,7 +45,9 @@ namespace EvangelionERPV2.Test.Security
                 enterpriseService.Object,
                 enterpriseRepository.Object,
                 customEnterpriseRepository.Object,
+                userRepository.Object,
                 mapper.Object);
+            ConfigureController(controller, enterpriseId, userId);
 
             var result = await controller.GetEnterprises();
 
@@ -47,12 +59,19 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task GetEnterprisesByFilter_WhenPageSizeTooLarge_ClampsToMaximum()
         {
+            var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
             var enterpriseService = new Mock<IEnterpriseService<Enterprise>>(MockBehavior.Strict);
             var enterpriseRepository = new Mock<IRepository<Enterprise>>(MockBehavior.Strict);
             var customEnterpriseRepository = new Mock<IEnterpriseRepository<Enterprise>>(MockBehavior.Strict);
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
             var mapper = CreateMapper();
             int? capturedPageNumber = null;
             int? capturedPageSize = null;
+
+            userRepository
+                .Setup(r => r.GetByIdAsync(userId))
+                .ReturnsAsync(CreateUser(userId, enterpriseId, EnumAccessLevel.Admin));
 
             customEnterpriseRepository
                 .Setup(r => r.GetAllAsyncFiltering(It.IsAny<bool>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Enterprise>()))
@@ -67,7 +86,9 @@ namespace EvangelionERPV2.Test.Security
                 enterpriseService.Object,
                 enterpriseRepository.Object,
                 customEnterpriseRepository.Object,
+                userRepository.Object,
                 mapper.Object);
+            ConfigureController(controller, enterpriseId, userId);
 
             var result = await controller.GetEnterprisesByFilter(
                 enterprise: new Enterprise(),
@@ -101,6 +122,33 @@ namespace EvangelionERPV2.Test.Security
                 Id = Guid.NewGuid(),
                 Name = "Enterprise Name",
                 IsActive = true
+            };
+        }
+
+        private static User CreateUser(Guid userId, Guid enterpriseId, EnumAccessLevel accessLevel)
+        {
+            return new User
+            {
+                Id = userId,
+                EnterpriseId = enterpriseId,
+                IsActive = true,
+                AccessLevel = (short)accessLevel
+            };
+        }
+
+        private static void ConfigureController(EnterpriseController controller, Guid enterpriseId, Guid userId)
+        {
+            var identity = new ClaimsIdentity([
+                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
+                new Claim(ClaimTypes.Sid, userId.ToString())
+            ], "TestAuth");
+
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(identity)
+                }
             };
         }
     }

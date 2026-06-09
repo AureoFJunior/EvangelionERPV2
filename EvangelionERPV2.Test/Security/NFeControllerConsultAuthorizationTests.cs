@@ -3,6 +3,7 @@ using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using Microsoft.AspNetCore.Http;
@@ -28,7 +29,7 @@ namespace EvangelionERPV2.Test.Security
             var response = await controller.Consult(ValidAccessKey);
 
             Assert.IsType<UnauthorizedResult>(response);
-            _nfeServiceMock.Verify(x => x.ConsultAsync(It.IsAny<string>()), Times.Never);
+            _nfeServiceMock.Verify(x => x.ConsultAsync(It.IsAny<string>(), It.IsAny<Guid>()), Times.Never);
             _orderServiceMock.Verify(x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>()), Times.Never);
         }
 
@@ -36,6 +37,7 @@ namespace EvangelionERPV2.Test.Security
         public async Task Consult_ReturnsNoContent_WhenOrderIsNotFoundForEnterprise()
         {
             var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
             var orderId = Guid.NewGuid();
             var accessKey = ValidAccessKey;
             var document = new NFeDocument
@@ -48,7 +50,7 @@ namespace EvangelionERPV2.Test.Security
             };
 
             _nfeServiceMock
-                .Setup(x => x.ConsultAsync(accessKey))
+                .Setup(x => x.ConsultAsync(accessKey, enterpriseId))
                 .ReturnsAsync(document);
 
             _orderServiceMock
@@ -57,7 +59,8 @@ namespace EvangelionERPV2.Test.Security
 
             var controller = CreateController(new[]
             {
-                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString())
+                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
+                new Claim(ClaimTypes.Sid, userId.ToString())
             });
 
             var response = await controller.Consult(accessKey);
@@ -70,6 +73,7 @@ namespace EvangelionERPV2.Test.Security
         public async Task Consult_ReturnsOk_WhenDocumentBelongsToEnterprise()
         {
             var enterpriseId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
             var orderId = Guid.NewGuid();
             var accessKey = ValidAccessKey;
             var document = new NFeDocument
@@ -90,7 +94,7 @@ namespace EvangelionERPV2.Test.Security
             };
 
             _nfeServiceMock
-                .Setup(x => x.ConsultAsync(accessKey))
+                .Setup(x => x.ConsultAsync(accessKey, enterpriseId))
                 .ReturnsAsync(document);
 
             _orderServiceMock
@@ -103,7 +107,8 @@ namespace EvangelionERPV2.Test.Security
 
             var controller = CreateController(new[]
             {
-                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString())
+                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
+                new Claim(ClaimTypes.Sid, userId.ToString())
             });
 
             var response = await controller.Consult(accessKey);
@@ -116,6 +121,8 @@ namespace EvangelionERPV2.Test.Security
 
         private NFeController CreateController(IEnumerable<Claim> claims)
         {
+            SetupManagementUserIfPossible(claims);
+
             var controller = new NFeController(
                 _nfeServiceMock.Object,
                 _orderServiceMock.Object,
@@ -132,6 +139,27 @@ namespace EvangelionERPV2.Test.Security
             };
 
             return controller;
+        }
+
+        private void SetupManagementUserIfPossible(IEnumerable<Claim> claims)
+        {
+            var userClaim = claims.FirstOrDefault(x => x.Type == ClaimTypes.Sid)?.Value;
+            var enterpriseClaim = claims.FirstOrDefault(x => x.Type == ClaimTypes.GroupSid)?.Value;
+
+            if (!Guid.TryParse(userClaim, out var userId) || userId == Guid.Empty)
+                return;
+            if (!Guid.TryParse(enterpriseClaim, out var enterpriseId) || enterpriseId == Guid.Empty)
+                return;
+
+            _userRepositoryMock
+                .Setup(x => x.GetByIdAsync(userId))
+                .ReturnsAsync(new User
+                {
+                    Id = userId,
+                    EnterpriseId = enterpriseId,
+                    AccessLevel = (short)EnumAccessLevel.Supervisor,
+                    IsActive = true
+                });
         }
     }
 }

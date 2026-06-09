@@ -23,6 +23,20 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             return _auditTrailRepository.GetByIdAsync(id, enterpriseId);
         }
 
+        public Task<int> DeleteOlderThanAsync(
+            Guid enterpriseId,
+            DateTime cutoffDateUtc,
+            CancellationToken cancellationToken = default)
+        {
+            if (enterpriseId == Guid.Empty)
+                return Task.FromResult(0);
+
+            return _auditTrailRepository.DeleteOlderThanAsync(
+                enterpriseId,
+                NormalizeToUtc(cutoffDateUtc),
+                cancellationToken);
+        }
+
         public Task<(IEnumerable<AuditTrail> AuditTrails, int TotalItems)> GetAllAsyncFiltering(
             Guid enterpriseId,
             bool descending,
@@ -55,6 +69,16 @@ namespace EvangelionERPV2.AuditModule.Application.Services
                 return DefaultPageSize;
 
             return Math.Min(pageSize.Value, MaxPageSize);
+        }
+
+        private static DateTime NormalizeToUtc(DateTime value)
+        {
+            return value.Kind switch
+            {
+                DateTimeKind.Utc => value,
+                DateTimeKind.Local => value.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+            };
         }
     }
 }

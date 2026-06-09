@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # This stage is used when running from VS in fast mode (Default for Debug configuration)
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.5 AS base
 ARG APP_UID=0
 USER $APP_UID
 WORKDIR /app
@@ -11,11 +11,12 @@ EXPOSE 8081
 
 # Build and publish the web project. The Docker build context must be the repository root
 # so that all referenced projects are available during restore and build.
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.300 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
 # Copy solution and project files first to maximize restore layer caching
+COPY global.json ./
 COPY EvangelionERPV2.sln ./
 COPY EvangelionERPV2.Web/EvangelionERPV2.Web.csproj EvangelionERPV2.Web/
 COPY EvangelionERPV2.Audit.Application/*.csproj EvangelionERPV2.Audit.Application/

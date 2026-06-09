@@ -6,6 +6,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
@@ -19,6 +20,7 @@ namespace EvangelionERPV2.Web.Controllers
     public class PayableBillsController : Controller
     {
         private const int MaxPayableBillWriteRequestBodySizeInBytes = 1 * 1024 * 1024;
+        private const int MaxRefundReasonLength = 500;
 
         private readonly IPayableBillService _payableBillService;
         private readonly IRepository<User> _userRepository;
@@ -34,6 +36,7 @@ namespace EvangelionERPV2.Web.Controllers
             _mapper = mapper;
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Read)]
         [HttpGet("{pageNumber?}/{pageSize?}")]
         public async Task<IActionResult> GetPayableBills(
             int? pageNumber = null,
@@ -43,9 +46,11 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                if (!ModelState.IsValid)
+                    return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
                 bool? parsedIsActive = true;
                 if (Request.Query.ContainsKey("isActive"))
                 {
@@ -73,6 +78,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Read)]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetPayableBill(Guid id)
         {
@@ -80,7 +86,6 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
                 var bill = await _payableBillService.GetByIdAsync(id, enterpriseId);
                 if (bill == null)
                     return NoContent();
@@ -93,6 +98,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Create)]
         [HttpPost]
         [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
         public async Task<IActionResult> AddPayableBill([FromBody] UpsertPayableBillRequestDTO request)
@@ -100,14 +106,10 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 if (!ModelState.IsValid || request == null)
-                    return BadRequest(ModelState);
+                    return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var payableBill = MapRequestToPayableBill(request, enterpriseId);
                 payableBill.EnterpriseId = enterpriseId;
                 var created = await _payableBillService.CreateAsync(payableBill);
@@ -124,6 +126,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Update)]
         [HttpPut]
         [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
         public async Task<IActionResult> UpdatePayableBill([FromBody] UpsertPayableBillRequestDTO request)
@@ -131,14 +134,10 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 if (!ModelState.IsValid || request == null)
-                    return BadRequest(ModelState);
+                    return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 if (!request.Id.HasValue || request.Id.Value == Guid.Empty)
                     return BadRequest("Payable bill id is required.");
 
@@ -162,6 +161,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.MarkProductsReceived)]
         [HttpPost("{id}")]
         public async Task<IActionResult> MarkProductsReceived(Guid id)
         {
@@ -169,10 +169,6 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var updated = await _payableBillService.MarkProductsReceivedAsync(id, enterpriseId);
                 return Ok(_mapper.Map<PayableBillDTO>(updated));
             }
@@ -192,6 +188,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Refund)]
         [HttpPost("{id}")]
         [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
         public async Task<IActionResult> RefundPayableBill(Guid id, [FromBody] RefundRequestDTO request)
@@ -200,11 +197,10 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var reason = request?.Reason ?? string.Empty;
+                if (reason.Length > MaxRefundReasonLength)
+                    return BadRequest($"Reason must be {MaxRefundReasonLength} characters or fewer.");
+
                 var updated = await _payableBillService.RefundAsync(id, enterpriseId, reason);
                 return Ok(_mapper.Map<PayableBillDTO>(updated));
             }
@@ -224,18 +220,18 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Read)]
         [HttpPost]
         [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
         public async Task<IActionResult> GetReplenishmentSuggestions([FromBody] ReplenishmentSuggestionRequestDTO? request)
         {
             try
             {
+                if (!ModelState.IsValid)
+                    return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var accessLevel = await ResolveAccessLevelAsync(TryGetUserId(), enterpriseId);
-                if (!IsManagementAccess(accessLevel))
-                    return Forbid();
-
                 var suggestions = await _payableBillService.GetReplenishmentSuggestionsAsync(
                     enterpriseId,
                     request ?? new ReplenishmentSuggestionRequestDTO());
@@ -251,6 +247,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Delete)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeletePayableBill(Guid id)
         {
@@ -258,11 +255,6 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
-                var userId = TryGetUserId();
-                var accessLevel = await ResolveAccessLevelAsync(userId, enterpriseId);
-                if (!IsAdminAccess(accessLevel))
-                    return Forbid();
 
                 var deleted = await _payableBillService.DeleteAsync(id, enterpriseId);
                 return Ok(_mapper.Map<PayableBillDTO>(deleted));
@@ -323,27 +315,8 @@ namespace EvangelionERPV2.Web.Controllers
             return null;
         }
 
-        private async Task<short?> ResolveAccessLevelAsync(Guid? userId, Guid enterpriseId)
-        {
-            if (!userId.HasValue || enterpriseId == Guid.Empty)
-                return null;
 
-            var user = await _userRepository.GetByIdAsync(userId.Value);
-            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
-                return null;
 
-            return user?.AccessLevel;
-        }
-
-        private static bool IsAdminAccess(short? accessLevel)
-        {
-            return accessLevel.HasValue && accessLevel.Value == (short)EnumAccessLevel.Admin;
-        }
-
-        private static bool IsManagementAccess(short? accessLevel)
-        {
-            return accessLevel.HasValue && accessLevel.Value <= (short)EnumAccessLevel.Supervisor;
-        }
 
         private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)
         {

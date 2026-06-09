@@ -32,7 +32,7 @@ namespace EvangelionERPV2.Test.Security
                 x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>()),
                 Times.Never);
             _nfeServiceMock.Verify(
-                x => x.GetByOrderIdAsync(It.IsAny<Guid>(), It.IsAny<NFeDocumentType?>()),
+                x => x.GetByOrderIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<NFeDocumentType?>()),
                 Times.Never);
         }
 
@@ -57,7 +57,7 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.IsType<NoContentResult>(response);
             _nfeServiceMock.Verify(
-                x => x.GetByOrderIdAsync(It.IsAny<Guid>(), It.IsAny<NFeDocumentType?>()),
+                x => x.GetByOrderIdAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<NFeDocumentType?>()),
                 Times.Never);
         }
 
@@ -89,7 +89,7 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync(new Order { Id = orderId, EnterpriseId = enterpriseId });
 
             _nfeServiceMock
-                .Setup(x => x.GetByOrderIdAsync(orderId, null))
+                .Setup(x => x.GetByOrderIdAsync(orderId, enterpriseId, null))
                 .ReturnsAsync(document);
 
             _mapperMock

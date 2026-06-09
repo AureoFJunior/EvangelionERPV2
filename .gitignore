@@ -361,10 +361,16 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
-/EvangelionERPV2.Web/GmailOAuth2TokenStore/Google.Apis.Auth.OAuth2.Responses.TokenResponse-lvodkacomgelozz@gmail.com
+/EvangelionERPV2.Web/GmailOAuth2TokenStore/
 
 # Local environment files
 .env.local
 .env.ec2
 .env
+/.docker/aws/
+**/.docker/aws/
+!/.docker/aws/
+!/.docker/aws/.gitkeep
 docs/OpportunityRadar_Diagnostico.md
+AGENT.MD
+.codex
