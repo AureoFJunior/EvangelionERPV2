@@ -7,7 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\EvangelionERPV2.Audit.Infra\EvangelionERPV2.AuditModule.Infra.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Shared\EvangelionERPV2.Shared.csproj" />
   </ItemGroup>
 

@@ -176,7 +176,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 await eventArgs.Request!.ContinueAsync();
             };
             await page.EmulateMediaTypeAsync(MediaType.Screen);
-            await page.SetContentAsync(html, new NavigationOptions
+            await page.SetContentAsync(html, new SetContentOptions
             {
                 WaitUntil = new[] { WaitUntilNavigation.Load }
             });
