@@ -9,6 +9,7 @@ using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Token;
 using Microsoft.AspNetCore.Http;
 using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using MimeKit;
@@ -233,7 +234,8 @@ namespace EvangelionERPV2.UserModule.Test.User
                 configuration,
                 kmsProvider,
                 tokenService,
-                emailService.Object);
+                emailService.Object,
+                new RecaptchaVerifier(new HttpClient(), configuration, kmsProvider));
 
             controller.ControllerContext = new ControllerContext
             {

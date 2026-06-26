@@ -9,6 +9,7 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Token;
 using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -159,7 +160,8 @@ namespace EvangelionERPV2.Test.Security
                 configuration,
                 kmsProvider,
                 tokenService,
-                emailService);
+                emailService,
+                new RecaptchaVerifier(new HttpClient(), configuration, kmsProvider));
 
             var claims = new ClaimsPrincipal(new ClaimsIdentity(
             [

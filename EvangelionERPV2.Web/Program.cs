@@ -334,6 +334,12 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     OpportunityRadarIoC.Configure(builder.Services, builder.Configuration);
     ReportsIoC.Configure(builder.Services, builder.Configuration);
     SharedIoC.Configure(builder.Services, builder.Configuration);
+
+    // reCAPTCHA verification (short timeout, fail-closed for auth endpoints).
+    builder.Services.AddHttpClient<IRecaptchaVerifier, RecaptchaVerifier>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(5);
+    });
 }
 
 static void SetupCors(WebApplicationBuilder builder)

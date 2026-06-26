@@ -35,6 +35,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly AWSKMSKeyProvider _kmsProvider;
         private readonly TokenService _tokenService;
         private readonly IEmailService<EmailStructure> _emailService;
+        private readonly IRecaptchaVerifier _recaptchaVerifier;
         private static readonly HttpClient _httpClient = new HttpClient();
         private static readonly ConcurrentDictionary<string, ResetPasswordRateLimitEntry> _resetPasswordRateLimit = new();
         private static readonly object _resetPasswordRateLimitSync = new();
@@ -62,7 +63,8 @@ namespace EvangelionERPV2.Web.Controllers
             IConfiguration configuration,
             AWSKMSKeyProvider kmsProvider,
             TokenService tokenService,
-            IEmailService<EmailStructure> emailService)
+            IEmailService<EmailStructure> emailService,
+            IRecaptchaVerifier recaptchaVerifier)
         {
             _userService = userService;
             _userRepository = userRepository;
@@ -71,6 +73,7 @@ namespace EvangelionERPV2.Web.Controllers
             _kmsProvider = kmsProvider;
             _tokenService = tokenService;
             _emailService = emailService;
+            _recaptchaVerifier = recaptchaVerifier;
         }
 
         /// <summary>
@@ -89,6 +92,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                var recaptchaError = await VerifyRecaptchaAsync(request?.RecaptchaToken);
+                if (recaptchaError != null)
+                    return recaptchaError;
+
                 if (request == null || string.IsNullOrWhiteSpace(request.UserName) || string.IsNullOrWhiteSpace(request.Password))
                     return BadRequest("userName and password are required.");
 
@@ -602,6 +609,7 @@ namespace EvangelionERPV2.Web.Controllers
         public sealed class RequestPasswordResetRequest
         {
             public string Email { get; set; } = string.Empty;
+            public string RecaptchaToken { get; set; } = string.Empty;
         }
 
         public sealed class ResetPasswordRequest
@@ -621,6 +629,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                var recaptchaError = await VerifyRecaptchaAsync(request?.RecaptchaToken);
+                if (recaptchaError != null)
+                    return recaptchaError;
+
                 var email = request?.Email?.Trim() ?? string.Empty;
                 if (!string.IsNullOrWhiteSpace(email) &&
                     email.Length <= 254 &&
@@ -1103,6 +1115,21 @@ namespace EvangelionERPV2.Web.Controllers
 
             var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedEmail));
             return Convert.ToHexString(bytes).ToLowerInvariant()[..12];
+        }
+
+        private async Task<IActionResult?> VerifyRecaptchaAsync(string? recaptchaToken)
+        {
+            var result = await _recaptchaVerifier.VerifyAsync(
+                recaptchaToken,
+                ResolveCallerIpAddress(),
+                HttpContext?.RequestAborted ?? CancellationToken.None);
+
+            return result.Status switch
+            {
+                RecaptchaVerificationStatus.Success => null,
+                RecaptchaVerificationStatus.Missing => BadRequest(new { code = "RECAPTCHA_MISSING", message = "reCAPTCHA token is required." }),
+                _ => BadRequest(new { code = "RECAPTCHA_FAILED", message = "reCAPTCHA verification failed." })
+            };
         }
 
         private string ResolveCallerIpAddress()

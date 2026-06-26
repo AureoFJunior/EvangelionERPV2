@@ -7,6 +7,7 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Token;
 using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.Web.Security;
 using Microsoft.Extensions.Configuration;
 using Moq;
 using System.Reflection;
@@ -54,7 +55,8 @@ namespace EvangelionERPV2.Test.Security
                 configuration,
                 kmsProvider,
                 tokenService,
-                emailService);
+                emailService,
+                new RecaptchaVerifier(new HttpClient(), configuration, kmsProvider));
         }
 
         private static object GetResetPasswordRateLimitDictionary()
