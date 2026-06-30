@@ -1,4 +1,5 @@
-﻿using Amazon.Runtime;
+﻿using System.Collections.Concurrent;
+using Amazon.Runtime;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
 using Microsoft.Extensions.Configuration;
@@ -9,6 +10,12 @@ namespace EvangelionERPV2.Shared.Utils
 {
     public class AWSKMSKeyProvider
     {
+        // Resolved secrets are cached for the process lifetime so repeated calls
+        // (e.g. per-login token signing / reCAPTCHA verification) do not issue a
+        // network call to Secrets Manager each time. Only successful, non-empty
+        // resolutions are cached, leaving transient failures retryable.
+        private static readonly ConcurrentDictionary<string, string> _secretCache = new(StringComparer.Ordinal);
+
         private readonly IAmazonSecretsManager _secretsManager;
         private readonly IConfiguration _configuration;
 
@@ -18,7 +25,23 @@ namespace EvangelionERPV2.Shared.Utils
             _configuration = configuration;
         }
 
+        /// <summary>
+        /// Synchronous accessor for startup/configuration paths. A cache hit completes
+        /// without blocking; only the first resolution of a given secret performs the
+        /// network call. ASP.NET Core has no synchronization context, so there is no
+        /// deadlock risk on the cold path.
+        /// </summary>
         public string GetKMSKey(string secretName)
+            => GetKMSKeyInternalAsync(secretName).GetAwaiter().GetResult();
+
+        /// <summary>
+        /// Asynchronous accessor for request-path callers. Preferred over <see cref="GetKMSKey"/>
+        /// to avoid blocking a thread-pool thread on the Secrets Manager call.
+        /// </summary>
+        public Task<string> GetKMSKeyAsync(string secretName, CancellationToken cancellationToken = default)
+            => GetKMSKeyInternalAsync(secretName, cancellationToken);
+
+        private async Task<string> GetKMSKeyInternalAsync(string secretName, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(secretName))
             {
@@ -32,17 +55,24 @@ namespace EvangelionERPV2.Shared.Utils
                 return secretName.Substring(plainPrefix.Length);
             }
 
+            if (_secretCache.TryGetValue(secretName, out var cachedValue))
+                return cachedValue;
+
             var (secretId, requestedKey) = SplitSecretReference(secretName);
-            var secretValueResponse = _secretsManager.GetSecretValueAsync(new GetSecretValueRequest
+            var secretValueResponse = await _secretsManager.GetSecretValueAsync(new GetSecretValueRequest
             {
                 SecretId = secretId
-            }).GetAwaiter().GetResult();
+            }, cancellationToken);
 
             string secretString = secretValueResponse.SecretString ?? string.Empty;
             if (string.IsNullOrWhiteSpace(secretString))
                 return string.Empty;
 
-            return ResolveSecretValue(secretString, requestedKey);
+            var resolvedValue = ResolveSecretValue(secretString, requestedKey);
+            if (!string.IsNullOrEmpty(resolvedValue))
+                _secretCache[secretName] = resolvedValue;
+
+            return resolvedValue;
         }
 
         private static (string SecretId, string? RequestedKey) SplitSecretReference(string secretName)

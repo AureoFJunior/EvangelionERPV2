@@ -57,7 +57,7 @@ namespace EvangelionERPV2.Web.Security
             if (string.IsNullOrWhiteSpace(token))
                 return RecaptchaVerificationResult.Missing;
 
-            var secret = ResolveSecret(section["SecretKey"]);
+            var secret = await ResolveSecretAsync(section["SecretKey"], cancellationToken);
             if (string.IsNullOrWhiteSpace(secret))
             {
                 Log.Logger.Error("reCAPTCHA secret key is not configured. Rejecting request (fail-closed).");
@@ -108,12 +108,12 @@ namespace EvangelionERPV2.Web.Security
             }
         }
 
-        private string ResolveSecret(string? secretName)
+        private async Task<string> ResolveSecretAsync(string? secretName, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(secretName))
                 return string.Empty;
 
-            return _kmsProvider.GetKMSKey(secretName);
+            return await _kmsProvider.GetKMSKeyAsync(secretName, cancellationToken);
         }
 
         private static bool IsHostnameAllowed(IConfigurationSection section, string? hostname)

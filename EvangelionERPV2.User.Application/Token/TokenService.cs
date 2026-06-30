@@ -34,7 +34,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
                 throw new ArgumentException("User with valid Id is required.", nameof(user));
 
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(SharedFunctions.GetEncryptionKey());
+            var key = Encoding.UTF8.GetBytes(SharedFunctions.GetEncryptionKey());
             var userId = user.Id.ToString();
             var tokenDescriptor = new SecurityTokenDescriptor
             {
@@ -61,7 +61,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
         public string GenerateToken(IEnumerable<Claim> claims)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(SharedFunctions.GetEncryptionKey());
+            var key = Encoding.UTF8.GetBytes(SharedFunctions.GetEncryptionKey());
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Subject = new ClaimsIdentity(claims),

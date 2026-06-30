@@ -207,7 +207,7 @@ static void SetupJWT(WebApplicationBuilder builder)
             options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(tokenKey)),
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(tokenKey)),
                 ValidateIssuer = true,
                 ValidIssuer = issuer,
                 ValidateAudience = true,
