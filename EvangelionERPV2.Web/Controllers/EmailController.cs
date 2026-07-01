@@ -207,6 +207,34 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
+        /// Send the monthly billing email to every enterprise that has monthly billing enabled.
+        /// This is the scheduled broadcast path used by the background worker; unlike
+        /// <see cref="SendMonthEmail"/> it is intentionally not scoped to the caller's tenant.
+        /// </summary>
+        /// <returns></returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Email.Send)]
+        [HttpPost]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> SendMonthlyBillingBroadcast()
+        {
+            try
+            {
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+                await _emailService.SendMonthEmail(null);
+
+                return Ok("Monthly Emails sent");
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Create Email.
         /// </summary>
         /// <param name="email">Add the email to be used for sending notifications.</param>

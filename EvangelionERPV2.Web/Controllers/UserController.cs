@@ -93,7 +93,7 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 var recaptchaError = await VerifyRecaptchaAsync(request?.RecaptchaToken);
-                if (recaptchaError != null)
+                if (recaptchaError != null && !await IsSelfApiMachineLoginAsync(request))
                     return recaptchaError;
 
                 if (request == null || string.IsNullOrWhiteSpace(request.UserName) || string.IsNullOrWhiteSpace(request.Password))
@@ -1130,6 +1130,51 @@ namespace EvangelionERPV2.Web.Controllers
                 RecaptchaVerificationStatus.Missing => BadRequest(new { code = "RECAPTCHA_MISSING", message = "reCAPTCHA token is required." }),
                 _ => BadRequest(new { code = "RECAPTCHA_FAILED", message = "reCAPTCHA verification failed." })
             };
+        }
+
+        /// <summary>
+        /// Recognises the background workers' self-API service login and exempts it from the
+        /// interactive reCAPTCHA gate. The caller must present the exact service-account
+        /// credentials held in the <c>SelfAPIAuth</c> secret, so this proves possession of the
+        /// machine secret rather than weakening bot protection for arbitrary accounts. The
+        /// password itself is still verified against the database further down the login flow.
+        /// </summary>
+        private async Task<bool> IsSelfApiMachineLoginAsync(LoginRequestDTO? request)
+        {
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.UserName) ||
+                string.IsNullOrWhiteSpace(request.Password))
+                return false;
+
+            var secretReference = _configuration.GetSection("SelfAPIAuth").Value;
+            if (string.IsNullOrWhiteSpace(secretReference))
+                return false;
+
+            string secret;
+            try
+            {
+                secret = await _kmsProvider.GetKMSKeyAsync(
+                    secretReference,
+                    HttpContext?.RequestAborted ?? CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning("Unable to resolve SelfAPIAuth secret for machine login. ErrorType={ErrorType}", ex.GetType().Name);
+                return false;
+            }
+
+            if (!SelfApiCredential.TryParse(secret, out var serviceUserName, out var servicePassword))
+                return false;
+
+            return FixedTimeEquals(NormalizeUserName(request.UserName), serviceUserName.Trim())
+                && FixedTimeEquals(request.Password, servicePassword);
+        }
+
+        private static bool FixedTimeEquals(string left, string right)
+        {
+            return CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(left ?? string.Empty),
+                Encoding.UTF8.GetBytes(right ?? string.Empty));
         }
 
         private string ResolveCallerIpAddress()

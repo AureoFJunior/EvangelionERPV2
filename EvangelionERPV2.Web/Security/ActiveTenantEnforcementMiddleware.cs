@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.AspNetCore.Authorization;
 
@@ -37,14 +38,28 @@ namespace EvangelionERPV2.Web.Security
                 return;
             }
 
-            var user = await userRepository.GetByIdAsync(userId.Value);
+            User? user;
+            Enterprise? enterprise;
+            try
+            {
+                // Repositories throw NotFoundDatabaseException when the row is gone (e.g. a still-valid
+                // JWT whose user/enterprise was deleted). Treat that as an invalid token (401) rather than
+                // letting the outer exception middleware map it to a misleading 204 No Content.
+                user = await userRepository.GetByIdAsync(userId.Value);
+                enterprise = user == null ? null : await enterpriseRepository.GetByIdAsync(enterpriseId.Value);
+            }
+            catch (NotFoundDatabaseException)
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
+
             if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId.Value)
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return;
             }
 
-            var enterprise = await enterpriseRepository.GetByIdAsync(enterpriseId.Value);
             if (enterprise == null || enterprise.IsActive != true)
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
