@@ -1,3 +1,4 @@
+using EvangelionERPV2.Shared.Security;
 using Microsoft.AspNetCore.Authorization;
 
 namespace EvangelionERPV2.Web.Security
@@ -112,11 +113,22 @@ namespace EvangelionERPV2.Web.Security
                 policy.RequireAuthenticatedUser();
                 policy.AddRequirements(new PermissionRequirement(RbacPermissions.Metrics.Read));
             });
+
+            options.AddPolicy(Machine.SelfApiBroadcast, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.RequireClaim(MachineClaims.ClientType, MachineClaims.SelfApiValue);
+            });
         }
 
         private static string BuildPolicyName(string permission)
         {
             return $"rbac:{permission}";
+        }
+
+        public static class Machine
+        {
+            public const string SelfApiBroadcast = "machine:self-api-broadcast";
         }
 
         public static class Metrics

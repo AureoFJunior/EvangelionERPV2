@@ -210,9 +210,11 @@ namespace EvangelionERPV2.Web.Controllers
         /// Send the monthly billing email to every enterprise that has monthly billing enabled.
         /// This is the scheduled broadcast path used by the background worker; unlike
         /// <see cref="SendMonthEmail"/> it is intentionally not scoped to the caller's tenant.
+        /// Restricted to the self-API machine caller so interactive tenant admins cannot
+        /// enqueue billing emails for every enterprise.
         /// </summary>
         /// <returns></returns>
-        [Authorize(Policy = "rbac:" + RbacPermissions.Email.Send)]
+        [Authorize(Policy = RbacPolicies.Machine.SelfApiBroadcast)]
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -296,6 +298,36 @@ namespace EvangelionERPV2.Web.Controllers
                     return Unauthorized();
 
                 await _emailService.SendStockEmail(enterpriseId);
+
+                return Ok("Weekly Stock Emails sent");
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Send the weekly stock email to every enterprise that has an email address.
+        /// This is the scheduled broadcast path used by the background worker; unlike
+        /// <see cref="SendStockEmail"/> it is intentionally not scoped to the caller's tenant.
+        /// Restricted to the self-API machine caller so interactive tenant admins cannot
+        /// enqueue stock emails for every enterprise.
+        /// </summary>
+        /// <returns></returns>
+        [Authorize(Policy = RbacPolicies.Machine.SelfApiBroadcast)]
+        [HttpPost]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> SendWeeklyStockBroadcast()
+        {
+            try
+            {
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+                await _emailService.SendStockEmail(null);
 
                 return Ok("Weekly Stock Emails sent");
             }

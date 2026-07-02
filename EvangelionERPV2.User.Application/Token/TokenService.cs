@@ -1,5 +1,6 @@
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Shared.Security;
 using EvangelionERPV2.Shared.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -28,7 +29,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
             _configuration = configuration;
         }
 
-        public string GenerateToken(User user)
+        public string GenerateToken(User user, bool isMachineClient = false)
         {
             if (user == null || user.Id == Guid.Empty)
                 throw new ArgumentException("User with valid Id is required.", nameof(user));
@@ -36,18 +37,23 @@ namespace EvangelionERPV2.UserModule.Application.Token
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.UTF8.GetBytes(SharedFunctions.GetEncryptionKey());
             var userId = user.Id.ToString();
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.Name, userId),
+                new Claim(ClaimTypes.GivenName, user.FirstName),
+                new Claim(ClaimTypes.Surname, user.LastName),
+                new Claim(ClaimTypes.NameIdentifier, userId),
+                new Claim(ClaimTypes.Sid, userId),
+                new Claim("uid", userId),
+                new Claim(ClaimTypes.GroupSid, user?.EnterpriseId?.ToString() ?? string.Empty)
+            };
+
+            if (isMachineClient)
+                claims.Add(new Claim(MachineClaims.ClientType, MachineClaims.SelfApiValue));
+
             var tokenDescriptor = new SecurityTokenDescriptor
             {
-                Subject = new ClaimsIdentity(new[]
-                {
-                    new Claim(ClaimTypes.Name, userId),
-                    new Claim(ClaimTypes.GivenName, user.FirstName),
-                    new Claim(ClaimTypes.Surname, user.LastName),
-                    new Claim(ClaimTypes.NameIdentifier, userId),
-                    new Claim(ClaimTypes.Sid, userId),
-                    new Claim("uid", userId),
-                    new Claim(ClaimTypes.GroupSid, user?.EnterpriseId?.ToString() ?? string.Empty)
-                }),
+                Subject = new ClaimsIdentity(claims),
                 Expires = DateTime.UtcNow.AddMinutes(GetAccessTokenMinutes()),
                 Issuer = GetIssuer(),
                 Audience = GetAudience(),

@@ -92,8 +92,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
+                var isSelfApiMachineLogin = await IsSelfApiMachineLoginAsync(request);
+
                 var recaptchaError = await VerifyRecaptchaAsync(request?.RecaptchaToken);
-                if (recaptchaError != null && !await IsSelfApiMachineLoginAsync(request))
+                if (recaptchaError != null && !isSelfApiMachineLogin)
                     return recaptchaError;
 
                 if (request == null || string.IsNullOrWhiteSpace(request.UserName) || string.IsNullOrWhiteSpace(request.Password))
@@ -120,7 +122,7 @@ namespace EvangelionERPV2.Web.Controllers
                 user.IsLogged = 1;
                 _userService.Update(user);
 
-                var (token, refreshToken) = await GenerateTokensAsync(user);
+                var (token, refreshToken) = await GenerateTokensAsync(user, isSelfApiMachineLogin);
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
                     throw new InvalidOperationException("Token generation failed.");
 
@@ -329,9 +331,9 @@ namespace EvangelionERPV2.Web.Controllers
             return tokenResponse;
         }
 
-        private async Task<(string Token, string RefreshToken)> GenerateTokensAsync(Shared.Entities.User user)
+        private async Task<(string Token, string RefreshToken)> GenerateTokensAsync(Shared.Entities.User user, bool isMachineClient = false)
         {
-            var token = _tokenService.GenerateToken(user);
+            var token = _tokenService.GenerateToken(user, isMachineClient);
             var refreshToken = _tokenService.GenerateRefreshToken();
             await _tokenService.SaveRefreshTokenAsync(user.Id, refreshToken);
             return (token, refreshToken);

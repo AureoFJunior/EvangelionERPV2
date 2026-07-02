@@ -90,6 +90,20 @@ namespace EvangelionERPV2.Test.Security
             Assert.NotNull(policy);
         }
 
+        [Theory]
+        [InlineData(nameof(EmailController.SendMonthlyBillingBroadcast))]
+        [InlineData(nameof(EmailController.SendWeeklyStockBroadcast))]
+        public void BroadcastEndpoints_DeclareSelfApiMachinePolicy(string actionName)
+        {
+            var method = typeof(EmailController).GetMethods().Single(x => x.Name == actionName);
+            var policy = method
+                .GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), inherit: true)
+                .Cast<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>()
+                .SingleOrDefault(x => x.Policy == RbacPolicies.Machine.SelfApiBroadcast);
+
+            Assert.NotNull(policy);
+        }
+
         [Fact]
         public void UserGetById_DeclaresSelfOrReadPolicy()
         {
