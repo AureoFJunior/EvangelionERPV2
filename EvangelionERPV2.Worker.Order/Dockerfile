@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.5 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 ARG APP_UID=0
 USER $APP_UID
 WORKDIR /app
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0.300 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
