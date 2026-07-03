@@ -158,6 +158,7 @@ static void BuildValidators(WebApplicationBuilder builder)
     builder.Services.AddTransient<IValidator<Product>, ProductValidator>();
     builder.Services.AddTransient<IValidator<ProductPicture>, ProductPictureValidator>();
     builder.Services.AddTransient<IValidator<CreateOrderRequestDTO>, CreateOrderRequestValidator>();
+    builder.Services.AddTransient<IValidator<CreateQueuedOrderRequestDTO>, CreateQueuedOrderRequestValidator>();
     builder.Services.AddTransient<IValidator<UpdateOrderRequestDTO>, UpdateOrderRequestValidator>();
     builder.Services.AddTransient<IValidator<OrderFilterRequestDTO>, OrderFilterRequestValidator>();
     builder.Services.AddTransient<IValidator<UpsertPayableBillRequestDTO>, UpsertPayableBillRequestValidator>();

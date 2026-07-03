@@ -33,6 +33,18 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public void OrderController_InsertQueuedOrder_HasRequestSizeLimit()
+        {
+            var method = typeof(OrderController).GetMethod(nameof(OrderController.InsertQueuedOrder));
+
+            var attributeData = GetRequestSizeLimitAttributeData(method);
+
+            Assert.NotNull(attributeData);
+            Assert.Single(attributeData!.ConstructorArguments);
+            Assert.Equal(ExpectedMaxBytes, (long)attributeData.ConstructorArguments[0].Value!);
+        }
+
+        [Fact]
         public void OrderController_UpdateOrder_HasRequestSizeLimit()
         {
             var method = typeof(OrderController).GetMethod(nameof(OrderController.UpdateOrder));

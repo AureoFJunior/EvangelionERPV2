@@ -48,6 +48,7 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxProfilePictureRequestBodySizeInBytes = 8 * 1024 * 1024;
         private const int MaxPasswordResetRequestBodySizeInBytes = 16 * 1024;
         private const int MaxAnonymousLoginRequestBodySizeInBytes = 32 * 1024;
+        private const int MaxPasswordLoginCandidates = 20;
         private const int MaxUserWriteRequestBodySizeInBytes = 64 * 1024;
         private const int MaxGoogleAuthorizationCodeLength = 2048;
         private const int MaxGoogleRedirectUriLength = 2048;
@@ -105,12 +106,30 @@ namespace EvangelionERPV2.Web.Controllers
                 if (string.IsNullOrWhiteSpace(normalizedUserName))
                     return BadRequest("userName and password are required.");
 
-                var user = await ResolveUniqueActivePasswordLoginUserAsync(normalizedUserName);
-                if (user == null)
-                    return Unauthorized();
+                // Usernames are only unique per enterprise, and the login request carries no
+                // tenant discriminator, so the password picks the account: verify against every
+                // active candidate and log in only when exactly one matches.
+                var candidates = await GetActivePasswordLoginCandidatesAsync(normalizedUserName);
 
-                var isValidPassword = SharedFunctions.VerifyPassword(request.Password, user.Password, out var needsRehash);
-                if (!isValidPassword)
+                Shared.Entities.User? user = null;
+                var needsRehash = false;
+                foreach (var candidate in candidates)
+                {
+                    if (!SharedFunctions.VerifyPassword(request.Password, candidate.Password, out var candidateNeedsRehash))
+                        continue;
+
+                    if (user != null)
+                    {
+                        // Same username and password active in more than one tenant — ambiguous.
+                        user = null;
+                        break;
+                    }
+
+                    user = candidate;
+                    needsRehash = candidateNeedsRehash;
+                }
+
+                if (user == null)
                     return Unauthorized();
 
                 if (!await CanIssueTokensToUserAsync(user))
@@ -339,27 +358,22 @@ namespace EvangelionERPV2.Web.Controllers
             return (token, refreshToken);
         }
 
-        private async Task<Shared.Entities.User?> ResolveUniqueActivePasswordLoginUserAsync(string normalizedUserName)
+        private async Task<IReadOnlyList<Shared.Entities.User>> GetActivePasswordLoginCandidatesAsync(string normalizedUserName)
         {
             if (string.IsNullOrWhiteSpace(normalizedUserName))
-                return null;
+                return Array.Empty<Shared.Entities.User>();
 
             var normalizedUserNameLower = normalizedUserName.ToLowerInvariant();
-            var matchingUsers = (await _userRepository.GetAllAsyncByFilter(
+            return (await _userRepository.GetAllAsyncByFilter(
                     descending: false,
                     pageNumber: 1,
-                    pageSize: 2,
+                    pageSize: MaxPasswordLoginCandidates,
                     predicate: x =>
                         x.IsActive == true &&
                         x.UserName != null &&
                         x.UserName.ToLower() == normalizedUserNameLower,
                     orderBy: x => x.Id))
                 .ToList();
-
-            if (matchingUsers.Count != 1)
-                return null;
-
-            return matchingUsers[0];
         }
 
         private static string NormalizeUserName(string? userName)

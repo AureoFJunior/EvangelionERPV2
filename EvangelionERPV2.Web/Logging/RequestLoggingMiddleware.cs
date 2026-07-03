@@ -182,6 +182,7 @@ namespace EvangelionERPV2.Web.Logging
                    endpoint.Contains("/NFe/Cancel", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Order/AddOrder", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Order/InsertOrder", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/Order/InsertQueuedOrder", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Order/UpdateOrder", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Order/RefundOrder", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Product/AddProduct", StringComparison.OrdinalIgnoreCase) ||

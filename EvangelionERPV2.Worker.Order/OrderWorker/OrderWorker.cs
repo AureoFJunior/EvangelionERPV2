@@ -44,7 +44,7 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
                                     throw new InvalidOperationException("Order Worker could not obtain an API token.");
 
                                 var request = MapQueuedOrderToCreateRequest(order);
-                                var createdOrder = await SharedFunctions.PostAsync<object>("Order/InsertOrder", request, user.Token, cancellationToken: stoppingToken);
+                                var createdOrder = await SharedFunctions.PostAsync<object>("Order/InsertQueuedOrder", request, user.Token, cancellationToken: stoppingToken);
                                 if (createdOrder == null)
                                     throw new InvalidOperationException("Order Worker failed to persist order through API.");
                             }, stoppingToken);
@@ -80,10 +80,18 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
             return await SharedFunctions.PostAsync<UserDTO>("User/LogInto", loginRequest, cancellationToken: cancellationToken);
         }
 
-        private static CreateOrderRequestDTO MapQueuedOrderToCreateRequest(Order order)
+        private static CreateQueuedOrderRequestDTO MapQueuedOrderToCreateRequest(Order order)
         {
             if (order == null)
                 throw new InvalidOperationException("Queued order payload is required.");
+
+            // The worker posts with the self-API machine token, so the original tenant and
+            // user must travel in the payload; the API validates them against the database.
+            if (!order.EnterpriseId.HasValue || order.EnterpriseId.Value == Guid.Empty)
+                throw new InvalidOperationException("Queued order enterprise is required.");
+
+            if (!order.UserId.HasValue || order.UserId.Value == Guid.Empty)
+                throw new InvalidOperationException("Queued order user is required.");
 
             if (!order.CustomerId.HasValue || order.CustomerId.Value == Guid.Empty)
                 throw new InvalidOperationException("Queued order customer is required.");
@@ -100,8 +108,10 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
             if (items.Count == 0)
                 throw new InvalidOperationException("Queued order must include at least one item.");
 
-            return new CreateOrderRequestDTO
+            return new CreateQueuedOrderRequestDTO
             {
+                EnterpriseId = order.EnterpriseId.Value,
+                UserId = order.UserId.Value,
                 CustomerId = order.CustomerId.Value,
                 PaymentScheduledDate = order.PaymentScheduledDate,
                 Status = order.Status,

@@ -261,6 +261,58 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
+        /// Persist an order that was previously enqueued by <see cref="AddOrder"/>.
+        /// The order worker authenticates as the self-API machine user, so the tenant and
+        /// user captured at enqueue time travel in the payload and are validated here
+        /// instead of being derived from the caller's token (which would re-scope the
+        /// order to the service account's tenant). Restricted to the machine policy so
+        /// interactive users cannot create orders for another tenant.
+        /// </summary>
+        /// <param name="request">Queued order with its original tenant context</param>
+        /// <returns>Confirmation the order was created</returns>
+        [Authorize(Policy = RbacPolicies.Machine.SelfApiBroadcast)]
+        [HttpPost]
+        [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> InsertQueuedOrder([FromBody] CreateQueuedOrderRequestDTO request)
+        {
+            try
+            {
+                if (!ModelState.IsValid || request == null) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+                if (request.EnterpriseId == Guid.Empty || request.UserId == Guid.Empty)
+                    return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+                if (!await HasActiveTenantMembershipAsync(request.UserId, request.EnterpriseId))
+                    return BadRequest("Queued order tenant context is invalid.");
+                if (!await IsActiveEnterpriseAsync(request.EnterpriseId))
+                    return BadRequest("Queued order tenant context is invalid.");
+
+                var createRequest = new CreateOrderRequestDTO
+                {
+                    CustomerId = request.CustomerId,
+                    PaymentScheduledDate = request.PaymentScheduledDate,
+                    Status = request.Status,
+                    Items = request.Items
+                };
+
+                var order = MapCreateRequestToOrder(createRequest, request.EnterpriseId, request.UserId);
+                await _orderService.CreateAsync(order);
+                return Ok("Order created successfully");
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error("Invalid queued order payload. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest(GetSafeInsertErrorMessage(ex));
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Update an order
         /// </summary>
         /// <param name="order">Order to be updated</param>
@@ -395,6 +447,27 @@ namespace EvangelionERPV2.Web.Controllers
 
             var user = await _userRepository.GetByIdAsync(userId.Value);
             return user != null && user.IsActive == true && user.EnterpriseId == enterpriseId;
+        }
+
+        private async Task<bool> IsActiveEnterpriseAsync(Guid enterpriseId)
+        {
+            // Queued orders bypass ActiveTenantEnforcementMiddleware for the payload tenant
+            // (the middleware only validates the machine caller), so the tenant's enterprise
+            // must be re-checked here.
+            var enterpriseRepository = HttpContext?.RequestServices?.GetService(typeof(IRepository<Enterprise>))
+                as IRepository<Enterprise>;
+            if (enterpriseRepository == null)
+                return false;
+
+            try
+            {
+                var enterprise = await enterpriseRepository.GetByIdAsync(enterpriseId);
+                return enterprise != null && enterprise.IsActive == true;
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return false;
+            }
         }
 
 

@@ -20,6 +20,10 @@ namespace EvangelionERPV2.Web.Controllers
     public class EmailController : Controller
     {
         private const int MaxEmailConfigRequestBodySizeInBytes = 64 * 1024;
+        // Queued delivery carries full signed MIME payloads (scheduled stock/monthly reports
+        // render unbounded HTML tables), so it gets a much larger limit than the small
+        // settings/manual-email payloads.
+        private const int MaxQueuedEmailRequestBodySizeInBytes = 4 * 1024 * 1024;
         private const int MaxManualEmailRecipients = 50;
         private const int MaxManualEmailSubjectLength = 200;
         private const int MaxManualEmailBodyLength = 20000;
@@ -161,7 +165,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         [Authorize(Policy = "rbac:" + RbacPermissions.Email.Send)]
         [HttpPost]
-        [RequestSizeLimit(MaxEmailConfigRequestBodySizeInBytes)]
+        [RequestSizeLimit(MaxQueuedEmailRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
