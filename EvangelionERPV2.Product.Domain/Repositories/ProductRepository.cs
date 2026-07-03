@@ -175,7 +175,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             return result;
         }
 
-        private void RemoveCachedProduct(Guid id)
+        public void RemoveCachedProduct(Guid id)
         {
             if (id == Guid.Empty)
                 return;

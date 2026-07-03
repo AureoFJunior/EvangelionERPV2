@@ -90,6 +90,14 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
         public User Update(User user)
         {
+            // Generic update path: an empty ProfilePicture means "not provided", so the stored
+            // value is preserved. Profile-picture removal goes through the overload below with
+            // an explicit clear signal.
+            return Update(user, clearProfilePicture: false);
+        }
+
+        private User Update(User user, bool clearProfilePicture)
+        {
             User existentUser = _userRepository.GetById(user.Id);
             User updatedUser = new User();
 
@@ -103,9 +111,12 @@ namespace EvangelionERPV2.UserModule.Application.Services
             else if (string.IsNullOrWhiteSpace(user.Password))
                 user.Password = existentUser.Password;
 
-            user.ProfilePicture = string.IsNullOrWhiteSpace(user.ProfilePicture)
-                ? existentUser.ProfilePicture
-                : SharedFunctions.EnsureEncryptedAddress(user.ProfilePicture);
+            if (clearProfilePicture)
+                user.ProfilePicture = string.Empty;
+            else
+                user.ProfilePicture = string.IsNullOrWhiteSpace(user.ProfilePicture)
+                    ? existentUser.ProfilePicture
+                    : SharedFunctions.EnsureEncryptedAddress(user.ProfilePicture);
             user.CreatedAt = existentUser.CreatedAt;
             user.IsActive = existentUser.IsActive;
             user.EnterpriseId = user.EnterpriseId.HasValue && user.EnterpriseId.Value != Guid.Empty
@@ -242,9 +253,11 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
             if (string.IsNullOrWhiteSpace(profilePicturePayload))
             {
-                user.ProfilePicture = string.Empty;
+                // Explicit clear signal: without it Update would treat the empty value as
+                // "not provided" and keep the old key, leaving the database pointing at the
+                // S3 object deleted below.
                 user.UpdatedAt = DateTime.UtcNow;
-                var updatedUser = Update(user);
+                var updatedUser = Update(user, clearProfilePicture: true);
                 await TryDeleteOldProfilePictureAsync(s3Client, bucketName, oldProfilePictureAddress);
                 return updatedUser;
             }

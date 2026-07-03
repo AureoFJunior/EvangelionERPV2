@@ -59,6 +59,24 @@ namespace EvangelionERPV2.ProductModule.Test
             cache.Verify(c => c.Remove($"Product:{productId}"), Times.Once);
         }
 
+        [Fact]
+        public void RemoveCachedProduct_RemovesProductCacheEntry()
+        {
+            // Callers that change product rows outside Update/UpdateRange (guarded raw SQL stock
+            // decrements) rely on this being publicly reachable through IProductRepository.
+            var productId = Guid.NewGuid();
+            var cache = new Mock<IDistributedCache>(MockBehavior.Strict);
+            cache.Setup(c => c.Remove($"Product:{productId}"));
+
+            using var context = CreateContext();
+            EvangelionERPV2.ProductModule.Domain.Interface.IProductRepository<Product> repository =
+                new ProductRepository(context, cache.Object);
+
+            repository.RemoveCachedProduct(productId);
+
+            cache.Verify(c => c.Remove($"Product:{productId}"), Times.Once);
+        }
+
         private static AppDbContext CreateContext()
         {
             var options = new DbContextOptionsBuilder<AppDbContext>()

@@ -157,6 +157,47 @@ namespace EvangelionERPV2.UserModule.Test.User
                 Times.Once);
         }
 
+        [Fact]
+        public async Task UpdateProfilePictureAsync_WithEmptyPayload_PersistsClearedPictureBeforeDeletingOldObject()
+        {
+            EnsureEncryptionKeyInitialized();
+
+            var (service, userRepository, s3ClientMock) = CreateService();
+            var userId = Guid.NewGuid();
+            var existingUser = BuildUser(userId, "users/old-picture-key");
+            var updateUser = BuildUser(userId, existingUser.ProfilePicture);
+
+            Shared.Entities.User? persistedUser = null;
+
+            userRepository
+                .Setup(r => r.GetById(userId))
+                .Returns(existingUser);
+
+            userRepository
+                .Setup(r => r.Update(It.IsAny<Shared.Entities.User>()))
+                .Callback<Shared.Entities.User>(entity => persistedUser = entity)
+                .Returns<Shared.Entities.User>(entity => entity);
+
+            s3ClientMock
+                .Setup(s => s.DeleteObjectAsync(It.IsAny<DeleteObjectRequest>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new DeleteObjectResponse());
+
+            var result = await service.UpdateProfilePictureAsync(updateUser, profilePicturePayload: null);
+
+            Assert.NotNull(result);
+            Assert.NotNull(persistedUser);
+            // The clear must survive Update's "empty means not provided" fallback; otherwise the
+            // database keeps pointing at the S3 object deleted below.
+            Assert.Equal(string.Empty, persistedUser!.ProfilePicture);
+            userRepository.Verify(r => r.Update(It.IsAny<Shared.Entities.User>()), Times.Once);
+            userRepository.Verify(r => r.Commit(It.IsAny<CancellationToken>()), Times.Once);
+            s3ClientMock.Verify(
+                s => s.DeleteObjectAsync(
+                    It.Is<DeleteObjectRequest>(request => request.Key == "users/old-picture-key"),
+                    It.IsAny<CancellationToken>()),
+                Times.Once);
+        }
+
         private static (UserService service,
             Mock<IRepository<Shared.Entities.User>> userRepository,
             Mock<IAmazonS3> s3ClientMock) CreateService()

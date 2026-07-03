@@ -139,6 +139,11 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                         if (affectedRows <= 0)
                             throw new InsertDatabaseException($"Insufficient stock for product [{orderedProduct.ProductId}].");
 
+                        // The raw SQL decrement bypasses ProductRepository.Update, so the cached
+                        // Product:{id} entry must be invalidated here or reads keep returning the
+                        // pre-order stock for the cache TTL.
+                        (_productRepository as IProductRepository<Product>)?.RemoveCachedProduct(orderedProduct.ProductId);
+
                         continue;
                     }
 
