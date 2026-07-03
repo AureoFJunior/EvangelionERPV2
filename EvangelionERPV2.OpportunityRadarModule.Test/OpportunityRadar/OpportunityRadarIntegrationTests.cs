@@ -6,7 +6,6 @@ using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.Extensions.Options;
@@ -136,11 +135,8 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
 
         private static IntegrationSut BuildSut()
         {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            connection.Open();
-
             var options = new DbContextOptionsBuilder<AppDbContext>()
-                .UseSqlite(connection)
+                .UseInMemoryDatabase($"opportunity-radar-tests-{Guid.NewGuid():N}")
                 .Options;
 
             var context = new AppDbContext(options, httpContextAccessor: null, auditTrailEntryFactory: new NoopAuditTrailEntryFactory());
@@ -288,7 +284,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
                     MinimumSampleOrders = 3
                 }));
 
-            return new IntegrationSut(context, service, enterpriseId, connection);
+            return new IntegrationSut(context, service, enterpriseId);
         }
 
         private sealed class NoopAuditTrailEntryFactory : IAuditTrailEntryFactory
@@ -296,6 +292,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
             public IReadOnlyCollection<AuditTrail> Create(
                 IEnumerable<EntityEntry<BaseEntity>> entries,
                 Guid? userId,
+                Guid? enterpriseId,
                 DateTime changedAt)
             {
                 return Array.Empty<AuditTrail>();
@@ -304,14 +301,11 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
 
         private sealed class IntegrationSut : IDisposable
         {
-            private readonly SqliteConnection _connection;
-
-            public IntegrationSut(AppDbContext context, OpportunityRadarService service, Guid enterpriseId, SqliteConnection connection)
+            public IntegrationSut(AppDbContext context, OpportunityRadarService service, Guid enterpriseId)
             {
                 Context = context;
                 Service = service;
                 EnterpriseId = enterpriseId;
-                _connection = connection;
             }
 
             public AppDbContext Context { get; }
@@ -321,9 +315,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
             public void Dispose()
             {
                 Context.Dispose();
-                _connection.Dispose();
             }
         }
     }
 }
-

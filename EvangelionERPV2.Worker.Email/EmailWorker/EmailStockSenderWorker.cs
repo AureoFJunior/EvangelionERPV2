@@ -12,7 +12,6 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly IConfiguration _configuration;
-        private AWSKMSKeyProvider _kmsProvider;
 
         public EmailStockSenderWorker(IServiceScopeFactory serviceScopeFactory, IConfiguration configuration)
         {
@@ -42,7 +41,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                         }
                         else
                         {
-                            await SharedFunctions.PostAsync<object>("Email/SendStockEmail", new object(), user.Token);
+                            await SharedFunctions.PostAsync<object>("Email/SendWeeklyStockBroadcast", new object(), user.Token);
                         }
 
                         Log.Logger.Information($"Email Stock Sender Worker running at: {DateTime.UtcNow}");
@@ -50,7 +49,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                     }
                     catch (Exception ex)
                     {
-                        Log.Logger.Error(ex, "Email Stock Sender Worker with error.");
+                        Log.Logger.Error("Email Stock Sender Worker with error. ErrorType={ErrorType}", ex.GetType().Name);
                         await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
                     }
                 }
@@ -61,8 +60,8 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
         {
             string key = string.Empty;
 
-            _kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-            key = _kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+            var kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
+            key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
 
             var loginRequest = BuildLoginRequest(key);
             if (loginRequest == null)

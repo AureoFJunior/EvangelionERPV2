@@ -1,6 +1,8 @@
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Shared.Security;
 using EvangelionERPV2.Shared.Utils;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -13,6 +15,11 @@ namespace EvangelionERPV2.UserModule.Application.Token
 {
     public class TokenService
     {
+        private const int MaxTokenPersistAttempts = 2;
+        private const int RefreshTokenCleanupBatchSize = 200;
+        private static readonly TimeSpan RefreshTokenRetentionWindow = TimeSpan.FromDays(30);
+        private static readonly TimeSpan RefreshTokenCleanupInterval = TimeSpan.FromMinutes(10);
+        private static long _lastRefreshTokenCleanupTicks;
         private readonly IRepository<RefreshToken> _refreshTokenRepository;
         private readonly IConfiguration _configuration;
 
@@ -22,22 +29,31 @@ namespace EvangelionERPV2.UserModule.Application.Token
             _configuration = configuration;
         }
 
-        public string GenerateToken(User user)
+        public string GenerateToken(User user, bool isMachineClient = false)
         {
+            if (user == null || user.Id == Guid.Empty)
+                throw new ArgumentException("User with valid Id is required.", nameof(user));
+
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(SharedFunctions.GetEncryptionKey());
+            var key = Encoding.UTF8.GetBytes(SharedFunctions.GetEncryptionKey());
+            var userId = user.Id.ToString();
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.Name, userId),
+                new Claim(ClaimTypes.GivenName, user.FirstName),
+                new Claim(ClaimTypes.Surname, user.LastName),
+                new Claim(ClaimTypes.NameIdentifier, userId),
+                new Claim(ClaimTypes.Sid, userId),
+                new Claim("uid", userId),
+                new Claim(ClaimTypes.GroupSid, user?.EnterpriseId?.ToString() ?? string.Empty)
+            };
+
+            if (isMachineClient)
+                claims.Add(new Claim(MachineClaims.ClientType, MachineClaims.SelfApiValue));
+
             var tokenDescriptor = new SecurityTokenDescriptor
             {
-                Subject = new ClaimsIdentity(new[]
-                {
-                    new Claim(ClaimTypes.Name, $"{user.FirstName}-{user.LastName}-{user.UserName}"),
-                    new Claim(ClaimTypes.GivenName, user.FirstName),
-                    new Claim(ClaimTypes.Surname, user.LastName),
-                    new Claim(ClaimTypes.NameIdentifier, user.UserName),
-                    new Claim(ClaimTypes.Sid, user.Id.ToString()),
-                    new Claim("uid", user.Id.ToString()),
-                    new Claim(ClaimTypes.GroupSid, user?.EnterpriseId?.ToString() ?? string.Empty)
-                }),
+                Subject = new ClaimsIdentity(claims),
                 Expires = DateTime.UtcNow.AddMinutes(GetAccessTokenMinutes()),
                 Issuer = GetIssuer(),
                 Audience = GetAudience(),
@@ -51,7 +67,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
         public string GenerateToken(IEnumerable<Claim> claims)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(SharedFunctions.GetEncryptionKey());
+            var key = Encoding.UTF8.GetBytes(SharedFunctions.GetEncryptionKey());
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Subject = new ClaimsIdentity(claims),
@@ -98,27 +114,76 @@ namespace EvangelionERPV2.UserModule.Application.Token
                 throw new ArgumentException("UserId and refreshToken are required.");
 
             var now = DateTime.UtcNow;
-            var activeTokens = await _refreshTokenRepository.GetAllAsyncByFilter(
+            var tokenHash = HashToken(refreshToken);
+
+            var existingActiveToken = (await _refreshTokenRepository.GetAllAsyncByFilter(
                 descending: false,
                 pageNumber: 1,
-                pageSize: int.MaxValue,
-                predicate: x => x.UserId == userId && x.RevokedAt == null && x.ExpiresAt > now);
+                pageSize: 1,
+                predicate: x => x.UserId == userId && x.TokenHash == tokenHash && x.IsActive == true && x.RevokedAt == null && x.ExpiresAt > now))?.FirstOrDefault();
 
-            foreach (var token in activeTokens ?? Enumerable.Empty<RefreshToken>())
+            if (existingActiveToken != null)
+                return;
+
+            await TryCleanupStaleRefreshTokensAsync(now);
+
+            DbUpdateException? lastUniqueViolation = null;
+            for (var attempt = 1; attempt <= MaxTokenPersistAttempts; attempt++)
             {
-                token.RevokedAt = now;
-                _refreshTokenRepository.Update(token);
+                RefreshToken? insertedToken = null;
+                try
+                {
+                    await _refreshTokenRepository.ExecuteInTransactionAsync(async () =>
+                    {
+                        var activeTokens = (await _refreshTokenRepository.GetAllAsyncByFilter(
+                            descending: false,
+                            pageNumber: 1,
+                            pageSize: int.MaxValue,
+                            predicate: x => x.UserId == userId && x.IsActive == true))
+                            .ToList();
+
+                        foreach (var token in activeTokens)
+                        {
+                            token.RevokedAt ??= now;
+                            token.IsActive = false;
+                            token.UpdatedAt = now;
+                            _refreshTokenRepository.Update(token);
+                        }
+
+                        if (activeTokens.Count > 0)
+                            await _refreshTokenRepository.CommitAsync();
+
+                        insertedToken = new RefreshToken
+                        {
+                            UserId = userId,
+                            TokenHash = tokenHash,
+                            ExpiresAt = now.AddDays(GetRefreshTokenDays()),
+                            IsActive = true,
+                            CreatedAt = now,
+                            UpdatedAt = now
+                        };
+
+                        await _refreshTokenRepository.CreateAsync(insertedToken);
+                        await _refreshTokenRepository.CommitAsync();
+                    });
+
+                    return;
+                }
+                catch (DbUpdateException ex) when (attempt < MaxTokenPersistAttempts && IsUniqueActiveTokenViolation(ex, "IX_RefreshToken_UserId_Active"))
+                {
+                    DetachIfTracked(insertedToken);
+                    lastUniqueViolation = ex;
+                    continue;
+                }
+                catch (DbUpdateException ex) when (IsUniqueActiveTokenViolation(ex, "IX_RefreshToken_UserId_Active"))
+                {
+                    DetachIfTracked(insertedToken);
+                    lastUniqueViolation = ex;
+                    break;
+                }
             }
 
-            var refreshTokenEntity = new RefreshToken
-            {
-                UserId = userId,
-                TokenHash = HashToken(refreshToken),
-                ExpiresAt = now.AddDays(GetRefreshTokenDays())
-            };
-
-            await _refreshTokenRepository.CreateAsync(refreshTokenEntity);
-            await _refreshTokenRepository.CommitAsync();
+            throw new InvalidOperationException("Unable to persist refresh token after retry attempts.", lastUniqueViolation);
         }
 
         public async Task<bool> ValidateRefreshTokenAsync(Guid userId, string refreshToken)
@@ -127,12 +192,13 @@ namespace EvangelionERPV2.UserModule.Application.Token
                 return false;
 
             var now = DateTime.UtcNow;
+            await TryCleanupStaleRefreshTokensAsync(now);
             var tokenHash = HashToken(refreshToken);
             var tokens = await _refreshTokenRepository.GetAllAsyncByFilter(
                 descending: false,
                 pageNumber: 1,
-                pageSize: int.MaxValue,
-                predicate: x => x.UserId == userId && x.TokenHash == tokenHash);
+                pageSize: 1,
+                predicate: x => x.UserId == userId && x.TokenHash == tokenHash && x.IsActive == true && x.RevokedAt == null);
 
             var token = tokens?.FirstOrDefault();
             return token != null && token.RevokedAt == null && token.ExpiresAt > now;
@@ -143,17 +209,22 @@ namespace EvangelionERPV2.UserModule.Application.Token
             if (userId == Guid.Empty || string.IsNullOrWhiteSpace(refreshToken))
                 return;
 
+            var now = DateTime.UtcNow;
+            await TryCleanupStaleRefreshTokensAsync(now);
+
             var tokenHash = HashToken(refreshToken);
             var tokens = await _refreshTokenRepository.GetAllAsyncByFilter(
                 descending: false,
                 pageNumber: 1,
-                pageSize: int.MaxValue,
-                predicate: x => x.UserId == userId && x.TokenHash == tokenHash);
+                pageSize: 1,
+                predicate: x => x.UserId == userId && x.TokenHash == tokenHash && x.IsActive == true && x.RevokedAt == null);
             var token = tokens?.FirstOrDefault();
             if (token == null || token.RevokedAt != null)
                 return;
 
-            token.RevokedAt = DateTime.UtcNow;
+            token.RevokedAt = now;
+            token.IsActive = false;
+            token.UpdatedAt = now;
             _refreshTokenRepository.Update(token);
             await _refreshTokenRepository.CommitAsync();
         }
@@ -184,6 +255,56 @@ namespace EvangelionERPV2.UserModule.Application.Token
         {
             var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken));
             return Convert.ToBase64String(bytes);
+        }
+
+        private async Task TryCleanupStaleRefreshTokensAsync(DateTime now)
+        {
+            var nowTicks = now.Ticks;
+            var lastCleanupTicks = Interlocked.Read(ref _lastRefreshTokenCleanupTicks);
+            if (lastCleanupTicks != 0 && nowTicks - lastCleanupTicks < RefreshTokenCleanupInterval.Ticks)
+                return;
+
+            if (Interlocked.CompareExchange(ref _lastRefreshTokenCleanupTicks, nowTicks, lastCleanupTicks) != lastCleanupTicks)
+                return;
+
+            var retentionCutoff = now.Subtract(RefreshTokenRetentionWindow);
+
+            await _refreshTokenRepository.ExecuteInTransactionAsync(async () =>
+            {
+                var staleTokens = (await _refreshTokenRepository.GetAllAsyncByFilter(
+                    descending: false,
+                    pageNumber: 1,
+                    pageSize: RefreshTokenCleanupBatchSize,
+                    predicate: token =>
+                        token.ExpiresAt <= retentionCutoff ||
+                        (token.RevokedAt.HasValue && token.RevokedAt.Value <= retentionCutoff) ||
+                        (token.IsActive != true && token.UpdatedAt.HasValue && token.UpdatedAt.Value <= retentionCutoff),
+                    orderBy: token => token.CreatedAt))
+                    .ToList();
+
+                if (staleTokens.Count == 0)
+                    return;
+
+                _refreshTokenRepository.DeleteRange(staleTokens);
+                await _refreshTokenRepository.CommitAsync();
+            });
+        }
+
+        private static bool IsUniqueActiveTokenViolation(DbUpdateException ex, string indexName)
+        {
+            var errorText = ex.GetBaseException().Message ?? ex.Message ?? string.Empty;
+            return errorText.Contains(indexName, StringComparison.OrdinalIgnoreCase) ||
+                   (errorText.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) &&
+                    errorText.Contains("UserId", StringComparison.OrdinalIgnoreCase) &&
+                    errorText.Contains("IsActive", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void DetachIfTracked(RefreshToken? refreshToken)
+        {
+            if (refreshToken == null)
+                return;
+
+            _refreshTokenRepository.DetachEntity(refreshToken);
         }
     }
 }

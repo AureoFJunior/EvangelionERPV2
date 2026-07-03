@@ -5,10 +5,9 @@ using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Services;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using System.Text.RegularExpressions;
-using System.Security.Cryptography;
-using System.Text;
 using Xunit;
 
 namespace EvangelionERPV2.UserModule.Test.User
@@ -18,9 +17,11 @@ namespace EvangelionERPV2.UserModule.Test.User
         [Fact]
         public async Task CreatePasswordResetTokenAsync_WhenUserDoesNotExist_ReturnsNull()
         {
-            var (service, userRepository, _, passwordResetTokenRepository) = CreateService();
-            userRepository.Setup(r => r.GetByCondition(It.IsAny<Func<Shared.Entities.User, bool>>()))
-                .Returns([]);
+            var (service, userRepository, enterpriseRepository, _, passwordResetTokenRepository) = CreateService();
+            enterpriseRepository
+                .Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
+                .Returns<Guid>(_ => Task.FromResult<Enterprise>(null!));
+            SetupUniqueUserLookup(userRepository, null);
 
             var token = await service.CreatePasswordResetTokenAsync("missing@evangelion.com");
 
@@ -31,8 +32,10 @@ namespace EvangelionERPV2.UserModule.Test.User
         [Fact]
         public async Task CreatePasswordResetTokenAsync_WhenUserExists_InvalidatesActiveTokensAndCreatesNew()
         {
-            var (service, userRepository, _, passwordResetTokenRepository) = CreateService();
+            var (service, userRepository, enterpriseRepository, _, passwordResetTokenRepository) = CreateService();
             var user = BuildUser();
+            enterpriseRepository.Setup(r => r.GetByIdAsync(user.EnterpriseId!.Value))
+                .ReturnsAsync(new Enterprise { Id = user.EnterpriseId!.Value, IsActive = true });
             var activeToken = new PasswordResetToken
             {
                 Id = Guid.NewGuid(),
@@ -42,8 +45,7 @@ namespace EvangelionERPV2.UserModule.Test.User
                 IsActive = true
             };
 
-            userRepository.Setup(r => r.GetByCondition(It.IsAny<Func<Shared.Entities.User, bool>>()))
-                .Returns([user]);
+            SetupUniqueUserLookup(userRepository, user);
             passwordResetTokenRepository.Setup(r => r.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
                 .Returns<Func<Task>, CancellationToken>(async (operation, _) => await operation());
             passwordResetTokenRepository.Setup(r => r.GetAllAsyncByFilter(
@@ -53,11 +55,15 @@ namespace EvangelionERPV2.UserModule.Test.User
                     It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetToken, bool>>>(),
                     It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetToken, object>>>()))
                 .ReturnsAsync([activeToken]);
+            var persistenceEvents = new List<string>();
             passwordResetTokenRepository.Setup(r => r.Update(It.IsAny<PasswordResetToken>()))
+                .Callback(() => persistenceEvents.Add("update"))
                 .Returns<PasswordResetToken>(entity => entity);
             passwordResetTokenRepository.Setup(r => r.CreateAsync(It.IsAny<PasswordResetToken>()))
+                .Callback(() => persistenceEvents.Add("create"))
                 .ReturnsAsync((PasswordResetToken entity) => entity);
             passwordResetTokenRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>()))
+                .Callback(() => persistenceEvents.Add("commit"))
                 .Returns(Task.CompletedTask);
 
             var token = await service.CreatePasswordResetTokenAsync(user.Email);
@@ -65,15 +71,66 @@ namespace EvangelionERPV2.UserModule.Test.User
             Assert.False(string.IsNullOrWhiteSpace(token));
             Assert.Matches(new Regex(@"^\d{8}$"), token!);
             Assert.False(activeToken.IsActive ?? true);
+            Assert.Equal(["update", "commit", "create", "commit"], persistenceEvents);
             passwordResetTokenRepository.Verify(r => r.Update(It.IsAny<PasswordResetToken>()), Times.AtLeastOnce);
             passwordResetTokenRepository.Verify(r => r.CreateAsync(It.IsAny<PasswordResetToken>()), Times.Once);
-            passwordResetTokenRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+            passwordResetTokenRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+        }
+
+        [Fact]
+        public async Task CreatePasswordResetTokenAsync_WhenExistingActiveTokenIsExpired_DeactivatesItBeforeInsert()
+        {
+            var (service, userRepository, enterpriseRepository, _, passwordResetTokenRepository) = CreateService();
+            var user = BuildUser();
+            enterpriseRepository.Setup(r => r.GetByIdAsync(user.EnterpriseId!.Value))
+                .ReturnsAsync(new Enterprise { Id = user.EnterpriseId!.Value, IsActive = true });
+            var expiredActiveToken = new PasswordResetToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                TokenHash = "expired-hash",
+                ExpiresAt = DateTime.UtcNow.AddMinutes(-1),
+                IsActive = true
+            };
+
+            SetupUniqueUserLookup(userRepository, user);
+            passwordResetTokenRepository.Setup(r => r.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
+                .Returns<Func<Task>, CancellationToken>(async (operation, _) => await operation());
+            passwordResetTokenRepository.Setup(r => r.GetAllAsyncByFilter(
+                    It.IsAny<bool>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetToken, bool>>>(),
+                    It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetToken, object>>>()))
+                .ReturnsAsync((
+                    bool _,
+                    int? _,
+                    int? _,
+                    System.Linq.Expressions.Expression<Func<PasswordResetToken, bool>> predicate,
+                    System.Linq.Expressions.Expression<Func<PasswordResetToken, object>> _) =>
+                        new[] { expiredActiveToken }.Where(predicate.Compile()).ToList());
+            var persistenceEvents = new List<string>();
+            passwordResetTokenRepository.Setup(r => r.Update(It.IsAny<PasswordResetToken>()))
+                .Callback(() => persistenceEvents.Add("update"))
+                .Returns<PasswordResetToken>(entity => entity);
+            passwordResetTokenRepository.Setup(r => r.CreateAsync(It.IsAny<PasswordResetToken>()))
+                .Callback(() => persistenceEvents.Add("create"))
+                .ReturnsAsync((PasswordResetToken entity) => entity);
+            passwordResetTokenRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>()))
+                .Callback(() => persistenceEvents.Add("commit"))
+                .Returns(Task.CompletedTask);
+
+            var token = await service.CreatePasswordResetTokenAsync(user.Email);
+
+            Assert.False(string.IsNullOrWhiteSpace(token));
+            Assert.False(expiredActiveToken.IsActive ?? true);
+            Assert.Equal(["update", "commit", "create", "commit"], persistenceEvents);
         }
 
         [Fact]
         public async Task ResetPasswordAsync_WhenPasswordTooShort_ThrowsArgumentException()
         {
-            var (service, _, _, _) = CreateService();
+            var (service, _, _, _, _) = CreateService();
 
             await Assert.ThrowsAsync<ArgumentException>(() =>
                 service.ResetPasswordAsync("user@evangelion.com", "token", "123"));
@@ -82,7 +139,7 @@ namespace EvangelionERPV2.UserModule.Test.User
         [Fact]
         public async Task ResetPasswordAsync_WhenPasswordHasNoDigit_ThrowsArgumentException()
         {
-            var (service, _, _, _) = CreateService();
+            var (service, _, _, _, _) = CreateService();
 
             await Assert.ThrowsAsync<ArgumentException>(() =>
                 service.ResetPasswordAsync("user@evangelion.com", "token", "Password"));
@@ -91,7 +148,7 @@ namespace EvangelionERPV2.UserModule.Test.User
         [Fact]
         public async Task ResetPasswordAsync_WhenPasswordHasNoUppercaseOrSpecial_ThrowsArgumentException()
         {
-            var (service, _, _, _) = CreateService();
+            var (service, _, _, _, _) = CreateService();
 
             await Assert.ThrowsAsync<ArgumentException>(() =>
                 service.ResetPasswordAsync("user@evangelion.com", "token", "password1"));
@@ -100,18 +157,17 @@ namespace EvangelionERPV2.UserModule.Test.User
         [Fact]
         public async Task ResetPasswordAsync_WhenTokenInvalid_ThrowsArgumentException()
         {
-            var (service, userRepository, _, passwordResetTokenRepository) = CreateService();
+            var (service, userRepository, _, _, passwordResetTokenRepository) = CreateService();
             var user = BuildUser();
             var tokenEntity = new PasswordResetToken
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
-                TokenHash = ComputeSha256("12345678"),
+                TokenHash = ComputePasswordResetTokenHash(service, "12345678"),
                 ExpiresAt = DateTime.UtcNow.AddMinutes(10),
                 IsActive = true
             };
-            userRepository.Setup(r => r.GetByCondition(It.IsAny<Func<Shared.Entities.User, bool>>()))
-                .Returns([user]);
+            SetupUniqueUserLookup(userRepository, user);
             passwordResetTokenRepository.Setup(r => r.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
                 .Returns<Func<Task>, CancellationToken>(async (operation, _) => await operation());
             passwordResetTokenRepository.Setup(r => r.GetAllAsyncByFilter(
@@ -136,14 +192,14 @@ namespace EvangelionERPV2.UserModule.Test.User
         [Fact]
         public async Task ResetPasswordAsync_WhenValid_UpdatesPasswordAndRevokesRefreshTokens()
         {
-            var (service, userRepository, refreshTokenRepository, passwordResetTokenRepository) = CreateService();
+            var (service, userRepository, _, refreshTokenRepository, passwordResetTokenRepository) = CreateService();
             var user = BuildUser();
             user.Password = SharedFunctions.HashPassword("oldpassword");
             var resetToken = new PasswordResetToken
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
-                TokenHash = ComputeSha256("12345678"),
+                TokenHash = ComputePasswordResetTokenHash(service, "12345678"),
                 ExpiresAt = DateTime.UtcNow.AddMinutes(30),
                 FailedAttempts = 0,
                 IsActive = true
@@ -157,8 +213,7 @@ namespace EvangelionERPV2.UserModule.Test.User
                 IsActive = true
             };
 
-            userRepository.Setup(r => r.GetByCondition(It.IsAny<Func<Shared.Entities.User, bool>>()))
-                .Returns([user]);
+            SetupUniqueUserLookup(userRepository, user);
             userRepository.Setup(r => r.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
                 .Returns<Func<Task>, CancellationToken>(async (operation, _) => await operation());
             userRepository.Setup(r => r.Update(It.IsAny<Shared.Entities.User>()))
@@ -199,20 +254,19 @@ namespace EvangelionERPV2.UserModule.Test.User
         [Fact]
         public async Task ResetPasswordAsync_WhenFailedAttemptsReachLimit_DeactivatesToken()
         {
-            var (service, userRepository, _, passwordResetTokenRepository) = CreateService();
+            var (service, userRepository, _, _, passwordResetTokenRepository) = CreateService();
             var user = BuildUser();
             var tokenEntity = new PasswordResetToken
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
-                TokenHash = ComputeSha256("12345678"),
+                TokenHash = ComputePasswordResetTokenHash(service, "12345678"),
                 ExpiresAt = DateTime.UtcNow.AddMinutes(10),
                 FailedAttempts = 4,
                 IsActive = true
             };
 
-            userRepository.Setup(r => r.GetByCondition(It.IsAny<Func<Shared.Entities.User, bool>>()))
-                .Returns([user]);
+            SetupUniqueUserLookup(userRepository, user);
             passwordResetTokenRepository.Setup(r => r.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
                 .Returns<Func<Task>, CancellationToken>(async (operation, _) => await operation());
             passwordResetTokenRepository.Setup(r => r.GetAllAsyncByFilter(
@@ -236,6 +290,7 @@ namespace EvangelionERPV2.UserModule.Test.User
 
         private static (UserService service,
             Mock<IRepository<Shared.Entities.User>> userRepository,
+            Mock<IRepository<Enterprise>> enterpriseRepository,
             Mock<IRepository<RefreshToken>> refreshTokenRepository,
             Mock<IRepository<PasswordResetToken>> passwordResetTokenRepository) CreateService()
         {
@@ -254,17 +309,21 @@ namespace EvangelionERPV2.UserModule.Test.User
             var kmsProvider = new AWSKMSKeyProvider(secretsManager.Object, configuration);
 
             var userRepository = new Mock<IRepository<Shared.Entities.User>>();
+            var enterpriseRepository = new Mock<IRepository<Enterprise>>();
             var refreshTokenRepository = new Mock<IRepository<RefreshToken>>();
             var passwordResetTokenRepository = new Mock<IRepository<PasswordResetToken>>();
 
             var service = new UserService(
                 userRepository.Object,
+                enterpriseRepository.Object,
                 refreshTokenRepository.Object,
                 passwordResetTokenRepository.Object,
                 configuration,
                 kmsProvider);
 
-            return (service, userRepository, refreshTokenRepository, passwordResetTokenRepository);
+            EnsureSharedFunctionsInitialized(configuration, kmsProvider);
+
+            return (service, userRepository, enterpriseRepository, refreshTokenRepository, passwordResetTokenRepository);
         }
 
         private static Shared.Entities.User BuildUser()
@@ -278,14 +337,44 @@ namespace EvangelionERPV2.UserModule.Test.User
                 UserName = "user.test",
                 Password = SharedFunctions.HashPassword("password123"),
                 BirthDate = DateTime.UtcNow.AddYears(-20),
-                IsActive = true
+                IsActive = true,
+                EnterpriseId = Guid.NewGuid()
             };
         }
 
-        private static string ComputeSha256(string input)
+        private static string ComputePasswordResetTokenHash(UserService service, string input)
         {
-            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-            return Convert.ToBase64String(bytes);
+            var method = typeof(UserService)
+                .GetMethod("ComputePasswordResetTokenHash", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            Assert.NotNull(method);
+            var result = method.Invoke(service, new object[] { input });
+            return Assert.IsType<string>(result);
+        }
+
+        private static void SetupUniqueUserLookup(Mock<IRepository<Shared.Entities.User>> userRepository, Shared.Entities.User? user)
+        {
+            var users = user == null
+                ? Enumerable.Empty<Shared.Entities.User>()
+                : new[] { user };
+
+            userRepository.Setup(r => r.GetAllAsyncByFilter(
+                    It.IsAny<bool>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<System.Linq.Expressions.Expression<Func<Shared.Entities.User, bool>>>(),
+                    It.IsAny<System.Linq.Expressions.Expression<Func<Shared.Entities.User, object>>>()))
+                .ReturnsAsync(users);
+        }
+
+        private static void EnsureSharedFunctionsInitialized(IConfiguration configuration, AWSKMSKeyProvider kmsProvider)
+        {
+            var serviceProvider = new ServiceCollection()
+                .AddSingleton(configuration)
+                .AddSingleton(kmsProvider)
+                .BuildServiceProvider();
+
+            SharedFunctions.Initialize(serviceProvider);
         }
     }
 }

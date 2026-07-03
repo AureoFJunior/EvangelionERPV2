@@ -1,4 +1,5 @@
 using EvangelionERPV2.Shared.Entities;
+using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Shared.DTOs
 {
@@ -10,6 +11,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Email { get; set; } = string.Empty;
         public DateTime BirthDate { get; set; }
         public string? ProfilePicture { get; set; }
+        [JsonIgnore]
         public Enterprise? Enterprise { get; set; }
         public short ActualTheme { get; set; }
         public string Token { get; set; } = string.Empty;

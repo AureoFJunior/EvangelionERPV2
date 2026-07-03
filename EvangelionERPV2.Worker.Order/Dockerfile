@@ -9,6 +9,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
+COPY global.json ./
 COPY EvangelionERPV2.sln ./
 COPY EvangelionERPV2.Worker.Order/EvangelionERPV2.Worker.Order.csproj EvangelionERPV2.Worker.Order/
 COPY EvangelionERPV2.Bills.Application/*.csproj EvangelionERPV2.Bills.Application/

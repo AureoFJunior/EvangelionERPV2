@@ -18,6 +18,7 @@ namespace EvangelionERPV2.Shared.Entities
         Error = 4
     }
 
+    [Index(nameof(OrderId), nameof(Type), IsUnique = true)]
     [Index(nameof(OrderId))]
     [Index(nameof(AccessKey))]
     [Index(nameof(CreatedAt), nameof(UpdatedAt), nameof(IsActive), nameof(OrderId))]

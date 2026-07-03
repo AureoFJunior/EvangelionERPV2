@@ -13,7 +13,6 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
     public sealed class OrderWorker : BackgroundService
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private AWSKMSKeyProvider _kmsProvider;
         private readonly IConfiguration _configuration;
 
         public OrderWorker(IServiceScopeFactory serviceScopeFactory, IConfiguration configuration)
@@ -26,7 +25,6 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
         {
             try
             {
-                string key = string.Empty;
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     try
@@ -34,24 +32,23 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
                         using (var messageScope = _serviceScopeFactory.CreateScope())
                         {
                             var scopedRabbitMQ = messageScope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
-                            _kmsProvider = messageScope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-                            key = _kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
-                            // Get Order from Queue and save
-                            var order = await scopedRabbitMQ.DequeueAndProcessAsync<Order>();
-                            if (order != null)
+                            var kmsProvider = messageScope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
+                            var key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+
+                            await scopedRabbitMQ.DequeueAndProcessAsync<Order>(async order =>
                             {
                                 Log.Logger.Information($"Creating Order at: {DateTime.UtcNow}");
 
-                                var user = await GetAPIToken(messageScope, key);
+                                var user = await GetAPIToken(key, stoppingToken);
                                 if (user == null || string.IsNullOrWhiteSpace(user.Token))
-                                {
-                                    Log.Logger.Warning("Order Worker could not obtain an API token.");
-                                }
-                                else
-                                {
-                                    await SharedFunctions.PostAsync<object>("Order/InsertOrder", order, user.Token);
-                                }
-                            }
+                                    throw new InvalidOperationException("Order Worker could not obtain an API token.");
+
+                                var request = MapQueuedOrderToCreateRequest(order);
+                                var createdOrder = await SharedFunctions.PostAsync<object>("Order/InsertQueuedOrder", request, user.Token, cancellationToken: stoppingToken);
+                                if (createdOrder == null)
+                                    throw new InvalidOperationException("Order Worker failed to persist order through API.");
+                            }, stoppingToken);
+
                             Log.Logger.Information($"Order Worker running at: {DateTime.UtcNow}");
                         }
 
@@ -59,7 +56,7 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
                     }
                     catch (Exception ex)
                     {
-                        Log.Logger.Error(ex, "Order Worker with error.");
+                        Log.Logger.Error("Order Worker with error. ErrorType={ErrorType}", ex.GetType().Name);
                         await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
 
                     }
@@ -67,11 +64,11 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
             }
             catch (Exception ex)
             {
-                Log.Logger.Error(ex, "Order Worker scope with error.");
+                Log.Logger.Error("Order Worker scope with error. ErrorType={ErrorType}", ex.GetType().Name);
             }
         }
 
-        private async Task<UserDTO?> GetAPIToken(IServiceScope scope, string key)
+        private async Task<UserDTO?> GetAPIToken(string key, CancellationToken cancellationToken)
         {
             var loginRequest = BuildLoginRequest(key);
             if (loginRequest == null)
@@ -80,7 +77,46 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
                 return null;
             }
 
-            return await SharedFunctions.PostAsync<UserDTO>("User/LogInto", loginRequest);
+            return await SharedFunctions.PostAsync<UserDTO>("User/LogInto", loginRequest, cancellationToken: cancellationToken);
+        }
+
+        private static CreateQueuedOrderRequestDTO MapQueuedOrderToCreateRequest(Order order)
+        {
+            if (order == null)
+                throw new InvalidOperationException("Queued order payload is required.");
+
+            // The worker posts with the self-API machine token, so the original tenant and
+            // user must travel in the payload; the API validates them against the database.
+            if (!order.EnterpriseId.HasValue || order.EnterpriseId.Value == Guid.Empty)
+                throw new InvalidOperationException("Queued order enterprise is required.");
+
+            if (!order.UserId.HasValue || order.UserId.Value == Guid.Empty)
+                throw new InvalidOperationException("Queued order user is required.");
+
+            if (!order.CustomerId.HasValue || order.CustomerId.Value == Guid.Empty)
+                throw new InvalidOperationException("Queued order customer is required.");
+
+            var items = (order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>())
+                .Select(item => new OrderLineItemRequestDTO
+                {
+                    ProductId = item.ProductId,
+                    Quantity = item.Quantity,
+                    Value = item.Value
+                })
+                .ToList();
+
+            if (items.Count == 0)
+                throw new InvalidOperationException("Queued order must include at least one item.");
+
+            return new CreateQueuedOrderRequestDTO
+            {
+                EnterpriseId = order.EnterpriseId.Value,
+                UserId = order.UserId.Value,
+                CustomerId = order.CustomerId.Value,
+                PaymentScheduledDate = order.PaymentScheduledDate,
+                Status = order.Status,
+                Items = items
+            };
         }
 
         private static LoginRequestDTO? BuildLoginRequest(string key)

@@ -30,7 +30,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while creating ordered product.", ex);
             }
         }
 
@@ -55,7 +55,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while updating ordered product.", ex);
             }
         }
 
@@ -81,7 +81,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while deleting ordered product.", ex);
             }
         }
     }

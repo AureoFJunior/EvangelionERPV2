@@ -1,11 +1,14 @@
 using System.Security.Claims;
 using EvangelionERPV2.ReportsModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
+using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 
 namespace EvangelionERPV2.ReportsModule.Test.Reports
@@ -163,6 +166,7 @@ namespace EvangelionERPV2.ReportsModule.Test.Reports
             Guid? userId)
         {
             var controller = new ReportsController(reportsService.Object);
+            var userRepository = new Mock<IRepository<User>>();
 
             var claims = new List<Claim>();
             if (enterpriseId.HasValue)
@@ -170,12 +174,35 @@ namespace EvangelionERPV2.ReportsModule.Test.Reports
             if (userId.HasValue)
                 claims.Add(new Claim(ClaimTypes.Sid, userId.Value.ToString()));
 
+            if (enterpriseId.HasValue && userId.HasValue)
+            {
+                userRepository
+                    .Setup(r => r.GetByIdAsync(userId.Value))
+                    .ReturnsAsync(new User
+                    {
+                        Id = userId.Value,
+                        EnterpriseId = enterpriseId.Value,
+                        IsActive = true
+                    });
+            }
+            else
+            {
+                userRepository
+                    .Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
+                    .ReturnsAsync((User?)null);
+            }
+
+            var serviceProvider = new ServiceCollection()
+                .AddSingleton(userRepository.Object)
+                .BuildServiceProvider();
+
             var identity = new ClaimsIdentity(claims, "TestAuth");
             controller.ControllerContext = new ControllerContext
             {
                 HttpContext = new DefaultHttpContext
                 {
-                    User = new ClaimsPrincipal(identity)
+                    User = new ClaimsPrincipal(identity),
+                    RequestServices = serviceProvider
                 }
             };
 

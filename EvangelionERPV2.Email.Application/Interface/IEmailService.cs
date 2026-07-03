@@ -10,11 +10,12 @@ namespace EvangelionERPV2.EmailModule.Application.Interface
 
         #region Async
         Task<Email> CreateAsync(Email email);
-        Task<MimeMessage> CreateEmail(EmailStructure email);
-        Task SendEmail(MimeMessage message);
+        Task<MimeMessage> CreateEmail(EmailStructure email, Guid? enterpriseId = null);
+        Task<bool> TrySendQueuedEmail(string queuedPayload);
+        Task SendEmail(MimeMessage message, Guid? enterpriseId = null);
         Task SendManualEmail(EmailStructure email, Enterprise enterprise);
         Task SendMonthEmail(Guid? enterpriseId = null);
-        Task SendStockEmail();
+        Task SendStockEmail(Guid? enterpriseId = null);
         #endregion
     }
 }

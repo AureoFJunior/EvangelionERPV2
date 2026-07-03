@@ -4,6 +4,10 @@ on:
   pull_request:
     branches:
       - develop
+      - release
+
+permissions:
+  contents: read
 
 jobs:
   setup-and-test:
@@ -12,14 +16,22 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
+      with:
+        persist-credentials: false
 
     - name: Setup .NET Core
       uses: actions/setup-dotnet@v5
       with:
-        dotnet-version: '10.0'
+        dotnet-version: '10.0.x'
 
-    - name: Build and test 
+    - name: Restore solution
       run: |
-        dotnet restore
-        dotnet build
-        dotnet test EvangelionERPV2.OrderModule.Test/EvangelionERPV2.OrderModule.Test.csproj # Running Project Unit Tests
+        dotnet restore EvangelionERPV2.sln
+
+    - name: Build solution (Release)
+      run: |
+        dotnet build EvangelionERPV2.sln -c Release --no-restore
+
+    - name: Test solution (Release)
+      run: |
+        dotnet test EvangelionERPV2.sln -c Release --no-build

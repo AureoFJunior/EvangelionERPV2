@@ -5,6 +5,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace EvangelionERPV2.Shared.Entities
 {
     [Index(nameof(UserId), nameof(ChangedAt))]
+    [Index(nameof(EnterpriseId), nameof(ChangedAt))]
     [Index(nameof(EntityName), nameof(EntityId), nameof(ChangedAt))]
     public class AuditTrail
     {
@@ -14,6 +15,8 @@ namespace EvangelionERPV2.Shared.Entities
         [ForeignKey(nameof(User))]
         public Guid? UserId { get; set; }
         public virtual User? User { get; set; }
+
+        public Guid? EnterpriseId { get; set; }
 
         public DateTime ChangedAt { get; set; } = DateTime.UtcNow;
 

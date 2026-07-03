@@ -1,9 +1,13 @@
 name: Build, Push and Deploy
 
 on:
-  pull_request:
+  push:
     branches:
       - release
+
+permissions:
+  contents: read
+  id-token: write
 
 defaults:
   run:
@@ -12,12 +16,15 @@ defaults:
 jobs:
   build_and_push:
     runs-on: ubuntu-latest
+    env:
+      AWS_GITHUB_ROLE_ARN: ${{ secrets.AWS_GITHUB_ROLE_ARN }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up QEMU (for buildx multi-arch)
         uses: docker/setup-qemu-action@v3
@@ -31,7 +38,16 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ env.AWS_GITHUB_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ env.AWS_GITHUB_ROLE_ARN }}
+          role-session-name: github-actions-buildpushdeploy
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Configure AWS credentials (access keys fallback)
+        if: ${{ env.AWS_GITHUB_ROLE_ARN == '' }}
         uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -84,12 +100,25 @@ jobs:
   deploy_to_ecs:
     needs: build_and_push
     runs-on: ubuntu-latest
+    env:
+      AWS_GITHUB_ROLE_ARN: ${{ secrets.AWS_GITHUB_ROLE_ARN }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ env.AWS_GITHUB_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ env.AWS_GITHUB_ROLE_ARN }}
+          role-session-name: github-actions-deploy
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Configure AWS credentials (access keys fallback)
+        if: ${{ env.AWS_GITHUB_ROLE_ARN == '' }}
         uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}

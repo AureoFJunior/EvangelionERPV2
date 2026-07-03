@@ -18,12 +18,27 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             _auditTrailRepository = auditTrailRepository;
         }
 
-        public Task<AuditTrail?> GetByIdAsync(Guid id)
+        public Task<AuditTrail?> GetByIdAsync(Guid id, Guid enterpriseId)
         {
-            return _auditTrailRepository.GetByIdAsync(id);
+            return _auditTrailRepository.GetByIdAsync(id, enterpriseId);
+        }
+
+        public Task<int> DeleteOlderThanAsync(
+            Guid enterpriseId,
+            DateTime cutoffDateUtc,
+            CancellationToken cancellationToken = default)
+        {
+            if (enterpriseId == Guid.Empty)
+                return Task.FromResult(0);
+
+            return _auditTrailRepository.DeleteOlderThanAsync(
+                enterpriseId,
+                NormalizeToUtc(cutoffDateUtc),
+                cancellationToken);
         }
 
         public Task<(IEnumerable<AuditTrail> AuditTrails, int TotalItems)> GetAllAsyncFiltering(
+            Guid enterpriseId,
             bool descending,
             int? pageNumber,
             int? pageSize,
@@ -33,6 +48,7 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             int resolvedPageSize = ResolvePageSize(pageSize);
 
             return _auditTrailRepository.GetAllAsyncFiltering(
+                enterpriseId,
                 descending,
                 resolvedPageNumber,
                 resolvedPageSize,
@@ -53,6 +69,16 @@ namespace EvangelionERPV2.AuditModule.Application.Services
                 return DefaultPageSize;
 
             return Math.Min(pageSize.Value, MaxPageSize);
+        }
+
+        private static DateTime NormalizeToUtc(DateTime value)
+        {
+            return value.Kind switch
+            {
+                DateTimeKind.Utc => value,
+                DateTimeKind.Local => value.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+            };
         }
     }
 }

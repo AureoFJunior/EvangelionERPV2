@@ -8,6 +8,7 @@ using System.Linq.Expressions;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Repositories;
 using System.Text.Json;
+using Serilog;
 
 namespace EvangelionERPV2.ProductModule.Domain.Repositories
 {
@@ -27,10 +28,24 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
 
             if (!string.IsNullOrEmpty(cachedProduct))
             {
-                // Deserialize the cached product and return it
-                var productFromCache = JsonSerializer.Deserialize<Product>(cachedProduct);
-                if (productFromCache != null)
-                    return productFromCache;
+                try
+                {
+                    // Deserialize the cached product and return it
+                    var productFromCache = JsonSerializer.Deserialize<Product>(cachedProduct);
+                    if (productFromCache != null)
+                    {
+                        NormalizePictureAddress(productFromCache);
+                        return productFromCache;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Logger.Warning(
+                        ex,
+                        "Product cache payload is invalid and will be ignored. CacheKey={CacheKey} ErrorType={ErrorType}",
+                        cacheKey,
+                        ex.GetType().Name);
+                }
             }
 
             // If not found in cache, query the database
@@ -41,23 +56,46 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             if (product == null)
                 throw new NotFoundDatabaseException();
 
+            NormalizePictureAddress(product);
             await SetCachedProduct(cacheKey, product);
 
             return product;
         }
 
+        public override Product Update(Product entity)
+        {
+            RemoveCachedProduct(entity.Id);
+            return base.Update(entity);
+        }
+
+        public override IEnumerable<Product> UpdateRange(IEnumerable<Product> entitys)
+        {
+            foreach (var entity in entitys)
+                RemoveCachedProduct(entity.Id);
+
+            return base.UpdateRange(entitys);
+        }
+
         private async Task SetCachedProduct(string cacheKey, Product product)
         {
-            // Decrypt the PictureAddress field
-            product.PictureAdress = SharedFunctions.Decrypt(product.PictureAdress ?? "");
-
-            // Serialize the product and store it in Redis cache for future use
-            var productToCache = JsonSerializer.Serialize(product);
-
-            await _cache.SetStringAsync(cacheKey, productToCache, new DistributedCacheEntryOptions
+            try
             {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60) // Cache for 60 minutes
-            });
+                // Serialize the product and store it in Redis cache for future use
+                var productToCache = JsonSerializer.Serialize(product);
+
+                await _cache.SetStringAsync(cacheKey, productToCache, new DistributedCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60) // Cache for 60 minutes
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(
+                    ex,
+                    "Unable to set product cache entry. CacheKey={CacheKey} ErrorType={ErrorType}",
+                    cacheKey,
+                    ex.GetType().Name);
+            }
         }
 
         private async Task<Tuple<string, string?>> GetCachedProductById(Guid id)
@@ -65,10 +103,22 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             // Define the cache key using the product ID
             string cacheKey = $"Product:{id}";
 
-            // Try to get the product from Redis cache
-            string? cachedProduct = await _cache.GetStringAsync(cacheKey);
+            try
+            {
+                // Try to get the product from Redis cache
+                string? cachedProduct = await _cache.GetStringAsync(cacheKey);
+                return Tuple.Create(cacheKey, cachedProduct);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(
+                    ex,
+                    "Unable to read product cache entry. CacheKey={CacheKey} ErrorType={ErrorType}",
+                    cacheKey,
+                    ex.GetType().Name);
+            }
 
-            return Tuple.Create(cacheKey, cachedProduct);
+            return Tuple.Create(cacheKey, (string?)null);
         }
 
         public async override Task<IEnumerable<Product>> GetAllAsync(Func<Product, bool>? predicate)
@@ -83,7 +133,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
                 throw new NotFoundDatabaseException();
 
             foreach (var item in result)
-                item.PictureAdress = SharedFunctions.Decrypt(item.PictureAdress ?? "");
+                NormalizePictureAddress(item);
 
             return result;
         }
@@ -120,9 +170,34 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
                 throw new NotFoundDatabaseException();
 
             foreach (var item in result)
-                item.PictureAdress = SharedFunctions.Decrypt(item.PictureAdress ?? "");
+                NormalizePictureAddress(item);
 
             return result;
+        }
+
+        public void RemoveCachedProduct(Guid id)
+        {
+            if (id == Guid.Empty)
+                return;
+
+            var cacheKey = $"Product:{id}";
+            try
+            {
+                _cache.Remove(cacheKey);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning(
+                    ex,
+                    "Unable to remove product cache entry. CacheKey={CacheKey} ErrorType={ErrorType}",
+                    cacheKey,
+                    ex.GetType().Name);
+            }
+        }
+
+        private static void NormalizePictureAddress(Product product)
+        {
+            product.PictureAdress = SharedFunctions.EnsureDecryptedAddress(product.PictureAdress);
         }
 
         public async Task<(IEnumerable<Product>, int)> GetAllAsyncFiltering(bool descending,
@@ -141,34 +216,53 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
 
                 if (!string.IsNullOrEmpty(cachedProduct))
                 {
-                    // Deserialize the cached product and return it
-                    var productFromCache = JsonSerializer.Deserialize<Product>(cachedProduct);
-                    if (productFromCache != null)
-                        return (new List<Product>() { productFromCache }, 1);
+                    try
+                    {
+                        // Deserialize the cached product and return it
+                        var productFromCache = JsonSerializer.Deserialize<Product>(cachedProduct);
+                        if (productFromCache != null)
+                        {
+                            NormalizePictureAddress(productFromCache);
+                            return (new List<Product>() { productFromCache }, 1);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Logger.Warning(
+                            ex,
+                            "Product cache payload is invalid and will be ignored. CacheKey={CacheKey} ErrorType={ErrorType}",
+                            cacheKey,
+                            ex.GetType().Name);
+                    }
                 }
             }
 
             Expression<Func<Product, object>> orderBy = FillOrderByPerField(product);
 
-            var nameFilter = product.Name?.Trim();
+            var nameFilter = SharedFunctions.EnsureSearchFilterLength(product.Name, 150, nameof(product.Name));
+            var escapedNameFilter = SharedFunctions.EscapeLikePattern(nameFilter ?? string.Empty);
 
             (var products, int totalItems) = await GetAllAsyncByFilterWithCountInternal(
                 descending,
                 pageNumber,
                 pageSize,
                 x =>
-                (string.IsNullOrEmpty(nameFilter) || EF.Functions.Like(x.Name, $"%{nameFilter}%"))
+                (string.IsNullOrEmpty(nameFilter) || EF.Functions.Like(x.Name, $"%{escapedNameFilter}%", "\\"))
                 && (x.EnterpriseId != null && (product.EnterpriseId == x.EnterpriseId && x.EnterpriseId != default(Guid))),
                 orderBy
             );
 
-            if (products.Any())
-                foreach (var item in products.Take(10).ToList()) // Save the first 10 itens when not found the exact searched product
+            var productList = products.ToList();
+            foreach (var item in productList)
+                NormalizePictureAddress(item);
+
+            if (productList.Any())
+                foreach (var item in productList.Take(10)) // Save the first 10 itens when not found the exact searched product
                 {
                     await SetCachedProduct($"Product:{item.Name}", item);
                 }
 
-            return (products, totalItems);
+            return (productList, totalItems);
         }
 
         private static Expression<Func<Product, object>> FillOrderByPerField(Product product)

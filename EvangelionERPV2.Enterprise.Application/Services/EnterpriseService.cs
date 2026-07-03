@@ -32,7 +32,7 @@ namespace EvangelionERPV2.EnterpriseModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while creating enterprise.", ex);
             }
         }
 
@@ -62,7 +62,7 @@ namespace EvangelionERPV2.EnterpriseModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while updating enterprise.", ex);
             }
         }
 
@@ -88,7 +88,7 @@ namespace EvangelionERPV2.EnterpriseModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while deleting enterprise.", ex);
             }
         }
 

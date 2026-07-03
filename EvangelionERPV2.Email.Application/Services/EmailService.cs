@@ -12,6 +12,11 @@ using Google.Apis.Auth.OAuth2;
 using Google.Apis.Util.Store;
 using Microsoft.Extensions.Configuration;
 using EvangelionERPV2.ProductModule.Application.Interface;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Net;
+using System.Net.Sockets;
 
 namespace EvangelionERPV2.EmailModule.Application.Services
 {
@@ -25,6 +30,8 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         private readonly AWSKMSKeyProvider _kmsProvider;
         private readonly IConfiguration _configuration;
         private bool disposed;
+        private const string AllowPrivateSmtpDestinationsConfigKey = "Security:AllowPrivateSmtpDestinations";
+        private const string EnableInteractiveGoogleOAuthFallbackConfigKey = "EmailSettings:EnableInteractiveGoogleOAuthFallback";
 
         public EmailService(
             IEmailRabbitMQManager rabbitMQManager,
@@ -50,6 +57,8 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             {
                 if (email == null)
                     throw new InsertDatabaseException($"{nameof(Email)} is null");
+                if (!email.EnterpriseId.HasValue || email.EnterpriseId.Value == Guid.Empty)
+                    throw new InsertDatabaseException("Email enterprise is required.");
 
                 email.Id = Guid.NewGuid();
                 email.Password = SharedFunctions.Encrypt(email.Password);
@@ -62,18 +71,18 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (Exception ex)
             {
-                throw new InsertDatabaseException(ex.Message, ex);
+                throw new InsertDatabaseException("Unexpected error while creating email settings.", ex);
             }
         }
 
-        public async Task<MimeMessage> CreateEmail(EmailStructure email)
+        public async Task<MimeMessage> CreateEmail(EmailStructure email, Guid? enterpriseId = null)
         {
             try
             {
                 // Create the Email object
 
                 var message = new MimeMessage();
-                var emailSettings = (await ResolveEmailSettingsCandidatesAsync()).FirstOrDefault();
+                var emailSettings = (await ResolveEmailSettingsCandidatesAsync(enterpriseId)).FirstOrDefault();
                 if (emailSettings == null)
                     throw new NotFoundDatabaseException("Email settings were not found.");
 
@@ -95,16 +104,16 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Error while creating email: {ex.Message}", ex.Message);
+                Log.Logger.Error("Error while creating email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw new EmailSenderException();
             }
         }
 
-        public async Task SendEmail(MimeMessage message)
+        public async Task SendEmail(MimeMessage message, Guid? enterpriseId = null)
         {
             try
             {
-                var settingsCandidates = (await ResolveEmailSettingsCandidatesAsync()).ToList();
+                var settingsCandidates = (await ResolveEmailSettingsCandidatesAsync(enterpriseId)).ToList();
                 if (settingsCandidates.Count == 0)
                     throw new InvalidOperationException("Email settings are not configured.");
 
@@ -117,8 +126,9 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                     try
                     {
+                        var resolvedPort = emailSettings.Port == 0 ? 587 : emailSettings.Port;
                         using var smtpClient = new MailKit.Net.Smtp.SmtpClient();
-                        await smtpClient.ConnectAsync(emailSettings.HostName, emailSettings.Port == 0 ? 587 : emailSettings.Port, SecureSocketOptions.StartTls);
+                        await ConnectToAllowedSmtpDestinationAsync(smtpClient, emailSettings.HostName, resolvedPort);
 
                         var isAuthenticated = false;
                         string? authFailureReason = null;
@@ -133,18 +143,31 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                             }
                             catch (Exception ex)
                             {
-                                authFailureReason = ex.Message;
-                                Log.Logger.Warning(ex, "SMTP authentication failed for sender {Email}. Trying next available authentication option.", userEmail);
+                                authFailureReason = GetSafeExceptionType(ex);
+                                Log.Logger.Warning(
+                                    "SMTP authentication failed for sender EmailId={EmailId}. Trying next available authentication option. ErrorType={ErrorType}",
+                                    GetLogSafeEmailIdentifier(userEmail),
+                                    authFailureReason);
                             }
                         }
 
                         if (!isAuthenticated)
                         {
-                            isAuthenticated = await TryAuthenticateWithGoogleOAuthAsync(smtpClient, userEmail);
+                            if (ShouldAttemptInteractiveGoogleOAuthFallback())
+                            {
+                                isAuthenticated = await TryAuthenticateWithGoogleOAuthAsync(smtpClient, userEmail);
+                            }
+                            else
+                            {
+                                Log.Logger.Warning(
+                                    "Interactive Google OAuth SMTP fallback is disabled for this runtime. Configure SMTP credentials for sender EmailId={EmailId}.",
+                                    GetLogSafeEmailIdentifier(userEmail));
+                            }
+
                             if (!isAuthenticated)
                             {
-                                var reasonSuffix = string.IsNullOrWhiteSpace(authFailureReason) ? string.Empty : $" Reason: {authFailureReason}";
-                                throw new InvalidOperationException($"SMTP authentication failed for sender {userEmail}.{reasonSuffix}");
+                                var reasonSuffix = string.IsNullOrWhiteSpace(authFailureReason) ? string.Empty : $" ErrorType={authFailureReason}";
+                                throw new InvalidOperationException($"SMTP authentication failed for sender EmailId={GetLogSafeEmailIdentifier(userEmail)}.{reasonSuffix}");
                             }
                         }
 
@@ -162,24 +185,53 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                     }
                     catch (Exception ex)
                     {
-                        lastFailure = ex.Message;
-                        Log.Logger.Warning(ex, "Email sending failed with configured sender {Email}. Trying next configured sender.", userEmail);
+                        lastFailure = GetSafeExceptionType(ex);
+                        Log.Logger.Warning(
+                            "Email sending failed with configured sender EmailId={EmailId}. Trying next configured sender. ErrorType={ErrorType}",
+                            GetLogSafeEmailIdentifier(userEmail),
+                            lastFailure);
                     }
                 }
 
-                throw new InvalidOperationException($"Unable to send email with available sender settings. Last error: {lastFailure}");
+                throw new InvalidOperationException($"Unable to send email with available sender settings. LastErrorType={lastFailure}");
             }
             catch (Exception ex)
             {
-                Log.Logger.Error(ex, "Error while sending email.");
+                Log.Logger.Error("Error while sending email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw new EmailSenderException("Error while sending email.", ex);
             }
         }
 
-        private async Task<IEnumerable<Email>> ResolveEmailSettingsCandidatesAsync()
+        public async Task<bool> TrySendQueuedEmail(string queuedPayload)
         {
-            var storedSettings = (await _emailRepository.GetAllAsync(x => x.IsActive != false))
-                ?.OrderByDescending(x => x.CreatedAt)
+            if (!TryParseQueuedEmailPayload(queuedPayload, out var payload))
+                return false;
+
+            if (!IsValidQueuedEmailPayload(payload))
+                return false;
+
+            MimeMessage message;
+            try
+            {
+                using var stream = new MemoryStream(Encoding.UTF8.GetBytes(payload.RawMimeMessage));
+                message = MimeMessage.Load(stream);
+            }
+            catch
+            {
+                return false;
+            }
+
+            await SendEmail(message, payload.EnterpriseId);
+            return true;
+        }
+
+        private async Task<IEnumerable<Email>> ResolveEmailSettingsCandidatesAsync(Guid? enterpriseId = null)
+        {
+            var storedSettings = (await _emailRepository.GetAllAsync(x =>
+                    x.IsActive != false &&
+                    (!enterpriseId.HasValue || x.EnterpriseId == enterpriseId.Value || x.EnterpriseId == null)))
+                ?.OrderByDescending(x => enterpriseId.HasValue && x.EnterpriseId == enterpriseId.Value)
+                .ThenByDescending(x => x.CreatedAt)
                 .ToList() ?? [];
 
             var candidates = new List<Email>(storedSettings);
@@ -234,9 +286,153 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (Exception ex)
             {
-                Log.Logger.Warning(ex, "Google OAuth authentication failed for email sender {Email}. Falling back to SMTP credentials.", userEmail);
+                Log.Logger.Warning("Google OAuth authentication failed for email sender EmailId={EmailId}. Continuing with next configured sender. ErrorType={ErrorType}", GetLogSafeEmailIdentifier(userEmail), GetSafeExceptionType(ex));
                 return false;
             }
+        }
+
+        private bool ShouldAttemptInteractiveGoogleOAuthFallback()
+        {
+            return ShouldAttemptInteractiveGoogleOAuthFallback(
+                _configuration,
+                OperatingSystem.IsWindows(),
+                IsRunningInContainer());
+        }
+
+        private static bool ShouldAttemptInteractiveGoogleOAuthFallback(IConfiguration configuration, bool isWindows, bool isContainer)
+        {
+            if (configuration.GetValue<bool?>(EnableInteractiveGoogleOAuthFallbackConfigKey) != true)
+                return false;
+
+            return isWindows && !isContainer;
+        }
+
+        private static bool IsRunningInContainer()
+        {
+            return IsTruthyEnvironmentValue(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER")) ||
+                   IsTruthyEnvironmentValue(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINERS")) ||
+                   File.Exists("/.dockerenv");
+        }
+
+        private static bool IsTruthyEnvironmentValue(string? value)
+        {
+            return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(value, "1", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetLogSafeEmailIdentifier(string? email)
+        {
+            var normalizedEmail = (email ?? string.Empty).Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(normalizedEmail))
+                return "empty";
+
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedEmail));
+            return Convert.ToHexString(bytes).ToLowerInvariant()[..12];
+        }
+
+        private static string GetSafeExceptionType(Exception? exception)
+        {
+            return exception?.GetType().Name ?? "UnknownError";
+        }
+
+        private string CreateQueuedEmailPayload(Guid enterpriseId, string rawMimeMessage)
+        {
+            if (enterpriseId == Guid.Empty)
+                throw new InvalidOperationException("Queued email enterprise is required.");
+
+            if (string.IsNullOrWhiteSpace(rawMimeMessage))
+                throw new InvalidOperationException("Queued email MIME payload is required.");
+
+            var payload = new QueuedEmailPayload
+            {
+                EnterpriseId = enterpriseId,
+                RawMimeMessage = rawMimeMessage
+            };
+            payload.Signature = CreateQueuedEmailSignature(payload.EnterpriseId, payload.RawMimeMessage);
+            return JsonSerializer.Serialize(payload);
+        }
+
+        private static bool TryParseQueuedEmailPayload(string rawPayload, out QueuedEmailPayload payload)
+        {
+            payload = new QueuedEmailPayload();
+            if (string.IsNullOrWhiteSpace(rawPayload))
+                return false;
+
+            try
+            {
+                var parsedPayload = JsonSerializer.Deserialize<QueuedEmailPayload>(
+                    rawPayload,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (parsedPayload == null ||
+                    parsedPayload.EnterpriseId == Guid.Empty ||
+                    string.IsNullOrWhiteSpace(parsedPayload.RawMimeMessage) ||
+                    string.IsNullOrWhiteSpace(parsedPayload.Signature))
+                {
+                    return false;
+                }
+
+                payload = parsedPayload;
+                return true;
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
+
+        private bool IsValidQueuedEmailPayload(QueuedEmailPayload payload)
+        {
+            string expectedSignature;
+            try
+            {
+                expectedSignature = CreateQueuedEmailSignature(payload.EnterpriseId, payload.RawMimeMessage);
+            }
+            catch
+            {
+                return false;
+            }
+
+            try
+            {
+                var expectedBytes = Convert.FromBase64String(expectedSignature);
+                var providedBytes = Convert.FromBase64String(payload.Signature);
+                return expectedBytes.Length == providedBytes.Length &&
+                       CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes);
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+        }
+
+        private string CreateQueuedEmailSignature(Guid enterpriseId, string rawMimeMessage)
+        {
+            var signingKey = ResolveQueueSigningKey();
+            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(signingKey));
+            var data = Encoding.UTF8.GetBytes($"{enterpriseId:N}\n{rawMimeMessage}");
+            return Convert.ToBase64String(hmac.ComputeHash(data));
+        }
+
+        private string ResolveQueueSigningKey()
+        {
+            var configuredKey = ResolveConfigValue(_configuration.GetSection("EmailQueue")["SigningKey"]);
+            if (!string.IsNullOrWhiteSpace(configuredKey))
+                return configuredKey;
+
+            var encryptionKey = ResolveConfigValue(_configuration.GetSection("Encryption")["Key"]);
+            if (!string.IsNullOrWhiteSpace(encryptionKey))
+                return encryptionKey;
+
+            throw new InvalidOperationException("Email queue signing key is not configured.");
+        }
+
+        private sealed class QueuedEmailPayload
+        {
+            public int Version { get; set; } = 1;
+            public Guid EnterpriseId { get; set; }
+            public string RawMimeMessage { get; set; } = string.Empty;
+            public string Signature { get; set; } = string.Empty;
         }
 
         private string ResolveConfigValue(string? rawValue)
@@ -305,10 +501,124 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 value.Contains(':');
         }
 
+        private async Task ConnectToAllowedSmtpDestinationAsync(MailKit.Net.Smtp.SmtpClient smtpClient, string? hostName, int port)
+        {
+            if (!IsAllowedSmtpPort(port))
+                throw new InvalidOperationException("Blocked SMTP destination.");
+
+            var normalizedHost = (hostName ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(normalizedHost))
+                throw new InvalidOperationException("Blocked SMTP destination.");
+
+            if (normalizedHost.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Blocked SMTP destination.");
+
+            if (_configuration.GetValue<bool?>(AllowPrivateSmtpDestinationsConfigKey) == true)
+            {
+                await smtpClient.ConnectAsync(normalizedHost, port, SecureSocketOptions.StartTls);
+                return;
+            }
+
+            var addresses = await ResolveAllowedSmtpAddressesAsync(normalizedHost);
+            if (addresses.Length == 0)
+                throw new InvalidOperationException("Blocked SMTP destination.");
+
+            var address = addresses[0];
+            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                await socket.ConnectAsync(new IPEndPoint(address, port));
+                await smtpClient.ConnectAsync(socket, normalizedHost, port, SecureSocketOptions.StartTls);
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
+        }
+
+        private static async Task<IPAddress[]> ResolveAllowedSmtpAddressesAsync(string normalizedHost)
+        {
+            IPAddress[] addresses;
+            try
+            {
+                addresses = await Dns.GetHostAddressesAsync(normalizedHost);
+            }
+            catch
+            {
+                return [];
+            }
+
+            if (addresses == null || addresses.Length == 0)
+                return [];
+
+            if (addresses.Any(IsRestrictedAddress))
+                return [];
+
+            return addresses
+                .OrderBy(address => address.AddressFamily == AddressFamily.InterNetwork ? 0 : 1)
+                .ToArray();
+        }
+
+        private static bool IsAllowedSmtpPort(int port)
+        {
+            return port is 25 or 465 or 587;
+        }
+
+        private static bool IsRestrictedAddress(IPAddress address)
+        {
+            if (IPAddress.IsLoopback(address))
+                return true;
+
+            if (address.AddressFamily == AddressFamily.InterNetwork)
+            {
+                var bytes = address.GetAddressBytes();
+                var first = bytes[0];
+                var second = bytes[1];
+
+                if (first == 10 || first == 127 || first == 0)
+                    return true;
+
+                if (first == 172 && second >= 16 && second <= 31)
+                    return true;
+
+                if (first == 192 && second == 168)
+                    return true;
+
+                if (first == 169 && second == 254)
+                    return true;
+
+                if (first >= 224)
+                    return true;
+
+                return false;
+            }
+
+            if (address.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                if (address.IsIPv6LinkLocal || address.IsIPv6Multicast || address.IsIPv6SiteLocal)
+                    return true;
+
+                var bytes = address.GetAddressBytes();
+                var first = bytes[0];
+                if ((first & 0xFE) == 0xFC)
+                    return true;
+
+                return false;
+            }
+
+            return true;
+        }
+
         public async Task SendManualEmail(EmailStructure email, Enterprise enterprise)
         {
             try
             {
+                if (enterprise == null || enterprise.Id == Guid.Empty)
+                    throw new EmailSenderException("Email enterprise is required.");
+
+                var enterpriseId = enterprise.Id;
+
                 // Validate email
                 if (email.RecipientEmails == null || email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
                 {
@@ -316,7 +626,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                     return;
                 }
 
-                var message = await CreateEmail(email);
+                var message = await CreateEmail(email, enterpriseId);
 
                 var messageSummary = new
                 {
@@ -333,14 +643,14 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 using (var stream = new MemoryStream())
                 {
                     message.WriteTo(stream);
-                    var rawMessage = System.Text.Encoding.UTF8.GetString(stream.ToArray());
-                    await _rabbitMQManager.EnqueueAsync<string>(rawMessage);
+                    var rawMessage = Encoding.UTF8.GetString(stream.ToArray());
+                    await _rabbitMQManager.EnqueueAsync<string>(CreateQueuedEmailPayload(enterpriseId, rawMessage));
                 }
                 Log.Logger.Information("Email has been enqueued");
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Couldn't send email.", ex.Message);
+                Log.Logger.Error("Couldn't send manual email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw;
             }
         }
@@ -351,7 +661,11 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             try
             {
                 var enterprises = await _enterpriseRepository
-                    .GetAllAsync(x => (x.Id == (enterpriseId ?? Guid.NewGuid()) || x.ShouldSendMonthlyBilling) && !string.IsNullOrEmpty(x.Email)) ?? new List<Enterprise>();
+                    .GetAllAsync(x =>
+                        !string.IsNullOrEmpty(x.Email) &&
+                        (enterpriseId.HasValue
+                            ? x.Id == enterpriseId.Value
+                            : x.ShouldSendMonthlyBilling)) ?? new List<Enterprise>();
 
                 foreach (Enterprise enterprise in enterprises)
                 {
@@ -377,11 +691,11 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (EmailSenderException ex)
             {
-                Log.Logger.Warning(ex.Message);
+                Log.Logger.Warning("Email sender failure during monthly email dispatch. ErrorType={ErrorType}", GetSafeExceptionType(ex));
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Couldn't send email.", ex.Message);
+                Log.Logger.Error("Couldn't send monthly email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw;
             }
         }
@@ -392,12 +706,14 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         #endregion
 
         #region Stock Email 
-        public async Task SendStockEmail()
+        public async Task SendStockEmail(Guid? enterpriseId = null)
         {
             try
             {
                 var enterprises = await _enterpriseRepository
-                    .GetAllAsync(x => !string.IsNullOrEmpty(x.Email)) ?? new List<Enterprise>();
+                    .GetAllAsync(x =>
+                        !string.IsNullOrEmpty(x.Email) &&
+                        (!enterpriseId.HasValue || x.Id == enterpriseId.Value)) ?? new List<Enterprise>();
 
                 foreach (Enterprise enterprise in enterprises)
                 {
@@ -414,11 +730,11 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
             catch (EmailSenderException ex)
             {
-                Log.Logger.Warning(ex.Message);
+                Log.Logger.Warning("Email sender failure during stock email dispatch. ErrorType={ErrorType}", GetSafeExceptionType(ex));
             }
             catch (Exception ex)
             {
-                Log.Logger.Error($"Couldn't send email.", ex.Message);
+                Log.Logger.Error("Couldn't send stock email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw;
             }
         }
@@ -435,17 +751,25 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
 
             // Validate recipients's email
-            foreach (var recipientEmail in email.RecipientEmails)
-            {
+            var validRecipients = new List<string>();
 
-                if (await SharedFunctions.IsEmailValid<string>(recipientEmail) == false)
+            foreach (var recipientEmail in email.RecipientEmails ?? Enumerable.Empty<string>())
+            {
+                var normalizedRecipient = (recipientEmail ?? string.Empty).Trim();
+
+                if (!await SharedFunctions.IsEmailValid<string>(normalizedRecipient))
                 {
-                    Log.Logger.Error($"Invalid Email {recipientEmail}.");
-                    email.RecipientEmails.ToList().Remove(recipientEmail);
+                    Log.Logger.Error(
+                        "Invalid recipient email. EmailId={EmailId}.",
+                        GetLogSafeEmailIdentifier(normalizedRecipient));
+                    continue;
                 }
+
+                validRecipients.Add(normalizedRecipient);
             }
 
-            return email.RecipientEmails.Any();
+            email.RecipientEmails = validRecipients;
+            return validRecipients.Any();
         }
 
         private async Task<string> GetGmailAccessTokenAsync(string clientId, string clientSecret, string userEmail)
@@ -461,14 +785,14 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             // Porta fixa + Edge InPrivate
             var receiver = new FixedPortEdgeReceiver(54373);
 
-            var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
-                secrets,
-                scopes,
-                userEmail,
-                CancellationToken.None,
-                new FileDataStore("GmailOAuth2TokenStore", true),
-                receiver
-            );
+                var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    secrets,
+                    scopes,
+                    userEmail,
+                    CancellationToken.None,
+                    new NullDataStore(),
+                    receiver
+                );
 
             return await credential.GetAccessTokenForRequestAsync();
         }

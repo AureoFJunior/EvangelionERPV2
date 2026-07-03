@@ -4,6 +4,8 @@ using EvangelionERPV2.BillsModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
+using BoletoNetCore;
+using System.Reflection;
 using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
@@ -18,8 +20,9 @@ namespace EvangelionERPV2.BillsModule.Test
         {
             var settings = CreateValidSettings();
             var (service, _, _, _, _) = CreateServiceWithMocks(settings);
+            var enterpriseId = Guid.NewGuid();
 
-            var result = await service.GetByOrderIdAsync(Guid.Empty);
+            var result = await service.GetByOrderIdAsync(Guid.Empty, enterpriseId);
 
             Assert.Null(result);
         }
@@ -28,15 +31,51 @@ namespace EvangelionERPV2.BillsModule.Test
         public async Task GetByOrderIdAsync_WhenBillExists_ReturnsBill()
         {
             var settings = CreateValidSettings();
-            var (service, _, billRepoCustom, _, _) = CreateServiceWithMocks(settings);
+            var (service, _, billRepoCustom, orderRepo, _) = CreateServiceWithMocks(settings);
             var orderId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
             var expected = new BillEntity { Id = Guid.NewGuid(), OrderId = orderId, BankCode = 33 };
 
+            orderRepo
+                .Setup(r => r.GetByIdAsync(orderId))
+                .ReturnsAsync(new Order { Id = orderId, EnterpriseId = enterpriseId });
             billRepoCustom.Setup(r => r.GetByOrderIdAsync(orderId)).ReturnsAsync(expected);
 
-            var result = await service.GetByOrderIdAsync(orderId);
+            var result = await service.GetByOrderIdAsync(orderId, enterpriseId);
 
             Assert.Same(expected, result);
+        }
+
+        [Fact]
+        public async Task GetByOrderIdAsync_WhenEnterpriseDoesNotMatch_ReturnsNull()
+        {
+            var settings = CreateValidSettings();
+            var (service, _, billRepoCustom, orderRepo, _) = CreateServiceWithMocks(settings);
+            var orderId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+
+            orderRepo
+                .Setup(r => r.GetByIdAsync(orderId))
+                .ReturnsAsync(new Order { Id = orderId, EnterpriseId = Guid.NewGuid() });
+
+            var result = await service.GetByOrderIdAsync(orderId, enterpriseId);
+
+            Assert.Null(result);
+            billRepoCustom.Verify(r => r.GetByOrderIdAsync(It.IsAny<Guid>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task GetByOrderIdAsync_WhenEnterpriseIdIsEmpty_ReturnsNullWithoutLookup()
+        {
+            var settings = CreateValidSettings();
+            var (service, _, billRepoCustom, orderRepo, _) = CreateServiceWithMocks(settings);
+            var orderId = Guid.NewGuid();
+
+            var result = await service.GetByOrderIdAsync(orderId, Guid.Empty);
+
+            Assert.Null(result);
+            orderRepo.Verify(r => r.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
+            billRepoCustom.Verify(r => r.GetByOrderIdAsync(It.IsAny<Guid>()), Times.Never);
         }
 
         [Fact]
@@ -45,8 +84,13 @@ namespace EvangelionERPV2.BillsModule.Test
             var settings = CreateValidSettings();
             settings.Enabled = false;
             var (service, billRepo, _, orderRepo, _) = CreateServiceWithMocks(settings);
+            var orderId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+            orderRepo
+                .Setup(r => r.GetByIdAsync(orderId))
+                .ReturnsAsync(new Order { Id = orderId, EnterpriseId = enterpriseId });
 
-            var result = await service.GenerateAsync(Guid.NewGuid());
+            var result = await service.GenerateAsync(orderId, enterpriseId);
 
             Assert.Null(result);
             billRepo.Verify(r => r.CreateAsync(It.IsAny<BillEntity>()), Times.Never);
@@ -59,7 +103,21 @@ namespace EvangelionERPV2.BillsModule.Test
             var settings = CreateValidSettings();
             var (service, _, _, _, _) = CreateServiceWithMocks(settings);
 
-            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.GenerateAsync(Guid.Empty));
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.GenerateAsync(Guid.Empty, Guid.NewGuid()));
+        }
+
+        [Fact]
+        public async Task GenerateAsync_WhenEnterpriseIdIsEmpty_ThrowsNotFoundWithoutLookup()
+        {
+            var settings = CreateValidSettings();
+            var (service, _, billRepoCustom, orderRepo, customerRepo) = CreateServiceWithMocks(settings);
+            var orderId = Guid.NewGuid();
+
+            await Assert.ThrowsAsync<NotFoundDatabaseException>(() => service.GenerateAsync(orderId, Guid.Empty));
+
+            orderRepo.Verify(r => r.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
+            customerRepo.Verify(r => r.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
+            billRepoCustom.Verify(r => r.GetByOrderIdAsync(It.IsAny<Guid>()), Times.Never);
         }
 
         [Fact]
@@ -68,15 +126,19 @@ namespace EvangelionERPV2.BillsModule.Test
             var settings = CreateValidSettings();
             var (service, billRepo, billRepoCustom, orderRepo, _) = CreateServiceWithMocks(settings);
             var orderId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
             var existing = new BillEntity { Id = Guid.NewGuid(), OrderId = orderId, BankCode = 33 };
 
+            orderRepo
+                .Setup(r => r.GetByIdAsync(orderId))
+                .ReturnsAsync(new Order { Id = orderId, EnterpriseId = enterpriseId });
             billRepoCustom.Setup(r => r.GetByOrderIdAsync(orderId)).ReturnsAsync(existing);
 
-            var result = await service.GenerateAsync(orderId);
+            var result = await service.GenerateAsync(orderId, enterpriseId);
 
             Assert.Same(existing, result);
             billRepo.Verify(r => r.CreateAsync(It.IsAny<BillEntity>()), Times.Never);
-            orderRepo.Verify(r => r.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
+            orderRepo.Verify(r => r.GetByIdAsync(It.IsAny<Guid>()), Times.Once);
         }
 
         [Fact]
@@ -85,11 +147,29 @@ namespace EvangelionERPV2.BillsModule.Test
             var settings = CreateValidSettings();
             var (service, _, billRepoCustom, orderRepo, _) = CreateServiceWithMocks(settings);
             var orderId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
 
             billRepoCustom.Setup(r => r.GetByOrderIdAsync(orderId)).ReturnsAsync((BillEntity?)null);
             orderRepo.Setup(r => r.GetByIdAsync(orderId)).ReturnsAsync((Order?)null);
 
-            await Assert.ThrowsAsync<NotFoundDatabaseException>(() => service.GenerateAsync(orderId));
+            await Assert.ThrowsAsync<NotFoundDatabaseException>(() => service.GenerateAsync(orderId, enterpriseId));
+        }
+
+        [Fact]
+        public async Task GenerateAsync_WhenEnterpriseDoesNotMatch_ThrowsNotFound()
+        {
+            var settings = CreateValidSettings();
+            var (service, _, billRepoCustom, orderRepo, _) = CreateServiceWithMocks(settings);
+            var orderId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+
+            orderRepo
+                .Setup(r => r.GetByIdAsync(orderId))
+                .ReturnsAsync(new Order { Id = orderId, EnterpriseId = Guid.NewGuid() });
+            billRepoCustom.Setup(r => r.GetByOrderIdAsync(orderId)).ReturnsAsync((BillEntity?)null);
+
+            await Assert.ThrowsAsync<NotFoundDatabaseException>(() => service.GenerateAsync(orderId, enterpriseId));
+            billRepoCustom.Verify(r => r.GetByOrderIdAsync(It.IsAny<Guid>()), Times.Never);
         }
 
         [Fact]
@@ -100,6 +180,7 @@ namespace EvangelionERPV2.BillsModule.Test
             var (service, _, billRepoCustom, orderRepo, customerRepo) = CreateServiceWithMocks(settings);
             var customerId = Guid.NewGuid();
             var order = CreateOrder(customerId);
+            var enterpriseId = order.EnterpriseId ?? Guid.NewGuid();
             var customer = new Customer("Customer", "11999999999", "customer@test.com", "Rua Teste", "")
             {
                 Id = customerId
@@ -109,7 +190,7 @@ namespace EvangelionERPV2.BillsModule.Test
             orderRepo.Setup(r => r.GetByIdAsync(order.Id)).ReturnsAsync(order);
             customerRepo.Setup(r => r.GetByIdAsync(customerId)).ReturnsAsync(customer);
 
-            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.GenerateAsync(order.Id));
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.GenerateAsync(order.Id, enterpriseId));
         }
 
         [Fact]
@@ -119,6 +200,7 @@ namespace EvangelionERPV2.BillsModule.Test
             var (service, billRepo, billRepoCustom, orderRepo, customerRepo) = CreateServiceWithMocks(settings);
             var customerId = Guid.NewGuid();
             var order = CreateOrder(customerId);
+            var enterpriseId = order.EnterpriseId ?? Guid.NewGuid();
             var customer = new Customer("Customer", "11999999999", "customer@test.com", "Rua Teste", "44331610128")
             {
                 Id = customerId
@@ -133,7 +215,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 .ReturnsAsync((BillEntity entity) => entity);
             billRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-            var result = await service.GenerateAsync(order.Id);
+            var result = await service.GenerateAsync(order.Id, enterpriseId);
 
             Assert.NotNull(result);
             Assert.NotNull(created);
@@ -143,6 +225,33 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.False(string.IsNullOrWhiteSpace(created?.DigitableLine));
             Assert.False(string.IsNullOrWhiteSpace(created?.BarCode));
             Assert.False(string.IsNullOrWhiteSpace(created?.HtmlContent));
+        }
+
+        [Fact]
+        public void BuildPagador_WithHtmlPayload_EncodesCustomerFields()
+        {
+            var settings = CreateValidSettings();
+            var (service, _, _, _, _) = CreateServiceWithMocks(settings);
+            var customer = new Customer(
+                "<script>alert('x')</script>",
+                "<img src=x onerror=alert(1)>",
+                "attacker@example.com\"><script>alert(2)</script>",
+                "<b>Rua Teste</b>",
+                "44331610128");
+
+            var method = typeof(BillsService).GetMethod("BuildPagador", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            var result = method!.Invoke(service, [customer]);
+            var pagador = Assert.IsType<Pagador>(result);
+
+            Assert.DoesNotContain("<script>", pagador.Nome, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("&lt;script&gt;", pagador.Nome, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("<b>", pagador.Endereco.LogradouroEndereco, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("&lt;b&gt;", pagador.Endereco.LogradouroEndereco, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("<img", pagador.Telefone, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("&lt;img", pagador.Telefone, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("<script>", pagador.Observacoes, StringComparison.OrdinalIgnoreCase);
         }
 
         private static (BillsService service,
@@ -230,6 +339,3 @@ namespace EvangelionERPV2.BillsModule.Test
         }
     }
 }
-
-
-

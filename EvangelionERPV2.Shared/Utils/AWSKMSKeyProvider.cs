@@ -1,4 +1,5 @@
-﻿using Amazon.Runtime;
+﻿using System.Collections.Concurrent;
+using Amazon.Runtime;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
 using Microsoft.Extensions.Configuration;
@@ -9,6 +10,12 @@ namespace EvangelionERPV2.Shared.Utils
 {
     public class AWSKMSKeyProvider
     {
+        // Resolved secrets are cached for the process lifetime so repeated calls
+        // (e.g. per-login token signing / reCAPTCHA verification) do not issue a
+        // network call to Secrets Manager each time. Only successful, non-empty
+        // resolutions are cached, leaving transient failures retryable.
+        private static readonly ConcurrentDictionary<string, string> _secretCache = new(StringComparer.Ordinal);
+
         private readonly IAmazonSecretsManager _secretsManager;
         private readonly IConfiguration _configuration;
 
@@ -18,7 +25,23 @@ namespace EvangelionERPV2.Shared.Utils
             _configuration = configuration;
         }
 
+        /// <summary>
+        /// Synchronous accessor for startup/configuration paths. A cache hit completes
+        /// without blocking; only the first resolution of a given secret performs the
+        /// network call. ASP.NET Core has no synchronization context, so there is no
+        /// deadlock risk on the cold path.
+        /// </summary>
         public string GetKMSKey(string secretName)
+            => GetKMSKeyInternalAsync(secretName).GetAwaiter().GetResult();
+
+        /// <summary>
+        /// Asynchronous accessor for request-path callers. Preferred over <see cref="GetKMSKey"/>
+        /// to avoid blocking a thread-pool thread on the Secrets Manager call.
+        /// </summary>
+        public Task<string> GetKMSKeyAsync(string secretName, CancellationToken cancellationToken = default)
+            => GetKMSKeyInternalAsync(secretName, cancellationToken);
+
+        private async Task<string> GetKMSKeyInternalAsync(string secretName, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(secretName))
             {
@@ -28,36 +51,129 @@ namespace EvangelionERPV2.Shared.Utils
             const string plainPrefix = "plain:";
             if (secretName.StartsWith(plainPrefix, StringComparison.OrdinalIgnoreCase))
             {
+                EnsurePlainSecretUsageIsAllowed();
                 return secretName.Substring(plainPrefix.Length);
             }
 
-            var secretValueResponse = _secretsManager.GetSecretValueAsync(new GetSecretValueRequest
+            if (_secretCache.TryGetValue(secretName, out var cachedValue))
+                return cachedValue;
+
+            var (secretId, requestedKey) = SplitSecretReference(secretName);
+            var secretValueResponse = await _secretsManager.GetSecretValueAsync(new GetSecretValueRequest
             {
-                SecretId = secretName.Split(":")?[0] ?? string.Empty
-            }).GetAwaiter().GetResult();
+                SecretId = secretId
+            }, cancellationToken);
 
             string secretString = secretValueResponse.SecretString ?? string.Empty;
             if (string.IsNullOrWhiteSpace(secretString))
                 return string.Empty;
 
-            string keyIdentifier = secretString.Replace("'", string.Empty).Replace("\"", string.Empty);
+            var resolvedValue = ResolveSecretValue(secretString, requestedKey);
+            if (!string.IsNullOrEmpty(resolvedValue))
+                _secretCache[secretName] = resolvedValue;
 
+            return resolvedValue;
+        }
+
+        private static (string SecretId, string? RequestedKey) SplitSecretReference(string secretName)
+        {
+            var normalizedSecretName = secretName.Trim();
+            var separatorIndex = normalizedSecretName.LastIndexOf(':');
+            if (separatorIndex <= 0 || separatorIndex == normalizedSecretName.Length - 1)
+                return (normalizedSecretName, null);
+
+            return (
+                normalizedSecretName[..separatorIndex],
+                normalizedSecretName[(separatorIndex + 1)..]);
+        }
+
+        private static string ResolveSecretValue(string secretString, string? requestedKey)
+        {
             try
             {
-                if (keyIdentifier.StartsWith("{") && keyIdentifier.Contains(":"))
+                var token = JToken.Parse(secretString);
+                if (token is JObject secretObject)
                 {
-                    var keyValue = keyIdentifier.Trim('{', '}').Split(':', 2);
-                    if (keyValue.Length == 2)
+                    var properties = secretObject.Properties().ToList();
+                    if (!string.IsNullOrWhiteSpace(requestedKey))
                     {
-                        return keyValue[1];
+                        var property = properties
+                            .FirstOrDefault(x => x.Name.Equals(requestedKey, StringComparison.OrdinalIgnoreCase));
+
+                        if (property != null)
+                            return ConvertSecretTokenToString(property.Value);
+
+                        return properties.Count == 1
+                            ? ConvertSecretTokenToString(properties[0].Value)
+                            : string.Empty;
+                    }
+
+                    return properties.Count == 1
+                        ? ConvertSecretTokenToString(properties[0].Value)
+                        : secretObject.ToString(Formatting.None);
+                }
+
+                return ResolvePlainSecretValue(ConvertSecretTokenToString(token), requestedKey);
+            }
+            catch (JsonReaderException)
+            {
+                return ResolvePlainSecretValue(secretString, requestedKey);
+            }
+        }
+
+        private static string ResolvePlainSecretValue(string secretString, string? requestedKey)
+        {
+            if (TryResolvePlainKeyedSecret(secretString, requestedKey, out var resolvedValue))
+                return resolvedValue;
+
+            return secretString;
+        }
+
+        private static bool TryResolvePlainKeyedSecret(string secretString, string? requestedKey, out string resolvedValue)
+        {
+            resolvedValue = string.Empty;
+            if (string.IsNullOrWhiteSpace(secretString) || string.IsNullOrWhiteSpace(requestedKey))
+                return false;
+
+            var trimmedSecret = secretString.Trim();
+            var normalizedKey = requestedKey.Trim();
+            var separators = new[] { ":", "=" };
+            foreach (var candidate in EnumeratePlainSecretCandidates(trimmedSecret))
+            {
+                foreach (var separator in separators)
+                {
+                    var prefix = normalizedKey + separator;
+                    if (candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        resolvedValue = candidate.Substring(prefix.Length).Trim();
+                        return true;
                     }
                 }
-                return keyIdentifier;
             }
-            catch (JsonReaderException ex)
+
+            return false;
+        }
+
+        private static IEnumerable<string> EnumeratePlainSecretCandidates(string trimmedSecret)
+        {
+            yield return trimmedSecret;
+
+            if (trimmedSecret.Length >= 2 &&
+                trimmedSecret.StartsWith("{", StringComparison.Ordinal) &&
+                trimmedSecret.EndsWith("}", StringComparison.Ordinal))
             {
-                throw new FormatException("The secret is not in a valid JSON format.", ex);
+                yield return trimmedSecret[1..^1].Trim();
             }
+        }
+
+        private static string ConvertSecretTokenToString(JToken token)
+        {
+            if (token.Type == JTokenType.String)
+                return token.Value<string>() ?? string.Empty;
+
+            return token is JObject or JArray
+                ? token.ToString(Formatting.None)
+                : token.ToString();
         }
 
         public async Task<Dictionary<string, string>> GetAllKMSKeysAsync()
@@ -85,7 +201,10 @@ namespace EvangelionERPV2.Shared.Utils
 
             var configuredSecretName = _configuration.GetSection("AWSSettings")["SecretName"] ?? string.Empty;
             if (TryGetPlainCredentials(configuredSecretName, out var plainCredentials) && plainCredentials != null)
+            {
+                EnsurePlainSecretUsageIsAllowed();
                 return plainCredentials;
+            }
 
             if (string.IsNullOrWhiteSpace(configuredSecretName))
                 throw new InvalidOperationException("AWSSettings:SecretName is not configured.");
@@ -151,6 +270,24 @@ namespace EvangelionERPV2.Shared.Utils
             {
                 return false;
             }
+        }
+
+        private static void EnsurePlainSecretUsageIsAllowed()
+        {
+            if (IsDevelopmentEnvironment())
+                return;
+
+            throw new InvalidOperationException("The plain secret prefix is only allowed in development environments.");
+        }
+
+        private static bool IsDevelopmentEnvironment()
+        {
+            var environmentName =
+                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? string.Empty;
+
+            return environmentName.Equals("Development", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

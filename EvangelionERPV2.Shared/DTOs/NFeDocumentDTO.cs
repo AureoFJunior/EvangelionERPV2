@@ -1,4 +1,5 @@
 using EvangelionERPV2.Shared.Entities;
+using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Shared.DTOs
 {
@@ -14,6 +15,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Protocol { get; set; } = "";
         public DateTime? IssuedAt { get; set; }
         public double TotalValue { get; set; }
+        [JsonIgnore]
         public string XmlContent { get; set; } = "";
         public string CancelReason { get; set; } = "";
         public string CancelProtocol { get; set; } = "";

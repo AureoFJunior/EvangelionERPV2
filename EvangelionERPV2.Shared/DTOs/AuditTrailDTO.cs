@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace EvangelionERPV2.Shared.DTOs
 {
     public class AuditTrailDTO
@@ -9,6 +11,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Action { get; set; } = string.Empty;
         public string EntityName { get; set; } = string.Empty;
         public Guid EntityId { get; set; }
+        [JsonIgnore]
         public string ChangesJson { get; set; } = "{}";
     }
 }

@@ -19,14 +19,18 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.DI;
 using EvangelionERPV2.Web.FluentValidator;
 using EvangelionERPV2.Web.Logging;
+using EvangelionERPV2.Web.Security;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Microsoft.OpenApi;
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.Net.Http.Headers;
 
 var builder = WebApplication.CreateBuilder(args);
 const string DefaultCorsPolicyName = "DefaultCorsPolicy";
@@ -40,6 +44,8 @@ try
     #region IoC
     ConfigureIoC(builder);
     #endregion
+
+    SetupRequestLimits(builder);
 
     LogConfig.Configure();
 
@@ -61,9 +67,13 @@ try
 
     builder.Services.AddFluentValidationAutoValidation();
     builder.Services.AddFluentValidationClientsideAdapters();
+    builder.Services.Configure<RequestLoggingOptions>(builder.Configuration.GetSection("RequestLogging"));
 
     Log.Logger.Information("Starting JWT"); 
     SetupJWT(builder);
+
+    Log.Logger.Information("Starting Authorization");
+    SetupAuthorization(builder);
 
     Log.Logger.Information("Starting Health Check");
     SetupHealthCheck(builder);
@@ -85,7 +95,6 @@ try
 
     Log.Logger.Information("Swagger Config");
 
-    app.UseMiddleware<RequestLoggingMiddleware>();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
     // Configure the HTTP request pipeline.
@@ -95,6 +104,13 @@ try
     app.UseHttpMetrics();
 
     app.UseHttpsRedirection();
+    if (!app.Environment.IsDevelopment())
+        app.UseHsts();
+    app.Use(async (context, next) =>
+    {
+        ApplySecurityHeaders(context.Response.Headers);
+        await next();
+    });
 
     app.UseResponseCompression();
 
@@ -105,13 +121,21 @@ try
     app.UseCors(DefaultCorsPolicyName);
 
     app.UseAuthentication();
+    app.UseMiddleware<RequestLoggingMiddleware>();
+    app.UseMiddleware<ActiveTenantEnforcementMiddleware>();
     app.UseAuthorization();
 
-    app.MapMetrics("/metrics");
-    app.MapHub<OrderHub>("/orderHub");
+    app.MapMetrics("/metrics").RequireAuthorization(RbacPolicies.Metrics.Read);
+    app.MapHub<OrderHub>("/orderHub", options =>
+    {
+        options.Transports =
+            HttpTransportType.WebSockets |
+            HttpTransportType.ServerSentEvents |
+            HttpTransportType.LongPolling;
+    }).RequireAuthorization(RbacPolicies.Orders.Read);
 
     app.MapControllers();
-    app.MapHealthChecks("/health");
+    app.MapHealthChecks("/health").AllowAnonymous();
 
     SharedFunctions.Initialize(app.Services);
 
@@ -120,7 +144,8 @@ try
 }
 catch (Exception ex)
 {
-    Log.Logger.Error(ex.Message + ex.StackTrace);
+    Log.Logger.Error("Application startup failed. ErrorType={ErrorType}", ex.GetType().Name);
+    throw;
 }
 
 static void BuildValidators(WebApplicationBuilder builder)
@@ -133,6 +158,7 @@ static void BuildValidators(WebApplicationBuilder builder)
     builder.Services.AddTransient<IValidator<Product>, ProductValidator>();
     builder.Services.AddTransient<IValidator<ProductPicture>, ProductPictureValidator>();
     builder.Services.AddTransient<IValidator<CreateOrderRequestDTO>, CreateOrderRequestValidator>();
+    builder.Services.AddTransient<IValidator<CreateQueuedOrderRequestDTO>, CreateQueuedOrderRequestValidator>();
     builder.Services.AddTransient<IValidator<UpdateOrderRequestDTO>, UpdateOrderRequestValidator>();
     builder.Services.AddTransient<IValidator<OrderFilterRequestDTO>, OrderFilterRequestValidator>();
     builder.Services.AddTransient<IValidator<UpsertPayableBillRequestDTO>, UpsertPayableBillRequestValidator>();
@@ -182,7 +208,7 @@ static void SetupJWT(WebApplicationBuilder builder)
             options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(tokenKey)),
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(tokenKey)),
                 ValidateIssuer = true,
                 ValidIssuer = issuer,
                 ValidateAudience = true,
@@ -196,14 +222,32 @@ static void SetupJWT(WebApplicationBuilder builder)
                 {
                     var accessToken = context.Request.Query["access_token"].FirstOrDefault();
                     var path = context.HttpContext.Request.Path;
-                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/orderHub"))
+                    var isOrderHubRequest = path.StartsWithSegments("/orderHub");
+
+                    if (!string.IsNullOrEmpty(accessToken) && isOrderHubRequest)
                     {
                         context.Token = accessToken;
                     }
+
                     return Task.CompletedTask;
                 }
             };
         });
+}
+
+static void SetupAuthorization(WebApplicationBuilder builder)
+{
+    builder.Services.AddAuthorization(options =>
+    {
+        options.FallbackPolicy = new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser()
+            .Build();
+
+        options.AddRbacPolicies();
+    });
+
+    builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+    builder.Services.AddScoped<IAuthorizationHandler, SelfOrPermissionAuthorizationHandler>();
 }
 
 static void AddSwaggerGen(WebApplicationBuilder builder)
@@ -253,6 +297,25 @@ static void SetupControllers(WebApplicationBuilder builder)
        });
 }
 
+static void SetupRequestLimits(WebApplicationBuilder builder)
+{
+    const long defaultMaxRequestBodySizeBytes = 256 * 1024;
+    var configuredMaxRequestBodySize = builder.Configuration.GetValue<long?>("RequestLimits:MaxRequestBodySizeBytes");
+    var maxRequestBodySizeBytes = configuredMaxRequestBodySize.HasValue && configuredMaxRequestBodySize.Value > 0
+        ? configuredMaxRequestBodySize.Value
+        : defaultMaxRequestBodySizeBytes;
+
+    builder.WebHost.ConfigureKestrel(options =>
+    {
+        options.Limits.MaxRequestBodySize = maxRequestBodySizeBytes;
+    });
+
+    builder.Services.Configure<IISServerOptions>(options =>
+    {
+        options.MaxRequestBodySize = maxRequestBodySizeBytes;
+    });
+}
+
 static void SetupHealthCheck(WebApplicationBuilder builder)
 {
     builder.Services.AddHealthChecks();
@@ -272,6 +335,12 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     OpportunityRadarIoC.Configure(builder.Services, builder.Configuration);
     ReportsIoC.Configure(builder.Services, builder.Configuration);
     SharedIoC.Configure(builder.Services, builder.Configuration);
+
+    // reCAPTCHA verification (short timeout, fail-closed for auth endpoints).
+    builder.Services.AddHttpClient<IRecaptchaVerifier, RecaptchaVerifier>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(5);
+    });
 }
 
 static void SetupCors(WebApplicationBuilder builder)
@@ -317,5 +386,13 @@ static void AddRequestRateLimit(WebApplicationBuilder builder)
     builder.Services.AddInMemoryRateLimiting();
     builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
 }
-#endregion
 
+static void ApplySecurityHeaders(IHeaderDictionary headers)
+{
+    headers[HeaderNames.XContentTypeOptions] = "nosniff";
+    headers[HeaderNames.XFrameOptions] = "DENY";
+    headers["Referrer-Policy"] = "no-referrer";
+    headers["Permissions-Policy"] = "accelerometer=(), autoplay=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()";
+    headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+}
+#endregion

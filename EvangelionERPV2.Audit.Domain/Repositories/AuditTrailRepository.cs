@@ -3,6 +3,7 @@ using EvangelionERPV2.Shared.Auditing;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Utils;
 using Microsoft.EntityFrameworkCore;
 
 namespace EvangelionERPV2.AuditModule.Domain.Repositories
@@ -17,15 +18,20 @@ namespace EvangelionERPV2.AuditModule.Domain.Repositories
         }
 
         public async Task<(IEnumerable<AuditTrail> AuditTrails, int TotalItems)> GetAllAsyncFiltering(
+            Guid enterpriseId,
             bool descending,
             int? pageNumber,
             int? pageSize,
             AuditTrailFilterDTO? filter = null)
         {
+            if (enterpriseId == Guid.Empty)
+                return (Enumerable.Empty<AuditTrail>(), 0);
+
             IQueryable<AuditTrail> query = _context.Set<AuditTrail>()
                 .AsNoTracking()
                 .Include(x => x.User)
-                .Where(x => AuditedEntities.Contains(x.EntityName));
+                .Where(x => x.EnterpriseId == enterpriseId
+                            && AuditedEntities.Contains(x.EntityName));
 
             query = ApplyFilter(query, filter);
             query = descending ? query.OrderByDescending(x => x.ChangedAt) : query.OrderBy(x => x.ChangedAt);
@@ -41,15 +47,32 @@ namespace EvangelionERPV2.AuditModule.Domain.Repositories
             return (result, totalItems);
         }
 
-        public async Task<AuditTrail?> GetByIdAsync(Guid id)
+        public async Task<AuditTrail?> GetByIdAsync(Guid id, Guid enterpriseId)
         {
-            if (id == Guid.Empty)
+            if (id == Guid.Empty || enterpriseId == Guid.Empty)
                 return null;
 
             return await _context.Set<AuditTrail>()
                 .AsNoTracking()
                 .Include(x => x.User)
-                .FirstOrDefaultAsync(x => x.Id == id && AuditedEntities.Contains(x.EntityName));
+                .FirstOrDefaultAsync(x => x.Id == id
+                                          && x.EnterpriseId == enterpriseId
+                                          && AuditedEntities.Contains(x.EntityName));
+        }
+
+        public Task<int> DeleteOlderThanAsync(
+            Guid enterpriseId,
+            DateTime cutoffDateUtc,
+            CancellationToken cancellationToken = default)
+        {
+            if (enterpriseId == Guid.Empty)
+                return Task.FromResult(0);
+
+            var normalizedCutoffDate = NormalizeToUtc(cutoffDateUtc);
+            return _context.Set<AuditTrail>()
+                .Where(audit => audit.ChangedAt < normalizedCutoffDate
+                                && audit.EnterpriseId == enterpriseId)
+                .ExecuteDeleteAsync(cancellationToken);
         }
 
         private static IQueryable<AuditTrail> ApplyFilter(IQueryable<AuditTrail> query, AuditTrailFilterDTO? filter)
@@ -63,7 +86,8 @@ namespace EvangelionERPV2.AuditModule.Domain.Repositories
             if (!string.IsNullOrWhiteSpace(filter.UserName))
             {
                 var userName = filter.UserName.Trim();
-                query = query.Where(x => x.User != null && x.User.UserName.Contains(userName));
+                var escapedUserName = SharedFunctions.EscapeLikePattern(userName);
+                query = query.Where(x => x.User != null && EF.Functions.Like(x.User.UserName, $"%{escapedUserName}%", "\\"));
             }
 
             if (!string.IsNullOrWhiteSpace(filter.EntityName))

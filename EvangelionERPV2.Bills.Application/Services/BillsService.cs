@@ -4,10 +4,12 @@ using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.BillsModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PuppeteerSharp;
 using PuppeteerSharp.Media;
 using Serilog;
+using System.Net;
 using BillEntity = EvangelionERPV2.Shared.Entities.Bill;
 
 namespace EvangelionERPV2.BillsModule.Application.Services
@@ -37,15 +39,18 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             _settings = settings?.Value ?? new BillsSettings();
         }
 
-        public async Task<BillEntity?> GetByOrderIdAsync(Guid orderId)
+        public async Task<BillEntity?> GetByOrderIdAsync(Guid orderId, Guid enterpriseId)
         {
             if (orderId == Guid.Empty)
+                return null;
+
+            if (!await IsOrderWithinEnterpriseAsync(orderId, enterpriseId))
                 return null;
 
             return await _billRepositoryCustom.GetByOrderIdAsync(orderId);
         }
 
-        public async Task<BillEntity?> GenerateAsync(Guid orderId)
+        public async Task<BillEntity?> GenerateAsync(Guid orderId, Guid enterpriseId)
         {
             if (!_settings.Enabled)
             {
@@ -56,13 +61,13 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (orderId == Guid.Empty)
                 throw new InsertDatabaseException("Order Id is invalid for bill generation.");
 
+            var order = await GetScopedOrderAsync(orderId, enterpriseId);
+            if (order == null)
+                throw new NotFoundDatabaseException($"{nameof(Order)} was not found.");
+
             var existing = await _billRepositoryCustom.GetByOrderIdAsync(orderId);
             if (existing != null)
                 return existing;
-
-            var order = await _orderRepository.GetByIdAsync(orderId);
-            if (order == null)
-                throw new NotFoundDatabaseException($"{nameof(Order)} was not found.");
 
             var customer = order.CustomerId.HasValue ? await _customerRepository.GetByIdAsync(order.CustomerId.Value) : null;
             var billNet = BuildBill(order, customer);
@@ -92,14 +97,35 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             };
 
             await _billRepository.CreateAsync(bill);
-            await _billRepository.CommitAsync();
+            try
+            {
+                await _billRepository.CommitAsync();
+            }
+            catch (DbUpdateException commitException)
+            {
+                var concurrentBill = await _billRepositoryCustom.GetByOrderIdAsync(orderId);
+                if (concurrentBill == null)
+                    throw;
+
+                Log.Logger.Warning(
+                    commitException,
+                    "Bill generation duplicate detected for order {OrderId}. Returning existing bill {BillId}.",
+                    orderId,
+                    concurrentBill.Id);
+
+                return concurrentBill;
+            }
 
             return bill;
         }
 
-        public async Task<byte[]?> GetPdfAsync(Guid orderId)
+        public async Task<byte[]?> GetPdfAsync(Guid orderId, Guid enterpriseId)
         {
             if (orderId == Guid.Empty)
+                return null;
+
+            var order = await GetScopedOrderAsync(orderId, enterpriseId);
+            if (order == null)
                 return null;
 
             var existing = await _billRepositoryCustom.GetByOrderIdAsync(orderId);
@@ -108,7 +134,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 if (!_settings.Enabled)
                     return null;
 
-                existing = await GenerateAsync(orderId);
+                existing = await GenerateAsync(orderId, enterpriseId);
             }
 
             if (existing == null)
@@ -117,10 +143,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var html = existing.HtmlContent;
             if (string.IsNullOrWhiteSpace(html))
             {
-                var order = await _orderRepository.GetByIdAsync(orderId);
-                if (order == null)
-                    throw new NotFoundDatabaseException($"{nameof(Order)} was not found.");
-
                 var customer = order.CustomerId.HasValue
                     ? await _customerRepository.GetByIdAsync(order.CustomerId.Value)
                     : null;
@@ -141,8 +163,20 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             var browser = await GetBrowserAsync();
             await using var page = await browser.NewPageAsync();
+            await page.SetJavaScriptEnabledAsync(false);
+            await page.SetRequestInterceptionAsync(true);
+            page.Request += async (_, eventArgs) =>
+            {
+                if (ShouldBlockBrowserRequest(eventArgs.Request?.Url))
+                {
+                    await eventArgs.Request!.AbortAsync();
+                    return;
+                }
+
+                await eventArgs.Request!.ContinueAsync();
+            };
             await page.EmulateMediaTypeAsync(MediaType.Screen);
-            await page.SetContentAsync(html, new NavigationOptions
+            await page.SetContentAsync(html, new SetContentOptions
             {
                 WaitUntil = new[] { WaitUntilNavigation.Load }
             });
@@ -161,6 +195,29 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             });
             await page.CloseAsync();
             return pdf;
+        }
+
+        private static bool ShouldBlockBrowserRequest(string? requestUrl)
+        {
+            var normalized = (requestUrl ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(normalized))
+                return true;
+
+            if (normalized.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (normalized.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (!Uri.TryCreate(normalized, UriKind.Absolute, out var parsedUri))
+                return true;
+
+            return parsedUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+                   parsedUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                   parsedUri.Scheme.Equals(Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase) ||
+                   parsedUri.Scheme.Equals("ftp", StringComparison.OrdinalIgnoreCase) ||
+                   parsedUri.Scheme.Equals("ws", StringComparison.OrdinalIgnoreCase) ||
+                   parsedUri.Scheme.Equals("wss", StringComparison.OrdinalIgnoreCase);
         }
 
         private static async Task<IBrowser> GetBrowserAsync()
@@ -254,11 +311,35 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return billNetCore;
         }
 
+        private async Task<Order?> GetScopedOrderAsync(Guid orderId, Guid enterpriseId)
+        {
+            if (enterpriseId == Guid.Empty)
+                return null;
+
+            var order = await _orderRepository.GetByIdAsync(orderId);
+            if (order == null)
+                return null;
+
+            if (order.EnterpriseId != enterpriseId)
+                return null;
+
+            return order;
+        }
+
+        private async Task<bool> IsOrderWithinEnterpriseAsync(Guid orderId, Guid enterpriseId)
+        {
+            if (enterpriseId == Guid.Empty)
+                return false;
+
+            var order = await _orderRepository.GetByIdAsync(orderId);
+            return order != null && order.EnterpriseId == enterpriseId;
+        }
+
         private Pagador BuildPagador(Customer? customer)
         {
             var payerDocument = NormalizeDocument(customer?.Document ?? _settings.DefaultPayerDocument);
-            var payerName = string.IsNullOrWhiteSpace(customer?.Name) ? _settings.DefaultPayerName : customer.Name;
-            var payerAddress = string.IsNullOrWhiteSpace(customer?.Adress) ? _settings.DefaultPayerAddress : customer.Adress;
+            var payerName = SanitizeHtmlField(string.IsNullOrWhiteSpace(customer?.Name) ? _settings.DefaultPayerName : customer.Name);
+            var payerAddress = SanitizeHtmlField(string.IsNullOrWhiteSpace(customer?.Adress) ? _settings.DefaultPayerAddress : customer.Adress);
 
             if (string.IsNullOrWhiteSpace(payerDocument) || (payerDocument.Length != 11 && payerDocument.Length != 14))
                 throw new InsertDatabaseException("Payer document is required with 11 or 14 digits.");
@@ -267,13 +348,18 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             {
                 Nome = payerName,
                 CPFCNPJ = payerDocument,
-                Telefone = customer?.PhoneNumber ?? string.Empty,
-                Observacoes = customer?.Email ?? string.Empty,
+                Telefone = SanitizeHtmlField(customer?.PhoneNumber ?? string.Empty),
+                Observacoes = SanitizeHtmlField(customer?.Email ?? string.Empty),
                 Endereco = new Endereco
                 {
                     LogradouroEndereco = payerAddress ?? string.Empty
                 }
             };
+        }
+
+        private static string SanitizeHtmlField(string value)
+        {
+            return WebUtility.HtmlEncode((value ?? string.Empty).Trim());
         }
 
         private string BuildNossoNumero(Order order)
@@ -362,4 +448,3 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         #endregion
     }
 }
-

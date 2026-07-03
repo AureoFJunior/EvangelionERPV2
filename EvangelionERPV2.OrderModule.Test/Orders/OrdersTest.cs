@@ -161,6 +161,67 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             Assert.Equal(result.Id, line?.OrderId);
         }
 
+        [Fact]
+        public async Task CreateAsync_SamePayloadTwice_CreatesTwoIndependentOrders()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var customerId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
+            var productId = Guid.NewGuid();
+            var now = DateTime.UtcNow;
+
+            Order BuildOrder()
+            {
+                return new Order(now.AddDays(1), now.AddDays(2), 100, enterpriseId, customerId,
+                    new List<OrderedProduct>
+                    {
+                        new OrderedProduct
+                        {
+                            CreatedAt = now,
+                            UpdatedAt = now,
+                            IsActive = true,
+                            Quantity = 2,
+                            Value = 50,
+                            ProductId = productId
+                        }
+                    }, userId);
+            }
+
+            var persistedOrders = new List<Order>();
+
+            _mockIOrderRepository
+                .Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
+                .ReturnsAsync((Guid id) => persistedOrders.FirstOrDefault(order => order.Id == id)!);
+            _mockIOrderRepository
+                .Setup(r => r.CreateAsync(It.IsAny<Order>()))
+                .Callback<Order>(entity => persistedOrders.Add(entity))
+                .ReturnsAsync((Order entity) => entity);
+            _mockIOrderRepository
+                .Setup(r => r.CommitAsync(It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+            _mockIOrderedProductRepository
+                .Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<OrderedProduct>>()))
+                .ReturnsAsync((IEnumerable<OrderedProduct> items) => items);
+            _mockIOrderedProductRepository
+                .Setup(r => r.CommitAsync(It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+            _mockIProductService
+                .Setup(p => p.UpdateForOrder(It.IsAny<Order>()))
+                .Returns(Task.CompletedTask);
+
+            var firstPayload = BuildOrder();
+            SetupProductLookupForOrder(_mockIProductRepository, firstPayload);
+
+            var firstResult = await _orderService.CreateAsync(firstPayload);
+            var secondResult = await _orderService.CreateAsync(BuildOrder());
+
+            Assert.NotEqual(firstResult.Id, secondResult.Id);
+            Assert.Equal(2, persistedOrders.Count);
+            _mockIOrderRepository.Verify(r => r.CreateAsync(It.IsAny<Order>()), Times.Exactly(2));
+            _mockIOrderedProductRepository.Verify(r => r.CreateRangeAsync(It.IsAny<IEnumerable<OrderedProduct>>()), Times.Exactly(2));
+            _mockIProductService.Verify(p => p.UpdateForOrder(It.IsAny<Order>()), Times.Exactly(2));
+        }
+
         [Theory]
         [MemberData(nameof(GetInvalidOrders))]
         public async Task CreateAsync_InvalidOrder_ThrowsInsertDatabaseException(Order invalidOrder)
@@ -288,8 +349,11 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             Assert.Throws<InsertDatabaseException>(() => _orderService.Update(payload));
         }
 
-        [Fact]
-        public void Update_WhenStatusChangesToFinished_AndPaydayIsEmpty_ShouldSetPayday()
+        [Theory]
+        [MemberData(nameof(GetPaydayStatusTransitions))]
+        public void Update_WhenStatusChangesToPaydayStatus_ShouldSetPaydayToTransitionDate(
+            int currentStatus,
+            int requestedStatus)
         {
             // Arrange
             var orderId = Guid.NewGuid();
@@ -299,7 +363,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 Id = orderId,
                 EnterpriseId = enterpriseId,
                 IsActive = true,
-                Status = (int)EnumOrderStatus.Delivered,
+                Status = currentStatus,
                 TotalValue = 100,
                 Payday = null,
                 PaymentScheduledDate = DateTime.UtcNow.AddDays(2)
@@ -310,7 +374,52 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 Id = orderId,
                 EnterpriseId = enterpriseId,
                 IsActive = true,
-                Status = (int)EnumOrderStatus.Finished,
+                Status = requestedStatus,
+                TotalValue = 100,
+                Payday = null,
+                PaymentScheduledDate = existentOrder.PaymentScheduledDate
+            };
+
+            _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns(existentOrder);
+            _mockIOrderRepository.Setup(r => r.Update(It.IsAny<Order>())).Returns((Order entity) => entity);
+
+            // Act
+            var beforeUpdate = DateTime.UtcNow;
+            var result = _orderService.Update(payload, enterpriseId);
+            var afterUpdate = DateTime.UtcNow;
+
+            // Assert
+            Assert.Equal(requestedStatus, result.Status);
+            Assert.NotNull(result.Payday);
+            Assert.InRange(result.Payday.Value, beforeUpdate, afterUpdate);
+            _mockIOrderRepository.Verify(
+                r => r.Update(It.Is<Order>(o => o.Id == orderId && o.Payday.HasValue)),
+                Times.Once);
+        }
+
+        [Fact]
+        public void Update_WhenStatusChangesAwayFromPaydayStatus_ShouldClearPayday()
+        {
+            // Arrange
+            var orderId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+            var existentOrder = new Order
+            {
+                Id = orderId,
+                EnterpriseId = enterpriseId,
+                IsActive = true,
+                Status = (int)EnumOrderStatus.Paid,
+                TotalValue = 100,
+                Payday = DateTime.UtcNow.AddDays(-1),
+                PaymentScheduledDate = DateTime.UtcNow.AddDays(2)
+            };
+
+            var payload = new Order
+            {
+                Id = orderId,
+                EnterpriseId = enterpriseId,
+                IsActive = true,
+                Status = (int)EnumOrderStatus.Processing,
                 TotalValue = 100,
                 Payday = null,
                 PaymentScheduledDate = existentOrder.PaymentScheduledDate
@@ -323,10 +432,10 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             var result = _orderService.Update(payload, enterpriseId);
 
             // Assert
-            Assert.Equal((int)EnumOrderStatus.Finished, result.Status);
-            Assert.NotNull(result.Payday);
+            Assert.Equal((int)EnumOrderStatus.Processing, result.Status);
+            Assert.Null(result.Payday);
             _mockIOrderRepository.Verify(
-                r => r.Update(It.Is<Order>(o => o.Id == orderId && o.Payday.HasValue)),
+                r => r.Update(It.Is<Order>(o => o.Id == orderId && o.Payday == null)),
                 Times.Once);
         }
 
@@ -514,6 +623,14 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
 
         #region Data Pull
 
+        public static IEnumerable<object[]> GetPaydayStatusTransitions()
+        {
+            yield return new object[] { (int)EnumOrderStatus.Processing, (int)EnumOrderStatus.Paid };
+            yield return new object[] { (int)EnumOrderStatus.Processing, (int)EnumOrderStatus.Shipped };
+            yield return new object[] { (int)EnumOrderStatus.Processing, (int)EnumOrderStatus.Delivered };
+            yield return new object[] { (int)EnumOrderStatus.Delivered, (int)EnumOrderStatus.Finished };
+        }
+
         public static IEnumerable<object[]> GetOrdersWithNegativeValues()
         {
             // Case 01 - Negative Product Quantity
@@ -601,41 +718,22 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
 
         #region SignalR
         [Fact]
-        public async Task SendOrderUpdate_CallsClientsAllSendAsync()
+        public void OrderHub_RequiresOrdersReadPolicy()
         {
-            // Arrange
-            var hub = new OrderHub();
+            var policy = typeof(OrderHub)
+                .GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true)
+                .Cast<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>()
+                .SingleOrDefault(x => x.Policy == "rbac:orders.read");
 
-            var mockClients = new Mock<IHubCallerClients>();
-            var mockClientProxy = new Mock<IClientProxy>();
-
-            mockClients.Setup(c => c.All).Returns(mockClientProxy.Object);
-
-            // Set the non-public setter for Hub.Clients via reflection
-            var clientsProperty = typeof(Hub).GetProperty("Clients", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            var setMethod = clientsProperty.GetSetMethod(true);
-            setMethod.Invoke(hub, new object[] { mockClients.Object });
-
-            var orderId = Guid.NewGuid().ToString();
-            var status = "Created";
-
-            // Act
-            await hub.SendOrderUpdate(orderId, status);
-
-            // Assert
-            mockClientProxy.Verify(
-                p => p.SendCoreAsync(
-                    "ReceiveOrderUpdate",
-                    It.Is<object[]>(o => o != null && o.Length == 2 && (string)o[0] == orderId && (string)o[1] == status),
-                    It.IsAny<CancellationToken>()),
-                Times.Once);
+            Assert.NotNull(policy);
         }
 
         [Fact]
         public async Task CreateAsync_SendsSignalRNotification()
         {
             // Arrange
-            var order = new Order(DateTime.UtcNow, DateTime.UtcNow.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
+            var enterpriseId = Guid.NewGuid();
+            var order = new Order(DateTime.UtcNow, DateTime.UtcNow.AddDays(1), 100, enterpriseId, Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
                     new OrderedProduct { CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow, IsActive = true, Quantity = 1, Value = 100, ProductId = Guid.NewGuid() }
@@ -667,11 +765,15 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             var mockHubContext = new Mock<IHubContext<OrderHub>>();
             var mockClients = new Mock<IHubClients>();
             var mockClientProxy = new Mock<IClientProxy>();
+            var mockGroupProxy = new Mock<IClientProxy>();
 
             mockHubContext.SetupGet(h => h.Clients).Returns(mockClients.Object);
             mockClients.Setup(c => c.All).Returns(mockClientProxy.Object);
+            mockClients.Setup(c => c.Group(enterpriseId.ToString())).Returns(mockGroupProxy.Object);
             mockClientProxy.Setup(p => p.SendCoreAsync(It.IsAny<string>(), It.IsAny<object[]>(), It.IsAny<CancellationToken>()))
                            .Returns(Task.CompletedTask);
+            mockGroupProxy.Setup(p => p.SendCoreAsync(It.IsAny<string>(), It.IsAny<object[]>(), It.IsAny<CancellationToken>()))
+                          .Returns(Task.CompletedTask);
 
             var orderReportGeneratorService = new OrderReportGeneratorService(mockProductRepo.Object);
 
@@ -691,7 +793,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
 
             // Assert
             Assert.NotNull(result);
-            mockClientProxy.Verify(
+            mockGroupProxy.Verify(
                 p => p.SendCoreAsync(
                     "ReceiveOrderUpdate",
                     It.Is<object[]>(args => args.Length == 2 && args[0].ToString() == order.Id.ToString() && args[1].ToString() == "Created"),

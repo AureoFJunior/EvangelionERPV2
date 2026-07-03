@@ -8,9 +8,36 @@ namespace EvangelionERPV2.AuditModule.Application.Services
 {
     public class AuditTrailEntryFactory : IAuditTrailEntryFactory
     {
+        private static readonly HashSet<string> SensitivePropertyNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Password",
+            "Token",
+            "TokenHash",
+            "RefreshToken",
+            "AccessKey",
+            "XmlContent",
+            "CancelReason",
+            "CancelProtocol",
+            "Series",
+            "Number",
+            "Email",
+            "PhoneNumber",
+            "Document",
+            "Adress",
+            "Address",
+            "FirstName",
+            "LastName",
+            "UserName",
+            "BirthDate",
+            "ProfilePicture",
+            "RefundReason",
+            "HtmlContent"
+        };
+
         public IReadOnlyCollection<AuditTrail> Create(
             IEnumerable<EntityEntry<BaseEntity>> entries,
             Guid? userId,
+            Guid? enterpriseId,
             DateTime changedAt)
         {
             var result = new List<AuditTrail>();
@@ -20,7 +47,7 @@ namespace EvangelionERPV2.AuditModule.Application.Services
                 if (!AuditedEntities.Contains(entry.Metadata.ClrType))
                     continue;
 
-                var auditEntry = BuildAuditEntry(entry, userId, changedAt);
+                var auditEntry = BuildAuditEntry(entry, userId, enterpriseId, changedAt);
                 if (auditEntry != null)
                     result.Add(auditEntry);
             }
@@ -28,7 +55,11 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             return result;
         }
 
-        private static AuditTrail? BuildAuditEntry(EntityEntry<BaseEntity> entry, Guid? userId, DateTime changedAt)
+        private static AuditTrail? BuildAuditEntry(
+            EntityEntry<BaseEntity> entry,
+            Guid? userId,
+            Guid? enterpriseId,
+            DateTime changedAt)
         {
             var changeSet = new Dictionary<string, AuditPropertyChange>();
             string action;
@@ -41,7 +72,7 @@ namespace EvangelionERPV2.AuditModule.Application.Services
                     {
                         changeSet[property.Metadata.Name] = new AuditPropertyChange
                         {
-                            NewValue = property.CurrentValue
+                            NewValue = RedactValue(entry.Metadata.ClrType, property.Metadata.Name, property.CurrentValue)
                         };
                     }
                     break;
@@ -54,8 +85,8 @@ namespace EvangelionERPV2.AuditModule.Application.Services
 
                         changeSet[property.Metadata.Name] = new AuditPropertyChange
                         {
-                            OldValue = property.OriginalValue,
-                            NewValue = property.CurrentValue
+                            OldValue = RedactValue(entry.Metadata.ClrType, property.Metadata.Name, property.OriginalValue),
+                            NewValue = RedactValue(entry.Metadata.ClrType, property.Metadata.Name, property.CurrentValue)
                         };
                     }
                     break;
@@ -65,7 +96,7 @@ namespace EvangelionERPV2.AuditModule.Application.Services
                     {
                         changeSet[property.Metadata.Name] = new AuditPropertyChange
                         {
-                            OldValue = property.OriginalValue
+                            OldValue = RedactValue(entry.Metadata.ClrType, property.Metadata.Name, property.OriginalValue)
                         };
                     }
                     break;
@@ -80,12 +111,81 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
+                EnterpriseId = ResolveEnterpriseId(entry) ?? enterpriseId,
                 ChangedAt = changedAt,
                 Action = action,
                 EntityName = entry.Metadata.ClrType.Name,
                 EntityId = entry.Entity.Id,
                 ChangesJson = JsonSerializer.Serialize(changeSet)
             };
+        }
+
+        private static Guid? ResolveEnterpriseId(EntityEntry<BaseEntity> entry)
+        {
+            var enterpriseProperty = entry.Properties
+                .FirstOrDefault(property => property.Metadata.Name == "EnterpriseId");
+
+            var value = enterpriseProperty?.CurrentValue ?? enterpriseProperty?.OriginalValue;
+            return value is Guid enterpriseId && enterpriseId != Guid.Empty
+                ? enterpriseId
+                : null;
+        }
+
+        private static object? RedactValue(Type entityType, string propertyName, object? value)
+        {
+            if (!ShouldRedact(entityType, propertyName))
+                return value;
+
+            if (value == null)
+                return null;
+
+            return "[redacted]";
+        }
+
+        private static bool ShouldRedact(Type entityType, string propertyName)
+        {
+            if (SensitivePropertyNames.Contains(propertyName))
+                return true;
+
+            if (entityType == typeof(Customer))
+            {
+                return propertyName.Equals(nameof(Customer.Name), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(Customer.Email), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(Customer.PhoneNumber), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(Customer.Adress), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(Customer.Document), StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (entityType == typeof(User))
+            {
+                return propertyName.Equals(nameof(User.FirstName), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(User.LastName), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(User.UserName), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(User.Email), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(User.BirthDate), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(User.ProfilePicture), StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (entityType == typeof(Order))
+            {
+                return propertyName.Equals(nameof(Order.RefundReason), StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (entityType == typeof(Bill))
+            {
+                return propertyName.Equals(nameof(Bill.HtmlContent), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(Bill.DocumentNumber), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(Bill.DigitableLine), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(Bill.BarCode), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(Bill.OurNumber), StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (entityType == typeof(PayableBill))
+            {
+                return propertyName.Equals(nameof(PayableBill.RefundReason), StringComparison.OrdinalIgnoreCase);
+            }
+
+            return false;
         }
 
         private static bool IsSoftDelete(EntityEntry<BaseEntity> entry)

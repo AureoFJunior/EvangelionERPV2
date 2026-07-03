@@ -48,10 +48,15 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId", "ChangedAt");
 
                     b.HasIndex("UserId", "ChangedAt");
 
@@ -112,7 +117,8 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OrderId");
+                    b.HasIndex("OrderId")
+                        .IsUnique();
 
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt");
 
@@ -184,6 +190,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("HostName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -208,6 +217,8 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("UserName");
+
+                    b.HasIndex("EnterpriseId", "IsActive", "UserName");
 
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt");
 
@@ -394,6 +405,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasIndex("AccessKey");
 
                     b.HasIndex("OrderId");
+
+                    b.HasIndex("OrderId", "Type")
+                        .IsUnique();
 
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt");
 
@@ -894,6 +908,11 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("TokenHash");
 
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PasswordResetToken_UserId_Active")
+                        .HasFilter("[IsActive] = 1");
+
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt");
 
                     b.HasIndex("UserId", "IsActive", "ExpiresAt");
@@ -1100,7 +1119,10 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_RefreshToken_UserId_Active")
+                        .HasFilter("[IsActive] = 1");
 
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt");
 
@@ -1151,6 +1173,18 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("NormalizedActiveEmail")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)")
+                        .HasComputedColumnSql("CASE WHEN [IsActive] = 1 THEN CONVERT(nvarchar(450), UPPER(LTRIM(RTRIM([Email])))) END", true);
+
+                    b.Property<string>("NormalizedActiveUserName")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)")
+                        .HasComputedColumnSql("CASE WHEN [IsActive] = 1 THEN CONVERT(nvarchar(450), UPPER(LTRIM(RTRIM([UserName])))) END", true);
+
                     b.Property<string>("Password")
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
@@ -1169,6 +1203,16 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("EnterpriseId");
+
+                    b.HasIndex("EnterpriseId", "NormalizedActiveUserName")
+                        .IsUnique()
+                        .HasDatabaseName("IX_User_EnterpriseId_NormalizedActiveUserName_Active")
+                        .HasFilter("[IsActive] = 1 AND [EnterpriseId] IS NOT NULL");
+
+                    b.HasIndex("NormalizedActiveEmail")
+                        .IsUnique()
+                        .HasDatabaseName("IX_User_NormalizedActiveEmail_Active")
+                        .HasFilter("[IsActive] = 1 AND [NormalizedActiveEmail] IS NOT NULL");
 
                     b.HasIndex("UserName", "Password");
 
@@ -1205,6 +1249,16 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
                         .WithMany("Customer")
                         .HasForeignKey("EnterpriseId");
+
+                    b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Email", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Enterprise");
                 });

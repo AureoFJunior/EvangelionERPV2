@@ -4,6 +4,8 @@ using EvangelionERPV2.Shared.Entities;
 using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Extensions.Logging;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace EvangelionERPV2.Shared.Configs
 {
@@ -30,7 +32,7 @@ namespace EvangelionERPV2.Shared.Configs
                 config.CreateMap<Product, ProductDTO>().ReverseMap();
                 config.CreateMap<AuditTrail, AuditTrailDTO>()
                     .ForMember(dest => dest.UserName,
-                        opt => opt.MapFrom(src => src.User != null ? src.User.UserName : string.Empty));
+                        opt => opt.MapFrom(src => GetSafeAuditTrailUserIdentifier(src.User == null ? null : src.User.UserName)));
                 config.CreateMap<Opportunity, OpportunityDTO>().ReverseMap();
                 config.CreateMap<OpportunitySignal, OpportunitySignalDTO>().ReverseMap();
                 config.CreateMap<OpportunityRecommendation, OpportunityRecommendationDTO>().ReverseMap();
@@ -39,6 +41,16 @@ namespace EvangelionERPV2.Shared.Configs
             }, loggerFactory);
 
             return mappingsConfigs;
+        }
+
+        private static string GetSafeAuditTrailUserIdentifier(string? userName)
+        {
+            var normalizedUserName = (userName ?? string.Empty).Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(normalizedUserName))
+                return string.Empty;
+
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedUserName));
+            return Convert.ToHexString(bytes).ToLowerInvariant()[..12];
         }
     }
 }

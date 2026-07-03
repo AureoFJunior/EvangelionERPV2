@@ -1,7 +1,9 @@
-﻿using Amazon.S3;
+﻿using Amazon;
+using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Serilog;
 using System;
 using System.Net;
 using System.Net.Http.Headers;
@@ -170,9 +172,20 @@ namespace EvangelionERPV2.Shared.Utils
             var trimmed = address.Trim();
             var decrypted = Decrypt(trimmed);
             if (!string.IsNullOrWhiteSpace(decrypted))
-                return trimmed;
+            {
+                if (!TryNormalizeStorageObjectKey(decrypted, out _))
+                    return string.Empty;
 
-            return Encrypt(trimmed);
+                return trimmed;
+            }
+
+            if (!TryNormalizeStorageObjectKey(trimmed, out var normalizedKey))
+                return string.Empty;
+
+            var encryptedValue = Encrypt(normalizedKey);
+            return !string.IsNullOrWhiteSpace(encryptedValue)
+                ? encryptedValue
+                : normalizedKey;
         }
 
         public static string EnsureDecryptedAddress(string? address)
@@ -182,7 +195,11 @@ namespace EvangelionERPV2.Shared.Utils
 
             var trimmed = address.Trim();
             var decrypted = Decrypt(trimmed);
-            return !string.IsNullOrWhiteSpace(decrypted) ? decrypted : trimmed;
+            var candidate = !string.IsNullOrWhiteSpace(decrypted) ? decrypted : trimmed;
+
+            return TryNormalizeStorageObjectKey(candidate, out var normalizedKey)
+                ? normalizedKey
+                : string.Empty;
         }
 
         public static string NormalizeBase64Payload(string payload)
@@ -198,9 +215,15 @@ namespace EvangelionERPV2.Shared.Utils
             return trimmed;
         }
 
-        public static MemoryStream GetMemoryStreamFromBase64Payload(string payload)
+        public static MemoryStream GetMemoryStreamFromBase64Payload(string payload, long maxBytes = 5 * 1024 * 1024)
         {
             var normalizedPayload = NormalizeBase64Payload(payload);
+            if (!TryGetBase64DecodedByteCount(normalizedPayload, out var decodedByteCount))
+                throw new ArgumentException("Payload must be a valid base64 value.", nameof(payload));
+
+            if (maxBytes > 0 && decodedByteCount > maxBytes)
+                throw new ArgumentException($"Payload must be {maxBytes} bytes or smaller after decoding.", nameof(payload));
+
             var bytes = Convert.FromBase64String(normalizedPayload);
             return new MemoryStream(bytes);
         }
@@ -217,7 +240,11 @@ namespace EvangelionERPV2.Shared.Utils
 
         public static string GetProductBucketName(IConfiguration configuration)
         {
-            return GetAWSSetting(configuration, "BucketProducttName");
+            var bucketName = GetAWSSetting(configuration, "BucketProducttName");
+            if (!string.IsNullOrWhiteSpace(bucketName))
+                return bucketName;
+
+            return GetAWSSetting(configuration, "BucketProductName");
         }
 
         public static string GetUserBucketName(IConfiguration configuration)
@@ -229,18 +256,124 @@ namespace EvangelionERPV2.Shared.Utils
             return GetProductBucketName(configuration);
         }
 
+        public static RegionEndpoint GetAWSRegion(IConfiguration configuration)
+        {
+            var configuredRegion = GetAWSSetting(configuration, "Region");
+            if (!string.IsNullOrWhiteSpace(configuredRegion))
+                return RegionEndpoint.GetBySystemName(configuredRegion.Trim());
+
+            var environmentRegion =
+                Environment.GetEnvironmentVariable("AWS_REGION")
+                ?? Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION");
+
+            if (!string.IsNullOrWhiteSpace(environmentRegion))
+                return RegionEndpoint.GetBySystemName(environmentRegion.Trim());
+
+            return RegionEndpoint.USEast1;
+        }
+
+        public static string GenerateStorageObjectKey(string prefix, Guid entityId)
+        {
+            var normalizedPrefix = Regex.Replace(
+                (prefix ?? string.Empty).Trim().ToLowerInvariant(),
+                "[^a-z0-9/_-]+",
+                string.Empty,
+                RegexOptions.CultureInvariant)
+                .Trim('/');
+
+            if (string.IsNullOrWhiteSpace(normalizedPrefix))
+                normalizedPrefix = "files";
+
+            var entitySegment = entityId != Guid.Empty
+                ? $"{entityId:N}-"
+                : string.Empty;
+
+            return $"{normalizedPrefix}/{DateTime.UtcNow:yyyyMMddHHmmssfff}-{entitySegment}{Guid.NewGuid():N}";
+        }
+
+        public static string EscapeLikePattern(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            return value
+                .Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("%", "\\%", StringComparison.Ordinal)
+                .Replace("_", "\\_", StringComparison.Ordinal)
+                .Replace("[", "\\[", StringComparison.Ordinal);
+        }
+
+        public static string EnsureSearchFilterLength(string? value, int maxLength, string parameterName)
+        {
+            var trimmed = (value ?? string.Empty).Trim();
+            if (maxLength > 0 && trimmed.Length > maxLength)
+                throw new ArgumentException($"{parameterName} filter must be {maxLength} characters or fewer.", parameterName);
+
+            return trimmed;
+        }
+
+        private static bool TryGetBase64DecodedByteCount(string normalizedPayload, out long decodedByteCount)
+        {
+            decodedByteCount = 0;
+
+            if (string.IsNullOrWhiteSpace(normalizedPayload))
+                return false;
+
+            var length = 0L;
+            var paddingCount = 0L;
+            var seenPadding = false;
+
+            foreach (var character in normalizedPayload)
+            {
+                if (char.IsWhiteSpace(character))
+                    continue;
+
+                if (character == '=')
+                {
+                    seenPadding = true;
+                    paddingCount++;
+                    length++;
+
+                    if (paddingCount > 2)
+                        return false;
+
+                    continue;
+                }
+
+                if (seenPadding || !IsBase64Character(character))
+                    return false;
+
+                length++;
+            }
+
+            if (length == 0 || length % 4 != 0)
+                return false;
+
+            decodedByteCount = ((length / 4) * 3) - paddingCount;
+            return decodedByteCount > 0;
+        }
+
+        private static bool IsBase64Character(char value)
+        {
+            return (value >= 'A' && value <= 'Z') ||
+                   (value >= 'a' && value <= 'z') ||
+                   (value >= '0' && value <= '9') ||
+                   value == '+' ||
+                   value == '/';
+        }
+
         #endregion
 
         #region HTTP/HTTPS
-        public static async Task<T?> GetAsync<T>(string apiEndpoint, string parameters = "", string token = "", string apiBaseUrl = "")
+        public static async Task<T?> GetAsync<T>(string apiEndpoint, string parameters = "", string token = "", string apiBaseUrl = "", CancellationToken cancellationToken = default)
         {
             apiBaseUrl = string.IsNullOrEmpty(apiBaseUrl) ? _defaultApiUrl : apiBaseUrl;
-            var request = new HttpRequestMessage(HttpMethod.Get, $"{apiBaseUrl}/{apiEndpoint}/{parameters}");
+            var request = new HttpRequestMessage(HttpMethod.Get, BuildRequestUri(apiBaseUrl, apiEndpoint, parameters));
 
             if (!string.IsNullOrEmpty(token))
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            var response = await _httpClient.SendAsync(request);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
@@ -250,13 +383,19 @@ namespace EvangelionERPV2.Shared.Utils
                     PropertyNameCaseInsensitive = true
                 });
             }
+
+            Log.Logger.Warning(
+                "HTTP GET request failed. Endpoint={Endpoint} StatusCode={StatusCode}",
+                apiEndpoint,
+                (int)response.StatusCode);
+
             return default(T);
         }
 
-        public static async Task<T?> PostAsync<T>(string apiEndpoint, object resource, string token = "", string apiBaseUrl = "")
+        public static async Task<T?> PostAsync<T>(string apiEndpoint, object resource, string token = "", string apiBaseUrl = "", CancellationToken cancellationToken = default)
         {
             apiBaseUrl = string.IsNullOrEmpty(apiBaseUrl) ? _defaultApiUrl : apiBaseUrl;
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{apiBaseUrl}/{apiEndpoint}");
+            var request = new HttpRequestMessage(HttpMethod.Post, BuildRequestUri(apiBaseUrl, apiEndpoint));
 
             if (!string.IsNullOrEmpty(token))
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -264,7 +403,7 @@ namespace EvangelionERPV2.Shared.Utils
             var serializedResource = JsonSerializer.Serialize(resource);
             request.Content = new StringContent(serializedResource, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.SendAsync(request);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 var responseContent = await response.Content.ReadAsStringAsync();
@@ -273,13 +412,19 @@ namespace EvangelionERPV2.Shared.Utils
                     PropertyNameCaseInsensitive = true
                 });
             }
+
+            Log.Logger.Warning(
+                "HTTP POST request failed. Endpoint={Endpoint} StatusCode={StatusCode}",
+                apiEndpoint,
+                (int)response.StatusCode);
+
             return default(T);
         }
 
-        public static async Task<bool> PutAsync(string apiEndpoint, string parameters, object updatedResource, string token = "", string apiBaseUrl = "")
+        public static async Task<bool> PutAsync(string apiEndpoint, string parameters, object updatedResource, string token = "", string apiBaseUrl = "", CancellationToken cancellationToken = default)
         {
             apiBaseUrl = string.IsNullOrEmpty(apiBaseUrl) ? _defaultApiUrl : apiBaseUrl;
-            var request = new HttpRequestMessage(HttpMethod.Put, $"{apiBaseUrl}/{apiEndpoint}/{parameters}");
+            var request = new HttpRequestMessage(HttpMethod.Put, BuildRequestUri(apiBaseUrl, apiEndpoint, parameters));
 
             if (!string.IsNullOrEmpty(token))
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -287,19 +432,19 @@ namespace EvangelionERPV2.Shared.Utils
             var serializedResource = JsonSerializer.Serialize(updatedResource);
             request.Content = new StringContent(serializedResource, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.SendAsync(request);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
             return response.IsSuccessStatusCode;
         }
 
-        public static async Task<bool> DeleteAsync(string apiEndpoint, string parameters, string token = "", string apiBaseUrl = "")
+        public static async Task<bool> DeleteAsync(string apiEndpoint, string parameters, string token = "", string apiBaseUrl = "", CancellationToken cancellationToken = default)
         {
             apiBaseUrl = string.IsNullOrEmpty(apiBaseUrl) ? _defaultApiUrl : apiBaseUrl;
-            var request = new HttpRequestMessage(HttpMethod.Delete, $"{apiBaseUrl}/{apiEndpoint}/{parameters}");
+            var request = new HttpRequestMessage(HttpMethod.Delete, BuildRequestUri(apiBaseUrl, apiEndpoint, parameters));
 
             if (!string.IsNullOrEmpty(token))
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            var response = await _httpClient.SendAsync(request);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
             return response.IsSuccessStatusCode;
         }
 
@@ -316,6 +461,49 @@ namespace EvangelionERPV2.Shared.Utils
         }
 
         #endregion
+
+        private static Uri BuildRequestUri(string apiBaseUrl, string apiEndpoint, string? parameters = null)
+        {
+            if (string.IsNullOrWhiteSpace(apiBaseUrl))
+                throw new InvalidOperationException("API base URL is not configured.");
+
+            if (!Uri.TryCreate(apiBaseUrl.Trim(), UriKind.Absolute, out var baseUri) ||
+                !(baseUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+                  baseUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new ArgumentException("API base URL must be an absolute HTTP or HTTPS URI.", nameof(apiBaseUrl));
+            }
+
+            var segments = new List<string>();
+            AppendPathSegments(segments, apiEndpoint, nameof(apiEndpoint));
+            AppendPathSegments(segments, parameters, nameof(parameters));
+
+            var normalizedBase = baseUri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
+                ? baseUri.AbsoluteUri
+                : $"{baseUri.AbsoluteUri}/";
+
+            return segments.Count == 0
+                ? new Uri(normalizedBase, UriKind.Absolute)
+                : new Uri(new Uri(normalizedBase, UriKind.Absolute), string.Join("/", segments));
+        }
+
+        private static void AppendPathSegments(ICollection<string> segments, string? value, string parameterName)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return;
+
+            foreach (var rawSegment in value.Split('/', StringSplitOptions.None))
+            {
+                var segment = rawSegment.Trim();
+                if (segment.Length == 0)
+                    throw new ArgumentException("API path segments cannot be empty.", parameterName);
+
+                if (segment is "." or "..")
+                    throw new ArgumentException("API path segments cannot contain traversal markers.", parameterName);
+
+                segments.Add(Uri.EscapeDataString(segment));
+            }
+        }
 
         #region Encryption
         private const int PasswordSaltSize = 16;
@@ -501,10 +689,13 @@ namespace EvangelionERPV2.Shared.Utils
 
         public static async Task CreateItemAsync(this IAmazonS3 _s3Client, string bucketName, string key, Stream content)
         {
+            if (!TryNormalizeStorageObjectKey(key, out var normalizedKey))
+                throw new ArgumentException("Storage object key is invalid.", nameof(key));
+
             var putRequest = new PutObjectRequest
             {
                 BucketName = bucketName,
-                Key = key,
+                Key = normalizedKey,
                 InputStream = content
             };
 
@@ -513,10 +704,13 @@ namespace EvangelionERPV2.Shared.Utils
 
         public static async Task<Stream> GetItemAsync(this IAmazonS3 _s3Client, string bucketName, string key)
         {
+            if (!TryNormalizeStorageObjectKey(key, out var normalizedKey))
+                throw new ArgumentException("Storage object key is invalid.", nameof(key));
+
             var getRequest = new GetObjectRequest
             {
                 BucketName = bucketName,
-                Key = key
+                Key = normalizedKey
             };
 
             using (var response = await _s3Client.GetObjectAsync(getRequest))
@@ -530,10 +724,13 @@ namespace EvangelionERPV2.Shared.Utils
 
         public static async Task DeleteItemAsync(this IAmazonS3 _s3Client, string bucketName, string key)
         {
+            if (!TryNormalizeStorageObjectKey(key, out var normalizedKey))
+                throw new ArgumentException("Storage object key is invalid.", nameof(key));
+
             var deleteRequest = new DeleteObjectRequest
             {
                 BucketName = bucketName,
-                Key = key
+                Key = normalizedKey
             };
 
             await _s3Client.DeleteObjectAsync(deleteRequest);
@@ -547,9 +744,6 @@ namespace EvangelionERPV2.Shared.Utils
 
             var key = EnsureDecryptedAddress(encryptedOrPlainKey);
             if (string.IsNullOrWhiteSpace(key))
-                return;
-
-            if (LooksLikeEmbeddedImagePayload(key))
                 return;
 
             try
@@ -571,32 +765,40 @@ namespace EvangelionERPV2.Shared.Utils
             if (string.IsNullOrWhiteSpace(key))
                 return string.Empty;
 
-            if (LooksLikeEmbeddedImagePayload(key))
-                return NormalizeBase64Payload(key);
-
             using var itemStream = await _s3Client.GetItemAsync(bucketName, key);
             using var buffer = new MemoryStream();
             await itemStream.CopyToAsync(buffer);
             return Convert.ToBase64String(buffer.ToArray());
         }
 
-        private static bool LooksLikeEmbeddedImagePayload(string value)
+        private static bool TryNormalizeStorageObjectKey(string? value, out string normalizedKey)
         {
+            normalizedKey = string.Empty;
             if (string.IsNullOrWhiteSpace(value))
                 return false;
 
             var trimmed = value.Trim();
-            if (trimmed.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                return true;
+            if (trimmed.Length == 0 || trimmed.Length > 1024)
+                return false;
 
-            if (trimmed.Contains("base64,", StringComparison.OrdinalIgnoreCase))
-                return true;
+            if (trimmed.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("base64,", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("://", StringComparison.Ordinal) ||
+                trimmed.Contains('\\') ||
+                trimmed.Contains(':') ||
+                trimmed.Contains("..", StringComparison.Ordinal) ||
+                trimmed.StartsWith("/", StringComparison.Ordinal) ||
+                trimmed.EndsWith("/", StringComparison.Ordinal) ||
+                trimmed.Contains("//", StringComparison.Ordinal))
+            {
+                return false;
+            }
 
-            // S3 keys max out at 1024 chars; large payload-like values should never be treated as object keys.
-            if (trimmed.Length > 1024)
-                return true;
+            if (!Regex.IsMatch(trimmed, "^[A-Za-z0-9][A-Za-z0-9/_.-]{0,1023}$", RegexOptions.CultureInvariant))
+                return false;
 
-            return false;
+            normalizedKey = trimmed;
+            return true;
         }
 
         #endregion

@@ -8,6 +8,7 @@ namespace EvangelionERPV2.Shared.Auditing
         IReadOnlyCollection<AuditTrail> Create(
             IEnumerable<EntityEntry<BaseEntity>> entries,
             Guid? userId,
+            Guid? enterpriseId,
             DateTime changedAt);
     }
 }
