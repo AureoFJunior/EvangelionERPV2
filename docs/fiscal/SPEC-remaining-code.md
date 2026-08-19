@@ -59,12 +59,49 @@ the socket can be written and tested today.
 | `SefazNFeProvider` | No to write; drive it with a fake at the boundary |
 | `INFeProvider`/`NFeProviderResult` move down to Infra | No — mechanical, four `using` lines |
 | ~~**`IssueAsync` write-ahead rewrite**~~ | **DONE 2026-08-14** — see below |
+| ~~`INFeProvider`/`NFeProviderResult` move down to Infra~~ | **DONE 2026-08-19** — plus `NFeIssueContext`, and Consult/Cancel/Status on the interface |
+| ~~Cancel and consult stop lying~~ | **DONE 2026-08-19** — see §2.2 |
 | ~~`NFeReconciliationService` + hosted sweeper~~ | **DONE 2026-08-19** |
 | cStat 107 `StatusServico` round trip | **Yes** — PR already rejects a self-signed cert at TLS |
 | Real rejection surface | **Yes** — SEFAZ has hundreds of rejection rules that only fire on a real submission, so any cStat mapping written now ships unverified |
 
 Buy the certificate in parallel regardless: credenciamento (§M4) is a separate process and often the
 slower of the two.
+
+### Library API, verified by reflection on 2026-08-19 (do not re-derive)
+
+`Unimake.DFe 20260722.1716.27` is now referenced by `EvangelionERPV2.NFeModule.Infra` and nothing
+else. These were read off the assembly, not guessed:
+
+- **Services live in `Unimake.Business.DFe.Servicos.NFe`**: `Autorizacao`, `ConsultaProtocolo`,
+  `RecepcaoEvento`, `StatusServico`, `RetAutorizacao`, `Inutilizacao`, `DistribuicaoDFe`,
+  `ConsultaCadastro`. **Every one of these type names also exists under `Servicos.NFGas`,
+  `Servicos.NFSe.*` and others** — a bare `using` plus a short name binds to the wrong document type
+  and still compiles. Always qualify or import the exact namespace.
+- `Autorizacao` ctors: `(EnviNFe, Configuracao)` and `(string, Configuracao)`. Results are read from
+  `Result`, `RetConsReciNFe`, `NfeProcResult(s)`, `ConteudoXMLAssinado`, `RetornoWSXML`,
+  `HttpStatusCode`. Schema validation happens **in the constructor**, throwing
+  `Unimake.Exceptions.ValidarXMLException` with element/line/column — do not call
+  `ValidarEstruturaXML.ValidarServico` yourself (§7.1.3).
+- `Configuracao` carries `CertificadoDigital`, `CertificadoKeyStorageFlags`, `CodigoUF`, `TipoAmbiente`,
+  `TipoDFe`, `Modelo`, `SchemaVersao`, `CSC`, `CSCIDToken`, `TipoEmissao`-adjacent fields and the
+  proxy/host settings. No endpoint URL is needed: resolution from `CodigoUF` alone was verified for
+  SP/RS/SC/PR in §7.3.
+- Enum values, confirmed: `TipoDFe.NFe = 0`, `NFCe = 1`; `ModeloDFe.NFe = 55`, `NFCe = 65`;
+  `TipoAmbiente.Producao = 1`, `Homologacao = 2`; `TipoEmissao.Normal = 1`; `UFBrasil` is the IBGE
+  code (`SP = 35`, `PR = 41`, `SC = 42`, `RS = 43`), plus `SVRS = 92` and the contingency authorizers.
+- Payload graph in `Unimake.Business.DFe.Xml.NFe`: `EnviNFe { Versao, IdLote, IndSinc, NFe }` →
+  `InfNFe { Versao, Ide, Emit, Dest, Det, Total, Transp, Cobr, Pag, InfAdic, InfRespTec, Id, Chave }`.
+  `ICMS` is a container of the CST-specific classes (`ICMS00`, `ICMS10`, … `ICMSSN101` … `ICMSSN900`),
+  and `PISAliq` / `COFINSAliq` carry `CST/VBC/PPIS/VPIS` and `CST/VBC/PCOFINS/VCOFINS`.
+  `RetConsSitNFe` exposes `CStat`, `XMotivo`, `DhRecbto`, `ChNFe`, `ProtNFe`, `ProcEventoNFe`.
+- The `*Field` properties (`VBCField`, `PPISField`, …) are the library's string/serialisation
+  companions to the typed ones. Set the typed property; the `Field` twin is what lands in the XML.
+
+**How to re-check any of this cheaply:** drop a temporary xUnit test in `NFeModule.Test` that reflects
+over `typeof(Unimake.Business.DFe.Servicos.Configuracao).Assembly` and `Assert.Fail`s with the names.
+The assembly loads on Linux with zero loader exceptions (§7 check (a)), so reflection is instant and
+needs no certificate.
 
 New files, all in `EvangelionERPV2.NFe.Infra` (the lowest layer; `Application → Domain + Infra`):
 
@@ -125,6 +162,15 @@ Tests: access-key DV vectors (exists), resolver fallback per level (exists),
 missing a golden-file `infNFe` snapshot for a fixed order — that one waits on `NFeXmlBuilder`.
 
 ### 2.2 Phase 5 — cancel and consult stop lying
+
+**Service side done 2026-08-19; the transport behind it is not.** `NFeService.CancelAsync` now
+refuses any document that is not `Authorized`, enforces the cancellation window from the tenant's
+profile (NFe and NFCe differ), commits `CancelRequestedAt` before the round trip for the same reason
+`TransmittedAtUtc` exists, and records a cancellation only when SEFAZ homologates it (135/155).
+`ConsultAsync` asks SEFAZ when — and only when — the outcome is unknown, and adopts the answer through
+the same `ApplyOutcome` the reconciler uses. `StubNFeProvider.CancelAsync` now reports failure rather
+than success. What remains is `SefazNFeProvider` actually sending the event and the cStat mapping
+below.
 
 `CancelAsync` must send event 110111 and adopt SEFAZ's answer; the fabricated `CANCEL-{timestamp}`
 protocol has to go. `ConsultAsync` must call `ConsultaProtocolo` and map cStat: `100 → Authorized`,
