@@ -31,6 +31,8 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .Must(Base64PayloadValidationHelper.HasSupportedImageSignature)
                     .WithMessage("Product image file must be PNG, JPEG, GIF, or WEBP.")
                 .When(x => !string.IsNullOrWhiteSpace(x.File));
+
+            ProductFiscalRules.AddTo(this);
         }
 
         private static string ResolveName(CreateProductRequestDTO request)

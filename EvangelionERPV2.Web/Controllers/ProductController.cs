@@ -204,6 +204,8 @@ namespace EvangelionERPV2.Web.Controllers
                     File = normalizedRequest.File ?? string.Empty
                 };
 
+                ApplyFiscalFields(normalizedRequest, product.Product);
+
                 Product createdProduct = await _productService.CreateAsync(product);
                 if (createdProduct == null)
                     return NoContent();
@@ -250,6 +252,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!string.IsNullOrWhiteSpace(request.PictureAdress))
                     return BadRequest("PictureAdress cannot be updated here. Use UploadPicture.");
                 existentProduct.IsActive = request.IsActive ?? existentProduct.IsActive;
+                ApplyFiscalFields(request, existentProduct);
                 existentProduct.UpdatedAt = DateTime.UtcNow;
 
                 Product updatedProduct = await _productService.UpdateAsync(existentProduct);
@@ -396,8 +399,58 @@ namespace EvangelionERPV2.Web.Controllers
                 IsExternal = ResolveLegacyOrRootBoolValue(request.IsExternal, request.Product.IsExternal),
                 IsService = ResolveLegacyOrRootBoolValue(request.IsService, request.Product.IsService),
                 PictureAdress = ResolveLegacyOrRootValue(request.PictureAdress, request.Product.PictureAdress),
-                File = request.File
+                File = request.File,
+
+                // Carried straight across: the legacy nested shape predates fiscal data and has
+                // no counterpart to fall back to, so rebuilding the request must not drop them.
+                Ncm = request.Ncm,
+                Cest = request.Cest,
+                Cean = request.Cean,
+                CfopIntra = request.CfopIntra,
+                CfopInter = request.CfopInter,
+                Origem = request.Origem,
+                UnidadeTributavel = request.UnidadeTributavel,
+                Cst = request.Cst,
+                Csosn = request.Csosn,
+                AliquotaIcms = request.AliquotaIcms,
+                CstPis = request.CstPis,
+                AliquotaPis = request.AliquotaPis,
+                CstCofins = request.CstCofins,
+                AliquotaCofins = request.AliquotaCofins,
+                CodigoBeneficioFiscal = request.CodigoBeneficioFiscal
             };
+        }
+
+        /// <summary>
+        /// Copies the per-product fiscal overrides from a request body onto the entity.
+        /// </summary>
+        /// <remarks>
+        /// Whitespace becomes null rather than an empty string: null is what
+        /// <c>NFeItemFiscalResolver</c> reads as "use the enterprise default", and "" would be a
+        /// per-product override to nothing, which SEFAZ rejects.
+        /// </remarks>
+        private static void ApplyFiscalFields(IProductFiscalFields request, Product product)
+        {
+            product.Ncm = Trimmed(request.Ncm);
+            product.Cest = Trimmed(request.Cest);
+            product.Cean = Trimmed(request.Cean);
+            product.CfopIntra = Trimmed(request.CfopIntra);
+            product.CfopInter = Trimmed(request.CfopInter);
+            product.Origem = request.Origem;
+            product.UnidadeTributavel = Trimmed(request.UnidadeTributavel)?.ToUpperInvariant();
+            product.Cst = Trimmed(request.Cst);
+            product.Csosn = Trimmed(request.Csosn);
+            product.AliquotaIcms = request.AliquotaIcms;
+            product.CstPis = Trimmed(request.CstPis);
+            product.AliquotaPis = request.AliquotaPis;
+            product.CstCofins = Trimmed(request.CstCofins);
+            product.AliquotaCofins = request.AliquotaCofins;
+            product.CodigoBeneficioFiscal = Trimmed(request.CodigoBeneficioFiscal);
+        }
+
+        private static string? Trimmed(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
         private static string ResolveLegacyOrRootValue(string? rootValue, string? legacyValue)

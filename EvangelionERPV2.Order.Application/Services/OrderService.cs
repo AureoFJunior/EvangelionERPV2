@@ -239,15 +239,26 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                             throw new InsertDatabaseException($"Product [{orderedProduct.ProductId}] was not found.");
 
                         var quantityToRestore = Math.Max(0m, orderedProduct.Quantity);
-                        product.StorageQuantity += quantityToRestore;
-                        product.UpdatedAt = now;
+
+                        // Goes through the shared stock path rather than mutating the entity here:
+                        // a refund that puts units back is a stock movement like any other and has
+                        // to leave a ledger row and drop the product cache, same as the sale did.
+                        // A zero-quantity line moved nothing, and the ledger only records changes.
+                        if (quantityToRestore > 0)
+                        {
+                            await _productService.ApplyStockMovementAsync(
+                                product.Id,
+                                enterpriseId,
+                                quantityToRestore,
+                                EnumStockMovementType.Refund,
+                                existentOrder.Id);
+                        }
 
                         orderedProduct.Quantity = 0;
                         orderedProduct.Value = 0;
                         orderedProduct.UpdatedAt = now;
                     }
 
-                    _productRepository.UpdateRange(productsById.Values);
                     _orderedProductRepository.UpdateRange(orderedProducts);
 
                     existentOrder.TotalValue = 0;

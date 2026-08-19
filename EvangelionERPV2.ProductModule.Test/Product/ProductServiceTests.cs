@@ -16,8 +16,17 @@ using Xunit;
 
 namespace EvangelionERPV2.ProductModule.Test
 {
-    public class ProductServiceTests
+    public class ProductServiceTests : IDisposable
     {
+        // A real (SQLite) database, because ProductService now always needs a context: the stock
+        // path runs SQL, and there is no longer a mock-friendly fallback that skips it.
+        private readonly StockLedgerTestContext _database = new();
+
+        public void Dispose()
+        {
+            _database.Dispose();
+        }
+
         [Fact]
         public async Task UpdateAsync_WhenProductMissing_ThrowsNotFoundDatabaseException()
         {
@@ -86,51 +95,9 @@ namespace EvangelionERPV2.ProductModule.Test
             productRepository.Verify(r => r.Commit(), Times.Once);
         }
 
-        [Fact]
-        public async Task UpdateForOrder_WhenQuantityExceedsStorage_ThrowsAndLeavesStockUnchanged()
-        {
-            var (service, productRepository, _) = CreateService();
-            var productId = Guid.NewGuid();
-            var enterpriseId = Guid.NewGuid();
-            var order = new Order(
-                DateTime.UtcNow,
-                DateTime.UtcNow.AddDays(2),
-                100,
-                enterpriseId,
-                Guid.NewGuid(),
-                new List<OrderedProduct>
-                {
-                    new OrderedProduct
-                    {
-                        ProductId = productId,
-                        Quantity = 5,
-                        Value = 10,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow,
-                        IsActive = true
-                    }
-                },
-                Guid.NewGuid());
-            var existingProduct = new Product("Product", "Desc", 10, 2, false, false, "pic", enterpriseId)
-            {
-                Id = productId,
-                IsActive = true
-            };
-            Product? updatedProduct = null;
-
-            productRepository.Setup(r => r.GetByIdAsync(productId)).ReturnsAsync(existingProduct);
-            productRepository.Setup(r => r.Update(It.IsAny<Product>()))
-                .Callback<Product>(product => updatedProduct = product)
-                .Returns((Product p) => p);
-            productRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-
-            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.UpdateForOrder(order));
-
-            Assert.Null(updatedProduct);
-            Assert.Equal(2, existingProduct.StorageQuantity);
-            productRepository.Verify(r => r.Update(It.IsAny<Product>()), Times.Never);
-            productRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
-        }
+        // The stock decrement moved out of here and into StockLedgerTests: it now runs real SQL
+        // against a real database, because a mocked repository cannot show whether the conditional
+        // UPDATE actually refused to oversell.
 
         [Fact]
         public async Task GetProductsBodyAsync_WhenEnterpriseNull_Throws()
@@ -313,7 +280,7 @@ namespace EvangelionERPV2.ProductModule.Test
                 Times.Never);
         }
 
-        private static (ProductService service,
+        private (ProductService service,
             Mock<IRepository<Product>> productRepository,
             Mock<IProductReportGeneratorService> reportGenerator) CreateService()
         {
@@ -333,12 +300,12 @@ namespace EvangelionERPV2.ProductModule.Test
             var productRepository = new Mock<IRepository<Product>>();
             var reportGenerator = new Mock<IProductReportGeneratorService>();
 
-            var service = new ProductService(productRepository.Object, configuration, kmsProvider, reportGenerator.Object);
+            var service = new ProductService(productRepository.Object, configuration, kmsProvider, reportGenerator.Object, _database.CreateContext());
 
             return (service, productRepository, reportGenerator);
         }
 
-        private static (ProductService service,
+        private (ProductService service,
             Mock<IRepository<Product>> productRepository,
             Mock<IProductReportGeneratorService> reportGenerator,
             Mock<IAmazonS3> s3ClientMock) CreateServiceWithS3Mock()
@@ -363,7 +330,7 @@ namespace EvangelionERPV2.ProductModule.Test
             var reportGenerator = new Mock<IProductReportGeneratorService>();
             var s3ClientMock = new Mock<IAmazonS3>();
 
-            var service = new ProductService(productRepository.Object, configuration, kmsProvider, reportGenerator.Object);
+            var service = new ProductService(productRepository.Object, configuration, kmsProvider, reportGenerator.Object, _database.CreateContext());
 
             typeof(ProductService)
                 .GetField("_s3Client", BindingFlags.NonPublic | BindingFlags.Instance)!

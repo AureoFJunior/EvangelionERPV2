@@ -510,11 +510,21 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             Assert.Equal(0, refunded.TotalValue);
             Assert.Equal("Customer returned wrong item", refunded.RefundReason);
             Assert.NotNull(refunded.RefundedAt);
-            Assert.Equal(10, products[0].StorageQuantity);
             Assert.Equal(0, orderedProducts[0].Quantity);
             Assert.Equal(0, orderedProducts[0].Value);
 
-            _mockIProductRepository.Verify(r => r.UpdateRange(It.IsAny<IEnumerable<Product>>()), Times.Once);
+            // The refund no longer writes StorageQuantity here. It hands the change to the one
+            // shared stock path, which is what also writes the StockMovement row and drops the
+            // product cache — so what this test can assert is that the hand-off happened, with
+            // the units going back in (positive) and the order named as the cause.
+            _mockIProductService.Verify(
+                s => s.ApplyStockMovementAsync(
+                    productId,
+                    enterpriseId,
+                    4m,
+                    EnumStockMovementType.Refund,
+                    orderId),
+                Times.Once);
             _mockIOrderedProductRepository.Verify(r => r.UpdateRange(It.IsAny<IEnumerable<OrderedProduct>>()), Times.Once);
             _mockIOrderRepository.Verify(r => r.Update(It.IsAny<Order>()), Times.Once);
         }

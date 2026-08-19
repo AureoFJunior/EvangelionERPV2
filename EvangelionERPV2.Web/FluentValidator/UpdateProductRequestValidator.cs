@@ -23,6 +23,8 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.UnitOfMeasure)
                 .NotEmpty().WithMessage("UnitOfMeasure is required.")
                 .MaximumLength(30).WithMessage("UnitOfMeasure is too long.");
+
+            ProductFiscalRules.AddTo(this);
         }
     }
 }
