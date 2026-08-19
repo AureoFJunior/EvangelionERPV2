@@ -3,6 +3,8 @@
 Written 2026-08-11. Last verified against the working tree on `feature/33-Boleto-and-NFE-emission`,
 2026-08-14.
 
+> **Resume point and milestone status live in [`../ROADMAP-STATUS.md`](../ROADMAP-STATUS.md). Read that first.**
+
 This is the **code-only** backlog. Everything that needs a human, a bank or a certificate lives in
 [`TODO-manual.md`](./TODO-manual.md). Deep detail for NFe stays in
 [`../nfe/HANDOFF.md`](../nfe/HANDOFF.md) and [`../nfe/SPEC-engineering.md`](../nfe/SPEC-engineering.md);
@@ -15,12 +17,13 @@ this file does not repeat them, it lists what is still missing and where.
 | Area | Reality in the tree today |
 |---|---|
 | NFe phases 1–3 | Done. `EnterpriseFiscalSettings`, `NFeNumberSequence`, certificate lifecycle, `NFeDocument` fiscal columns, numbering SQL. |
-| NFe phase 4 | **Half.** `NFe.Infra/Xml/NFeAccessKeyBuilder.cs` and `NFeItemFiscalResolver.cs` exist and are now wired into issuance, `Product` fiscal columns exist. No `Unimake` reference anywhere, no XML builder, no SEFAZ provider. |
+| NFe phase 4 | **Most of the way.** Access-key builder, item resolver, `Product` fiscal columns, write-ahead ordering, reconciler, and the provider contract moved down to Infra with `NFeIssueContext`. `Unimake.DFe 20260722.1716.27` is referenced by `NFeModule.Infra` only. **Missing: `NFeXmlBuilder`, `UnimakeConfiguracaoFactory`, `SefazNFeProvider`** — that is the whole remaining gap. |
 | Issuance | `NFeIoC.cs:61` still registers `StubNFeProvider` — hardcodes `Status = Authorized` and invents a protocol. It no longer invents an access key: the service owns that now. `NFeSettings.Enabled = false` in all environments. |
-| Cancel | `NFeService.CancelAsync:260` **writes `Status = Cancelled` locally and invents `CancelProtocol = $"CANCEL-{timestamp}"`.** It contacts nobody. |
-| Consult | `NFeService.ConsultAsync:252` is a database read. No `ConsultaProtocolo`. |
+| Cancel | **Service side done (2026-08-19).** Refuses anything not `Authorized`, enforces the window from the tenant profile, commits `CancelRequestedAt` before the round trip, records a cancellation only when SEFAZ homologates it. Still no transport behind it, and `StubNFeProvider.CancelAsync` now reports failure rather than faking success. |
+| Consult | **Service side done (2026-08-19).** Asks SEFAZ when — and only when — the outcome is unknown, and adopts the answer through the same `ApplyOutcome` the reconciler uses. Still no `ConsultaProtocolo` behind it. |
 | Write-ahead ordering | **Done (2026-08-14).** `IssueAsync` allocates the nNF, builds the chave and commits both, then commits `TransmittedAtUtc`, then transmits. `IsOutcomeUnknown` can now be true and its guard fires. Covered by `NFeModule.Test/NFe/NFeIssuanceWriteAheadTests.cs`. |
 | Reconciliation | **Done (2026-08-19).** `NFeReconciliationService` + `NFeReconciliationWorker` (hosted, gated on `NFeSettings.Enabled`) sweep `GetStalePendingAsync`: unknown outcomes are consulted through the new `INFeProvider.ConsultAsync`, never-transmitted rows go back to `Error` keeping their allocation. `StubNFeProvider.ConsultAsync` answers "still unknown", so nothing is invented. |
+| Boleto payment state | **Done (M2).** `Status/PaidAt/PaidAmount/SettlementProtocol`, `BillNumberSequence` replacing the derived NossoNumero, a filtered unique index so a reissue supersedes, and a forecast that no longer counts an issued boleto as received cash. B2, B4 and half of B5 below are closed by it. |
 | Boleto | Generates a real BoletoNetCore barcode + digitable line + HTML/PDF and emails it. **Nothing registers the title with a bank and nothing ever marks it paid.** `BillsSettings.Enabled = false` in production. |
 
 Both features are inert in production, which is the only reason the stubbed cancel and the
@@ -241,7 +244,12 @@ row), and `BillsSettings` demoted to defaults + kill switch. Do not build a seco
 Blocked on the ownership decision in §M-B1 of the manual list — if the platform is legally the sole
 beneficiary, this is not needed and should be written down rather than left ambiguous.
 
-### B2. `NossoNumero` is derived, not allocated — HIGH
+### B2. `NossoNumero` is derived, not allocated — ~~HIGH~~ **DONE (M2, 2026-08-19)**
+
+`BillNumberSequence` per (enterprise, bank, wallet) with a configurable start and ceiling, allocated
+through the same `UPDATE ... OUTPUT deleted.NextNumber WITH (ROWLOCK)` statement NFe uses, plus
+`AND NextNumber <= Ceiling` inside the same atomic statement so an exhausted convênio range hands out
+nothing. The original problem, for the record:
 
 ```csharp
 // BillsService.cs:525
@@ -269,7 +277,12 @@ so it cannot be paid at another bank, cannot be protested, and cannot be reconci
 Work: remessa generation (BoletoNetCore ships CNAB 240/400 writers, use them — do not hand-roll a layout),
 retorno parsing, and the transport. Bank layout manual and SFTP/API credentials are §M-B4/§M-B5.
 
-### B4. No payment state — nothing can ever be marked paid — HIGH
+### B4. No payment state — ~~HIGH~~ **DONE (M2, 2026-08-19)**
+
+`Status` (`Registered/Paid/Overdue/Cancelled/Rejected`, with `Overdue` derived rather than stored),
+`PaidAt`, `PaidAmount`, `SettlementProtocol`, a manual settle endpoint at Manager, and the cash-flow
+forecast wired to it. Nothing writes `Rejected` yet — the value exists so M9's retorno mapping does not
+have to migrate the column. The original problem:
 
 `Bill` (`Shared/Entities/Bill.cs`) has `OrderId, BankCode, OurNumber, DocumentNumber, IssueDate, DueDate,
 Amount, DigitableLine, BarCode, HtmlContent`. There is no status, no `PaidAt`, no `PaidAmount`, no
@@ -283,7 +296,12 @@ whatever writes them (retorno processing from B3, or a bank webhook/API if the c
 Then wire it into `CashFlowForecastService`, which currently cannot distinguish a paid boleto from an
 issued one.
 
-### B5. No cancel / reissue — MEDIUM
+### B5. No cancel / reissue — **half done (M2)**
+
+Reissue exists: the unique index is filtered on non-cancelled rows, so a reissue supersedes rather
+than mutates, and it regenerates from the order's current dates rather than taking a due date of its
+own. A standalone cancel (baixa) is still missing on purpose — it belongs with the remessa instruction
+it has to send, which is M9. The original problem:
 
 There is no way to cancel a boleto (baixa) or reissue one with a new due date. Today the unique index on
 `Bill.OrderId` means one order gets exactly one boleto forever; a wrong due date is unrecoverable through
