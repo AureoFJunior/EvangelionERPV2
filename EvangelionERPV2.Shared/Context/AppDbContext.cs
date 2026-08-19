@@ -60,6 +60,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<PayableBill> PayableBill { get; set; }
         public DbSet<PayableBillProduct> PayableBillProduct { get; set; }
         public DbSet<PayrollBillDetail> PayrollBillDetail { get; set; }
+        public DbSet<Supplier> Supplier { get; set; }
         public DbSet<Opportunity> Opportunity { get; set; }
         public DbSet<OpportunitySignal> OpportunitySignal { get; set; }
         public DbSet<OpportunityRecommendation> OpportunityRecommendation { get; set; }

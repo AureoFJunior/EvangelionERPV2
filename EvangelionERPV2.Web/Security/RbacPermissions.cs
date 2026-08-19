@@ -79,6 +79,11 @@ namespace EvangelionERPV2.Web.Security
             Reports.Read,
             Reports.Generate,
 
+            Suppliers.Read,
+            Suppliers.Create,
+            Suppliers.Update,
+            Suppliers.Delete,
+
             Users.Read,
             Users.ReadSelf,
             Users.Create,
@@ -231,6 +236,14 @@ namespace EvangelionERPV2.Web.Security
         {
             public const string Read = "reports.read";
             public const string Generate = "reports.generate";
+        }
+
+        public static class Suppliers
+        {
+            public const string Read = "suppliers.read";
+            public const string Create = "suppliers.create";
+            public const string Update = "suppliers.update";
+            public const string Delete = "suppliers.delete";
         }
 
         public static class Users
