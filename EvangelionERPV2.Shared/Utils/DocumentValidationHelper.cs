@@ -1,6 +1,6 @@
-namespace EvangelionERPV2.Web.FluentValidator
+namespace EvangelionERPV2.Shared.Utils
 {
-    internal static class DocumentValidationHelper
+    public static class DocumentValidationHelper
     {
         public static bool BeValidDocument(string? document)
         {
@@ -13,9 +13,26 @@ namespace EvangelionERPV2.Web.FluentValidator
             return IsValidCpf(digits) || IsValidCnpj(digits) || IsValidNif(digits);
         }
 
-        private static string NormalizeDocument(string value)
+        /// <summary>
+        /// CNPJ-only check. An NFe/NFCe emitente is always a legal entity, so the CPF and NIF
+        /// branches accepted by <see cref="BeValidDocument"/> must not pass here.
+        /// </summary>
+        public static bool BeValidCnpj(string? document)
         {
-            return new string(value.Where(char.IsDigit).ToArray());
+            if (string.IsNullOrWhiteSpace(document))
+            {
+                return false;
+            }
+
+            return IsValidCnpj(NormalizeDocument(document));
+        }
+
+        /// <summary>Strips masks, returning digits only.</summary>
+        public static string NormalizeDocument(string? value)
+        {
+            return string.IsNullOrEmpty(value)
+                ? string.Empty
+                : new string(value.Where(char.IsDigit).ToArray());
         }
 
         private static bool IsValidCpf(string digits)

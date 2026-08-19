@@ -9,6 +9,7 @@ namespace EvangelionERPV2.Shared.Enums
         Taxes,
         OperatingCost,
         LogisticsCost,
-        Other
+        Other,
+        Payroll
     }
 }

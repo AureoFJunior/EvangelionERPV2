@@ -6,7 +6,7 @@ namespace EvangelionERPV2.Shared.DTOs
     {
         public DateTime? Payday { get; set; } = null;
         public DateTime? PaymentScheduledDate { get; set; } = null;
-        public double TotalValue { get; set; } = 0;
+        public decimal TotalValue { get; set; } = 0;
         public Guid? EnterpriseId { get; set; } = null;
         public Guid? CustomerId { get; set; } = null;
         public string? CustomerName { get; set; } = null;

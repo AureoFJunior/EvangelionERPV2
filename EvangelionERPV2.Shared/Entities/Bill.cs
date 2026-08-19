@@ -12,7 +12,7 @@ namespace EvangelionERPV2.Shared.Entities
     {
         public Bill() { }
 
-        public Bill(Guid orderId, int bankCode, string ourNumber, string documentNumber, DateTime issueDate, DateTime dueDate, double amount, string digitableLine, string barCode, string htmlContent)
+        public Bill(Guid orderId, int bankCode, string ourNumber, string documentNumber, DateTime issueDate, DateTime dueDate, decimal amount, string digitableLine, string barCode, string htmlContent)
         {
             OrderId = orderId;
             BankCode = bankCode;
@@ -37,7 +37,7 @@ namespace EvangelionERPV2.Shared.Entities
         public string DocumentNumber { get; set; } = "";
         public DateTime IssueDate { get; set; } = DateTime.UtcNow;
         public DateTime DueDate { get; set; } = DateTime.UtcNow;
-        public double Amount { get; set; } = 0;
+        public decimal Amount { get; set; } = 0;
         public string DigitableLine { get; set; } = "";
         public string BarCode { get; set; } = "";
         public string HtmlContent { get; set; } = "";

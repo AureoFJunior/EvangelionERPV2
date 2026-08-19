@@ -29,6 +29,10 @@ namespace EvangelionERPV2.Shared.Repositories
             var strategy = _context.Database.CreateExecutionStrategy();
             strategy.Execute(() =>
             {
+                // A retry re-runs this delegate while the ChangeTracker still holds the failed
+                // attempt's Added/Modified entries — replaying them would duplicate inserts.
+                _context.ChangeTracker.Clear();
+
                 using var transaction = _context.Database.BeginTransaction();
                 operation();
                 transaction.Commit();
@@ -44,6 +48,10 @@ namespace EvangelionERPV2.Shared.Repositories
 
             strategy.Execute(() =>
             {
+                // A retry re-runs this delegate while the ChangeTracker still holds the failed
+                // attempt's Added/Modified entries — replaying them would duplicate inserts.
+                _context.ChangeTracker.Clear();
+
                 using var transaction = _context.Database.BeginTransaction();
                 result = operation();
                 transaction.Commit();
@@ -68,7 +76,7 @@ namespace EvangelionERPV2.Shared.Repositories
             return result.Count > 0 ? result : new List<TEntity>();
         }
 
-        public virtual IEnumerable<TEntity> GetByCondition(Func<TEntity, bool> condition)
+        public virtual IEnumerable<TEntity> GetByCondition(Expression<Func<TEntity, bool>> condition)
         {
             var query = _context.Set<TEntity>().AsNoTracking().Where(condition);
 
@@ -175,12 +183,16 @@ namespace EvangelionERPV2.Shared.Repositories
             ArgumentNullException.ThrowIfNull(operation);
 
             var strategy = _context.Database.CreateExecutionStrategy();
-            return strategy.ExecuteAsync(async () =>
+            return strategy.ExecuteAsync(async (CancellationToken token) =>
             {
-                await using var transaction = await _context.Database.BeginTransactionAsync(cancellation);
+                // A retry re-runs this delegate while the ChangeTracker still holds the failed
+                // attempt's Added/Modified entries — replaying them would duplicate inserts.
+                _context.ChangeTracker.Clear();
+
+                await using var transaction = await _context.Database.BeginTransactionAsync(token);
                 await operation();
-                await transaction.CommitAsync(cancellation);
-            });
+                await transaction.CommitAsync(token);
+            }, cancellation);
         }
 
         public virtual Task<TResult> ExecuteInTransactionAsync<TResult>(Func<Task<TResult>> operation, CancellationToken cancellation = default)
@@ -188,13 +200,17 @@ namespace EvangelionERPV2.Shared.Repositories
             ArgumentNullException.ThrowIfNull(operation);
 
             var strategy = _context.Database.CreateExecutionStrategy();
-            return strategy.ExecuteAsync(async () =>
+            return strategy.ExecuteAsync(async (CancellationToken token) =>
             {
-                await using var transaction = await _context.Database.BeginTransactionAsync(cancellation);
+                // A retry re-runs this delegate while the ChangeTracker still holds the failed
+                // attempt's Added/Modified entries — replaying them would duplicate inserts.
+                _context.ChangeTracker.Clear();
+
+                await using var transaction = await _context.Database.BeginTransactionAsync(token);
                 var result = await operation();
-                await transaction.CommitAsync(cancellation);
+                await transaction.CommitAsync(token);
                 return result;
-            });
+            }, cancellation);
         }
 
         public virtual async Task<Guid> GetLastId()
@@ -212,29 +228,25 @@ namespace EvangelionERPV2.Shared.Repositories
             return entity ?? null!;
         }
 
-        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(Func<TEntity, bool>? predicate = null)
+        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(Expression<Func<TEntity, bool>>? predicate = null)
         {
             IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
 
             if (predicate != null)
-                return query.AsEnumerable().Where(predicate).ToList();
+                query = query.Where(predicate);
 
             return await query.ToListAsync();
         }
 
-        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Func<TEntity, bool>? predicate = null)
+        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Expression<Func<TEntity, bool>>? predicate = null)
         {
             IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
 
-            if (pageNumber == null || pageSize == null)
-                return await GetAllAsync(predicate);
-
             if (predicate != null)
-                return query.AsEnumerable()
-                    .Where(predicate)
-                    .Skip((pageNumber.Value - 1) * pageSize.Value)
-                    .Take(pageSize.Value)
-                    .ToList();
+                query = query.Where(predicate);
+
+            if (pageNumber == null || pageSize == null)
+                return await query.ToListAsync();
 
             int skip = (pageNumber.Value - 1) * pageSize.Value;
             return await query
@@ -242,6 +254,33 @@ namespace EvangelionERPV2.Shared.Repositories
                 .Skip(skip)
                 .Take(pageSize.Value)
                 .ToListAsync();
+        }
+
+        public virtual async Task<(IReadOnlyList<TEntity> Items, int TotalItems)> GetPagedAsync(
+            Expression<Func<TEntity, bool>>? predicate = null,
+            Func<IQueryable<TEntity>, IOrderedQueryable<TEntity>>? orderBy = null,
+            int? pageNumber = null,
+            int? pageSize = null)
+        {
+            IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
+
+            if (predicate != null)
+                query = query.Where(predicate);
+
+            var totalItems = await query.CountAsync();
+
+            // Always end on the primary key: SQL ORDER BY is not stable, so a caller-supplied
+            // ordering over a non-unique column lets tied rows straddle a page boundary and be
+            // repeated on one page while disappearing from another.
+            query = orderBy != null ? orderBy(query).ThenBy(entity => entity.Id) : query.OrderBy(entity => entity.Id);
+
+            if (pageNumber == null || pageSize == null)
+                return (await query.ToListAsync(), totalItems);
+
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
+            var items = await query.Skip(skip).Take(pageSize.Value).ToListAsync();
+
+            return (items, totalItems);
         }
 
         protected virtual async Task<IEnumerable<TEntity>> GetAllAsyncByFilterInternal(bool descending,
@@ -258,8 +297,10 @@ namespace EvangelionERPV2.Shared.Repositories
                 if (predicate != null)
                     query = query.Where(predicate);
 
+                // .ThenBy(Id) keeps paging deterministic: the caller-supplied orderBy is rarely
+                // unique, and SQL ORDER BY is not stable.
                 if (orderBy != null)
-                    query = descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy);
+                    query = (descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy)).ThenBy(entity => entity.Id);
             }
 
             if (pageNumber == null || pageSize == null)
@@ -286,8 +327,10 @@ namespace EvangelionERPV2.Shared.Repositories
                 if (predicate != null)
                     query = query.Where(predicate);
 
+                // .ThenBy(Id) keeps paging deterministic: the caller-supplied orderBy is rarely
+                // unique, and SQL ORDER BY is not stable.
                 if (orderBy != null)
-                    query = descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy);
+                    query = (descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy)).ThenBy(entity => entity.Id);
             }
 
             int totalItems = await query.CountAsync();

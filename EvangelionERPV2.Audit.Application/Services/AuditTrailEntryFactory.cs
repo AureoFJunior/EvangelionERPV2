@@ -20,6 +20,21 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             "CancelProtocol",
             "Series",
             "Number",
+            // The NFCe QR payload and its lookup URL both embed the access key, which carries
+            // the emitente CNPJ and the note number.
+            "QrCode",
+            "UrlChave",
+            "DigestValue",
+            // SEFAZ reason strings are mostly canned, but rejection motives can echo back submitted
+            // values (CNPJ, IE, item data), so they are not safe to store verbatim.
+            "XMotivo",
+            "CancelXMotivo",
+            // Emitente identifiers on the fiscal profile.
+            "Cnpj",
+            "InscricaoEstadual",
+            "InscricaoMunicipal",
+            "CertThumbprint",
+            "CertSubjectCn",
             "Email",
             "PhoneNumber",
             "Document",

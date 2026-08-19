@@ -25,12 +25,18 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var monthEnd = monthStart.AddMonths(1).AddTicks(-1);
             var today = now.Date;
 
+            // LGPD: payroll bills are excluded. This report is reachable with bills.pdf.download
+            // (no payroll.read), it has no caller identity to gate on, and for a small enterprise
+            // the "Payroll" aggregate row is effectively an individual salary.
+            var payrollBillType = (int)EnumPayableBillType.Payroll;
+
             var bills = (await _payableBillRepository.GetAllAsyncByFilter(
                     false,
                     null,
                     null,
                     x => x.IsActive == true
                          && x.EnterpriseId == enterprise.Id
+                         && x.BillType != payrollBillType
                          && x.DueDate >= monthStart
                          && x.DueDate <= monthEnd))
                 .ToList();
@@ -258,12 +264,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         private readonly record struct PayablesOverviewRow(
             string BillTypeLabel,
-            double PaidAmount,
-            double OverdueAmount,
-            double UpcomingAmount,
-            double RefundedAmount)
+            decimal PaidAmount,
+            decimal OverdueAmount,
+            decimal UpcomingAmount,
+            decimal RefundedAmount)
         {
-            public double Total => PaidAmount + OverdueAmount + UpcomingAmount + RefundedAmount;
+            public decimal Total => PaidAmount + OverdueAmount + UpcomingAmount + RefundedAmount;
         }
     }
 }

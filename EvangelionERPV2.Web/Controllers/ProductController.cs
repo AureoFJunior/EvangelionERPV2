@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using AutoMapper;
 using Serilog;
 using EvangelionERPV2.Shared.Entities;
@@ -106,13 +107,17 @@ namespace EvangelionERPV2.Web.Controllers
                 if (includePictures && normalizedPageSize > MaxPageSizeWithPictures)
                     normalizedPageSize = MaxPageSizeWithPictures;
 
+                // string.Contains(..., StringComparison) has no SQL Server translation; this
+                // predicate is executed by the provider, so it must use EF.Functions.Like.
+                var escapedNameFilter = SharedFunctions.EscapeLikePattern(nameFilter ?? string.Empty);
+
                 var products = await _repository.GetAllAsync(
                     normalizedPageNumber,
                     normalizedPageSize,
                     x =>
                         x.EnterpriseId == enterpriseId &&
                         (!isActiveFilter.HasValue || x.IsActive == isActiveFilter.Value) &&
-                        (string.IsNullOrWhiteSpace(nameFilter) || x.Name.Contains(nameFilter, StringComparison.OrdinalIgnoreCase)));
+                        (string.IsNullOrWhiteSpace(nameFilter) || EF.Functions.Like(x.Name, $"%{escapedNameFilter}%", "\\")));
 
                 if (products == null || !products.Any())
                     return NoContent();
@@ -403,7 +408,7 @@ namespace EvangelionERPV2.Web.Controllers
             return legacyValue ?? string.Empty;
         }
 
-        private static double ResolveLegacyOrRootNumericValue(double? rootValue, double legacyValue)
+        private static decimal ResolveLegacyOrRootNumericValue(decimal? rootValue, decimal legacyValue)
         {
             return rootValue ?? legacyValue;
         }

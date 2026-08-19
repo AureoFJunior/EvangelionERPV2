@@ -1,4 +1,5 @@
 using EvangelionERPV2.Shared.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 
@@ -8,7 +9,7 @@ namespace EvangelionERPV2.Shared.Entities
     {
         public Product() { }
 
-        public Product(string name, string description, double defaultValue, double storageQuantity, bool isExternal, bool isService, string? pictureAdress, Guid enterpriseId)
+        public Product(string name, string description, decimal defaultValue, decimal storageQuantity, bool isExternal, bool isService, string? pictureAdress, Guid enterpriseId)
         {
             Name = name;
             Description = description;
@@ -22,12 +23,75 @@ namespace EvangelionERPV2.Shared.Entities
 
         public string Name { get; set; } = "";
         public string Description { get; set; } = "";
-        public double DefaultValue { get; set; } = 0;
-        public double StorageQuantity { get; set; } = 0;
+        public decimal DefaultValue { get; set; } = 0;
+
+        // StorageQuantity is not money: UnitOfMeasure allows Kg/Litre/Meter, so the global
+        // decimal(18,2) convention would truncate fractional units like 0.004 Kg to 0.
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal StorageQuantity { get; set; } = 0;
         public string UnitOfMeasure { get; set; } = nameof(EnumUnitOfMeasure.Unit);
         public bool IsExternal { get; set; } = false;
         public bool IsService { get; set; } = false;
         public string? PictureAdress { get; set; }
+
+        #region Fiscal (NFe/NFCe)
+
+        // All nullable: blank means "fall back to EnterpriseFiscalSettings.Default*".
+        // NFeItemFiscalResolver is the single place that applies that fallback.
+        // UnitOfMeasure above stays the commercial unit (uCom); UnidadeTributavel is uTrib.
+
+        [MaxLength(8)]
+        public string? Ncm { get; set; }
+
+        [MaxLength(7)]
+        public string? Cest { get; set; }
+
+        /// <summary>GTIN. "SEM GTIN" is emitted when null.</summary>
+        [MaxLength(14)]
+        public string? Cean { get; set; }
+
+        [MaxLength(4)]
+        public string? CfopIntra { get; set; }
+
+        [MaxLength(4)]
+        public string? CfopInter { get; set; }
+
+        /// <summary>Origem da mercadoria, 0..8.</summary>
+        public byte? Origem { get; set; }
+
+        [MaxLength(6)]
+        public string? UnidadeTributavel { get; set; }
+
+        /// <summary>Used when the enterprise's CRT is 3 (Regime Normal).</summary>
+        [MaxLength(3)]
+        public string? Cst { get; set; }
+
+        /// <summary>Used when the enterprise's CRT is 1, 2 or 4 (Simples Nacional / MEI).</summary>
+        [MaxLength(3)]
+        public string? Csosn { get; set; }
+
+        // decimal(5,4) is mandatory on every rate: the global HavePrecision(18,2) convention in
+        // AppDbContext would truncate a 0.0765 PIS rate to 0.08.
+        [Column(TypeName = "decimal(5,4)")]
+        public decimal? AliquotaIcms { get; set; }
+
+        [MaxLength(2)]
+        public string? CstPis { get; set; }
+
+        [Column(TypeName = "decimal(5,4)")]
+        public decimal? AliquotaPis { get; set; }
+
+        [MaxLength(2)]
+        public string? CstCofins { get; set; }
+
+        [Column(TypeName = "decimal(5,4)")]
+        public decimal? AliquotaCofins { get; set; }
+
+        /// <summary>cBenef, required by some UFs when the CST is exempt.</summary>
+        [MaxLength(10)]
+        public string? CodigoBeneficioFiscal { get; set; }
+
+        #endregion
 
         [ForeignKey(nameof(Enterprise))]
         public Guid? EnterpriseId { get; set; } = null;

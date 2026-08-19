@@ -55,8 +55,11 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 #endregion
 
                 #region Services
+                services.AddScoped<Func<EmailModule.Application.Interface.IEmailService<EmailStructure>>>(
+                    sp => () => sp.GetRequiredService<EmailModule.Application.Interface.IEmailService<EmailStructure>>());
                 services.AddScoped(typeof(IBillsService<Bill>), typeof(BillsService));
                 services.AddScoped<IPayableBillService, PayableBillService>();
+                services.AddScoped<IPayrollService, PayrollService>();
                 services.AddScoped<IPayableBillReportGeneratorService, PayableBillReportGeneratorService>();
                 services.AddScoped<ICashFlowForecastService, CashFlowForecastService>();
                 #endregion

@@ -12,6 +12,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 {
     public class PayableBillService : IPayableBillService
     {
+        private const int CarryOverWindowInMonths = 12;
+
         private readonly IRepository<PayableBill> _payableBillRepository;
         private readonly IRepository<PayableBillProduct> _payableBillProductRepository;
         private readonly IRepository<Product> _productRepository;
@@ -38,7 +40,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             _appDbContext = appDbContext;
         }
 
-        public async Task<PayableBill> CreateAsync(PayableBill payableBill)
+        public async Task<PayableBill> CreateAsync(PayableBill payableBill, bool useAmbientTransaction = false)
         {
             if (payableBill == null)
                 throw new InsertDatabaseException($"{nameof(PayableBill)} is null.");
@@ -51,41 +53,13 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             try
             {
-                await ExecuteInTransactionAsync(async () =>
-                {
-                    payableBill.CreatedAt = DateTime.UtcNow;
-                    payableBill.UpdatedAt = DateTime.UtcNow;
-                    payableBill.IsActive = true;
-                    payableBill.RefundReason = null;
-                    payableBill.RefundedAt = null;
-                    payableBill.BillType = NormalizeBillType(payableBill.BillType);
-                    payableBill.PaidAt = payableBill.IsPaid
-                        ? (payableBill.PaidAt ?? DateTime.UtcNow)
-                        : null;
-
-                    var hasProvidedItems = sourceItems.Any();
-                    var normalizedItems = hasProvidedItems
-                        ? await NormalizeItemsAsync(payableBill.Id, payableBill.EnterpriseId, sourceItems)
-                        : new List<PayableBillProduct>();
-
-                    if (hasProvidedItems)
-                        payableBill.Amount = normalizedItems.Sum(x => x.LineAmount);
-                    else
-                        payableBill.Amount = payableBill.Amount > 0 ? payableBill.Amount : 0;
-
-                    payableBill.Items = null;
-
-                    await _payableBillRepository.CreateAsync(payableBill);
-
-                    if (hasProvidedItems && normalizedItems.Any())
-                        await _payableBillProductRepository.CreateRangeAsync(normalizedItems);
-
-                    await _payableBillRepository.CommitAsync();
-
-                    await ApplyEnterpriseBalanceDeltaAsync(
-                        payableBill.EnterpriseId,
-                        EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(payableBill, DateTime.UtcNow.Date));
-                });
+                // useAmbientTransaction: the caller already opened a transaction on the shared
+                // context (payroll generation does, so bill and PayrollBillDetail land together).
+                // Nesting BeginTransactionAsync would throw, so the body runs inline instead.
+                if (useAmbientTransaction)
+                    await CreateCoreAsync(payableBill, sourceItems);
+                else
+                    await ExecuteInTransactionAsync(() => CreateCoreAsync(payableBill, sourceItems));
             }
             catch (DbUpdateException ex)
             {
@@ -96,19 +70,83 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return createdBill ?? payableBill;
         }
 
+        private async Task CreateCoreAsync(PayableBill payableBill, List<PayableBillProduct> sourceItems)
+        {
+            payableBill.CreatedAt = DateTime.UtcNow;
+            payableBill.UpdatedAt = DateTime.UtcNow;
+            payableBill.IsActive = true;
+            payableBill.RefundReason = null;
+            payableBill.RefundedAt = null;
+            payableBill.BillType = NormalizeBillType(payableBill.BillType);
+            payableBill.PaidAt = payableBill.IsPaid
+                ? (payableBill.PaidAt ?? DateTime.UtcNow)
+                : null;
+
+            var hasProvidedItems = sourceItems.Any();
+            var normalizedItems = hasProvidedItems
+                ? await NormalizeItemsAsync(payableBill.Id, payableBill.EnterpriseId, sourceItems)
+                : new List<PayableBillProduct>();
+
+            if (hasProvidedItems)
+                payableBill.Amount = normalizedItems.Sum(x => x.LineAmount);
+            else
+                payableBill.Amount = payableBill.Amount > 0 ? payableBill.Amount : 0;
+
+            payableBill.Items = null;
+
+            await _payableBillRepository.CreateAsync(payableBill);
+
+            if (hasProvidedItems && normalizedItems.Any())
+                await _payableBillProductRepository.CreateRangeAsync(normalizedItems);
+
+            await _payableBillRepository.CommitAsync();
+
+            await ApplyEnterpriseBalanceDeltaAsync(
+                payableBill.EnterpriseId,
+                EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(payableBill, DateTime.UtcNow.Date));
+        }
+
         public async Task<IEnumerable<PayableBill>> GetByEnterpriseIdAsync(
             Guid enterpriseId,
             int? pageNumber = null,
             int? pageSize = null,
             bool? isActive = true,
-            int? billType = null)
+            int? billType = null,
+            int? year = null,
+            int? month = null,
+            bool includePayroll = true)
         {
-            var bills = (await _payableBillRepository.GetAllAsync(
+            // Month view carries forward unpaid bills due before the period so overdue bills
+            // stay visible, bounded to the previous 12 months so an old unpaid bill does not
+            // get dragged into every month view forever.
+            DateTime? periodStart = null;
+            DateTime? periodEnd = null;
+            DateTime? carryOverStart = null;
+            if (year.HasValue && month.HasValue)
+            {
+                periodStart = new DateTime(year.Value, month.Value, 1, 0, 0, 0, DateTimeKind.Utc);
+                periodEnd = periodStart.Value.AddMonths(1);
+                carryOverStart = periodStart.Value.AddMonths(-CarryOverWindowInMonths);
+            }
+
+            var payrollBillType = (int)EnumPayableBillType.Payroll;
+
+            // Ordered by due date (not the GUID key) so page 1 of a month view is the oldest
+            // due bills of that view instead of an arbitrary slice.
+            var bills = (await _payableBillRepository.GetAllAsyncByFilter(
+                false,
                 pageNumber,
                 pageSize,
                 x => x.EnterpriseId == enterpriseId
                      && (!isActive.HasValue || x.IsActive == isActive.Value)
-                     && (!billType.HasValue || x.BillType == billType.Value))).ToList();
+                     && (!billType.HasValue || x.BillType == billType.Value)
+                     // LGPD: payroll bills carry individual salary data, so they are filtered in
+                     // SQL — filtering after paging would leak their count through the page size.
+                     && (includePayroll || x.BillType != payrollBillType)
+                     && (!periodStart.HasValue
+                         || (x.DueDate >= periodStart.Value && x.DueDate < periodEnd!.Value)
+                         || (!x.IsPaid && x.DueDate < periodStart.Value && x.DueDate >= carryOverStart!.Value)),
+                x => x.DueDate)).ToList();
 
             NormalizeBillTypesOnRead(bills);
             await PopulateItemsAsync(bills);
@@ -460,11 +498,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     minCoverageDays + 1,
                     (int)Math.Round(GetPercentile(intervals, 0.75) + leadTimeDays));
 
-                var currentStock = Math.Max(0, product.StorageQuantity);
+                var currentStock = Math.Max(0m, product.StorageQuantity);
                 var coverageDays = currentStock / dailyConsumption;
 
                 var targetStock = dailyConsumption * (leadTimeDays + minCoverageDays);
-                var suggestedQuantity = Math.Max(0, targetStock - currentStock);
+                var suggestedQuantity = Math.Max(0m, targetStock - currentStock);
 
                 var (alert, criticality) = ResolveAlertAndCriticality(coverageDays, minCoverageDays, maxCoverageDays);
 
@@ -472,13 +510,15 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 {
                     ProductId = product.Id,
                     ProductName = product.Name,
-                    CurrentStock = Math.Round(currentStock, 2),
+                    // Quantities, not money: 4 decimals matches the decimal(18,4) stock columns
+                    // (and no MidpointRounding change — that convention is for money only).
+                    CurrentStock = Math.Round(currentStock, 4),
                     DailyConsumption = Math.Round(dailyConsumption, 4),
                     LeadTimeDays = leadTimeDays,
                     MinCoverageDays = minCoverageDays,
                     MaxCoverageDays = maxCoverageDays,
                     CoverageDays = Math.Round(coverageDays, 2),
-                    SuggestedQuantity = Math.Round(suggestedQuantity, 2),
+                    SuggestedQuantity = Math.Round(suggestedQuantity, 4),
                     Alert = alert,
                     Criticality = criticality
                 });
@@ -613,7 +653,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     ProductId = product.Id,
                     Quantity = item.Quantity,
                     UnitValue = resolvedUnitValue,
-                    LineAmount = Math.Round(lineAmount, 2),
+                    LineAmount = Math.Round(lineAmount, 2, MidpointRounding.AwayFromZero),
                     UnitOfMeasure = product.UnitOfMeasure,
                     CreatedAt = now,
                     UpdatedAt = now,
@@ -719,7 +759,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return sorted[lower] + (sorted[upper] - sorted[lower]) * weight;
         }
 
-        private static (string alert, string criticality) ResolveAlertAndCriticality(double coverageDays, int minCoverageDays, int maxCoverageDays)
+        private static (string alert, string criticality) ResolveAlertAndCriticality(decimal coverageDays, int minCoverageDays, int maxCoverageDays)
         {
             if (coverageDays < minCoverageDays)
                 return ("stockout", "high");
@@ -761,15 +801,15 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 : (int)EnumPayableBillType.Other;
         }
 
-        private async Task ApplyEnterpriseBalanceDeltaAsync(Guid enterpriseId, double delta)
+        private async Task ApplyEnterpriseBalanceDeltaAsync(Guid enterpriseId, decimal delta)
         {
-            if (Math.Abs(delta) < 0.000001)
+            if (Math.Abs(delta) < 0.000001m)
                 return;
 
             if (_appDbContext != null)
             {
                 var now = DateTime.UtcNow;
-                var roundedDelta = Math.Round(delta, 2);
+                var roundedDelta = Math.Round(delta, 2, MidpointRounding.AwayFromZero);
                 var affectedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
                     $"UPDATE Enterprise SET CurrentBalance = ROUND(CurrentBalance + {roundedDelta}, 2), UpdatedAt = {now} WHERE Id = {enterpriseId}");
 
@@ -783,7 +823,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (enterprise == null)
                 throw new InsertDatabaseException("Enterprise was not found for balance update.");
 
-            enterprise.CurrentBalance = Math.Round(enterprise.CurrentBalance + delta, 2);
+            enterprise.CurrentBalance = Math.Round(enterprise.CurrentBalance + delta, 2, MidpointRounding.AwayFromZero);
             enterprise.UpdatedAt = DateTime.UtcNow;
             _enterpriseRepository.Update(enterprise);
             await _enterpriseRepository.CommitAsync();

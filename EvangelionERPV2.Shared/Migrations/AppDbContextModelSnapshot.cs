@@ -17,7 +17,7 @@ namespace EvangelionERPV2.Shared.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.5")
+                .HasAnnotation("ProductVersion", "10.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -40,6 +40,9 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("EntityId")
                         .HasColumnType("uniqueidentifier");
 
@@ -47,9 +50,6 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
-
-                    b.Property<Guid?>("EnterpriseId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uniqueidentifier");
@@ -71,8 +71,9 @@ namespace EvangelionERPV2.Shared.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<double>("Amount")
-                        .HasColumnType("float");
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<int>("BankCode")
                         .HasColumnType("int");
@@ -120,11 +121,7 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasIndex("OrderId")
                         .IsUnique();
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
                     b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "OrderId");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("Boleto", (string)null);
                 });
@@ -172,11 +169,7 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("Name");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
                     b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "Name");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("Customer");
                 });
@@ -220,13 +213,70 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("EnterpriseId", "IsActive", "UserName");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
                     b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "UserName");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
-
                     b.ToTable("Email");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Employee", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Document")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("HireDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Picture")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Position")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal?>("Salary")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("TerminationDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId");
+
+                    b.HasIndex("Name");
+
+                    b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "Name");
+
+                    b.ToTable("Employee");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Enterprise", b =>
@@ -249,10 +299,11 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasColumnType("nvarchar(3)")
                         .HasDefaultValue("BRL");
 
-                    b.Property<double>("CurrentBalance")
+                    b.Property<decimal>("CurrentBalance")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("float")
-                        .HasDefaultValue(0.0);
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasDefaultValue(0m);
 
                     b.Property<string>("Email")
                         .IsRequired()
@@ -279,13 +330,273 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("Name");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
                     b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "Name");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
-
                     b.ToTable("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.EnterpriseFiscalSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Bairro")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("Cep")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)");
+
+                    b.Property<DateTime?>("CertNotAfterUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CertSubjectCn")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("CertThumbprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("CertUploadedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Cnpj")
+                        .IsRequired()
+                        .HasMaxLength(14)
+                        .HasColumnType("nvarchar(14)");
+
+                    b.Property<string>("CodigoMunicipioIbge")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("nvarchar(7)");
+
+                    b.Property<string>("CodigoPais")
+                        .IsRequired()
+                        .HasMaxLength(4)
+                        .HasColumnType("nvarchar(4)");
+
+                    b.Property<short>("CodigoUfIbge")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("Complemento")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<bool>("ContingencyEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("ContingencyEnteredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ContingencyReason")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte>("Crt")
+                        .HasColumnType("tinyint");
+
+                    b.Property<int?>("CscId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("DefaultAliquotaCofins")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<decimal>("DefaultAliquotaIcms")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<decimal>("DefaultAliquotaPis")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<string>("DefaultCfopInter")
+                        .IsRequired()
+                        .HasMaxLength(4)
+                        .HasColumnType("nvarchar(4)");
+
+                    b.Property<string>("DefaultCfopIntra")
+                        .IsRequired()
+                        .HasMaxLength(4)
+                        .HasColumnType("nvarchar(4)");
+
+                    b.Property<string>("DefaultCsosn")
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("DefaultCst")
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("DefaultCstCofins")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("nvarchar(2)");
+
+                    b.Property<string>("DefaultCstPis")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("nvarchar(2)");
+
+                    b.Property<byte>("DefaultOrigem")
+                        .HasColumnType("tinyint");
+
+                    b.Property<string>("DefaultUnidadeTributavel")
+                        .IsRequired()
+                        .HasMaxLength(6)
+                        .HasColumnType("nvarchar(6)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte>("Environment")
+                        .HasColumnType("tinyint");
+
+                    b.Property<string>("InscricaoEstadual")
+                        .IsRequired()
+                        .HasMaxLength(14)
+                        .HasColumnType("nvarchar(14)");
+
+                    b.Property<string>("InscricaoMunicipal")
+                        .HasMaxLength(15)
+                        .HasColumnType("nvarchar(15)");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Logradouro")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("Municipio")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<int>("NFCeCancellationWindowMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("NFCeCustomerIdentificationThreshold")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool>("NFCeEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("NFCeSeries")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<int>("NFeCancellationWindowMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<string>("NFeSeries")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("NomeFantasia")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("Numero")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("Pais")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("RazaoSocial")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("SchemaVersion")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("nvarchar(5)");
+
+                    b.Property<string>("Telefone")
+                        .HasMaxLength(14)
+                        .HasColumnType("nvarchar(14)");
+
+                    b.Property<string>("Uf")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("nvarchar(2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
+
+                    b.ToTable("EnterpriseFiscalSettings");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.EnterprisePayrollSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("FgtsRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<decimal>("InssRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("PayrollDueDay")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("RatRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<decimal>("ThirdPartyRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
+
+                    b.ToTable("EnterprisePayrollSettings");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.ForecastSimulationLog", b =>
@@ -303,8 +614,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime>("ExecutedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<double>("FinalProjectedBalance")
-                        .HasColumnType("float");
+                    b.Property<decimal>("FinalProjectedBalance")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<int>("HorizonInDays")
                         .HasColumnType("int");
@@ -330,10 +642,6 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("EnterpriseId", "ExecutedAt");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
-
                     b.ToTable("ForecastSimulationLog");
                 });
 
@@ -348,6 +656,17 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasMaxLength(44)
                         .HasColumnType("nvarchar(44)");
 
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("AuthorizedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CancelCstat")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
                     b.Property<string>("CancelProtocol")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -356,8 +675,32 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateTime?>("CancelRequestedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CancelXMotivo")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTime?>("CancelledAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("Cstat")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("DigestValue")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Environment")
                         .IsRequired()
@@ -368,6 +711,9 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.Property<DateTime?>("IssuedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<short>("Model")
+                        .HasColumnType("smallint");
 
                     b.Property<string>("Number")
                         .IsRequired()
@@ -380,6 +726,16 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("QrCode")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ReceiptNumber")
+                        .IsRequired()
+                        .HasMaxLength(15)
+                        .HasColumnType("nvarchar(15)");
+
                     b.Property<string>("Series")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -387,14 +743,28 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.Property<double>("TotalValue")
-                        .HasColumnType("float");
+                    b.Property<decimal>("TotalValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("TransmittedAtUtc")
+                        .HasColumnType("datetime2");
 
                     b.Property<int>("Type")
                         .HasColumnType("int");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("UrlChave")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("XMotivo")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
 
                     b.Property<string>("XmlContent")
                         .IsRequired()
@@ -404,18 +774,56 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("AccessKey");
 
+                    b.HasIndex("EnterpriseId");
+
                     b.HasIndex("OrderId");
 
                     b.HasIndex("OrderId", "Type")
                         .IsUnique();
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
                     b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "OrderId");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
-
                     b.ToTable("NFeDocument");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.NFeNumberSequence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte>("Environment")
+                        .HasColumnType("tinyint");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<short>("Model")
+                        .HasColumnType("smallint");
+
+                    b.Property<int>("NextNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Series")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId", "Model", "Series", "Environment")
+                        .IsUnique();
+
+                    b.ToTable("NFeNumberSequence");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Opportunity", b =>
@@ -440,14 +848,17 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<Guid>("EnterpriseId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<double>("EstimatedCashImpact")
-                        .HasColumnType("float");
+                    b.Property<decimal>("EstimatedCashImpact")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
-                    b.Property<double>("EstimatedMarginImpact")
-                        .HasColumnType("float");
+                    b.Property<decimal>("EstimatedMarginImpact")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
-                    b.Property<double>("EstimatedRevenueImpact")
-                        .HasColumnType("float");
+                    b.Property<decimal>("EstimatedRevenueImpact")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("ExplainabilityJson")
                         .IsRequired()
@@ -509,11 +920,7 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("EnterpriseId", "Type", "Status");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
                     b.HasIndex("RunId", "Type", "IsActive");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("Opportunity");
                 });
@@ -541,14 +948,17 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<Guid>("OpportunityId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<double?>("RealCashImpact")
-                        .HasColumnType("float");
+                    b.Property<decimal?>("RealCashImpact")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
-                    b.Property<double?>("RealMarginImpact")
-                        .HasColumnType("float");
+                    b.Property<decimal?>("RealMarginImpact")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
-                    b.Property<double?>("RealRevenueImpact")
-                        .HasColumnType("float");
+                    b.Property<decimal?>("RealRevenueImpact")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -565,11 +975,7 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("UserId", "CreatedAt");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
                     b.HasIndex("OpportunityId", "Status", "CreatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("OpportunityFeedback");
                 });
@@ -617,10 +1023,6 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("OpportunityId", "CreatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("OpportunityRecommendation");
                 });
@@ -699,10 +1101,6 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("EnterpriseId", "StartedAt");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
-
                     b.ToTable("OpportunityRunLog");
                 });
 
@@ -765,10 +1163,6 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("SourceEntity", "SourceEntityId");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
-
                     b.ToTable("OpportunitySignal");
                 });
 
@@ -805,8 +1199,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.Property<double>("TotalValue")
-                        .HasColumnType("float");
+                    b.Property<decimal>("TotalValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -821,10 +1216,6 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasIndex("EnterpriseId");
 
                     b.HasIndex("UserId");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("Order");
                 });
@@ -847,8 +1238,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<double>("Quantity")
-                        .HasColumnType("float");
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,4)");
 
                     b.Property<string>("UnitOfMeasure")
                         .IsRequired()
@@ -857,18 +1249,15 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<double>("Value")
-                        .HasColumnType("float");
+                    b.Property<decimal>("Value")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("OrderId");
 
                     b.HasIndex("ProductId");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("OrderedProduct");
                 });
@@ -913,11 +1302,7 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasDatabaseName("IX_PasswordResetToken_UserId_Active")
                         .HasFilter("[IsActive] = 1");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
                     b.HasIndex("UserId", "IsActive", "ExpiresAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("PasswordResetToken");
                 });
@@ -928,8 +1313,9 @@ namespace EvangelionERPV2.Shared.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<double>("Amount")
-                        .HasColumnType("float");
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<int>("BillType")
                         .HasColumnType("int");
@@ -972,10 +1358,6 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("EnterpriseId", "DueDate");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
-
                     b.ToTable("PayableBill");
                 });
 
@@ -991,8 +1373,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<bool?>("IsActive")
                         .HasColumnType("bit");
 
-                    b.Property<double>("LineAmount")
-                        .HasColumnType("float");
+                    b.Property<decimal>("LineAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<Guid>("PayableBillId")
                         .HasColumnType("uniqueidentifier");
@@ -1000,15 +1383,17 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<double>("Quantity")
-                        .HasColumnType("float");
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,4)");
 
                     b.Property<string>("UnitOfMeasure")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<double>("UnitValue")
-                        .HasColumnType("float");
+                    b.Property<decimal>("UnitValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -1023,14 +1408,10 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsUnique()
                         .HasFilter("[IsActive] = 1");
 
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
-
                     b.ToTable("PayableBillProduct");
                 });
 
-            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PayrollBillDetail", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1039,8 +1420,129 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<double>("DefaultValue")
-                        .HasColumnType("float");
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("FgtsAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("GrossSalary")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("InssAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("PayableBillId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("RatAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("ReferenceMonth")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ReferenceYear")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("ThirdPartyAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("ThirteenthSalaryProvision")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("TotalCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("VacationProvision")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.HasIndex("PayableBillId");
+
+                    b.HasIndex("ReferenceYear", "ReferenceMonth", "EmployeeId")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
+
+                    b.ToTable("PayrollBillDetail");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("AliquotaCofins")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<decimal?>("AliquotaIcms")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<decimal?>("AliquotaPis")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<string>("Cean")
+                        .HasMaxLength(14)
+                        .HasColumnType("nvarchar(14)");
+
+                    b.Property<string>("Cest")
+                        .HasMaxLength(7)
+                        .HasColumnType("nvarchar(7)");
+
+                    b.Property<string>("CfopInter")
+                        .HasMaxLength(4)
+                        .HasColumnType("nvarchar(4)");
+
+                    b.Property<string>("CfopIntra")
+                        .HasMaxLength(4)
+                        .HasColumnType("nvarchar(4)");
+
+                    b.Property<string>("CodigoBeneficioFiscal")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Csosn")
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("Cst")
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("CstCofins")
+                        .HasMaxLength(2)
+                        .HasColumnType("nvarchar(2)");
+
+                    b.Property<string>("CstPis")
+                        .HasMaxLength(2)
+                        .HasColumnType("nvarchar(2)");
+
+                    b.Property<decimal>("DefaultValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -1062,11 +1564,23 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("Ncm")
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)");
+
+                    b.Property<byte?>("Origem")
+                        .HasColumnType("tinyint");
+
                     b.Property<string>("PictureAdress")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<double>("StorageQuantity")
-                        .HasColumnType("float");
+                    b.Property<decimal>("StorageQuantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("UnidadeTributavel")
+                        .HasMaxLength(6)
+                        .HasColumnType("nvarchar(6)");
 
                     b.Property<string>("UnitOfMeasure")
                         .IsRequired()
@@ -1078,10 +1592,6 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("EnterpriseId");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("Product");
                 });
@@ -1123,10 +1633,6 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_RefreshToken_UserId_Active")
                         .HasFilter("[IsActive] = 1");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("RefreshToken");
                 });
@@ -1204,21 +1710,17 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("EnterpriseId");
 
+                    b.HasIndex("NormalizedActiveEmail")
+                        .IsUnique()
+                        .HasDatabaseName("IX_User_NormalizedActiveEmail_Active")
+                        .HasFilter("[IsActive] = 1");
+
                     b.HasIndex("EnterpriseId", "NormalizedActiveUserName")
                         .IsUnique()
                         .HasDatabaseName("IX_User_EnterpriseId_NormalizedActiveUserName_Active")
                         .HasFilter("[IsActive] = 1 AND [EnterpriseId] IS NOT NULL");
 
-                    b.HasIndex("NormalizedActiveEmail")
-                        .IsUnique()
-                        .HasDatabaseName("IX_User_NormalizedActiveEmail_Active")
-                        .HasFilter("[IsActive] = 1 AND [NormalizedActiveEmail] IS NOT NULL");
-
                     b.HasIndex("UserName", "Password");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt");
-
-                    b.HasIndex("Id", "CreatedAt", "UpdatedAt", "IsActive");
 
                     b.ToTable("User");
                 });
@@ -1263,6 +1765,37 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("Enterprise");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Employee", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId");
+
+                    b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.EnterpriseFiscalSettings", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.EnterprisePayrollSettings", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Enterprise");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.NFeDocument", b =>
                 {
                     b.HasOne("EvangelionERPV2.Shared.Entities.Order", "Order")
@@ -1272,6 +1805,17 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired();
 
                     b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.NFeNumberSequence", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Enterprise");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Opportunity", b =>
@@ -1418,6 +1962,25 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("PayableBill");
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PayrollBillDetail", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.PayableBill", "PayableBill")
+                        .WithMany()
+                        .HasForeignKey("PayableBillId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("PayableBill");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>

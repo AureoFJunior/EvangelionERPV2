@@ -19,6 +19,8 @@ namespace EvangelionERPV2.Shared.Configs
             {
                 config.CreateMap<User, UserDTO>().ReverseMap();
                 config.CreateMap<Enterprise, EnterpriseDTO>().ReverseMap();
+                config.CreateMap<EnterprisePayrollSettings, EnterprisePayrollSettingsDTO>().ReverseMap();
+                config.CreateMap<EnterpriseFiscalSettings, EnterpriseFiscalSettingsDTO>().ReverseMap();
                 config.CreateMap<Order, OrderDTO>()
                     .ForMember(dest => dest.CustomerName, opt => opt.MapFrom(src => src.Customer != null ? src.Customer.Name : null))
                     .ReverseMap();
@@ -27,8 +29,14 @@ namespace EvangelionERPV2.Shared.Configs
                 config.CreateMap<PayableBillProduct, PayableBillProductDTO>()
                     .ForMember(dest => dest.ProductName, opt => opt.MapFrom(src => src.Product != null ? src.Product.Name : string.Empty))
                     .ReverseMap();
-                config.CreateMap<NFeDocument, NFeDocumentDTO>().ReverseMap();
+                config.CreateMap<NFeDocument, NFeDocumentDTO>()
+                    .ForMember(dest => dest.DisplayStatus,
+                        opt => opt.MapFrom(src => NFeDocumentDTO.ResolveDisplayStatus(src)))
+                    .ReverseMap()
+                    // Derived on the way out; it must never be written back onto the entity.
+                    .ForSourceMember(src => src.DisplayStatus, opt => opt.DoNotValidate());
                 config.CreateMap<Customer, CustomerDTO>().ReverseMap();
+                config.CreateMap<Employee, EmployeeDTO>().ReverseMap();
                 config.CreateMap<Product, ProductDTO>().ReverseMap();
                 config.CreateMap<AuditTrail, AuditTrailDTO>()
                     .ForMember(dest => dest.UserName,

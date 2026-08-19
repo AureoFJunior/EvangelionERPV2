@@ -41,7 +41,32 @@ namespace EvangelionERPV2.Shared.Utils
         public Task<string> GetKMSKeyAsync(string secretName, CancellationToken cancellationToken = default)
             => GetKMSKeyInternalAsync(secretName, cancellationToken);
 
-        private async Task<string> GetKMSKeyInternalAsync(string secretName, CancellationToken cancellationToken = default)
+        /// <summary>
+        /// Resolves a secret, optionally ignoring and refreshing the process-lifetime cache.
+        /// </summary>
+        /// <remarks>
+        /// The cache has no eviction, which is fine for values that never change during a
+        /// process (connection strings, signing keys) but wrong for rotatable material: an
+        /// NFe A1 certificate is replaced yearly, and without a bypass a rotation would only
+        /// take effect after restarting every container.
+        /// </remarks>
+        public Task<string> GetKMSKeyAsync(string secretName, bool bypassCache, CancellationToken cancellationToken = default)
+            => GetKMSKeyInternalAsync(secretName, cancellationToken, bypassCache);
+
+        /// <summary>
+        /// Drops a cached secret so the next resolution re-reads it. Used after rotating or
+        /// deleting rotatable material.
+        /// </summary>
+        public static void InvalidateCachedSecret(string secretName)
+        {
+            if (!string.IsNullOrWhiteSpace(secretName))
+                _secretCache.TryRemove(secretName, out _);
+        }
+
+        private async Task<string> GetKMSKeyInternalAsync(
+            string secretName,
+            CancellationToken cancellationToken = default,
+            bool bypassCache = false)
         {
             if (string.IsNullOrWhiteSpace(secretName))
             {
@@ -55,7 +80,7 @@ namespace EvangelionERPV2.Shared.Utils
                 return secretName.Substring(plainPrefix.Length);
             }
 
-            if (_secretCache.TryGetValue(secretName, out var cachedValue))
+            if (!bypassCache && _secretCache.TryGetValue(secretName, out var cachedValue))
                 return cachedValue;
 
             var (secretId, requestedKey) = SplitSecretReference(secretName);
@@ -69,8 +94,19 @@ namespace EvangelionERPV2.Shared.Utils
                 return string.Empty;
 
             var resolvedValue = ResolveSecretValue(secretString, requestedKey);
-            if (!string.IsNullOrEmpty(resolvedValue))
+            if (bypassCache)
+            {
+                // Callers that bypass the cache do so because the material is rotatable and
+                // sensitive — the NFe certificate PFX and its password. This dictionary is
+                // process-static and never evicted, so writing them here would retain a tenant's
+                // signing identity for the container's lifetime. Also drop anything an earlier
+                // non-bypass read left behind, so a stale value cannot outlive the rotation.
+                _secretCache.TryRemove(secretName, out _);
+            }
+            else if (!string.IsNullOrEmpty(resolvedValue))
+            {
                 _secretCache[secretName] = resolvedValue;
+            }
 
             return resolvedValue;
         }

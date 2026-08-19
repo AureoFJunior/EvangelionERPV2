@@ -1,10 +1,10 @@
-using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 
 namespace EvangelionERPV2.Shared.Entities
 {
-    [Index(nameof(Id), nameof(CreatedAt), nameof(UpdatedAt))]
-    [Index(nameof(Id), nameof(CreatedAt), nameof(UpdatedAt), nameof(IsActive))]
+    // No index attributes here on purpose: Id is already the (clustered) primary key,
+    // so any index leading with Id only duplicates it and adds write cost on every table.
+    // Index real filter columns (EnterpriseId, DueDate, IsActive) on the entity that needs them.
     public abstract class BaseEntity
     {
         [Key]

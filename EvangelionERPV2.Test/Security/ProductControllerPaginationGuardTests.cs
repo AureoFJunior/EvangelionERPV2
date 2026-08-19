@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using AutoMapper;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
@@ -38,8 +39,8 @@ namespace EvangelionERPV2.Test.Security
                 });
 
             productRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Product, bool>>()))
-                .Callback<int?, int?, Func<Product, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Product, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -78,8 +79,8 @@ namespace EvangelionERPV2.Test.Security
                 });
 
             productRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Product, bool>>()))
-                .Callback<int?, int?, Func<Product, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Product, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -123,8 +124,8 @@ namespace EvangelionERPV2.Test.Security
                 });
 
             productRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Product, bool>>()))
-                .Callback<int?, int?, Func<Product, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Product, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;

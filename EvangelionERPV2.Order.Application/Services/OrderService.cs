@@ -170,9 +170,9 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             if (orderedProducts.Any(x => x.Quantity <= 0 || x.Value <= 0)) throw new InsertDatabaseException($"{nameof(Order)} has products with quantity or value less than or equal to zero");
 
-            if (orderedProducts.Any(x => x.Quantity == double.MaxValue || x.Value == double.MaxValue)) throw new InsertDatabaseException($"{nameof(Order)} has products with extremely large values");
+            if (orderedProducts.Any(x => x.Quantity == decimal.MaxValue || x.Value == decimal.MaxValue)) throw new InsertDatabaseException($"{nameof(Order)} has products with extremely large values");
 
-            double computedTotal = orderedProducts
+            decimal computedTotal = orderedProducts
                 .Where(x => x.Value > 0 && x.Quantity > 0)
                 .Sum(x => x.Value * x.Quantity);
 
@@ -238,7 +238,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                         if (!productsById.TryGetValue(orderedProduct.ProductId, out var product))
                             throw new InsertDatabaseException($"Product [{orderedProduct.ProductId}] was not found.");
 
-                        var quantityToRestore = Math.Max(0, orderedProduct.Quantity);
+                        var quantityToRestore = Math.Max(0m, orderedProduct.Quantity);
                         product.StorageQuantity += quantityToRestore;
                         product.UpdatedAt = now;
 
@@ -508,15 +508,17 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             return _orderRepository.ExecuteInTransaction(operation);
         }
 
-        private void ApplyEnterpriseBalanceDelta(Guid enterpriseId, double delta)
+        private void ApplyEnterpriseBalanceDelta(Guid enterpriseId, decimal delta)
         {
-            if (enterpriseId == Guid.Empty || Math.Abs(delta) < 0.000001)
+            if (enterpriseId == Guid.Empty || Math.Abs(delta) < 0.000001m)
                 return;
 
             if (_appDbContext != null)
             {
                 var now = DateTime.UtcNow;
-                var roundedDelta = Math.Round(delta, 2);
+                // BRL convention is half-away-from-zero, and SQL Server's ROUND() below rounds
+                // that way too — Math.Round defaults to banker's rounding and would disagree.
+                var roundedDelta = Math.Round(delta, 2, MidpointRounding.AwayFromZero);
                 var affectedRows = _appDbContext.Database.ExecuteSqlInterpolated(
                     $"UPDATE Enterprise SET CurrentBalance = ROUND(CurrentBalance + {roundedDelta}, 2), UpdatedAt = {now} WHERE Id = {enterpriseId}");
 
@@ -530,21 +532,23 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             if (enterprise == null)
                 throw new InsertDatabaseException("Enterprise was not found for balance update.");
 
-            enterprise.CurrentBalance = Math.Round(enterprise.CurrentBalance + delta, 2);
+            enterprise.CurrentBalance = Math.Round(enterprise.CurrentBalance + delta, 2, MidpointRounding.AwayFromZero);
             enterprise.UpdatedAt = DateTime.UtcNow;
             _enterpriseRepository.Update(enterprise);
             _enterpriseRepository.Commit();
         }
 
-        private async Task ApplyEnterpriseBalanceDeltaAsync(Guid enterpriseId, double delta)
+        private async Task ApplyEnterpriseBalanceDeltaAsync(Guid enterpriseId, decimal delta)
         {
-            if (enterpriseId == Guid.Empty || Math.Abs(delta) < 0.000001)
+            if (enterpriseId == Guid.Empty || Math.Abs(delta) < 0.000001m)
                 return;
 
             if (_appDbContext != null)
             {
                 var now = DateTime.UtcNow;
-                var roundedDelta = Math.Round(delta, 2);
+                // BRL convention is half-away-from-zero, and SQL Server's ROUND() below rounds
+                // that way too — Math.Round defaults to banker's rounding and would disagree.
+                var roundedDelta = Math.Round(delta, 2, MidpointRounding.AwayFromZero);
                 var affectedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
                     $"UPDATE Enterprise SET CurrentBalance = ROUND(CurrentBalance + {roundedDelta}, 2), UpdatedAt = {now} WHERE Id = {enterpriseId}");
 
@@ -558,7 +562,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             if (enterprise == null)
                 throw new InsertDatabaseException("Enterprise was not found for balance update.");
 
-            enterprise.CurrentBalance = Math.Round(enterprise.CurrentBalance + delta, 2);
+            enterprise.CurrentBalance = Math.Round(enterprise.CurrentBalance + delta, 2, MidpointRounding.AwayFromZero);
             enterprise.UpdatedAt = DateTime.UtcNow;
             _enterpriseRepository.Update(enterprise);
             await _enterpriseRepository.CommitAsync();

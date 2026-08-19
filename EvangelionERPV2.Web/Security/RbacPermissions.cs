@@ -22,10 +22,17 @@ namespace EvangelionERPV2.Web.Security
             Customers.Update,
             Customers.Delete,
 
+            Employees.Read,
+            Employees.Create,
+            Employees.Update,
+            Employees.Delete,
+            Employees.UploadPicture,
+
             Email.Manage,
             Email.Send,
 
             Enterprise.Read,
+            Enterprise.ReadSelf,
             Enterprise.Create,
             Enterprise.Update,
             Enterprise.Delete,
@@ -34,6 +41,10 @@ namespace EvangelionERPV2.Web.Security
             NFe.Read,
             NFe.Issue,
             NFe.Cancel,
+            NFe.SettingsRead,
+            NFe.SettingsUpdate,
+            NFe.CertificateManage,
+            NFe.CertificateRead,
 
             Opportunities.Read,
             Opportunities.Feedback,
@@ -51,6 +62,10 @@ namespace EvangelionERPV2.Web.Security
             PayableBills.MarkProductsReceived,
             PayableBills.Refund,
             PayableBills.Delete,
+
+            Payroll.Read,
+            Payroll.Generate,
+            Payroll.UpdateSettings,
 
             Products.Read,
             Products.Create,
@@ -108,6 +123,15 @@ namespace EvangelionERPV2.Web.Security
             public const string Delete = "customers.delete";
         }
 
+        public static class Employees
+        {
+            public const string Read = "employees.read";
+            public const string Create = "employees.create";
+            public const string Update = "employees.update";
+            public const string Delete = "employees.delete";
+            public const string UploadPicture = "employees.picture.upload";
+        }
+
         public static class Email
         {
             public const string Manage = "email.manage";
@@ -117,6 +141,8 @@ namespace EvangelionERPV2.Web.Security
         public static class Enterprise
         {
             public const string Read = "enterprise.read";
+            // Read the user's own enterprise (tenant from token claim) — all roles.
+            public const string ReadSelf = "enterprise.self.read";
             public const string Create = "enterprise.create";
             public const string Update = "enterprise.update";
             public const string Delete = "enterprise.delete";
@@ -128,6 +154,23 @@ namespace EvangelionERPV2.Web.Security
             public const string Read = "nfe.read";
             public const string Issue = "nfe.issue";
             public const string Cancel = "nfe.cancel";
+
+            // Admin-only pair (present in RbacPermissions.All, deliberately absent from every
+            // role array): the fiscal profile exposes the emitente CNPJ and IE, and a wrong
+            // CFOP, CST or CRT silently mis-taxes every future document — a mistake only
+            // fixable by cancelling inside the legal window. Same risk class as payroll.*.
+            public const string SettingsRead = "nfe.settings.read";
+            public const string SettingsUpdate = "nfe.settings.update";
+
+            // Also admin-only by omission: the holder can replace the company's digital signing
+            // identity, and a wrong certificate stops issuance for the whole tenant. Rotated
+            // roughly once a year, so there is no operational reason to grant it wider.
+            public const string CertificateManage = "nfe.certificate.manage";
+
+            // Metadata only (subject, expiry, days remaining) — no key material, no password.
+            // Granted down to Manager so whoever operates can see "12 days left" without
+            // waiting on an admin.
+            public const string CertificateRead = "nfe.certificate.read";
         }
 
         public static class Opportunities
@@ -154,6 +197,16 @@ namespace EvangelionERPV2.Web.Security
             public const string MarkProductsReceived = "payable-bills.products.receive";
             public const string Refund = "payable-bills.refund";
             public const string Delete = "payable-bills.delete";
+        }
+
+        public static class Payroll
+        {
+            // Admin-only group (granted via RbacPermissions.All, never mapped to other
+            // roles): payroll data exposes individual salaries (LGPD) and settings
+            // changes alter every future payroll payable amount.
+            public const string Read = "payroll.read";
+            public const string Generate = "payroll.generate";
+            public const string UpdateSettings = "payroll.settings.update";
         }
 
         public static class Products

@@ -373,11 +373,11 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             return body.ToString();
         }
 
-        private async Task<(string rows, double totalQuantity, double totalValue)> GenerateTableRowsAsync(IEnumerable<Order> orders)
+        private async Task<(string rows, decimal totalQuantity, decimal totalValue)> GenerateTableRowsAsync(IEnumerable<Order> orders)
         {
             var rows = new StringBuilder();
-            double totalQuantity = 0;
-            double totalValue = 0;
+            decimal totalQuantity = 0;
+            decimal totalValue = 0;
 
             foreach (var order in orders)
             {
@@ -409,7 +409,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             return (rows.ToString(), totalQuantity, totalValue);
         }
 
-        private string GetProductRow(string productName, double quantity, double value, string unitOfMeasure)
+        private string GetProductRow(string productName, decimal quantity, decimal value, string unitOfMeasure)
         {
             var encodedProductName = WebUtility.HtmlEncode(productName ?? "Unknown Product");
             var encodedUnitOfMeasure = WebUtility.HtmlEncode(unitOfMeasure ?? string.Empty);
@@ -422,7 +422,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     </tr>";
         }
 
-        private string GetTotalRow(double totalQuantity, double totalValue)
+        private string GetTotalRow(decimal totalQuantity, decimal totalValue)
         {
             return $@"
                     <tr class='total-row'>
@@ -480,7 +480,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 : $"Unknown ({status})";
         }
 
-        private readonly record struct TopProductsByRevenueRow(string ProductName, double Quantity, double Revenue, string UnitOfMeasure);
-        private readonly record struct SalesByStatusRow(string StatusLabel, int Orders, double TotalValue);
+        private readonly record struct TopProductsByRevenueRow(string ProductName, decimal Quantity, decimal Revenue, string UnitOfMeasure);
+        private readonly record struct SalesByStatusRow(string StatusLabel, int Orders, decimal TotalValue);
     }
 }

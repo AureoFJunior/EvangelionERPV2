@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
 using Amazon.S3;
@@ -149,7 +150,7 @@ namespace EvangelionERPV2.ProductModule.Test
                 Id = Guid.NewGuid()
             };
 
-            productRepository.Setup(r => r.GetAllAsync(It.IsAny<Func<Product, bool>>()))
+            productRepository.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>>()))
                 .ReturnsAsync(new List<Product>());
 
             var result = await service.GetProductsBodyAsync(enterprise);
@@ -174,7 +175,7 @@ namespace EvangelionERPV2.ProductModule.Test
                 }
             };
 
-            productRepository.Setup(r => r.GetAllAsync(It.IsAny<Func<Product, bool>>()))
+            productRepository.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>>()))
                 .ReturnsAsync(products);
             reportGenerator.Setup(r => r.GenerateStockReportAsync(enterprise)).ReturnsAsync("report");
 

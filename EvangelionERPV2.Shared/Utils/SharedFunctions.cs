@@ -256,6 +256,15 @@ namespace EvangelionERPV2.Shared.Utils
             return GetProductBucketName(configuration);
         }
 
+        public static string GetEmployeeBucketName(IConfiguration configuration)
+        {
+            var employeeBucket = GetAWSSetting(configuration, "BucketEmployeeName");
+            if (!string.IsNullOrWhiteSpace(employeeBucket))
+                return employeeBucket;
+
+            return GetUserBucketName(configuration);
+        }
+
         public static RegionEndpoint GetAWSRegion(IConfiguration configuration)
         {
             var configuredRegion = GetAWSSetting(configuration, "Region");

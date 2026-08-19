@@ -31,6 +31,7 @@ namespace EvangelionERPV2.Web.Security
             Email.Send,
 
             Enterprise.Read,
+            Enterprise.ReadSelf,
             Enterprise.Create,
             Enterprise.Update,
             Enterprise.Delete,
@@ -39,6 +40,10 @@ namespace EvangelionERPV2.Web.Security
             NFe.Read,
             NFe.Issue,
             NFe.Cancel,
+            NFe.SettingsRead,
+            NFe.SettingsUpdate,
+            NFe.CertificateManage,
+            NFe.CertificateRead,
 
             Opportunities.Read,
             Opportunities.Feedback,
@@ -56,6 +61,10 @@ namespace EvangelionERPV2.Web.Security
             PayableBills.MarkProductsReceived,
             PayableBills.Refund,
             PayableBills.Delete,
+
+            Payroll.Read,
+            Payroll.Generate,
+            Payroll.UpdateSettings,
 
             Products.Read,
             Products.Create,
@@ -177,6 +186,7 @@ namespace EvangelionERPV2.Web.Security
         public static class Enterprise
         {
             public const string Read = "rbac:enterprise.read";
+            public const string ReadSelf = "rbac:enterprise.self.read";
             public const string Create = "rbac:enterprise.create";
             public const string Update = "rbac:enterprise.update";
             public const string Delete = "rbac:enterprise.delete";
@@ -188,6 +198,10 @@ namespace EvangelionERPV2.Web.Security
             public const string Read = "rbac:nfe.read";
             public const string Issue = "rbac:nfe.issue";
             public const string Cancel = "rbac:nfe.cancel";
+            public const string SettingsRead = "rbac:nfe.settings.read";
+            public const string SettingsUpdate = "rbac:nfe.settings.update";
+            public const string CertificateManage = "rbac:nfe.certificate.manage";
+            public const string CertificateRead = "rbac:nfe.certificate.read";
         }
 
         public static class Opportunities
@@ -214,6 +228,13 @@ namespace EvangelionERPV2.Web.Security
             public const string MarkProductsReceived = "rbac:payable-bills.products.receive";
             public const string Refund = "rbac:payable-bills.refund";
             public const string Delete = "rbac:payable-bills.delete";
+        }
+
+        public static class Payroll
+        {
+            public const string Read = "rbac:payroll.read";
+            public const string Generate = "rbac:payroll.generate";
+            public const string UpdateSettings = "rbac:payroll.settings.update";
         }
 
         public static class Products

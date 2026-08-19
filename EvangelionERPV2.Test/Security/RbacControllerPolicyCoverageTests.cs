@@ -28,9 +28,16 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(EmailController), nameof(EmailController.SendMonthEmail), RbacPermissions.Email.Send)]
         [InlineData(typeof(EmailController), nameof(EmailController.AddEmail), RbacPermissions.Email.Manage)]
         [InlineData(typeof(EmailController), nameof(EmailController.SendStockEmail), RbacPermissions.Email.Send)]
+        [InlineData(typeof(EmployeeController), nameof(EmployeeController.GetEmployees), RbacPermissions.Employees.Read)]
+        [InlineData(typeof(EmployeeController), nameof(EmployeeController.GetEmployeesByFilter), RbacPermissions.Employees.Read)]
+        [InlineData(typeof(EmployeeController), nameof(EmployeeController.GetEmployee), RbacPermissions.Employees.Read)]
+        [InlineData(typeof(EmployeeController), nameof(EmployeeController.AddEmployee), RbacPermissions.Employees.Create)]
+        [InlineData(typeof(EmployeeController), nameof(EmployeeController.UpdateEmployee), RbacPermissions.Employees.Update)]
+        [InlineData(typeof(EmployeeController), nameof(EmployeeController.DeleteEmployee), RbacPermissions.Employees.Delete)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetEnterprises), RbacPermissions.Enterprise.Read)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetEnterprisesByFilter), RbacPermissions.Enterprise.Read)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetEnterprise), RbacPermissions.Enterprise.Read)]
+        [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetMyEnterprise), RbacPermissions.Enterprise.ReadSelf)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.AddEnterprise), RbacPermissions.Enterprise.Create)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.UpdateEnterprise), RbacPermissions.Enterprise.Update)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.DeleteEnterprise), RbacPermissions.Enterprise.Delete)]
@@ -38,6 +45,11 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(NFeController), nameof(NFeController.Issue), RbacPermissions.NFe.Issue)]
         [InlineData(typeof(NFeController), nameof(NFeController.Consult), RbacPermissions.NFe.Read)]
         [InlineData(typeof(NFeController), nameof(NFeController.Cancel), RbacPermissions.NFe.Cancel)]
+        [InlineData(typeof(NFeFiscalSettingsController), nameof(NFeFiscalSettingsController.GetFiscalSettings), RbacPermissions.NFe.SettingsRead)]
+        [InlineData(typeof(NFeFiscalSettingsController), nameof(NFeFiscalSettingsController.UpdateFiscalSettings), RbacPermissions.NFe.SettingsUpdate)]
+        [InlineData(typeof(NFeFiscalSettingsController), nameof(NFeFiscalSettingsController.UploadCertificate), RbacPermissions.NFe.CertificateManage)]
+        [InlineData(typeof(NFeFiscalSettingsController), nameof(NFeFiscalSettingsController.GetCertificateStatus), RbacPermissions.NFe.CertificateRead)]
+        [InlineData(typeof(NFeFiscalSettingsController), nameof(NFeFiscalSettingsController.DeleteCertificate), RbacPermissions.NFe.CertificateManage)]
         [InlineData(typeof(OpportunitiesController), nameof(OpportunitiesController.GetOpportunities), RbacPermissions.Opportunities.Read)]
         [InlineData(typeof(OpportunitiesController), nameof(OpportunitiesController.GetOpportunity), RbacPermissions.Opportunities.Read)]
         [InlineData(typeof(OpportunitiesController), nameof(OpportunitiesController.AddFeedback), RbacPermissions.Opportunities.Feedback)]
@@ -59,6 +71,10 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(PayableBillsController), nameof(PayableBillsController.RefundPayableBill), RbacPermissions.PayableBills.Refund)]
         [InlineData(typeof(PayableBillsController), nameof(PayableBillsController.GetReplenishmentSuggestions), RbacPermissions.PayableBills.Read)]
         [InlineData(typeof(PayableBillsController), nameof(PayableBillsController.DeletePayableBill), RbacPermissions.PayableBills.Delete)]
+        [InlineData(typeof(PayrollController), nameof(PayrollController.GetPayrollSettings), RbacPermissions.Payroll.Read)]
+        [InlineData(typeof(PayrollController), nameof(PayrollController.UpdatePayrollSettings), RbacPermissions.Payroll.UpdateSettings)]
+        [InlineData(typeof(PayrollController), nameof(PayrollController.GeneratePayroll), RbacPermissions.Payroll.Generate)]
+        [InlineData(typeof(PayrollController), nameof(PayrollController.GetPayroll), RbacPermissions.Payroll.Read)]
         [InlineData(typeof(ProductController), nameof(ProductController.GetProducts), RbacPermissions.Products.Read)]
         [InlineData(typeof(ProductController), nameof(ProductController.GetProductsByFilter), RbacPermissions.Products.Read)]
         [InlineData(typeof(ProductController), nameof(ProductController.GetProduct), RbacPermissions.Products.Read)]
@@ -126,6 +142,62 @@ namespace EvangelionERPV2.Test.Security
             Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, RbacPermissions.Audit.CleanupRetention));
             Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Supervisor, RbacPermissions.Users.Delete));
             Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Employee, RbacPermissions.Enterprise.Delete));
+        }
+
+        [Fact]
+        public void FiscalSettingsPermissions_AreAdminOnlyInRoleMap()
+        {
+            // Admin-only by omission from every role array. The fiscal profile exposes the
+            // emitente CNPJ and IE, and a wrong CFOP, CST or CRT silently mis-taxes every future
+            // document — only fixable by cancelling inside the legal window.
+            foreach (var permission in new[]
+                     {
+                         RbacPermissions.NFe.SettingsRead,
+                         RbacPermissions.NFe.SettingsUpdate,
+                         RbacPermissions.NFe.CertificateManage
+                     })
+            {
+                Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Admin, permission));
+                Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, permission));
+                Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Supervisor, permission));
+                Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Employee, permission));
+            }
+        }
+
+        [Fact]
+        public void CertificateRead_StartsAtManagerInRoleMap()
+        {
+            // Metadata only (subject, expiry, days remaining) — no key material. Whoever operates
+            // issuance needs the expiry warning without waiting on an admin, but replacing the
+            // certificate stays admin-only.
+            Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Admin, RbacPermissions.NFe.CertificateRead));
+            Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, RbacPermissions.NFe.CertificateRead));
+            Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Supervisor, RbacPermissions.NFe.CertificateRead));
+            Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Employee, RbacPermissions.NFe.CertificateRead));
+        }
+
+        [Fact]
+        public void EnterpriseReadSelf_StartsAtManagerInRoleMap()
+        {
+            // Enterprise self-read exposes company-level financials, so it is deliberately
+            // NOT part of the base (Employee/Supervisor) permission set.
+            Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Admin, RbacPermissions.Enterprise.ReadSelf));
+            Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, RbacPermissions.Enterprise.ReadSelf));
+            Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Supervisor, RbacPermissions.Enterprise.ReadSelf));
+            Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Employee, RbacPermissions.Enterprise.ReadSelf));
+        }
+
+        [Fact]
+        public void PayrollPermissions_AreAdminOnlyInRoleMap()
+        {
+            Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Admin, RbacPermissions.Payroll.Read));
+            Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Admin, RbacPermissions.Payroll.Generate));
+            Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Admin, RbacPermissions.Payroll.UpdateSettings));
+            Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, RbacPermissions.Payroll.Read));
+            Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, RbacPermissions.Payroll.Generate));
+            Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, RbacPermissions.Payroll.UpdateSettings));
+            Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Supervisor, RbacPermissions.Payroll.Read));
+            Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Employee, RbacPermissions.Payroll.Read));
         }
 
         [Fact]

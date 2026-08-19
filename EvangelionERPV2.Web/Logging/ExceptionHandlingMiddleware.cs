@@ -63,11 +63,13 @@ namespace EvangelionERPV2.Web.Logging
             if (ShouldLogExceptionDetails(ex))
             {
                 Log.Logger.Error(
-                    "Unhandled exception. Method={Method}, Path={Path}, TraceId={TraceId}, ErrorType={ErrorType}",
+                    "Unhandled exception. Method={Method}, Path={Path}, TraceId={TraceId}, ErrorType={ErrorType}, ErrorChain={ErrorChain}, Source={Source}",
                     context.Request.Method,
                     sanitizedPath,
                     context.TraceIdentifier,
-                    GetSafeExceptionType(ex));
+                    GetSafeExceptionType(ex),
+                    GetSafeExceptionChain(ex),
+                    ex.TargetSite?.DeclaringType?.FullName ?? "Unknown");
                 return;
             }
 
@@ -141,6 +143,26 @@ namespace EvangelionERPV2.Web.Logging
         private static string GetSafeExceptionType(Exception? exception)
         {
             return exception?.GetType().Name ?? "UnknownError";
+        }
+
+        /// <summary>
+        /// Type names only (never messages, which can carry user data), walking the inner chain so a
+        /// wrapper like TypeInitializationException still points at what actually failed.
+        /// </summary>
+        private static string GetSafeExceptionChain(Exception? exception)
+        {
+            var segments = new List<string>();
+
+            for (var current = exception; current != null && segments.Count < 5; current = current.InnerException)
+            {
+                var segment = current.GetType().Name;
+                if (current is TypeInitializationException typeInitialization)
+                    segment = $"{segment}({typeInitialization.TypeName})";
+
+                segments.Add(segment);
+            }
+
+            return segments.Count == 0 ? "UnknownError" : string.Join(" -> ", segments);
         }
 
         private static string SanitizeEndpointPath(PathString path)

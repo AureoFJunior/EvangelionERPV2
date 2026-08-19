@@ -2,6 +2,7 @@ using BoletoNetCore;
 using EvangelionERPV2.BillsModule.Application.Configs;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.BillsModule.Domain.Interface;
+using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +11,7 @@ using PuppeteerSharp;
 using PuppeteerSharp.Media;
 using Serilog;
 using System.Net;
+using System.Text.RegularExpressions;
 using BillEntity = EvangelionERPV2.Shared.Entities.Bill;
 
 namespace EvangelionERPV2.BillsModule.Application.Services
@@ -20,6 +22,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly IBillsRepository<BillEntity> _billRepositoryCustom;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Order> _orderRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _customerRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _enterpriseRepository;
+        // Resolved lazily: the email stack (RabbitMQ, SMTP settings) must never be able to fail a
+        // bill generation request just by being constructed.
+        private readonly Func<IEmailService<EmailStructure>> _emailServiceFactory;
         private readonly BillsSettings _settings;
         private bool disposed;
         private static IBrowser? sharedBrowser;
@@ -30,12 +36,16 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             IBillsRepository<BillEntity> billRepositoryCustom,
             EvangelionERPV2.Shared.Repositories.IRepository<Order> orderRepository,
             EvangelionERPV2.Shared.Repositories.IRepository<Customer> customerRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> enterpriseRepository,
+            Func<IEmailService<EmailStructure>> emailServiceFactory,
             IOptions<BillsSettings> settings)
         {
             _billRepository = billRepository;
             _billRepositoryCustom = billRepositoryCustom;
             _orderRepository = orderRepository;
             _customerRepository = customerRepository;
+            _enterpriseRepository = enterpriseRepository;
+            _emailServiceFactory = emailServiceFactory;
             _settings = settings?.Value ?? new BillsSettings();
         }
 
@@ -79,7 +89,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 MostrarEnderecoBeneficiario = true
             };
 
-            var html = billBancario.MontaHtmlEmbedded();
+            var html = NormalizeEmbeddedImageMimeTypes(billBancario.MontaHtmlEmbedded());
 
             var bill = new BillEntity
             {
@@ -90,7 +100,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 DocumentNumber = billNet.NumeroDocumento,
                 IssueDate = billNet.DataEmissao,
                 DueDate = billNet.DataVencimento,
-                Amount = (double)billNet.ValorTitulo,
+                Amount = billNet.ValorTitulo,
                 DigitableLine = billNet.CodigoBarra.LinhaDigitavel,
                 BarCode = billNet.CodigoBarra.CodigoDeBarras,
                 HtmlContent = html
@@ -116,7 +126,150 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 return concurrentBill;
             }
 
+            await TrySendBillEmailAsync(bill, order, customer);
+
             return bill;
+        }
+
+        /// <summary>
+        /// Enqueues the generated bill to the customer through the email queue.
+        /// Failures never block bill generation.
+        /// </summary>
+        private async Task TrySendBillEmailAsync(BillEntity bill, Order order, Customer? customer)
+        {
+            try
+            {
+                var recipient = (customer?.Email ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(recipient) || !order.EnterpriseId.HasValue)
+                    return;
+
+                var enterprise = await _enterpriseRepository.GetByIdAsync(order.EnterpriseId.Value);
+                if (enterprise == null)
+                    return;
+
+                var email = new EmailStructure(
+                    BuildBillEmailBody(bill),
+                    $"Boleto - Documento {bill.DocumentNumber}",
+                    new List<string> { recipient })
+                {
+                    // Mail clients strip data: URIs, so the rendered bill only survives as an
+                    // attachment. The body carries the digitable line as the readable fallback.
+                    Attachments = await BuildBillAttachmentsAsync(bill)
+                };
+
+                await _emailServiceFactory().SendManualEmail(email, enterprise);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error(
+                    "Couldn't enqueue bill email. BillId={BillId} ErrorType={ErrorType}",
+                    bill.Id,
+                    ex.GetType().Name);
+            }
+        }
+
+        private static string BuildBillEmailBody(BillEntity bill)
+        {
+            var summary = $"""
+                <p>Segue o boleto do documento <strong>{WebUtility.HtmlEncode(bill.DocumentNumber)}</strong>.</p>
+                <p>Vencimento: <strong>{bill.DueDate:dd/MM/yyyy}</strong><br/>
+                Valor: <strong>{bill.Amount:N2}</strong></p>
+                <p>Linha digitável:<br/><strong>{WebUtility.HtmlEncode(bill.DigitableLine)}</strong></p>
+                <hr/>
+                """;
+
+            // The full bill, barcode included, so it can be paid straight from the email. The email
+            // layer turns its embedded images into cid: resources that mail clients render.
+            return summary + NormalizeEmbeddedImageMimeTypes(bill.HtmlContent ?? string.Empty);
+        }
+
+        private async Task<IEnumerable<EmailAttachment>> BuildBillAttachmentsAsync(BillEntity bill)
+        {
+            if (!_settings.AttachPdfToBillEmail || string.IsNullOrWhiteSpace(bill.HtmlContent))
+                return [];
+
+            byte[] pdf;
+            try
+            {
+                pdf = await RenderPdfAsync(NormalizeEmbeddedImageMimeTypes(bill.HtmlContent));
+            }
+            catch (Exception ex)
+            {
+                // No headless browser available: still send the mail, just without the PDF.
+                Log.Logger.Warning(
+                    "Couldn't render the bill PDF for email. BillId={BillId} ErrorType={ErrorType}",
+                    bill.Id,
+                    ex.GetType().Name);
+                return [];
+            }
+
+            if (pdf.Length == 0)
+                return [];
+
+            return
+            [
+                new EmailAttachment
+                {
+                    FileName = $"boleto-{bill.DocumentNumber}.pdf",
+                    ContentType = "application/pdf",
+                    Content = pdf
+                }
+            ];
+        }
+
+        /// <summary>
+        /// BoletoNetCore labels the barcode data URI as image/gif while writing JPEG bytes, and
+        /// strict renderers drop the mismatched image. Relabel each data URI from its real magic
+        /// bytes.
+        /// </summary>
+        private static string NormalizeEmbeddedImageMimeTypes(string html)
+        {
+            if (string.IsNullOrEmpty(html))
+                return html;
+
+            return Regex.Replace(
+                html,
+                @"data:image/(?<declared>[a-zA-Z0-9.+-]+);base64,(?<payload>[A-Za-z0-9+/=]+)",
+                match =>
+                {
+                    var payload = match.Groups["payload"].Value;
+                    var actual = DetectImageMimeType(payload);
+
+                    return actual == null || string.Equals(actual, $"image/{match.Groups["declared"].Value}", StringComparison.OrdinalIgnoreCase)
+                        ? match.Value
+                        : $"data:{actual};base64,{payload}";
+                },
+                RegexOptions.None,
+                TimeSpan.FromSeconds(5));
+        }
+
+        private static string? DetectImageMimeType(string base64Payload)
+        {
+            // A 12-byte prefix is enough for every magic number below, and base64 decodes in
+            // 4-character blocks.
+            var prefix = base64Payload.Length <= 16 ? base64Payload : base64Payload[..16];
+            prefix = prefix[..(prefix.Length - prefix.Length % 4)];
+
+            byte[] header;
+            try
+            {
+                header = Convert.FromBase64String(prefix);
+            }
+            catch (FormatException)
+            {
+                return null;
+            }
+
+            if (header.Length >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF)
+                return "image/jpeg";
+
+            if (header.Length >= 8 && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47)
+                return "image/png";
+
+            if (header.Length >= 6 && header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46)
+                return "image/gif";
+
+            return null;
         }
 
         public async Task<byte[]?> GetPdfAsync(Guid orderId, Guid enterpriseId)
@@ -140,7 +293,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (existing == null)
                 return null;
 
-            var html = existing.HtmlContent;
+            // Bills stored before the relabelling fix still carry the mismatched barcode MIME.
+            var html = NormalizeEmbeddedImageMimeTypes(existing.HtmlContent);
             if (string.IsNullOrWhiteSpace(html))
             {
                 var customer = order.CustomerId.HasValue
@@ -153,7 +307,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     Banco = billNet.Banco,
                     MostrarEnderecoBeneficiario = true
                 };
-                html = billBancario.MontaHtmlEmbedded();
+                html = NormalizeEmbeddedImageMimeTypes(billBancario.MontaHtmlEmbedded());
             }
 
             return await RenderPdfAsync(html);
@@ -231,13 +385,19 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 if (sharedBrowser != null)
                     return sharedBrowser;
 
-                var fetcher = new BrowserFetcher();
-                await fetcher.DownloadAsync();
+                var executablePath = Environment.GetEnvironmentVariable("PUPPETEER_EXECUTABLE_PATH");
+                if (string.IsNullOrWhiteSpace(executablePath))
+                {
+                    var fetcher = new BrowserFetcher();
+                    await fetcher.DownloadAsync();
+                }
 
                 sharedBrowser = await Puppeteer.LaunchAsync(new LaunchOptions
                 {
                     Headless = true,
-                    Args = new[] { "--no-sandbox", "--disable-setuid-sandbox" }
+                    ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
+                    // /dev/shm is 64 MB in a default container and Chromium crashes when it fills.
+                    Args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
                 });
             }
             finally
@@ -435,6 +595,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     (_billRepositoryCustom as IDisposable)?.Dispose();
                     (_orderRepository as IDisposable)?.Dispose();
                     (_customerRepository as IDisposable)?.Dispose();
+                    (_enterpriseRepository as IDisposable)?.Dispose();
                 }
 
                 disposed = true;

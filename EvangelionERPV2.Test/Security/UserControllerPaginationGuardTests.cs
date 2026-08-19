@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Amazon.SecretsManager;
 using AutoMapper;
 using EvangelionERPV2.EmailModule.Application.Interface;
@@ -36,8 +37,8 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync(CreateAdminUser(callerId, enterpriseId));
 
             userRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<User, bool>>()))
-                .Callback<int?, int?, Func<User, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<User, bool>>>()))
+                .Callback<int?, int?, Expression<Func<User, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -69,8 +70,8 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync(CreateAdminUser(callerId, enterpriseId));
 
             userRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<User, bool>>()))
-                .Callback<int?, int?, Func<User, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<User, bool>>>()))
+                .Callback<int?, int?, Expression<Func<User, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -102,8 +103,8 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync(CreateAdminUser(callerId, enterpriseId));
 
             userRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<User, bool>>()))
-                .Callback<int?, int?, Func<User, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<User, bool>>>()))
+                .Callback<int?, int?, Expression<Func<User, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;

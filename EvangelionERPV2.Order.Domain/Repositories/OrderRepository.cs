@@ -8,11 +8,15 @@ using System.Linq.Expressions;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Repositories;
 using System.Text.Json;
+using Serilog;
 
 namespace EvangelionERPV2.OrderModule.Domain.Repositories
 {
     public class OrderRepository : Repository<Order>, IOrderRepository<Order>
     {
+        // v2: money moved from double to decimal, so payloads cached under v1 are not readable.
+        private const string CacheKeyPrefix = "Order:v2:";
+
         private readonly IDistributedCache _cache;
         public OrderRepository(AppDbContext context, IDistributedCache cache) : base(context)
         {
@@ -26,9 +30,21 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
 
             if (!string.IsNullOrEmpty(cachedItem))
             {
-                var orderFromCache = JsonSerializer.Deserialize<Order>(cachedItem);
-                if (orderFromCache != null)
-                    return orderFromCache;
+                try
+                {
+                    var orderFromCache = JsonSerializer.Deserialize<Order>(cachedItem);
+                    if (orderFromCache != null)
+                        return orderFromCache;
+                }
+                catch (Exception ex)
+                {
+                    // A payload written by an older schema must not break reads: fall through to the database.
+                    Log.Logger.Warning(
+                        ex,
+                        "Order cache payload is invalid and will be ignored. CacheKey={CacheKey} ErrorType={ErrorType}",
+                        cacheKey,
+                        ex.GetType().Name);
+                }
             }
 
             IQueryable<Order> query = _context.Set<Order>()
@@ -48,7 +64,7 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             return order;
         }
 
-        public async override Task<IEnumerable<Order>> GetAllAsync(Func<Order, bool>? predicate)
+        public async override Task<IEnumerable<Order>> GetAllAsync(Expression<Func<Order, bool>>? predicate)
         {
             IQueryable<Order> query = _context.Set<Order>()
                 .Include(o => o.Customer)
@@ -57,9 +73,11 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
                 .Where(o => o.IsActive ?? false)
                 .AsSplitQuery()
                 .AsNoTracking();
-            IEnumerable<Order> result = predicate != null
-                ? query.AsEnumerable().Where(predicate).ToList()
-                : await query.ToListAsync();
+
+            if (predicate != null)
+                query = query.Where(predicate);
+
+            IEnumerable<Order> result = await query.ToListAsync();
 
             if (result?.Any() == true)
                 return result;
@@ -67,7 +85,7 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             throw new NotFoundDatabaseException();
         }
 
-        public async override Task<IEnumerable<Order>> GetAllAsync(int? pageNumber, int? pageSize, Func<Order, bool>? predicate = null)
+        public async override Task<IEnumerable<Order>> GetAllAsync(int? pageNumber, int? pageSize, Expression<Func<Order, bool>>? predicate = null)
         {
             if (pageNumber == null || pageSize == null)
                 return await GetAllAsync(predicate);
@@ -79,21 +97,17 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
                 .Where(o => o.IsActive ?? false)
                 .AsSplitQuery()
                 .AsNoTracking();
-            IEnumerable<Order> result;
-            int skip = (pageNumber.Value - 1) * pageSize.Value;
 
             if (predicate != null)
-            {
-                result = query.AsEnumerable()
-                    .Where(predicate)
-                    .Skip(skip)
-                    .Take(pageSize.Value)
-                    .ToList();
-            }
-            else
-            {
-                result = await query.Skip(skip).Take(pageSize.Value).ToListAsync();
-            }
+                query = query.Where(predicate);
+
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
+
+            IEnumerable<Order> result = await query
+                .OrderBy(entity => entity.Id)
+                .Skip(skip)
+                .Take(pageSize.Value)
+                .ToListAsync();
 
             if (result?.Any() == true)
                 return result;
@@ -215,7 +229,7 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
 
         private async Task<Tuple<string, string?>> GetCachedOrderById(Guid id)
         {
-            string cacheKey = $"Order:{id}";
+            string cacheKey = $"{CacheKeyPrefix}{id}";
 
             string? cachedItem = await _cache.GetStringAsync(cacheKey);
 

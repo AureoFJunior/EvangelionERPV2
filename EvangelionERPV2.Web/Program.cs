@@ -4,6 +4,7 @@ using AspNetCoreRateLimit;
 using EvangelionERPV2.AuditModule.Application.DI;
 using EvangelionERPV2.BillsModule.Application.DI;
 using EvangelionERPV2.CustomerModule.Application.DI;
+using EvangelionERPV2.EmployeeModule.Application.DI;
 using EvangelionERPV2.EmailModule.Application.DI;
 using EvangelionERPV2.EnterpriseModule.Application.DI;
 using EvangelionERPV2.NFeModule.Application.DI;
@@ -162,6 +163,8 @@ static void BuildValidators(WebApplicationBuilder builder)
     builder.Services.AddTransient<IValidator<UpdateOrderRequestDTO>, UpdateOrderRequestValidator>();
     builder.Services.AddTransient<IValidator<OrderFilterRequestDTO>, OrderFilterRequestValidator>();
     builder.Services.AddTransient<IValidator<UpsertPayableBillRequestDTO>, UpsertPayableBillRequestValidator>();
+    builder.Services.AddTransient<IValidator<EnterprisePayrollSettingsDTO>, UpdatePayrollSettingsRequestValidator>();
+    builder.Services.AddTransient<IValidator<EnterpriseFiscalSettingsDTO>, UpdateFiscalSettingsRequestValidator>();
     builder.Services.AddTransient<IValidator<ProductFilterRequestDTO>, ProductFilterRequestValidator>();
     builder.Services.AddTransient<IValidator<CreateProductRequestDTO>, CreateProductRequestValidator>();
     builder.Services.AddTransient<IValidator<UpdateProductRequestDTO>, UpdateProductRequestValidator>();
@@ -169,6 +172,10 @@ static void BuildValidators(WebApplicationBuilder builder)
     builder.Services.AddTransient<IValidator<CustomerFilterRequestDTO>, CustomerFilterRequestValidator>();
     builder.Services.AddTransient<IValidator<CreateCustomerRequestDTO>, CreateCustomerRequestValidator>();
     builder.Services.AddTransient<IValidator<UpdateCustomerRequestDTO>, UpdateCustomerRequestValidator>();
+    builder.Services.AddTransient<IValidator<EmployeeFilterRequestDTO>, EmployeeFilterRequestValidator>();
+    builder.Services.AddTransient<IValidator<CreateEmployeeRequestDTO>, CreateEmployeeRequestValidator>();
+    builder.Services.AddTransient<IValidator<UpdateEmployeeRequestDTO>, UpdateEmployeeRequestValidator>();
+    builder.Services.AddTransient<IValidator<UploadEmployeePictureRequestDTO>, UploadEmployeePictureRequestValidator>();
 }
 
 static void SetupSwagger(WebApplication app, IWebHostEnvironment env)
@@ -330,6 +337,7 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     BillsIoC.Configure(builder.Services, builder.Configuration);
     NFeIoC.Configure(builder.Services, builder.Configuration);
     CustomerIoC.Configure(builder.Services, builder.Configuration);
+    EmployeeIoC.Configure(builder.Services, builder.Configuration);
     EnterpriseIoC.Configure(builder.Services, builder.Configuration);
     EmailIoC.Configure(builder.Services, builder.Configuration);
     OpportunityRadarIoC.Configure(builder.Services, builder.Configuration);

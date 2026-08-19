@@ -1,4 +1,5 @@
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Utils;
 using FluentValidation;
 
 namespace EvangelionERPV2.Web.FluentValidator

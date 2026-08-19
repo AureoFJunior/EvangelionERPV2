@@ -9,7 +9,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public string? RefundReason { get; set; }
         public DateTime? RefundedAt { get; set; }
         public int BillType { get; set; }
-        public double Amount { get; set; }
+        public decimal Amount { get; set; }
         public bool IsPaid { get; set; }
         public Guid EnterpriseId { get; set; }
         public IEnumerable<PayableBillProductDTO>? Items { get; set; }

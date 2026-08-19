@@ -10,6 +10,10 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 {
     public sealed class EmailStockSenderWorker : BackgroundService
     {
+        private const DayOfWeek BroadcastDay = DayOfWeek.Monday;
+        private const int BroadcastHourUtc = 8;
+        private const int MaxAttempts = 3;
+
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly IConfiguration _configuration;
 
@@ -28,29 +32,48 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    try
+                    // Wait for the slot first: sending on startup would mail the whole customer base
+                    // again on every restart or deploy.
+                    await Task.Delay(
+                        BroadcastSchedule.TimeUntilNextWeekly(DateTime.UtcNow, BroadcastDay, BroadcastHourUtc),
+                        stoppingToken);
+
+                    for (var attempt = 1; attempt <= MaxAttempts && !stoppingToken.IsCancellationRequested; attempt++)
                     {
-                        UserDTO? user;
-                        user = await GetAPIToken(scope);
-
-                        Log.Logger.Information($"Sending Stock Emails at: {DateTime.UtcNow}");
-
-                        if (user == null || string.IsNullOrWhiteSpace(user.Token))
+                        try
                         {
-                            Log.Logger.Warning("Email Stock Sender Worker could not obtain an API token.");
-                        }
-                        else
-                        {
-                            await SharedFunctions.PostAsync<object>("Email/SendWeeklyStockBroadcast", new object(), user.Token);
-                        }
+                            UserDTO? user;
+                            user = await GetAPIToken(scope);
 
-                        Log.Logger.Information($"Email Stock Sender Worker running at: {DateTime.UtcNow}");
-                        await Task.Delay(TimeSpan.FromDays(7), stoppingToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Logger.Error("Email Stock Sender Worker with error. ErrorType={ErrorType}", ex.GetType().Name);
-                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                            Log.Logger.Information($"Sending Stock Emails at: {DateTime.UtcNow}");
+
+                            if (user == null || string.IsNullOrWhiteSpace(user.Token))
+                            {
+                                Log.Logger.Warning("Email Stock Sender Worker could not obtain an API token.");
+                            }
+                            else
+                            {
+                                await SharedFunctions.PostAsync<object>("Email/SendWeeklyStockBroadcast", new object(), user.Token);
+                            }
+
+                            Log.Logger.Information($"Email Stock Sender Worker running at: {DateTime.UtcNow}");
+                            break;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Logger.Error(
+                                "Email Stock Sender Worker with error. Attempt={Attempt}/{MaxAttempts} ErrorType={ErrorType}",
+                                attempt,
+                                MaxAttempts,
+                                ex.GetType().Name);
+
+                            if (attempt < MaxAttempts)
+                                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                        }
                     }
                 }
             }

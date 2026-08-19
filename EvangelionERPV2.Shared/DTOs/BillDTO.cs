@@ -10,7 +10,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public string DocumentNumber { get; set; } = "";
         public DateTime IssueDate { get; set; } = DateTime.UtcNow;
         public DateTime DueDate { get; set; } = DateTime.UtcNow;
-        public double Amount { get; set; } = 0;
+        public decimal Amount { get; set; } = 0;
         public string DigitableLine { get; set; } = "";
         public string BarCode { get; set; } = "";
         [JsonIgnore]

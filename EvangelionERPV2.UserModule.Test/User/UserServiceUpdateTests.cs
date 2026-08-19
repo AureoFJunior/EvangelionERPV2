@@ -34,7 +34,7 @@ namespace EvangelionERPV2.UserModule.Test.User
                 .Setup(repository => repository.GetById(existingUser.Id))
                 .Returns(existingUser);
             userRepository
-                .Setup(repository => repository.GetByCondition(It.IsAny<Func<Shared.Entities.User, bool>>()))
+                .Setup(repository => repository.GetByCondition(It.IsAny<Expression<Func<Shared.Entities.User, bool>>>()))
                 .Returns([]);
             userRepository
                 .Setup(repository => repository.Update(It.IsAny<Shared.Entities.User>()))
@@ -130,8 +130,8 @@ namespace EvangelionERPV2.UserModule.Test.User
                 .Setup(repository => repository.GetById(existingUser.Id))
                 .Returns(existingUser);
             userRepository
-                .Setup(repository => repository.GetByCondition(It.IsAny<Func<Shared.Entities.User, bool>>()))
-                .Returns((Func<Shared.Entities.User, bool> predicate) => new[] { duplicateUser }.Where(predicate).ToList());
+                .Setup(repository => repository.GetByCondition(It.IsAny<Expression<Func<Shared.Entities.User, bool>>>()))
+                .Returns((Expression<Func<Shared.Entities.User, bool>> predicate) => new[] { duplicateUser }.Where(predicate.Compile()).ToList());
 
             var service = CreateService(userRepository.Object);
             var payload = new Shared.Entities.User

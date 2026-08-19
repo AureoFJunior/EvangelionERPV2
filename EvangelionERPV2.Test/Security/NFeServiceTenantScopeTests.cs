@@ -1,4 +1,5 @@
 using EvangelionERPV2.NFeModule.Application.Configs;
+using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.NFeModule.Application.Providers;
 using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Domain.Interface;
@@ -41,6 +42,99 @@ namespace EvangelionERPV2.Test.Security
             provider.Verify(x => x.IssueAsync(It.IsAny<Order>(), It.IsAny<Enterprise>(), It.IsAny<Customer>(), It.IsAny<NFeDocumentType>(), It.IsAny<NFeSettings>()), Times.Never);
         }
 
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task ConsultAsync_ReadsByAccessKeyTenantScopedInSql(bool documentExists)
+        {
+            var (service, nfeRepositoryCustom, orderRepository, _, _, _) = CreateService();
+            var enterpriseId = Guid.NewGuid();
+            const string accessKey = "35260712345678000195550010000000011323801728";
+
+            nfeRepositoryCustom
+                .Setup(x => x.GetByAccessKeyAsync(accessKey, enterpriseId))
+                .ReturnsAsync(documentExists
+                    ? new NFeDocument { Id = Guid.NewGuid(), EnterpriseId = enterpriseId }
+                    : null);
+
+            var result = await service.ConsultAsync(accessKey, enterpriseId);
+
+            Assert.Equal(documentExists, result != null);
+
+            // The scoped overload must carry the predicate, so a foreign row is never materialised.
+            nfeRepositoryCustom.Verify(x => x.GetByAccessKeyAsync(accessKey, enterpriseId), Times.Once);
+
+            // The unscoped read is only the legacy fallback, and only when the scoped one misses.
+            nfeRepositoryCustom.Verify(
+                x => x.GetByAccessKeyAsync(It.IsAny<string>()),
+                documentExists ? Times.Never() : Times.Once());
+        }
+
+        [Fact]
+        public async Task ConsultAsync_LegacyRowBelongingToAnotherTenant_ReturnsNull()
+        {
+            var (service, nfeRepositoryCustom, orderRepository, _, _, _) = CreateService();
+            var enterpriseId = Guid.NewGuid();
+            var otherEnterpriseId = Guid.NewGuid();
+            var orderId = Guid.NewGuid();
+            const string accessKey = "35260712345678000195550010000000011323801728";
+
+            nfeRepositoryCustom
+                .Setup(x => x.GetByAccessKeyAsync(accessKey, enterpriseId))
+                .ReturnsAsync((NFeDocument?)null);
+
+            // A pre-denormalisation row: EnterpriseId is empty, so ownership comes from the Order.
+            nfeRepositoryCustom
+                .Setup(x => x.GetByAccessKeyAsync(accessKey))
+                .ReturnsAsync(new NFeDocument
+                {
+                    Id = Guid.NewGuid(),
+                    EnterpriseId = Guid.Empty,
+                    OrderId = orderId,
+                });
+
+            orderRepository
+                .Setup(x => x.GetByIdAsync(orderId))
+                .ReturnsAsync(new Order { Id = orderId, EnterpriseId = otherEnterpriseId });
+
+            Assert.Null(await service.ConsultAsync(accessKey, enterpriseId));
+        }
+
+        [Fact]
+        public async Task ConsultAsync_WhenEnterpriseIdIsEmpty_ReturnsNullWithoutAnyLookup()
+        {
+            var (service, nfeRepositoryCustom, orderRepository, _, _, _) = CreateService();
+
+            Assert.Null(await service.ConsultAsync("35260712345678000195550010000000011323801728", Guid.Empty));
+
+            nfeRepositoryCustom.Verify(x => x.GetByAccessKeyAsync(It.IsAny<string>(), It.IsAny<Guid>()), Times.Never);
+            nfeRepositoryCustom.Verify(x => x.GetByAccessKeyAsync(It.IsAny<string>()), Times.Never);
+            orderRepository.Verify(x => x.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task CancelAsync_DocumentOfAnotherTenant_ReturnsNullAndDoesNotWrite()
+        {
+            var (service, nfeRepositoryCustom, _, _, _, _) = CreateService();
+            var enterpriseId = Guid.NewGuid();
+            const string accessKey = "35260712345678000195550010000000011323801728";
+
+            // Scoped read misses, and the legacy row already carries a different tenant.
+            nfeRepositoryCustom
+                .Setup(x => x.GetByAccessKeyAsync(accessKey, enterpriseId))
+                .ReturnsAsync((NFeDocument?)null);
+            nfeRepositoryCustom
+                .Setup(x => x.GetByAccessKeyAsync(accessKey))
+                .ReturnsAsync(new NFeDocument
+                {
+                    Id = Guid.NewGuid(),
+                    EnterpriseId = Guid.NewGuid(),
+                    Status = NFeStatus.Authorized,
+                });
+
+            Assert.Null(await service.CancelAsync(accessKey, enterpriseId, "cancelling someone else's note"));
+        }
+
         private static (NFeService service,
             Mock<INFeRepository<NFeDocument>> nfeRepositoryCustom,
             Mock<IRepository<Order>> orderRepository,
@@ -55,6 +149,8 @@ namespace EvangelionERPV2.Test.Security
             var enterpriseRepository = new Mock<IRepository<Enterprise>>();
             var provider = new Mock<INFeProvider>();
 
+            var fiscalSettingsService = new Mock<INFeFiscalSettingsService>();
+
             var service = new NFeService(
                 nfeRepository.Object,
                 nfeRepositoryCustom.Object,
@@ -62,6 +158,7 @@ namespace EvangelionERPV2.Test.Security
                 customerRepository.Object,
                 enterpriseRepository.Object,
                 provider.Object,
+                fiscalSettingsService.Object,
                 Options.Create(new NFeSettings { Enabled = true }));
 
             return (service, nfeRepositoryCustom, orderRepository, customerRepository, enterpriseRepository, provider);

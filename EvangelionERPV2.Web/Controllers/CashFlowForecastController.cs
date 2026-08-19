@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using EvangelionERPV2.BillsModule.Application.Interface;
+using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
@@ -54,7 +55,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.CashFlowForecast.Read)]
         [HttpGet("{horizonInDays}/{currentBalance}")]
-        public async Task<IActionResult> GetForecastWithBalanceOverride(int horizonInDays, double currentBalance)
+        public async Task<IActionResult> GetForecastWithBalanceOverride(int horizonInDays, decimal currentBalance)
         {
             try
             {
@@ -67,8 +68,9 @@ namespace EvangelionERPV2.Web.Controllers
                 if (horizonInDays is not (30 or 60 or 90))
                     return BadRequest("Horizon must be 30, 60 or 90 days.");
 
-                if (!double.IsFinite(currentBalance))
-                    return BadRequest("Current balance is invalid.");
+                // Unbounded balances overflow the running-balance accumulation in the forecast.
+                if (currentBalance is < -CashFlowForecastService.MaxCurrentBalance or > CashFlowForecastService.MaxCurrentBalance)
+                    return BadRequest("Current balance is out of the supported range.");
 
                 var result = await _cashFlowForecastService.GetForecastAsync(enterpriseId, horizonInDays, currentBalance);
                 return Ok(result);

@@ -11,7 +11,15 @@ namespace EvangelionERPV2.Shared.Auditing
             typeof(Order),
             typeof(Bill),
             typeof(PayableBill),
-            typeof(PayableBillProduct)
+            typeof(PayableBillProduct),
+
+            // Fiscal documents have legal weight and their issuance and cancellation are
+            // irreversible, so every one needs a who-did-what trail. Property-level redaction in
+            // AuditTrailEntryFactory keeps the access key, XML and QR data out of the trail.
+            typeof(NFeDocument),
+
+            // Admin-only settings whose edits change the tax treatment of every future document.
+            typeof(EnterpriseFiscalSettings)
         };
 
         private static readonly HashSet<string> _entityNames = new(

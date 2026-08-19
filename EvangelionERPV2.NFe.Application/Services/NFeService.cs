@@ -2,17 +2,25 @@ using EvangelionERPV2.NFeModule.Application.Configs;
 using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.NFeModule.Application.Providers;
 using EvangelionERPV2.NFeModule.Domain.Interface;
+using EvangelionERPV2.NFeModule.Infra.Xml;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Serilog;
+using System.Globalization;
 
 namespace EvangelionERPV2.NFeModule.Application.Services
 {
     public class NFeService : INFeService<NFeDocument>, IDisposable
     {
         private const int IssuanceLockPoolSize = 256;
+
+        /// <summary>tpEmis 1 — emissão normal. Contingency modes are out of scope for v1.</summary>
+        private const int NormalEmission = 1;
+
+        private const byte ProductionEnvironment = 1;
+
         private static readonly TimeSpan IssuanceClaimPollDelay = TimeSpan.FromMilliseconds(200);
         private static readonly TimeSpan IssuanceClaimPollTimeout = TimeSpan.FromSeconds(15);
         private static readonly SemaphoreSlim[] IssuanceLocks = CreateIssuanceLocks();
@@ -23,6 +31,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _customerRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _enterpriseRepository;
         private readonly INFeProvider _provider;
+        private readonly INFeFiscalSettingsService _fiscalSettingsService;
         private readonly NFeSettings _settings;
         private bool disposed;
 
@@ -33,6 +42,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             EvangelionERPV2.Shared.Repositories.IRepository<Customer> customerRepository,
             EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> enterpriseRepository,
             INFeProvider provider,
+            INFeFiscalSettingsService fiscalSettingsService,
             IOptions<NFeSettings> settings)
         {
             _nfeRepository = nfeRepository;
@@ -41,6 +51,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             _customerRepository = customerRepository;
             _enterpriseRepository = enterpriseRepository;
             _provider = provider;
+            _fiscalSettingsService = fiscalSettingsService;
             _settings = settings?.Value ?? new NFeSettings();
         }
 
@@ -85,6 +96,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                         return existing;
 
                     pendingDocument = ResetErroredDocumentForRetry(existing);
+
+                    // Backfills rows created before these columns existed.
+                    pendingDocument.EnterpriseId = enterpriseId;
+                    pendingDocument.Model = NFeDocument.ModelFor(type);
+
                     _nfeRepository.Update(pendingDocument);
                     await _nfeRepository.CommitAsync();
                 }
@@ -95,7 +111,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     {
                         Id = Guid.NewGuid(),
                         OrderId = order.Id,
+                        // GetScopedOrderAsync only returns an order whose EnterpriseId equals
+                        // the caller's, so this is the verified tenant, not a hopeful copy.
+                        EnterpriseId = enterpriseId,
                         Type = type,
+                        Model = NFeDocument.ModelFor(type),
                         Status = NFeStatus.Pending,
                         AccessKey = string.Empty,
                         Series = string.Empty,
@@ -139,13 +159,19 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
                 try
                 {
+                    // Steps 2-5 of the transmit-safe ordering (docs/nfe/HANDOFF.md §4). Both commit
+                    // before the provider is called, and both are inside this try so that a failure
+                    // here — where nothing can have been transmitted — still lands as Error.
+                    await AssignNumberAndAccessKeyAsync(pendingDocument, enterpriseId, type);
+                    await MarkTransmittedAsync(pendingDocument);
+
                     var result = await _provider.IssueAsync(order, enterprise, customer, type, _settings);
 
+                    // The identity fields are NOT adopted from the result. The chave, number and
+                    // series were allocated and committed before transmission precisely so that a
+                    // timed-out request can be reconciled against them; taking the provider's word
+                    // for them afterwards would put the recovery key back under SEFAZ's control.
                     pendingDocument.Status = result.Status;
-                    pendingDocument.AccessKey = result.AccessKey;
-                    pendingDocument.Series = result.Series;
-                    pendingDocument.Number = result.Number;
-                    pendingDocument.Environment = result.Environment;
                     pendingDocument.Protocol = result.Protocol;
                     pendingDocument.IssuedAt = result.IssuedAt ?? DateTime.UtcNow;
                     pendingDocument.TotalValue = result.TotalValue;
@@ -178,22 +204,40 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 }
                 catch
                 {
-                    pendingDocument.Status = NFeStatus.Error;
-                    pendingDocument.UpdatedAt = DateTime.UtcNow;
-                    _nfeRepository.Update(pendingDocument);
+                    // Only downgrade to Error while the write-ahead marker says nothing can have
+                    // been transmitted. Once TransmittedAtUtc is set the outcome is UNKNOWN, not
+                    // failed — the bytes may have reached SEFAZ. Marking it Error would make
+                    // ResetErroredDocumentForRetry legal on the next attempt, and that clears the
+                    // access key and the marker, i.e. exactly the two things that make a duplicate
+                    // emission detectable. Leave it Pending and let the reconciler consult SEFAZ
+                    // and adopt the answer. See docs/nfe/HANDOFF.md §4.
+                    if (!pendingDocument.IsOutcomeUnknown)
+                    {
+                        pendingDocument.Status = NFeStatus.Error;
+                        pendingDocument.UpdatedAt = DateTime.UtcNow;
+                        _nfeRepository.Update(pendingDocument);
 
-                    try
-                    {
-                        await _nfeRepository.CommitAsync();
+                        try
+                        {
+                            await _nfeRepository.CommitAsync();
+                        }
+                        catch (DbUpdateException errorCommitException)
+                        {
+                            Log.Logger.Warning(
+                                errorCommitException,
+                                "NFe issuance failure could not be persisted for order {OrderId} and type {Type}.",
+                                orderId,
+                                type);
+                            throw;
+                        }
                     }
-                    catch (DbUpdateException errorCommitException)
+                    else
                     {
-                        Log.Logger.Warning(
-                            errorCommitException,
-                            "NFe issuance failure could not be persisted for order {OrderId} and type {Type}.",
+                        Log.Logger.Error(
+                            "NFe issuance failed after transmission for order {OrderId} and type {Type}. Document {DocumentId} stays Pending with an unknown outcome; the reconciler owns it.",
                             orderId,
-                            type);
-                        throw;
+                            type,
+                            pendingDocument.Id);
                     }
 
                     throw;
@@ -210,14 +254,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (string.IsNullOrWhiteSpace(accessKey))
                 return null;
 
-            var document = await _nfeRepositoryCustom.GetByAccessKeyAsync(accessKey);
-            if (document == null)
-                return null;
-
-            if (!await IsDocumentWithinEnterpriseAsync(document, enterpriseId))
-                return null;
-
-            return document;
+            return await GetScopedDocumentByAccessKeyAsync(accessKey, enterpriseId);
         }
 
         public async Task<NFeDocument?> CancelAsync(string accessKey, Guid enterpriseId, string reason = "")
@@ -225,11 +262,8 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (string.IsNullOrWhiteSpace(accessKey))
                 return null;
 
-            var document = await _nfeRepositoryCustom.GetByAccessKeyAsync(accessKey);
+            var document = await GetScopedDocumentByAccessKeyAsync(accessKey, enterpriseId);
             if (document == null)
-                return null;
-
-            if (!await IsDocumentWithinEnterpriseAsync(document, enterpriseId))
                 return null;
 
             if (document.Status == NFeStatus.Cancelled)
@@ -245,6 +279,145 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
             return document;
         }
+
+        /// <summary>
+        /// Steps 2-4: allocate the nNF, build the chave from it, and commit both while the document
+        /// is still provably untransmitted.
+        /// </summary>
+        /// <remarks>
+        /// The chave has to exist in the database <em>before</em> the first byte leaves, because it
+        /// is the only handle a reconciler has on a note whose outcome is unknown. Everything that
+        /// can fail without consuming a number is done before the allocation — a burnt number is
+        /// legal but permanent, and the remedy (inutilização) is out of scope for v1.
+        /// </remarks>
+        private async Task AssignNumberAndAccessKeyAsync(NFeDocument document, Guid enterpriseId, NFeDocumentType type)
+        {
+            var emission = EmitterNow();
+
+            // A retry of a document that was claimed but provably never transmitted keeps the number
+            // it already allocated. Skipping it instead would need inutilização paperwork for a
+            // number nobody ever used — see NFeReconciliationService.
+            if (CanReuseAllocation(document, emission))
+            {
+                Log.Logger.Information(
+                    "NFe document {DocumentId} reuses its allocated number {Number}; it was never transmitted.",
+                    document.Id,
+                    document.Number);
+                return;
+            }
+
+            var fiscalSettings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
+
+            // GetSettingsAsync returns a transient default for a tenant that never configured
+            // anything, so an unconfigured tenant would otherwise reach NFeAccessKeyBuilder with an
+            // empty CNPJ and a cUF of 0. Rejected here rather than there, to keep the message about
+            // the tenant instead of about an argument.
+            if (string.IsNullOrWhiteSpace(fiscalSettings.Cnpj) || fiscalSettings.CodigoUfIbge <= 0)
+                throw new InsertDatabaseException("Fiscal settings are not configured for this enterprise.");
+
+            var model = NFeDocument.ModelFor(type);
+            var series = type == NFeDocumentType.NFCe ? fiscalSettings.NFCeSeries : fiscalSettings.NFeSeries;
+            if (!int.TryParse(series, NumberStyles.None, CultureInfo.InvariantCulture, out var seriesNumber))
+                throw new InsertDatabaseException($"Fiscal series '{series}' is not numeric.");
+
+            var number = await _nfeRepositoryCustom.AllocateNextNumberAsync(
+                enterpriseId,
+                model,
+                series,
+                fiscalSettings.Environment)
+                ?? throw new InsertDatabaseException("NFe number sequence is not configured for this enterprise.");
+
+            document.Number = number.ToString(CultureInfo.InvariantCulture);
+            document.Series = series;
+            document.Environment = EnvironmentName(fiscalSettings.Environment);
+
+            // cNF is not persisted separately: it is digits 36-43 of the chave, so the key itself is
+            // enough to rebuild or verify the document.
+            document.AccessKey = NFeAccessKeyBuilder.Build(
+                fiscalSettings.CodigoUfIbge,
+                emission,
+                fiscalSettings.Cnpj,
+                model,
+                seriesNumber,
+                number,
+                NormalEmission,
+                NFeAccessKeyBuilder.GenerateCodigoNumerico(number));
+
+            document.UpdatedAt = DateTime.UtcNow;
+
+            _nfeRepository.Update(document);
+            await _nfeRepository.CommitAsync();
+        }
+
+        /// <summary>
+        /// True when the document already carries an allocation that is still safe to transmit.
+        /// </summary>
+        /// <remarks>
+        /// Three conditions, all load-bearing: the write-ahead marker must be NULL (otherwise the
+        /// note may already exist at SEFAZ and reusing the key double-emits), the chave must still
+        /// describe this document's number, and its AAMM must be the current month — an old chave
+        /// re-transmitted in a new month is rejected. Anything else falls through to a fresh
+        /// allocation, which burns a number but is never wrong.
+        /// </remarks>
+        private static bool CanReuseAllocation(NFeDocument document, DateTime emission)
+        {
+            if (document.TransmittedAtUtc != null || string.IsNullOrWhiteSpace(document.Number))
+                return false;
+
+            if (!NFeAccessKeyBuilder.IsValid(document.AccessKey))
+                return false;
+
+            var sameMonth = document.AccessKey.Substring(2, 4)
+                == emission.ToString("yyMM", CultureInfo.InvariantCulture);
+            var sameNumber = document.AccessKey.Substring(25, 9) == document.Number.PadLeft(9, '0');
+
+            return sameMonth && sameNumber;
+        }
+
+        /// <summary>
+        /// Step 5 — the write-ahead marker, committed on its own immediately before transmission.
+        /// </summary>
+        /// <remarks>
+        /// A separate commit on purpose. The fiscal library is fully synchronous and a cancelled or
+        /// timed-out call cannot recall bytes already on the wire, so this has to be durable before
+        /// the call rather than alongside it. It is what makes <see cref="NFeDocument.IsOutcomeUnknown"/>
+        /// mean something.
+        /// </remarks>
+        private async Task MarkTransmittedAsync(NFeDocument document)
+        {
+            var now = DateTime.UtcNow;
+            document.TransmittedAtUtc = now;
+            document.UpdatedAt = now;
+
+            _nfeRepository.Update(document);
+            await _nfeRepository.CommitAsync();
+        }
+
+        /// <summary>
+        /// Now in the emitter's timezone, which is what AAMM in the chave must match — a UTC
+        /// instant crosses the month boundary three hours early in Brazil.
+        /// </summary>
+        private static DateTime EmitterNow()
+        {
+            // ponytail: one national offset rather than a per-tenant timezone. Brazil has had no DST
+            // since 2019 and the v1 UF allowlist (SP/PR/SC/RS) is entirely UTC-3, so the tz database
+            // is the authority and the fixed offset only covers an image shipped without tzdata.
+            // Becomes wrong if the allowlist grows to AM/AC/MS/MT — take the UF's zone then.
+            try
+            {
+                return TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.UtcNow,
+                    TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo"));
+            }
+            catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
+            {
+                return DateTime.UtcNow.AddHours(-3);
+            }
+        }
+
+        /// <summary>tpAmb as stored on the document. 1 = Produção, anything else = Homologação.</summary>
+        private static string EnvironmentName(byte environment) =>
+            environment == ProductionEnvironment ? "Production" : "Homologation";
 
         private async Task<Order?> GetScopedOrderAsync(Guid orderId, Guid enterpriseId)
         {
@@ -270,25 +443,76 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             return order != null && order.EnterpriseId == enterpriseId;
         }
 
-        private async Task<bool> IsDocumentWithinEnterpriseAsync(NFeDocument document, Guid enterpriseId)
+        /// <summary>
+        /// The single access-key read path for <c>Consult</c> and <c>Cancel</c>, tenant-scoped in SQL.
+        /// </summary>
+        /// <remarks>
+        /// Scoping in the query rather than in the caller is the point: this is the only defence
+        /// against reading another tenant's fiscal document by access key, and a caller that forgets
+        /// the check is an IDOR. The common path never materialises a foreign row at all. The
+        /// unscoped fallback exists only for rows predating the denormalised <c>EnterpriseId</c>
+        /// column (backfilled by <c>20260801130000</c>), and it still verifies ownership through the
+        /// Order before returning anything.
+        /// </remarks>
+        private async Task<NFeDocument?> GetScopedDocumentByAccessKeyAsync(string accessKey, Guid enterpriseId)
         {
-            if (enterpriseId == Guid.Empty)
-                return false;
+            if (string.IsNullOrWhiteSpace(accessKey) || enterpriseId == Guid.Empty)
+                return null;
 
-            var order = await _orderRepository.GetByIdAsync(document.OrderId);
-            return order != null && order.EnterpriseId == enterpriseId;
+            var scoped = await _nfeRepositoryCustom.GetByAccessKeyAsync(accessKey, enterpriseId);
+            if (scoped != null)
+                return scoped;
+
+            var legacy = await _nfeRepositoryCustom.GetByAccessKeyAsync(accessKey);
+            if (legacy == null || legacy.EnterpriseId != Guid.Empty)
+                return null;
+
+            var order = await _orderRepository.GetByIdAsync(legacy.OrderId);
+            return order != null && order.EnterpriseId == enterpriseId ? legacy : null;
         }
 
+        /// <summary>
+        /// Returns an Error document to a clean claimed state so it can be issued again.
+        /// </summary>
+        /// <remarks>
+        /// Only ever valid for <see cref="NFeStatus.Error"/> — our own failure, before any
+        /// certainty of transmission. Resetting a document whose outcome is unknown would clear
+        /// the access key and the write-ahead marker that make duplicate emission detectable,
+        /// so the guard below is a correctness control, not defensive style.
+        /// </remarks>
         private static NFeDocument ResetErroredDocumentForRetry(NFeDocument document)
         {
+            if (document.Status != NFeStatus.Error)
+                throw new InvalidOperationException("Only documents in Error state may be reset for retry.");
+
+            // An Error document was never transmitted — a failure after transmission stays Pending
+            // with an unknown outcome — so its allocation is still unused and is kept for reuse.
+            // AssignNumberAndAccessKeyAsync decides whether it is still valid; clearing it here
+            // would burn the number unconditionally.
+            var neverTransmitted = document.TransmittedAtUtc == null;
+
             document.Status = NFeStatus.Pending;
-            document.AccessKey = string.Empty;
-            document.Series = string.Empty;
-            document.Number = string.Empty;
-            document.Environment = string.Empty;
+            if (!neverTransmitted)
+            {
+                document.AccessKey = string.Empty;
+                document.Series = string.Empty;
+                document.Number = string.Empty;
+                document.Environment = string.Empty;
+            }
+
             document.Protocol = string.Empty;
             document.IssuedAt = null;
             document.XmlContent = string.Empty;
+
+            document.Cstat = string.Empty;
+            document.XMotivo = string.Empty;
+            document.ReceiptNumber = string.Empty;
+            document.TransmittedAtUtc = null;
+            document.AuthorizedAtUtc = null;
+            document.DigestValue = string.Empty;
+            document.QrCode = string.Empty;
+            document.UrlChave = string.Empty;
+
             document.UpdatedAt = DateTime.UtcNow;
             document.IsActive = true;
             return document;

@@ -3,6 +3,13 @@ namespace EvangelionERPV2.BillsModule.Application.Configs
     public class BillsSettings
     {
         public bool Enabled { get; set; } = false;
+
+        /// <summary>
+        /// Attaches the rendered bill PDF to the customer email. Requires a working headless
+        /// browser; turn it off to fall back to a body carrying just the digitable line.
+        /// </summary>
+        public bool AttachPdfToBillEmail { get; set; } = true;
+
         public int BankCode { get; set; } = 237;
         public string BeneficiaryDocument { get; set; } = "";
         public string BeneficiaryName { get; set; } = "";

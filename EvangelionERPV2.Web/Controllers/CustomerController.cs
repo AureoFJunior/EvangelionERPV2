@@ -10,6 +10,7 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
 using System.Linq;
 
@@ -115,16 +116,23 @@ namespace EvangelionERPV2.Web.Controllers
                 var isActiveFilter = filter.IsActive;
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
 
+                // string.Contains(..., StringComparison) has no SQL Server translation; this
+                // predicate is executed by the provider, so it must use EF.Functions.Like.
+                var escapedNameFilter = SharedFunctions.EscapeLikePattern(nameFilter ?? string.Empty);
+                var escapedEmailFilter = SharedFunctions.EscapeLikePattern(emailFilter ?? string.Empty);
+                var escapedDocumentFilter = SharedFunctions.EscapeLikePattern(documentFilter ?? string.Empty);
+                var escapedPhoneFilter = SharedFunctions.EscapeLikePattern(phoneFilter ?? string.Empty);
+
                 var customers = await _repository.GetAllAsync(
                     normalizedPageNumber,
                     normalizedPageSize,
                     x =>
                         x.EnterpriseId == enterpriseId &&
                         (!isActiveFilter.HasValue || x.IsActive == isActiveFilter.Value) &&
-                        (string.IsNullOrWhiteSpace(nameFilter) || x.Name.Contains(nameFilter, StringComparison.OrdinalIgnoreCase)) &&
-                        (string.IsNullOrWhiteSpace(emailFilter) || x.Email.Contains(emailFilter, StringComparison.OrdinalIgnoreCase)) &&
-                        (string.IsNullOrWhiteSpace(documentFilter) || (x.Document != null && x.Document.Contains(documentFilter, StringComparison.OrdinalIgnoreCase))) &&
-                        (string.IsNullOrWhiteSpace(phoneFilter) || x.PhoneNumber.Contains(phoneFilter, StringComparison.OrdinalIgnoreCase)));
+                        (string.IsNullOrWhiteSpace(nameFilter) || EF.Functions.Like(x.Name, $"%{escapedNameFilter}%", "\\")) &&
+                        (string.IsNullOrWhiteSpace(emailFilter) || EF.Functions.Like(x.Email, $"%{escapedEmailFilter}%", "\\")) &&
+                        (string.IsNullOrWhiteSpace(documentFilter) || (x.Document != null && EF.Functions.Like(x.Document, $"%{escapedDocumentFilter}%", "\\"))) &&
+                        (string.IsNullOrWhiteSpace(phoneFilter) || EF.Functions.Like(x.PhoneNumber, $"%{escapedPhoneFilter}%", "\\")));
 
                 if (customers == null || !customers.Any())
                     return NoContent();

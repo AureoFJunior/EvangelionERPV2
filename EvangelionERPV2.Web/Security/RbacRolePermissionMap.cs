@@ -59,6 +59,23 @@ namespace EvangelionERPV2.Web.Security
 
             RbacPermissions.Customers.Delete,
 
+            // Enterprise self-read exposes company-level financials (CurrentBalance), so it
+            // starts at Manager instead of the base role set.
+            RbacPermissions.Enterprise.ReadSelf,
+
+            // Employee records carry LGPD-sensitive data (document, salary), so the whole
+            // permission group starts at Manager instead of Supervisor.
+            RbacPermissions.Employees.Read,
+            RbacPermissions.Employees.Create,
+            RbacPermissions.Employees.Update,
+            RbacPermissions.Employees.Delete,
+            RbacPermissions.Employees.UploadPicture,
+
+            // Certificate metadata only — subject, expiry, days remaining. Whoever operates
+            // issuance needs the expiry warning without waiting on an admin; uploading and
+            // replacing the certificate stays admin-only.
+            RbacPermissions.NFe.CertificateRead,
+
             RbacPermissions.PayableBills.Read,
             RbacPermissions.PayableBills.Create,
             RbacPermissions.PayableBills.Update,

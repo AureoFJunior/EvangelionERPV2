@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
@@ -14,21 +15,21 @@ namespace EvangelionERPV2.BillsModule.Test
             var enterpriseId = Guid.NewGuid();
 
             var orderRepo = new Mock<IRepository<Order>>();
-            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<Order, bool>>())).ReturnsAsync(new List<Order>());
+            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>())).ReturnsAsync(new List<Order>());
 
             var payableRepo = new Mock<IRepository<PayableBill>>();
-            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync(new List<PayableBill>());
+            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<PayableBill, bool>>>())).ReturnsAsync(new List<PayableBill>());
 
             var enterpriseRepo = new Mock<IRepository<Enterprise>>();
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(
-                new Enterprise { Id = enterpriseId, IsActive = true, Name = "E", CurrentBalance = 321.45 });
+                new Enterprise { Id = enterpriseId, IsActive = true, Name = "E", CurrentBalance = 321.45m });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
             var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
 
             var result = await service.GetForecastAsync(enterpriseId, 5);
 
-            Assert.Equal(321.45, result.CurrentBalance, 2);
+            Assert.Equal(321.45m, result.CurrentBalance, 2);
         }
 
         [Fact]
@@ -49,10 +50,10 @@ namespace EvangelionERPV2.BillsModule.Test
             };
 
             var orderRepo = new Mock<IRepository<Order>>();
-            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<Order, bool>>())).ReturnsAsync((Func<Order, bool>? f) => orders.Where(f!).ToList());
+            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>())).ReturnsAsync((Expression<Func<Order, bool>>? f) => orders.Where(f!.Compile()).ToList());
 
             var payableRepo = new Mock<IRepository<PayableBill>>();
-            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync((Func<PayableBill, bool>? f) => payables.Where(f!).ToList());
+            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<PayableBill, bool>>>())).ReturnsAsync((Expression<Func<PayableBill, bool>>? f) => payables.Where(f!.Compile()).ToList());
 
             var enterpriseRepo = new Mock<IRepository<Enterprise>>();
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
@@ -70,10 +71,10 @@ namespace EvangelionERPV2.BillsModule.Test
         public async Task RunSimulationAsync_WithLessThanTwoScenarios_ShouldThrow()
         {
             var orderRepo = new Mock<IRepository<Order>>();
-            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<Order, bool>>())).ReturnsAsync(new List<Order>());
+            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>())).ReturnsAsync(new List<Order>());
 
             var payableRepo = new Mock<IRepository<PayableBill>>();
-            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync(new List<PayableBill>());
+            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<PayableBill, bool>>>())).ReturnsAsync(new List<PayableBill>());
 
             var enterpriseRepo = new Mock<IRepository<Enterprise>>();
             enterpriseRepo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync(new Enterprise { Id = Guid.NewGuid(), CurrentBalance = 0, IsActive = true, Name = "E" });
@@ -108,10 +109,10 @@ namespace EvangelionERPV2.BillsModule.Test
             };
 
             var orderRepo = new Mock<IRepository<Order>>();
-            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<Order, bool>>())).ReturnsAsync((Func<Order, bool>? f) => orders.Where(f!).ToList());
+            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>())).ReturnsAsync((Expression<Func<Order, bool>>? f) => orders.Where(f!.Compile()).ToList());
 
             var payableRepo = new Mock<IRepository<PayableBill>>();
-            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync((Func<PayableBill, bool>? f) => payables.Where(f!).ToList());
+            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<PayableBill, bool>>>())).ReturnsAsync((Expression<Func<PayableBill, bool>>? f) => payables.Where(f!.Compile()).ToList());
 
             var enterpriseRepo = new Mock<IRepository<Enterprise>>();
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
@@ -156,10 +157,10 @@ namespace EvangelionERPV2.BillsModule.Test
             };
 
             var orderRepo = new Mock<IRepository<Order>>();
-            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<Order, bool>>())).ReturnsAsync((Func<Order, bool>? f) => orders.Where(f!).ToList());
+            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>())).ReturnsAsync((Expression<Func<Order, bool>>? f) => orders.Where(f!.Compile()).ToList());
 
             var payableRepo = new Mock<IRepository<PayableBill>>();
-            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync((Func<PayableBill, bool>? f) => payables.Where(f!).ToList());
+            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<PayableBill, bool>>>())).ReturnsAsync((Expression<Func<PayableBill, bool>>? f) => payables.Where(f!.Compile()).ToList());
 
             var enterpriseRepo = new Mock<IRepository<Enterprise>>();
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
@@ -189,10 +190,10 @@ namespace EvangelionERPV2.BillsModule.Test
             };
 
             var orderRepo = new Mock<IRepository<Order>>();
-            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<Order, bool>>())).ReturnsAsync((Func<Order, bool>? f) => orders.Where(f!).ToList());
+            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>())).ReturnsAsync((Expression<Func<Order, bool>>? f) => orders.Where(f!.Compile()).ToList());
 
             var payableRepo = new Mock<IRepository<PayableBill>>();
-            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Func<PayableBill, bool>>())).ReturnsAsync((Func<PayableBill, bool>? f) => payables.Where(f!).ToList());
+            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<PayableBill, bool>>>())).ReturnsAsync((Expression<Func<PayableBill, bool>>? f) => payables.Where(f!.Compile()).ToList());
 
             var enterpriseRepo = new Mock<IRepository<Enterprise>>();
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });

@@ -25,7 +25,10 @@ namespace EvangelionERPV2.Test.Security
             Assert.True(emailIndex.IsUnique);
             Assert.Single(emailIndex.Properties);
             Assert.Equal("NormalizedActiveEmail", emailIndex.Properties[0].Name);
-            Assert.Equal("[IsActive] = 1 AND [NormalizedActiveEmail] IS NOT NULL", emailIndex.GetFilter());
+            // Filter cannot reference [NormalizedActiveEmail]: SQL Server rejects computed
+            // columns in filtered-index predicates. [Email] is NOT NULL, so [IsActive] = 1
+            // alone already excludes every row where the computed value is NULL.
+            Assert.Equal("[IsActive] = 1", emailIndex.GetFilter());
 
             Assert.DoesNotContain(
                 userEntity.GetIndexes(),

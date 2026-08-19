@@ -2,6 +2,7 @@ using EvangelionERPV2.Shared.Auditing;
 using EvangelionERPV2.Shared.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using System.Security.Claims;
 
 namespace EvangelionERPV2.Shared.Context
@@ -21,7 +22,11 @@ namespace EvangelionERPV2.Shared.Context
         }
 
         public DbSet<Customer> Customer { get; set; }
+        public DbSet<Employee> Employee { get; set; }
         public DbSet<Enterprise> Enterprise { get; set; }
+        public DbSet<EnterprisePayrollSettings> EnterprisePayrollSettings { get; set; }
+        public DbSet<EnterpriseFiscalSettings> EnterpriseFiscalSettings { get; set; }
+        public DbSet<NFeNumberSequence> NFeNumberSequence { get; set; }
         public DbSet<Email> Email { get; set; }
         public DbSet<Bill> Bill { get; set; }
         public DbSet<NFeDocument> NFeDocument { get; set; }
@@ -30,6 +35,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<Product> Product { get; set; }
         public DbSet<PayableBill> PayableBill { get; set; }
         public DbSet<PayableBillProduct> PayableBillProduct { get; set; }
+        public DbSet<PayrollBillDetail> PayrollBillDetail { get; set; }
         public DbSet<Opportunity> Opportunity { get; set; }
         public DbSet<OpportunitySignal> OpportunitySignal { get; set; }
         public DbSet<OpportunityRecommendation> OpportunityRecommendation { get; set; }
@@ -40,6 +46,16 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<PasswordResetToken> PasswordResetToken { get; set; }
         public DbSet<User> User { get; set; }
         public DbSet<AuditTrail> AuditTrails { get; set; }
+
+        protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+        {
+            base.ConfigureConventions(configurationBuilder);
+
+            // Money columns are decimal(18,2). Without this, EF only infers a provider default
+            // and warns that values may be silently truncated. Properties that declare their own
+            // [Column(TypeName = ...)] — the payroll rates at decimal(5,4) — still win over this.
+            configurationBuilder.Properties<decimal>().HavePrecision(18, 2);
+        }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -52,7 +68,7 @@ namespace EvangelionERPV2.Shared.Context
 
             modelBuilder.Entity<Enterprise>()
                 .Property(enterprise => enterprise.CurrentBalance)
-                .HasDefaultValue(0d);
+                .HasDefaultValue(0m);
 
             modelBuilder.Entity<Bill>()
                 .ToTable("Boleto");
@@ -83,6 +99,43 @@ namespace EvangelionERPV2.Shared.Context
                 .HasIndex(item => new { item.PayableBillId, item.ProductId })
                 .HasFilter("[IsActive] = 1")
                 .IsUnique();
+
+            modelBuilder.Entity<PayrollBillDetail>()
+                .HasOne(detail => detail.Employee)
+                .WithMany()
+                .HasForeignKey(detail => detail.EmployeeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Transactional guard against concurrent GeneratePayroll calls double-billing the
+            // same employee for the same competência. Filtered so soft-deleted rows do not block
+            // a regeneration.
+            modelBuilder.Entity<PayrollBillDetail>()
+                .HasIndex(detail => new { detail.ReferenceYear, detail.ReferenceMonth, detail.EmployeeId })
+                .HasFilter("[IsActive] = 1")
+                .IsUnique();
+
+            // Soft-deleted settings rows must not block the create branch of UpsertSettingsAsync,
+            // which only looks up rows with IsActive = 1.
+            modelBuilder.Entity<EnterprisePayrollSettings>()
+                .HasIndex(settings => settings.EnterpriseId)
+                .HasFilter("[IsActive] = 1")
+                .IsUnique();
+
+            // Same reasoning as payroll: soft-deleted rows must not block the create branch of
+            // UpsertSettingsAsync, which only looks up rows with IsActive = 1.
+            modelBuilder.Entity<EnterpriseFiscalSettings>()
+                .HasIndex(settings => settings.EnterpriseId)
+                .HasFilter("[IsActive] = 1")
+                .IsUnique();
+
+            // Deliberately NOT filtered on IsActive — see NFeNumberSequence. A soft-deleted
+            // counter that let a replacement row restart at 1 would re-issue nNF values already
+            // transmitted to SEFAZ.
+            modelBuilder.Entity<NFeNumberSequence>()
+                .HasOne(sequence => sequence.Enterprise)
+                .WithMany()
+                .HasForeignKey(sequence => sequence.EnterpriseId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<PasswordResetToken>()
                 .HasOne(token => token.User)
@@ -122,11 +175,14 @@ namespace EvangelionERPV2.Shared.Context
                 .IsUnique()
                 .HasFilter("[IsActive] = 1 AND [EnterpriseId] IS NOT NULL");
 
+            // Filter cannot reference [NormalizedActiveEmail]: SQL Server rejects computed
+            // columns in filtered-index predicates. [Email] is NOT NULL, so [IsActive] = 1
+            // alone already excludes every row where the computed value is NULL.
             modelBuilder.Entity<User>()
                 .HasIndex("NormalizedActiveEmail")
                 .HasDatabaseName("IX_User_NormalizedActiveEmail_Active")
                 .IsUnique()
-                .HasFilter("[IsActive] = 1 AND [NormalizedActiveEmail] IS NOT NULL");
+                .HasFilter("[IsActive] = 1");
 
             modelBuilder.Entity<Opportunity>()
                 .Property(opportunity => opportunity.Type)
@@ -271,6 +327,7 @@ namespace EvangelionERPV2.Shared.Context
 
         public override int SaveChanges(bool acceptAllChangesOnSuccess)
         {
+            RestoreOriginalValuesForAudit();
             AppendAuditTrails();
             return base.SaveChanges(acceptAllChangesOnSuccess);
         }
@@ -280,10 +337,59 @@ namespace EvangelionERPV2.Shared.Context
             return SaveChangesAsync(acceptAllChangesOnSuccess: true, cancellationToken);
         }
 
-        public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+        public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
         {
+            await RestoreOriginalValuesForAuditAsync(cancellationToken);
             AppendAuditTrails();
-            return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+
+        /// <summary>
+        /// Reloads database original values for audited entities that were attached from a detached
+        /// instance, so the audit trail can tell what actually changed.
+        /// </summary>
+        /// <remarks>
+        /// Every read in <c>RepositoryBase</c> is <c>AsNoTracking</c>, so an update flow is
+        /// read-detached → mutate → <c>Update</c>. For an untracked entity that lands on
+        /// <c>DbSet.Update</c>, EF seeds OriginalValues from the very instance being saved: every
+        /// property is marked modified, yet <c>OriginalValue == CurrentValue</c> for all of them.
+        /// <see cref="Auditing.IAuditTrailEntryFactory"/> skips unchanged properties, so the change
+        /// set came out empty and <b>no EDIT row was written at all</b> — for any audited entity,
+        /// not just fiscal ones. One extra SELECT per audited modified entity buys a real trail;
+        /// non-audited entities are untouched, which is why this is not a blanket cost.
+        /// </remarks>
+        private async Task RestoreOriginalValuesForAuditAsync(CancellationToken cancellationToken)
+        {
+            foreach (var entry in CollectAuditedEntriesNeedingOriginalValues())
+            {
+                var databaseValues = await entry.GetDatabaseValuesAsync(cancellationToken);
+                if (databaseValues != null)
+                    entry.OriginalValues.SetValues(databaseValues);
+            }
+        }
+
+        private void RestoreOriginalValuesForAudit()
+        {
+            foreach (var entry in CollectAuditedEntriesNeedingOriginalValues())
+            {
+                var databaseValues = entry.GetDatabaseValues();
+                if (databaseValues != null)
+                    entry.OriginalValues.SetValues(databaseValues);
+            }
+        }
+
+        private List<EntityEntry<BaseEntity>> CollectAuditedEntriesNeedingOriginalValues()
+        {
+            ChangeTracker.DetectChanges();
+
+            return ChangeTracker.Entries<BaseEntity>()
+                .Where(entry => entry.State == EntityState.Modified
+                                && AuditedEntities.Contains(entry.Metadata.ClrType)
+                                // Nothing to recover when EF already holds real originals from a
+                                // tracked read; only the attach-from-detached case is degenerate.
+                                && entry.Properties.All(property =>
+                                    !property.IsModified || Equals(property.OriginalValue, property.CurrentValue)))
+                .ToList();
         }
 
         private void AppendAuditTrails()

@@ -534,7 +534,8 @@ namespace EvangelionERPV2.UserModule.Application.Services
                     x.IsActive == true &&
                     x.Id != userId &&
                     x.Email != null &&
-                    x.Email.Trim().ToLowerInvariant() == normalizedEmail)
+                    // ToLower(), not ToLowerInvariant(): only ToLower() translates to SQL.
+                    x.Email.Trim().ToLower() == normalizedEmail)
                 .FirstOrDefault();
 
             if (matchingUser != null)

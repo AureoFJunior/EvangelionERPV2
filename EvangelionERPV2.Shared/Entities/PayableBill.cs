@@ -11,7 +11,7 @@ namespace EvangelionERPV2.Shared.Entities
         public string Description { get; set; } = string.Empty;
         public DateTime DueDate { get; set; } = DateTime.UtcNow;
         public DateTime? PaidAt { get; set; }
-        public double Amount { get; set; }
+        public decimal Amount { get; set; }
         public bool IsPaid { get; set; }
         public int BillType { get; set; } = (int)EnumPayableBillType.Other;
         public DateTime? ProductsReceivedAt { get; set; } = null;

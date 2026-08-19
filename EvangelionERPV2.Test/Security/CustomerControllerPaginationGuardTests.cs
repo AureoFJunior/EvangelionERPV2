@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using AutoMapper;
 using EvangelionERPV2.CustomerModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
@@ -25,8 +26,8 @@ namespace EvangelionERPV2.Test.Security
             int? capturedPageSize = null;
 
             customerRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Customer, bool>>()))
-                .Callback<int?, int?, Func<Customer, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Customer, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Customer, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -59,8 +60,8 @@ namespace EvangelionERPV2.Test.Security
             int? capturedPageSize = null;
 
             customerRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Customer, bool>>()))
-                .Callback<int?, int?, Func<Customer, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Customer, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Customer, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;

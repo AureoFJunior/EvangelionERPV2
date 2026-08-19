@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
@@ -40,7 +41,7 @@ namespace EvangelionERPV2.BillsModule.Test
                     {
                         ProductId = product.Id,
                         Quantity = 2,
-                        UnitValue = 12.5,
+                        UnitValue = 12.5m,
                         UnitOfMeasure = "Box"
                     }
                 ]
@@ -52,7 +53,7 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(3, result.BillType);
             Assert.Single(payableItems);
             Assert.Equal("Unit", payableItems[0].UnitOfMeasure);
-            productRepo.Verify(x => x.GetAllAsync(It.IsAny<Func<Product, bool>?>()), Times.AtLeastOnce);
+            productRepo.Verify(x => x.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>?>()), Times.AtLeastOnce);
             payableBillRepo.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
             payableBillProductRepo.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
         }
@@ -130,7 +131,7 @@ namespace EvangelionERPV2.BillsModule.Test
                         {
                             ProductId = product.Id,
                             Quantity = 2,
-                            UnitValue = 12.5,
+                            UnitValue = 12.5m,
                             UnitOfMeasure = "Box"
                         }
                     ]
@@ -526,6 +527,144 @@ namespace EvangelionERPV2.BillsModule.Test
         }
 
         [Fact]
+        public async Task GetByEnterpriseIdAsync_WithPeriod_ShouldReturnMonthBillsAndUnpaidCarryover()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var dueInJuly = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "July rent",
+                DueDate = new DateTime(2026, 7, 5, 0, 0, 0, DateTimeKind.Utc),
+                IsActive = true
+            };
+
+            var unpaidFromJune = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "June power, still unpaid",
+                DueDate = new DateTime(2026, 6, 15, 0, 0, 0, DateTimeKind.Utc),
+                IsPaid = false,
+                IsActive = true
+            };
+
+            var paidInJune = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "June rent, paid",
+                DueDate = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
+                IsPaid = true,
+                PaidAt = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
+                IsActive = true
+            };
+
+            var dueInAugust = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "August rent",
+                DueDate = new DateTime(2026, 8, 5, 0, 0, 0, DateTimeKind.Utc),
+                IsActive = true
+            };
+
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [dueInJuly, unpaidFromJune, paidInJune, dueInAugust]);
+
+            var julyView = (await service.GetByEnterpriseIdAsync(enterpriseId, year: 2026, month: 7)).ToList();
+
+            Assert.Equal(2, julyView.Count);
+            Assert.Contains(julyView, x => x.Id == dueInJuly.Id);
+            Assert.Contains(julyView, x => x.Id == unpaidFromJune.Id);
+
+            var juneView = (await service.GetByEnterpriseIdAsync(enterpriseId, year: 2026, month: 6)).ToList();
+            Assert.Equal(2, juneView.Count);
+            Assert.DoesNotContain(juneView, x => x.Id == dueInAugust.Id);
+        }
+
+        [Fact]
+        public async Task GetByEnterpriseIdAsync_WithPeriod_ShouldBoundCarryoverToTwelveMonths()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var withinWindow = BuildPeriodBill(enterpriseId, "Unpaid 11 months ago", new DateTime(2025, 8, 10, 0, 0, 0, DateTimeKind.Utc));
+            var onWindowEdge = BuildPeriodBill(enterpriseId, "Unpaid 12 months ago", new DateTime(2025, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+            var outsideWindow = BuildPeriodBill(enterpriseId, "Unpaid 13 months ago", new DateTime(2025, 6, 30, 0, 0, 0, DateTimeKind.Utc));
+
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [withinWindow, onWindowEdge, outsideWindow]);
+
+            var julyView = (await service.GetByEnterpriseIdAsync(enterpriseId, year: 2026, month: 7)).ToList();
+
+            Assert.Equal(2, julyView.Count);
+            Assert.Contains(julyView, x => x.Id == withinWindow.Id);
+            Assert.Contains(julyView, x => x.Id == onWindowEdge.Id);
+            Assert.DoesNotContain(julyView, x => x.Id == outsideWindow.Id);
+        }
+
+        [Fact]
+        public async Task GetByEnterpriseIdAsync_ShouldOrderByDueDateSoTheFirstPageIsTheOldestBills()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var last = BuildPeriodBill(enterpriseId, "Due last", new DateTime(2026, 7, 28, 0, 0, 0, DateTimeKind.Utc));
+            var first = BuildPeriodBill(enterpriseId, "Due first", new DateTime(2026, 7, 2, 0, 0, 0, DateTimeKind.Utc));
+            var middle = BuildPeriodBill(enterpriseId, "Due in between", new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc));
+
+            var (_, _, _, _, _, service, _) = BuildSut(payableBills: [last, first, middle]);
+
+            var page = (await service.GetByEnterpriseIdAsync(enterpriseId, pageNumber: 1, pageSize: 2, year: 2026, month: 7)).ToList();
+
+            Assert.Equal([first.Id, middle.Id], page.Select(x => x.Id).ToArray());
+        }
+
+        [Fact]
+        public async Task GetByEnterpriseIdAsync_WithoutPayrollAccess_ShouldFilterPayrollBillsBeforePaging()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var payrollBills = Enumerable.Range(1, 3)
+                .Select(day => new PayableBill
+                {
+                    Id = Guid.NewGuid(),
+                    EnterpriseId = enterpriseId,
+                    Description = $"Folha {day}",
+                    BillType = (int)EnumPayableBillType.Payroll,
+                    DueDate = new DateTime(2026, 7, day, 0, 0, 0, DateTimeKind.Utc),
+                    IsActive = true
+                })
+                .ToList();
+
+            var rent = BuildPeriodBill(enterpriseId, "July rent", new DateTime(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc));
+
+            var (_, _, _, _, _, service, _) = BuildSut(payableBills: [.. payrollBills, rent]);
+
+            // Paging a month where payroll bills fill the whole first page must still return the
+            // non-payroll bills, and must not leak the payroll count as a short page.
+            var page = (await service.GetByEnterpriseIdAsync(
+                enterpriseId,
+                pageNumber: 1,
+                pageSize: 3,
+                year: 2026,
+                month: 7,
+                includePayroll: false)).ToList();
+
+            var bill = Assert.Single(page);
+            Assert.Equal(rent.Id, bill.Id);
+        }
+
+        private static PayableBill BuildPeriodBill(Guid enterpriseId, string description, DateTime dueDate)
+        {
+            return new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = description,
+                DueDate = dueDate,
+                IsPaid = false,
+                IsActive = true
+            };
+        }
+
+        [Fact]
         public async Task GetReplenishmentSuggestions_ShouldInferCoverageAndSortByCriticality()
         {
             var enterpriseId = Guid.NewGuid();
@@ -697,12 +836,12 @@ namespace EvangelionERPV2.BillsModule.Test
             repo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>()))
                 .ReturnsAsync((Guid id) => records.FirstOrDefault(entity => entity.Id == id)!);
 
-            repo.Setup(x => x.GetAllAsync(It.IsAny<Func<TEntity, bool>?>()))
-                .ReturnsAsync((Func<TEntity, bool>? predicate) =>
+            repo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<TEntity, bool>>?>()))
+                .ReturnsAsync((Expression<Func<TEntity, bool>>? predicate) =>
                 {
                     IEnumerable<TEntity> query = records;
                     if (predicate != null)
-                        query = query.Where(predicate);
+                        query = query.Where(predicate.Compile());
 
                     var result = query.ToList();
                     if (throwsWhenEmpty && result.Count == 0)
@@ -711,12 +850,51 @@ namespace EvangelionERPV2.BillsModule.Test
                     return result;
                 });
 
-            repo.Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<TEntity, bool>?>()))
-                .ReturnsAsync((int? pageNumber, int? pageSize, Func<TEntity, bool>? predicate) =>
+            repo.Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<TEntity, bool>>?>()))
+                .ReturnsAsync((int? pageNumber, int? pageSize, Expression<Func<TEntity, bool>>? predicate) =>
                 {
                     IEnumerable<TEntity> query = records;
                     if (predicate != null)
-                        query = query.Where(predicate);
+                        query = query.Where(predicate.Compile());
+
+                    if (pageNumber.HasValue && pageSize.HasValue && pageNumber.Value > 0 && pageSize.Value > 0)
+                    {
+                        query = query
+                            .Skip((pageNumber.Value - 1) * pageSize.Value)
+                            .Take(pageSize.Value);
+                    }
+
+                    var result = query.ToList();
+                    if (throwsWhenEmpty && result.Count == 0)
+                        throw new NotFoundDatabaseException();
+
+                    return result;
+                });
+
+            repo.Setup(x => x.GetAllAsyncByFilter(
+                    It.IsAny<bool>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<Expression<Func<TEntity, bool>>?>(),
+                    It.IsAny<Expression<Func<TEntity, object>>?>()))
+                .ReturnsAsync((
+                    bool descending,
+                    int? pageNumber,
+                    int? pageSize,
+                    Expression<Func<TEntity, bool>>? predicate,
+                    Expression<Func<TEntity, object>>? orderBy) =>
+                {
+                    IEnumerable<TEntity> query = records;
+                    if (predicate != null)
+                        query = query.Where(predicate.Compile());
+
+                    if (orderBy != null)
+                    {
+                        var keySelector = orderBy.Compile();
+                        query = descending
+                            ? query.OrderByDescending(keySelector)
+                            : query.OrderBy(keySelector);
+                    }
 
                     if (pageNumber.HasValue && pageSize.HasValue && pageNumber.Value > 0 && pageSize.Value > 0)
                     {

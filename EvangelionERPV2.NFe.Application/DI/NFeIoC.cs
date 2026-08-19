@@ -5,6 +5,8 @@ using EvangelionERPV2.NFeModule.Application.Providers;
 using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Domain.Interface;
 using EvangelionERPV2.NFeModule.Domain.Repositories;
+using EvangelionERPV2.NFeModule.Infra.Certificates;
+using Microsoft.Extensions.Caching.Memory;
 using EvangelionERPV2.Shared.Configs;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Entities;
@@ -57,11 +59,41 @@ namespace EvangelionERPV2.NFeModule.Application.DI
 
                 #region Providers
                 services.AddSingleton<INFeProvider, StubNFeProvider>();
+
+                services.AddMemoryCache();
+
+                // Singleton: it holds the materialised certificate cache, which must be shared
+                // across requests. It has no per-request state of its own.
+                services.AddSingleton<IEnterpriseCertificateProvider>(serviceProvider =>
+                {
+                    var certificateSecretPrefix =
+                        configuration.GetValue<string>("NFeSettings:CertificateSecretPrefix")
+                        ?? new NFeSettings().CertificateSecretPrefix;
+
+                    return new EnterpriseCertificateProvider(
+                        serviceProvider.GetRequiredService<IAmazonSecretsManager>(),
+                        serviceProvider.GetRequiredService<AWSKMSKeyProvider>(),
+                        serviceProvider.GetRequiredService<IMemoryCache>(),
+                        certificateSecretPrefix);
+                });
                 #endregion
 
                 #region Services
                 services.AddScoped(typeof(INFeService<NFeDocument>), typeof(NFeService));
+                services.AddScoped<INFeFiscalSettingsService, NFeFiscalSettingsService>();
+                services.AddScoped<INFeCertificateService, NFeCertificateService>();
+
+                // Concrete, no interface: the worker below is its only caller. The sweeper is the
+                // only owner of a document left Pending with the write-ahead marker set, so it is
+                // registered here rather than in the host — the module that can create that state
+                // is the module that has to clear it.
+                services.AddScoped<NFeReconciliationService>();
+                services.AddHostedService<NFeReconciliationWorker>();
                 #endregion
+
+                // A swallowed DI failure in this module means silent non-issuance, so the fiscal
+                // registrations are logged rather than left to the catch below.
+                Log.Logger.Information("NFe fiscal settings and certificate services registered.");
 
                 services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));
             }

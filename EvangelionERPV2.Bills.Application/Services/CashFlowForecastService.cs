@@ -10,6 +10,15 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     public class CashFlowForecastService : ICashFlowForecastService
     {
         private const int MaxSimulationScenarioNameLength = 100;
+
+        // decimal has no NaN/Infinity, so an explicit bound replaces the old double.IsFinite guard.
+        private const decimal MaxPayableMultiplier = 1000m;
+
+        // Unbounded balances overflow the running-balance accumulation in BuildForecastAsync
+        // (decimal.MaxValue + anything throws). 1e15 is far above any real enterprise balance
+        // and leaves headroom for 90 days of projected movement. Public so the controller can
+        // reject the same range on the balance-override endpoint.
+        public const decimal MaxCurrentBalance = 1_000_000_000_000_000m;
         private readonly IRepository<Order> _orderRepository;
         private readonly IRepository<PayableBill> _payableBillRepository;
         private readonly IRepository<Enterprise> _enterpriseRepository;
@@ -27,7 +36,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             _simulationLogRepository = simulationLogRepository;
         }
 
-        public async Task<CashFlowForecastDTO> GetForecastAsync(Guid enterpriseId, int horizonInDays, double? currentBalanceOverride = null)
+        public async Task<CashFlowForecastDTO> GetForecastAsync(Guid enterpriseId, int horizonInDays, decimal? currentBalanceOverride = null)
         {
             return await BuildForecastAsync(enterpriseId, horizonInDays, currentBalanceOverride, 0, 1);
         }
@@ -40,7 +49,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (request.HorizonInDays is not (30 or 60 or 90))
                 throw new ArgumentException("Horizon must be 30, 60 or 90 days.");
 
-            if (request.CurrentBalance.HasValue && !double.IsFinite(request.CurrentBalance.Value))
+            if (request.CurrentBalance is < -MaxCurrentBalance or > MaxCurrentBalance)
                 throw new ArgumentException("Invalid simulation request.");
 
             var scenarios = request.Scenarios?.ToList() ?? [];
@@ -58,7 +67,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 if (scenario.ScenarioName.Length > MaxSimulationScenarioNameLength)
                     throw new ArgumentException("Invalid simulation request.");
 
-                if (!double.IsFinite(scenario.PayableMultiplier))
+                if (scenario.PayableMultiplier is < 0 or > MaxPayableMultiplier)
                     throw new ArgumentException("Invalid simulation request.");
             }
 
@@ -105,7 +114,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return results;
         }
 
-        private async Task<CashFlowForecastDTO> BuildForecastAsync(Guid enterpriseId, int horizonInDays, double? currentBalanceOverride, int receivableDelayInDays, double payableMultiplier)
+        private async Task<CashFlowForecastDTO> BuildForecastAsync(Guid enterpriseId, int horizonInDays, decimal? currentBalanceOverride, int receivableDelayInDays, decimal payableMultiplier)
         {
             var today = DateTime.UtcNow.Date;
             var endDate = today.AddDays(horizonInDays);

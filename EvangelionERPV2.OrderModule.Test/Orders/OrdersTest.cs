@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 ﻿using EvangelionERPV2.OrderModule.Application.Services;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.Shared.Entities;
@@ -484,22 +485,22 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIOrderRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
             _mockIOrderedProductRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<Func<OrderedProduct, bool>?>()))
-                .ReturnsAsync((Func<OrderedProduct, bool>? predicate) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<OrderedProduct, bool>>?>()))
+                .ReturnsAsync((Expression<Func<OrderedProduct, bool>>? predicate) =>
                 {
                     IEnumerable<OrderedProduct> query = orderedProducts;
                     if (predicate != null)
-                        query = query.Where(predicate);
+                        query = query.Where(predicate.Compile());
                     return query;
                 });
 
             _mockIProductRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<Func<Product, bool>?>()))
-                .ReturnsAsync((Func<Product, bool>? predicate) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>?>()))
+                .ReturnsAsync((Expression<Func<Product, bool>>? predicate) =>
                 {
                     IEnumerable<Product> query = products;
                     if (predicate != null)
-                        query = query.Where(predicate);
+                        query = query.Where(predicate.Compile());
                     return query;
                 });
 
@@ -579,10 +580,10 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_OrderWithLargeQuantityOrValue_ThrowsInsertDatabaseException()
         {
-            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), double.MaxValue, Guid.NewGuid(), Guid.NewGuid(),
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), decimal.MaxValue, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
-            new OrderedProduct { CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now, IsActive = true, Quantity = double.MaxValue, Value = double.MaxValue, ProductId = Guid.NewGuid() }
+            new OrderedProduct { CreatedAt = DateTime.Now, UpdatedAt = DateTime.Now, IsActive = true, Quantity = decimal.MaxValue, Value = decimal.MaxValue, ProductId = Guid.NewGuid() }
                 }, Guid.NewGuid());
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
         }
@@ -833,12 +834,12 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 .ToList();
 
             productRepositoryMock
-                .Setup(r => r.GetAllAsync(It.IsAny<Func<Product, bool>?>()))
-                .ReturnsAsync((Func<Product, bool>? predicate) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>?>()))
+                .ReturnsAsync((Expression<Func<Product, bool>>? predicate) =>
                 {
                     IEnumerable<Product> query = requestedProducts;
                     if (predicate != null)
-                        query = query.Where(predicate);
+                        query = query.Where(predicate.Compile());
                     return query;
                 });
         }

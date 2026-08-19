@@ -1,3 +1,5 @@
+using EvangelionERPV2.Shared.Context;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using System;
 
@@ -5,8 +7,18 @@ using System;
 
 namespace EvangelionERPV2.Shared.Migrations
 {
+    // The [Migration] attribute is required for EF to discover this class at
+    // Database.Migrate() time — without it the migration is silently skipped.
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260527090000_AddAuditTrailEnterpriseSnapshot")]
     public partial class AddAuditTrailEnterpriseSnapshot : Migration
     {
+        // PRE-FLIGHT: this migration was undiscoverable (no [Migration], no .Designer.cs) until
+        // the attribute above was added, so it has never been recorded in __EFMigrationsHistory
+        // anywhere. If an environment acquired [AuditTrails].[EnterpriseId] by hand-applied SQL,
+        // AddColumn below fails and aborts the whole run. Check first:
+        //
+        //   SELECT COL_LENGTH('AuditTrails', 'EnterpriseId');   -- must be NULL before applying
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<Guid>(

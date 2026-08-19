@@ -1,6 +1,7 @@
 using EvangelionERPV2.BillsModule.Application.Configs;
 using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.BillsModule.Domain.Interface;
+using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
@@ -201,7 +202,7 @@ namespace EvangelionERPV2.BillsModule.Test
             var customerId = Guid.NewGuid();
             var order = CreateOrder(customerId);
             var enterpriseId = order.EnterpriseId ?? Guid.NewGuid();
-            var customer = new Customer("Customer", "11999999999", "customer@test.com", "Rua Teste", "44331610128")
+            var customer = new Customer("Customer", "11999999999", "customer@test.com", "Rua Teste", "11144477735")
             {
                 Id = customerId
             };
@@ -228,6 +229,102 @@ namespace EvangelionERPV2.BillsModule.Test
         }
 
         [Fact]
+        public async Task GenerateAsync_WhenEmailStackIsUnavailable_StillReturnsBill()
+        {
+            var settings = CreateValidSettings();
+            var billRepo = new Mock<IRepository<BillEntity>>();
+            var billRepoCustom = new Mock<IBillsRepository<BillEntity>>();
+            var orderRepo = new Mock<IRepository<Order>>();
+            var customerRepo = new Mock<IRepository<Customer>>();
+            var enterpriseRepo = new Mock<IRepository<Enterprise>>();
+
+            var customerId = Guid.NewGuid();
+            var order = CreateOrder(customerId);
+            var enterpriseId = order.EnterpriseId!.Value;
+
+            billRepoCustom.Setup(r => r.GetByOrderIdAsync(order.Id)).ReturnsAsync((BillEntity?)null);
+            orderRepo.Setup(r => r.GetByIdAsync(order.Id)).ReturnsAsync(order);
+            customerRepo.Setup(r => r.GetByIdAsync(customerId)).ReturnsAsync(
+                new Customer("Customer", "11999999999", "customer@test.com", "Rua Teste", "11144477735") { Id = customerId });
+            enterpriseRepo.Setup(r => r.GetByIdAsync(enterpriseId)).ReturnsAsync(
+                new Enterprise("Enterprise", "11999999999", "enterprise@test.com", "Rua Teste", false) { Id = enterpriseId });
+            billRepo.Setup(r => r.CreateAsync(It.IsAny<BillEntity>())).ReturnsAsync((BillEntity entity) => entity);
+            billRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+            var service = new BillsService(
+                billRepo.Object,
+                billRepoCustom.Object,
+                orderRepo.Object,
+                customerRepo.Object,
+                enterpriseRepo.Object,
+                () => throw new InvalidOperationException("email stack is down"),
+                Options.Create(settings));
+
+            var result = await service.GenerateAsync(order.Id, enterpriseId);
+
+            Assert.NotNull(result);
+            Assert.False(string.IsNullOrWhiteSpace(result!.DigitableLine));
+        }
+
+        [Fact]
+        public async Task GenerateAsync_WithValidData_SendsBillToCustomerEmail()
+        {
+            var settings = CreateValidSettings();
+            var billRepo = new Mock<IRepository<BillEntity>>();
+            var billRepoCustom = new Mock<IBillsRepository<BillEntity>>();
+            var orderRepo = new Mock<IRepository<Order>>();
+            var customerRepo = new Mock<IRepository<Customer>>();
+            var enterpriseRepo = new Mock<IRepository<Enterprise>>();
+            var emailService = new Mock<IEmailService<EmailStructure>>();
+
+            var customerId = Guid.NewGuid();
+            var order = CreateOrder(customerId);
+            var enterpriseId = order.EnterpriseId!.Value;
+            var enterprise = new Enterprise("Enterprise", "11999999999", "enterprise@test.com", "Rua Teste", false)
+            {
+                Id = enterpriseId
+            };
+            var customer = new Customer("Customer", "11999999999", "customer@test.com", "Rua Teste", "11144477735")
+            {
+                Id = customerId
+            };
+
+            billRepoCustom.Setup(r => r.GetByOrderIdAsync(order.Id)).ReturnsAsync((BillEntity?)null);
+            orderRepo.Setup(r => r.GetByIdAsync(order.Id)).ReturnsAsync(order);
+            customerRepo.Setup(r => r.GetByIdAsync(customerId)).ReturnsAsync(customer);
+            enterpriseRepo.Setup(r => r.GetByIdAsync(enterpriseId)).ReturnsAsync(enterprise);
+            billRepo.Setup(r => r.CreateAsync(It.IsAny<BillEntity>())).ReturnsAsync((BillEntity entity) => entity);
+            billRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+            EmailStructure? sentEmail = null;
+            emailService
+                .Setup(x => x.SendManualEmail(It.IsAny<EmailStructure>(), enterprise))
+                .Callback<EmailStructure, Enterprise>((email, _) => sentEmail = email)
+                .Returns(Task.CompletedTask);
+
+            var service = new BillsService(
+                billRepo.Object,
+                billRepoCustom.Object,
+                orderRepo.Object,
+                customerRepo.Object,
+                enterpriseRepo.Object,
+                () => emailService.Object,
+                Options.Create(settings));
+
+            var result = await service.GenerateAsync(order.Id, enterpriseId);
+
+            Assert.NotNull(result);
+            Assert.NotNull(sentEmail);
+            Assert.Equal(new[] { customer.Email }, sentEmail!.RecipientEmails);
+            Assert.Contains(result!.DocumentNumber, sentEmail.Subject);
+            // Payable details up front, then the full bill so the barcode can be scanned from the
+            // email. EmailService turns those embedded images into cid: resources when sending.
+            Assert.Contains(result.DigitableLine, sentEmail.Body);
+            Assert.Contains(result.DocumentNumber, sentEmail.Body);
+            Assert.Contains(result.HtmlContent, sentEmail.Body);
+        }
+
+        [Fact]
         public void BuildPagador_WithHtmlPayload_EncodesCustomerFields()
         {
             var settings = CreateValidSettings();
@@ -237,7 +334,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 "<img src=x onerror=alert(1)>",
                 "attacker@example.com\"><script>alert(2)</script>",
                 "<b>Rua Teste</b>",
-                "44331610128");
+                "11144477735");
 
             var method = typeof(BillsService).GetMethod("BuildPagador", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(method);
@@ -269,6 +366,8 @@ namespace EvangelionERPV2.BillsModule.Test
                 billRepoCustom.Object,
                 orderRepo.Object,
                 customerRepo.Object,
+                new Mock<IRepository<Enterprise>>().Object,
+                () => new Mock<IEmailService<EmailStructure>>().Object,
                 Options.Create(settings));
 
             return (service, billRepo, billRepoCustom, orderRepo, customerRepo);
@@ -279,8 +378,10 @@ namespace EvangelionERPV2.BillsModule.Test
             return new BillsSettings
             {
                 Enabled = true,
+                // Keeps the unit suite off the headless browser.
+                AttachPdfToBillEmail = false,
                 BankCode = 33,
-                BeneficiaryDocument = "86875666000109",
+                BeneficiaryDocument = "12345678000195",
                 BeneficiaryName = "Beneficiario Teste",
                 BeneficiaryAddress = "Rua Beneficiario",
                 BeneficiaryAddressNumber = "123",
@@ -304,7 +405,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 DocumentType = 1,
                 NossoNumeroLength = 8,
                 Instructions = "Instrucoes",
-                DefaultPayerDocument = "44331610128",
+                DefaultPayerDocument = "11144477735",
                 DefaultPayerName = "Pagador Teste",
                 DefaultPayerAddress = "Rua Pagador"
             };

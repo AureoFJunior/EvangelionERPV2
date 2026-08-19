@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Context;
@@ -25,15 +26,16 @@ namespace EvangelionERPV2.UserModule.Domain.Repositories
             return user;
         }
 
-        public async override Task<IEnumerable<User>> GetAllAsync(Func<User, bool>? predicate)
+        public async override Task<IEnumerable<User>> GetAllAsync(Expression<Func<User, bool>>? predicate)
         {
             IQueryable<User> query = _context.Set<User>()
                 .Include(o => o.Enterprise)
                 .AsNoTracking();
 
-            IEnumerable<User> result = predicate != null
-                ? query.AsEnumerable().Where(predicate).ToList()
-                : await query.ToListAsync();
+            if (predicate != null)
+                query = query.Where(predicate);
+
+            IEnumerable<User> result = await query.ToListAsync();
 
             if (!result.Any())
                 throw new NotFoundDatabaseException();
@@ -41,7 +43,7 @@ namespace EvangelionERPV2.UserModule.Domain.Repositories
             return result;
         }
 
-        public override IEnumerable<User> GetByCondition(Func<User, bool> condition)
+        public override IEnumerable<User> GetByCondition(Expression<Func<User, bool>> condition)
         {
             var query = _context.Set<User>()
                  .Include(o => o.Enterprise)

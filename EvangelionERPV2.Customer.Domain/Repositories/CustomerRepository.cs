@@ -26,15 +26,16 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
             return customer;
         }
 
-        public async override Task<IEnumerable<Customer>> GetAllAsync(Func<Customer, bool>? predicate)
+        public async override Task<IEnumerable<Customer>> GetAllAsync(Expression<Func<Customer, bool>>? predicate)
         {
             IQueryable<Customer> query = _context.Set<Customer>()
                 .Include(o => o.Enterprise)
                 .AsNoTracking();
 
-            IEnumerable<Customer> result = predicate != null
-                ? query.AsEnumerable().Where(predicate).ToList()
-                : await query.ToListAsync();
+            if (predicate != null)
+                query = query.Where(predicate);
+
+            IEnumerable<Customer> result = await query.ToListAsync();
 
             if (!result.Any())
                 throw new NotFoundDatabaseException();
@@ -42,7 +43,7 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
             return result;
         }
 
-        public async override Task<IEnumerable<Customer>> GetAllAsync(int? pageNumber, int? pageSize, Func<Customer, bool>? predicate = null)
+        public async override Task<IEnumerable<Customer>> GetAllAsync(int? pageNumber, int? pageSize, Expression<Func<Customer, bool>>? predicate = null)
         {
             if (pageNumber == null || pageSize == null)
                 return await GetAllAsync(predicate);
@@ -50,11 +51,17 @@ namespace EvangelionERPV2.CustomerModule.Domain.Repositories
             IQueryable<Customer> query = _context.Set<Customer>()
                 .Include(o => o.Enterprise)
                 .AsNoTracking();
+
+            if (predicate != null)
+                query = query.Where(predicate);
+
             int skip = (pageNumber.Value - 1) * pageSize.Value;
 
-            IEnumerable<Customer> result = predicate != null
-                ? query.AsEnumerable().Where(predicate).Skip(skip).Take(pageSize.Value).ToList()
-                : await query.Skip(skip).Take(pageSize.Value).ToListAsync();
+            IEnumerable<Customer> result = await query
+                .OrderBy(entity => entity.Id)
+                .Skip(skip)
+                .Take(pageSize.Value)
+                .ToListAsync();
 
             if (!result.Any())
                 throw new NotFoundDatabaseException();

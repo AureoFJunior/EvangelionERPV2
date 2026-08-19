@@ -17,6 +17,8 @@ using System.Text;
 using System.Text.Json;
 using System.Net;
 using System.Net.Sockets;
+using System.Text.RegularExpressions;
+using MimeKit.Utils;
 
 namespace EvangelionERPV2.EmailModule.Application.Services
 {
@@ -94,10 +96,22 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 }
 
                 message.Subject = email.Subject;
-                message.Body = new TextPart(TextFormat.Html)
+
+                var bodyBuilder = new BodyBuilder();
+                bodyBuilder.HtmlBody = InlineDataUriImages(email.Body, bodyBuilder);
+
+                foreach (var attachment in email.Attachments ?? [])
                 {
-                    Text = email.Body
-                };
+                    if (attachment?.Content == null || attachment.Content.Length == 0)
+                        continue;
+
+                    bodyBuilder.Attachments.Add(
+                        attachment.FileName,
+                        attachment.Content,
+                        ContentType.Parse(attachment.ContentType));
+                }
+
+                message.Body = bodyBuilder.ToMessageBody();
 
                 return message;
 
@@ -107,6 +121,43 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 Log.Logger.Error("Error while creating email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw new EmailSenderException();
             }
+        }
+
+        /// <summary>
+        /// Mail clients (Gmail and Outlook among them) drop <c>data:</c> image URIs, which would
+        /// blank out the bill barcode. Move each one into a linked resource and point the markup at
+        /// its <c>cid:</c> instead, which every client renders.
+        /// </summary>
+        private static string InlineDataUriImages(string html, BodyBuilder bodyBuilder)
+        {
+            if (string.IsNullOrEmpty(html) || !html.Contains("data:image", StringComparison.OrdinalIgnoreCase))
+                return html;
+
+            var imageIndex = 0;
+
+            return Regex.Replace(
+                html,
+                @"data:(?<mime>image/[a-zA-Z0-9.+-]+);base64,(?<payload>[A-Za-z0-9+/=]+)",
+                match =>
+                {
+                    try
+                    {
+                        var content = Convert.FromBase64String(match.Groups["payload"].Value);
+                        var mimeType = ContentType.Parse(match.Groups["mime"].Value);
+                        var fileName = $"image-{++imageIndex}.{mimeType.MediaSubtype}";
+
+                        var resource = bodyBuilder.LinkedResources.Add(fileName, content, mimeType);
+                        resource.ContentId = MimeUtils.GenerateMessageId();
+
+                        return $"cid:{resource.ContentId}";
+                    }
+                    catch (Exception ex) when (ex is FormatException or ParseException)
+                    {
+                        return match.Value;
+                    }
+                },
+                RegexOptions.None,
+                TimeSpan.FromSeconds(5));
         }
 
         public async Task SendEmail(MimeMessage message, Guid? enterpriseId = null)
@@ -655,17 +706,34 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
         }
 
+        /// <summary>
+        /// Scheduled broadcasts run against every enterprise, and "no enterprise matches" is a
+        /// normal outcome. The repository signals an empty result by throwing, so translate it back
+        /// into an empty list instead of failing the whole dispatch.
+        /// </summary>
+        private async Task<IEnumerable<Enterprise>> GetBroadcastEnterprisesAsync(
+            System.Linq.Expressions.Expression<Func<Enterprise, bool>> predicate)
+        {
+            try
+            {
+                return await _enterpriseRepository.GetAllAsync(predicate) ?? [];
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return [];
+            }
+        }
+
         #region Monthly Order Email
         public async Task SendMonthEmail(Guid? enterpriseId = null)
         {
             try
             {
-                var enterprises = await _enterpriseRepository
-                    .GetAllAsync(x =>
-                        !string.IsNullOrEmpty(x.Email) &&
-                        (enterpriseId.HasValue
-                            ? x.Id == enterpriseId.Value
-                            : x.ShouldSendMonthlyBilling)) ?? new List<Enterprise>();
+                var enterprises = await GetBroadcastEnterprisesAsync(x =>
+                    !string.IsNullOrEmpty(x.Email) &&
+                    (enterpriseId.HasValue
+                        ? x.Id == enterpriseId.Value
+                        : x.ShouldSendMonthlyBilling));
 
                 foreach (Enterprise enterprise in enterprises)
                 {
@@ -682,7 +750,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                         if (email.RecipientEmails == null || email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
                         {
                             Log.Logger.Warning($"Shouldn't send email.");
-                            return;
+                            continue;
                         }
 
                         await SendManualEmail(email, enterprise);
@@ -710,10 +778,9 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         {
             try
             {
-                var enterprises = await _enterpriseRepository
-                    .GetAllAsync(x =>
-                        !string.IsNullOrEmpty(x.Email) &&
-                        (!enterpriseId.HasValue || x.Id == enterpriseId.Value)) ?? new List<Enterprise>();
+                var enterprises = await GetBroadcastEnterprisesAsync(x =>
+                    !string.IsNullOrEmpty(x.Email) &&
+                    (!enterpriseId.HasValue || x.Id == enterpriseId.Value));
 
                 foreach (Enterprise enterprise in enterprises)
                 {

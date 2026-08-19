@@ -8,7 +8,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public DateTime DueDate { get; set; }
         public bool IsPaid { get; set; }
         public DateTime? PaidAt { get; set; }
-        public double? Amount { get; set; }
+        public decimal? Amount { get; set; }
         public IEnumerable<PayableBillItemRequestDTO>? Items { get; set; }
     }
 }

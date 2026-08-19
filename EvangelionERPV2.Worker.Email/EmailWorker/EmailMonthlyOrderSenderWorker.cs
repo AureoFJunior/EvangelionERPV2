@@ -9,6 +9,9 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 {
     public sealed class EmailMonthlyOrderSenderWorker : BackgroundService
     {
+        private const int BroadcastHourUtc = 8;
+        private const int MaxAttempts = 3;
+
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly IConfiguration _configuration;
 
@@ -26,29 +29,49 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    try
+                    // Checked daily because the dispatch itself only acts on the last day of the
+                    // month; a 7-day tick could skip that day entirely. Waiting before the first
+                    // send also stops a restart from re-broadcasting.
+                    await Task.Delay(
+                        BroadcastSchedule.TimeUntilNextDaily(DateTime.UtcNow, BroadcastHourUtc),
+                        stoppingToken);
+
+                    for (var attempt = 1; attempt <= MaxAttempts && !stoppingToken.IsCancellationRequested; attempt++)
                     {
-                        UserDTO? user;
-                        user = await GetAPIToken(scope);
-
-                        Log.Logger.Information($"Sending Monthly Order Emails at: {DateTime.UtcNow}");
-
-                        if (user == null || string.IsNullOrWhiteSpace(user.Token))
+                        try
                         {
-                            Log.Logger.Warning("Email Monthly Order Sender Worker could not obtain an API token.");
-                        }
-                        else
-                        {
-                            await SharedFunctions.PostAsync<object>("Email/SendMonthlyBillingBroadcast", new object(), user.Token);
-                        }
+                            UserDTO? user;
+                            user = await GetAPIToken(scope);
 
-                        Log.Logger.Information($"Email Monthly Order Sender Worker running at: {DateTime.UtcNow}");
-                        await Task.Delay(TimeSpan.FromDays(7), stoppingToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Logger.Error("Email Monthly Order Sender Worker with error. ErrorType={ErrorType}", ex.GetType().Name);
-                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                            Log.Logger.Information($"Sending Monthly Order Emails at: {DateTime.UtcNow}");
+
+                            if (user == null || string.IsNullOrWhiteSpace(user.Token))
+                            {
+                                Log.Logger.Warning("Email Monthly Order Sender Worker could not obtain an API token.");
+                            }
+                            else
+                            {
+                                await SharedFunctions.PostAsync<object>("Email/SendMonthlyBillingBroadcast", new object(), user.Token);
+                            }
+
+                            Log.Logger.Information($"Email Monthly Order Sender Worker running at: {DateTime.UtcNow}");
+                            break;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Logger.Error(
+                                "Email Monthly Order Sender Worker with error. Attempt={Attempt}/{MaxAttempts} ErrorType={ErrorType}",
+                                attempt,
+                                MaxAttempts,
+                                ex.GetType().Name);
+
+                            if (attempt < MaxAttempts)
+                                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                        }
                     }
                 }
             }

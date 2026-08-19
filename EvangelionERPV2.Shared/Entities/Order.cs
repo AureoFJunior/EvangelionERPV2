@@ -7,7 +7,7 @@ namespace EvangelionERPV2.Shared.Entities
     {
         public Order() { }
 
-        public Order(DateTime? payday, DateTime paymentScheduledDate, double totalValue, Guid? enterpriseId, Guid? customerId, IEnumerable<OrderedProduct> orderedProduct, Guid? userId, int status = 0 )
+        public Order(DateTime? payday, DateTime paymentScheduledDate, decimal totalValue, Guid? enterpriseId, Guid? customerId, IEnumerable<OrderedProduct> orderedProduct, Guid? userId, int status = 0 )
         {
             Payday = payday;
             PaymentScheduledDate = paymentScheduledDate;
@@ -21,7 +21,7 @@ namespace EvangelionERPV2.Shared.Entities
 
         public DateTime? Payday { get; set; } = null;
         public DateTime PaymentScheduledDate { get; set; } = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 01, 00, 00, 00).AddMonths(1);
-        public double TotalValue { get; set; } = 0;
+        public decimal TotalValue { get; set; } = 0;
 
         [ForeignKey(nameof(Enterprise))]
         public Guid? EnterpriseId { get; set; } = null;

@@ -14,6 +14,9 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
 {
     public class ProductRepository : Repository<Product>, IProductRepository<Product>
     {
+        // v2: money moved from double to decimal, so payloads cached under v1 are not readable.
+        private const string CacheKeyPrefix = "Product:v2:";
+
         private readonly IDistributedCache _cache;
 
         public ProductRepository(AppDbContext context, IDistributedCache cache) : base(context)
@@ -101,7 +104,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
         private async Task<Tuple<string, string?>> GetCachedProductById(Guid id)
         {
             // Define the cache key using the product ID
-            string cacheKey = $"Product:{id}";
+            string cacheKey = $"{CacheKeyPrefix}{id}";
 
             try
             {
@@ -121,13 +124,14 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             return Tuple.Create(cacheKey, (string?)null);
         }
 
-        public async override Task<IEnumerable<Product>> GetAllAsync(Func<Product, bool>? predicate)
+        public async override Task<IEnumerable<Product>> GetAllAsync(Expression<Func<Product, bool>>? predicate)
         {
-            IEnumerable<Product> result = Enumerable.Empty<Product>();
+            IQueryable<Product> query = _context.Set<Product>().AsNoTracking();
+
             if (predicate != null)
-                result = _context.Set<Product>().AsNoTracking().Where(predicate).ToList();
-            else
-                result = await _context.Set<Product>().AsNoTracking().ToListAsync();
+                query = query.Where(predicate);
+
+            IEnumerable<Product> result = await query.ToListAsync();
 
             if (!result.Any())
                 throw new NotFoundDatabaseException();
@@ -138,33 +142,23 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             return result;
         }
 
-        public async override Task<IEnumerable<Product>> GetAllAsync(int? pageNumber, int? pageSize, Func<Product, bool>? predicate = null)
+        public async override Task<IEnumerable<Product>> GetAllAsync(int? pageNumber, int? pageSize, Expression<Func<Product, bool>>? predicate = null)
         {
-
             if (pageNumber == null || pageSize == null)
                 return await GetAllAsync(predicate);
 
-            int skip = (pageNumber.Value - 1) * pageSize.Value;
-            IEnumerable<Product> result;
+            IQueryable<Product> query = _context.Set<Product>().AsNoTracking();
 
             if (predicate != null)
-            {
-                result = _context.Set<Product>()
-                    .AsNoTracking()
-                    .AsEnumerable()
-                    .Where(predicate)
-                    .Skip(skip)
-                    .Take(pageSize.Value)
-                    .ToList();
-            }
-            else
-            {
-                result = await _context.Set<Product>()
-                    .AsNoTracking()
-                    .Skip(skip)
-                    .Take(pageSize.Value)
-                    .ToListAsync();
-            }
+                query = query.Where(predicate);
+
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
+
+            IEnumerable<Product> result = await query
+                .OrderBy(entity => entity.Id)
+                .Skip(skip)
+                .Take(pageSize.Value)
+                .ToListAsync();
 
             if (!result.Any())
                 throw new NotFoundDatabaseException();
@@ -180,7 +174,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             if (id == Guid.Empty)
                 return;
 
-            var cacheKey = $"Product:{id}";
+            var cacheKey = $"{CacheKeyPrefix}{id}";
             try
             {
                 _cache.Remove(cacheKey);
@@ -256,11 +250,13 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             foreach (var item in productList)
                 NormalizePictureAddress(item);
 
-            if (productList.Any())
-                foreach (var item in productList.Take(10)) // Save the first 10 itens when not found the exact searched product
-                {
-                    await SetCachedProduct($"Product:{item.Name}", item);
-                }
+            // Warm the by-id read path with the first 10 hits. Keyed by Id (not Name) because
+            // that is the only key GetCachedProductById reads and RemoveCachedProduct evicts —
+            // name-keyed entries were unreadable and survived every invalidation.
+            foreach (var item in productList.Take(10))
+            {
+                await SetCachedProduct($"{CacheKeyPrefix}{item.Id}", item);
+            }
 
             return (productList, totalItems);
         }

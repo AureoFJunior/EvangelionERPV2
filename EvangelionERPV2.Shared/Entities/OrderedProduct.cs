@@ -8,7 +8,7 @@ namespace EvangelionERPV2.Shared.Entities
     {
         public OrderedProduct() { }
 
-        public OrderedProduct(double quantity, double value, string unitOfMeasure, Guid orderId, Order order, Guid productId)
+        public OrderedProduct(decimal quantity, decimal value, string unitOfMeasure, Guid orderId, Order order, Guid productId)
         {
             Quantity = quantity;
             Value = value;
@@ -18,8 +18,11 @@ namespace EvangelionERPV2.Shared.Entities
             ProductId = productId;
         }
 
-        public double Quantity { get; set; } = 0;
-        public double Value { get; set; } = 0;
+        // Quantity is not money: UnitOfMeasure allows Kg/Litre/Meter, so the global
+        // decimal(18,2) convention would truncate fractional units like 0.004 Kg to 0.
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal Quantity { get; set; } = 0;
+        public decimal Value { get; set; } = 0;
         public string UnitOfMeasure { get; set; } = nameof(EnumUnitOfMeasure.Unit);
 
         [ForeignKey(nameof(Order))]

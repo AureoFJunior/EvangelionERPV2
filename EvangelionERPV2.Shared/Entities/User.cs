@@ -5,6 +5,11 @@ using System.Text.Json.Serialization;
 namespace EvangelionERPV2.Shared.Entities
 {
     [Index(nameof(UserName), nameof(Password))]
+    // Declared explicitly so ForeignKeyIndexConvention does not drop the FK index from the
+    // model: the filtered unique index on (EnterpriseId, NormalizedActiveUserName) only covers
+    // IsActive = 1 rows, while tenant FK lookups need all rows. The physical index already
+    // exists in the database and the model snapshot.
+    [Index(nameof(EnterpriseId))]
     public class User : BaseEntity
     {
         public User() { }

@@ -1,10 +1,16 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+﻿using EvangelionERPV2.Shared.Context;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace EvangelionERPV2.Shared.Migrations
 {
     /// <inheritdoc />
+    // The [Migration] attribute is required for EF to discover this class at
+    // Database.Migrate() time — without it the migration is silently skipped.
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260403120000_AddUniqueActiveTokenIndexes")]
     public partial class AddUniqueActiveTokenIndexes : Migration
     {
         /// <inheritdoc />

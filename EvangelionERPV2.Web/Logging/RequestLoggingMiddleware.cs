@@ -176,6 +176,9 @@ namespace EvangelionERPV2.Web.Logging
                    endpoint.Contains("/Customer/GetCustomersByFilter", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Customer/AddCustomer", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Customer/UpdateCustomer", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/Employee/GetEmployeesByFilter", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/Employee/AddEmployee", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/Employee/UpdateEmployee", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Enterprise/GetEnterprisesByFilter", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Enterprise/AddEnterprise", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Enterprise/UpdateEnterprise", StringComparison.OrdinalIgnoreCase) ||

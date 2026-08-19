@@ -30,18 +30,21 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _repository;
         private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
+        private readonly IAuthorizationService _authorizationService;
 
         public EnterpriseController(IEnterpriseService<Enterprise> enterpriseService,
             EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> repository,
             IEnterpriseRepository<Enterprise> enterpriseRepository,
             IRepository<User> userRepository,
-            IMapper mapper)
+            IMapper mapper,
+            IAuthorizationService authorizationService)
         {
             _enterpriseService = enterpriseService;
             _repository = repository;
             _enterpriseRepository = enterpriseRepository;
             _userRepository = userRepository;
             _mapper = mapper;
+            _authorizationService = authorizationService;
         }
 
         /// <summary>
@@ -131,6 +134,42 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 Log.Logger.Error("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get the logged user's own enterprise (tenant resolved from the token claim).
+        /// </summary>
+        /// <returns>The details of the enterprise the user belongs to.</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Enterprise.ReadSelf)]
+        [HttpGet]
+        [ProducesResponseType(typeof(EnterpriseDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetMyEnterprise()
+        {
+            try
+            {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                Enterprise enterprise = await _repository.GetByIdAsync(enterpriseId);
+                if (enterprise == null || enterprise.IsActive != true)
+                    return NoContent();
+
+                EnterpriseDTO enterpriseDTO = _mapper.Map<EnterpriseDTO>(enterprise);
+
+                // Balance is financial data already visible through the cash flow forecast;
+                // roles without that permission get the enterprise details with balance hidden.
+                var canSeeBalance = (await _authorizationService.AuthorizeAsync(User, RbacPolicies.CashFlowForecast.Read)).Succeeded;
+                if (!canSeeBalance)
+                    enterpriseDTO.CurrentBalance = 0;
+
+                return Ok(enterpriseDTO);
             }
             catch (Exception)
             {

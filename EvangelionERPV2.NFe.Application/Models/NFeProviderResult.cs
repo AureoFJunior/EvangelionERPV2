@@ -11,7 +11,12 @@ namespace EvangelionERPV2.NFeModule.Application.Models
         public string Series { get; set; } = "";
         public string Environment { get; set; } = "";
         public DateTime? IssuedAt { get; set; }
-        public double TotalValue { get; set; }
+        public decimal TotalValue { get; set; }
         public NFeStatus Status { get; set; } = NFeStatus.Pending;
+
+        /// <summary>cStat as returned by SEFAZ. Empty when the transport never got an answer.</summary>
+        public string Cstat { get; set; } = "";
+
+        public string XMotivo { get; set; } = "";
     }
 }
