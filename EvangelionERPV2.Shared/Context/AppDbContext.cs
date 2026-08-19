@@ -47,6 +47,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<BankStatementLine> BankStatementLine { get; set; }
         public DbSet<Customer> Customer { get; set; }
         public DbSet<Employee> Employee { get; set; }
+        public DbSet<EmployeeAbsence> EmployeeAbsence { get; set; }
         public DbSet<Enterprise> Enterprise { get; set; }
         public DbSet<EnterprisePayrollSettings> EnterprisePayrollSettings { get; set; }
         public DbSet<EnterpriseFiscalSettings> EnterpriseFiscalSettings { get; set; }
@@ -168,6 +169,14 @@ namespace EvangelionERPV2.Shared.Context
                 .HasOne(detail => detail.Employee)
                 .WithMany()
                 .HasForeignKey(detail => detail.EmployeeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Restrict for the same reason as PayrollBillDetail: absences are the evidence behind
+            // a payroll amount, so they must outlive any attempt to hard-delete the employee.
+            modelBuilder.Entity<EmployeeAbsence>()
+                .HasOne(absence => absence.Employee)
+                .WithMany()
+                .HasForeignKey(absence => absence.EmployeeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // Transactional guard against concurrent GeneratePayroll calls double-billing the

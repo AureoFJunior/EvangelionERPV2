@@ -92,6 +92,11 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Employees.Delete,
             RbacPermissions.Employees.UploadPicture,
 
+            // RbacPermissions.EmployeeAbsences is deliberately NOT here. Absences sit a tier above
+            // the employee record: an atestado carries a CID (LGPD art. 11 health data), and
+            // IsJustified decides whether a day is paid — so they follow Payroll and stay
+            // admin-only, reachable only through RbacPermissions.All.
+
             // Certificate metadata only — subject, expiry, days remaining. Whoever operates
             // issuance needs the expiry warning without waiting on an admin; uploading and
             // replacing the certificate stays admin-only.

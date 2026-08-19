@@ -33,6 +33,11 @@ namespace EvangelionERPV2.Web.Security
             Employees.Delete,
             Employees.UploadPicture,
 
+            EmployeeAbsences.Read,
+            EmployeeAbsences.Create,
+            EmployeeAbsences.Update,
+            EmployeeAbsences.Delete,
+
             Email.Manage,
             Email.Send,
 
@@ -162,6 +167,19 @@ namespace EvangelionERPV2.Web.Security
             public const string Update = "employees.update";
             public const string Delete = "employees.delete";
             public const string UploadPicture = "employees.picture.upload";
+        }
+
+        public static class EmployeeAbsences
+        {
+            // Admin-only group (granted via RbacPermissions.All, never mapped to another role),
+            // one tier above Employees rather than beside it. Two reasons: an atestado row carries
+            // a CID, which is LGPD art. 11 special-category health data, and IsJustified is what
+            // decides whether a day is paid — so write access here is write access to payroll,
+            // which is already admin-only.
+            public const string Read = "employee-absences.read";
+            public const string Create = "employee-absences.create";
+            public const string Update = "employee-absences.update";
+            public const string Delete = "employee-absences.delete";
         }
 
         public static class Email

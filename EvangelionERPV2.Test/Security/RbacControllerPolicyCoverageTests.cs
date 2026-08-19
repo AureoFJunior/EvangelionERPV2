@@ -45,6 +45,11 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(EmployeeController), nameof(EmployeeController.AddEmployee), RbacPermissions.Employees.Create)]
         [InlineData(typeof(EmployeeController), nameof(EmployeeController.UpdateEmployee), RbacPermissions.Employees.Update)]
         [InlineData(typeof(EmployeeController), nameof(EmployeeController.DeleteEmployee), RbacPermissions.Employees.Delete)]
+        [InlineData(typeof(EmployeeAbsenceController), nameof(EmployeeAbsenceController.GetEmployeeAbsences), RbacPermissions.EmployeeAbsences.Read)]
+        [InlineData(typeof(EmployeeAbsenceController), nameof(EmployeeAbsenceController.GetEmployeeAbsence), RbacPermissions.EmployeeAbsences.Read)]
+        [InlineData(typeof(EmployeeAbsenceController), nameof(EmployeeAbsenceController.AddEmployeeAbsence), RbacPermissions.EmployeeAbsences.Create)]
+        [InlineData(typeof(EmployeeAbsenceController), nameof(EmployeeAbsenceController.UpdateEmployeeAbsence), RbacPermissions.EmployeeAbsences.Update)]
+        [InlineData(typeof(EmployeeAbsenceController), nameof(EmployeeAbsenceController.DeleteEmployeeAbsence), RbacPermissions.EmployeeAbsences.Delete)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetEnterprises), RbacPermissions.Enterprise.Read)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetEnterprisesByFilter), RbacPermissions.Enterprise.Read)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetEnterprise), RbacPermissions.Enterprise.Read)]
@@ -209,6 +214,32 @@ namespace EvangelionERPV2.Test.Security
             Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, RbacPermissions.Payroll.UpdateSettings));
             Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Supervisor, RbacPermissions.Payroll.Read));
             Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Employee, RbacPermissions.Payroll.Read));
+        }
+
+        /// <summary>
+        /// Absences sit a tier above the employee record they hang off: an atestado carries a CID
+        /// (LGPD art. 11 health data) and IsJustified decides whether a day is paid, which makes
+        /// write access here write access to payroll. Manager holds every Employees permission and
+        /// must still hold none of these.
+        /// </summary>
+        [Fact]
+        public void EmployeeAbsencePermissions_AreAdminOnlyInRoleMap()
+        {
+            Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, RbacPermissions.Employees.Read));
+
+            foreach (var permission in new[]
+                     {
+                         RbacPermissions.EmployeeAbsences.Read,
+                         RbacPermissions.EmployeeAbsences.Create,
+                         RbacPermissions.EmployeeAbsences.Update,
+                         RbacPermissions.EmployeeAbsences.Delete
+                     })
+            {
+                Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Admin, permission));
+                Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, permission));
+                Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Supervisor, permission));
+                Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Employee, permission));
+            }
         }
 
         [Fact]

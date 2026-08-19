@@ -19,7 +19,13 @@ namespace EvangelionERPV2.Shared.Auditing
             typeof(NFeDocument),
 
             // Admin-only settings whose edits change the tax treatment of every future document.
-            typeof(EnterpriseFiscalSettings)
+            typeof(EnterpriseFiscalSettings),
+
+            // Absences are the evidence behind a payroll amount and an advertência is a document
+            // with legal weight in a labour dispute, so who flipped IsJustified — and when — has
+            // to be recoverable. AuditTrailEntryFactory redacts the CID and the reason text out of
+            // the trail: the trail records that a health record changed, never its contents.
+            typeof(EmployeeAbsence)
         };
 
         private static readonly HashSet<string> _entityNames = new(
