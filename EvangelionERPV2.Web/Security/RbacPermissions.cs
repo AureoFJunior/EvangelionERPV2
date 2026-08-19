@@ -10,6 +10,9 @@ namespace EvangelionERPV2.Web.Security
             Audit.Read,
             Audit.CleanupRetention,
 
+            BankReconciliation.Read,
+            BankReconciliation.Import,
+
             Bills.Read,
             Bills.Generate,
             Bills.DownloadPdf,
@@ -107,6 +110,22 @@ namespace EvangelionERPV2.Web.Security
         {
             public const string Read = "audit.read";
             public const string CleanupRetention = "audit.retention.cleanup";
+        }
+
+        public static class BankReconciliation
+        {
+            // Manager tier, the same floor as Enterprise.ReadSelf and PayableBills.Read. A bank
+            // statement is the full cash position of the company plus every counterparty it paid
+            // or was paid by, so it does not belong at the Supervisor tier that sees customers and
+            // products. It is not admin-only either: unlike payroll.* it carries no individual's
+            // personal data, and unlike nfe.settings.* it changes nothing — the import cannot move
+            // a balance, only report a disagreement with one.
+            public const string Read = "bank-reconciliation.read";
+
+            // Import is a write, but a contained one: it appends statement lines and never touches
+            // Enterprise.CurrentBalance. Kept at the same tier as Read because whoever reconciles
+            // is whoever uploads, and splitting them would only mean nobody can finish the job.
+            public const string Import = "bank-reconciliation.import";
         }
 
         public static class Bills
