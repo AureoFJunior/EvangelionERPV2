@@ -45,6 +45,8 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                         return new AmazonSecretsManagerClient(region);
                     });
                     services.AddSingleton<AWSKMSKeyProvider>();
+                    // Singleton so both broadcast workers share one Redis connection.
+                    services.AddSingleton<IDistributedLease, RedisLease>();
                     services.Configure<EmailChannelSettings>(
                         hostContext.Configuration.GetSection("EmailChannelSettings"));
                     services.Configure<RabbitMQSettings>(

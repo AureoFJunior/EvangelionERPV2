@@ -142,6 +142,8 @@ services:
       HttpConfig__DefaultApiUrl: http://evangelionerpv2:8080/api/v1
       Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
       SelfAPIAuth: ${EVA_WORKER_SELF_API_AUTH:-evangelion/prd/selfapilogin:log}
+      # Same Redis as the API: the broadcast workers lease it so only one replica sends a slot.
+      RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
       RabbitMQSettings__HostName: ${EVA_RABBITMQ_HOSTNAME:-evangelion/prd/rabbitmq-host:hostname}
       RabbitMQSettings__UserName: ${EVA_RABBITMQ_USERNAME:-evangelion/prd/rabbitmq-user:username}
       RabbitMQSettings__Password: ${EVA_RABBITMQ_PASSWORD:-evangelion/prd/rabbitmq-pass:password}
