@@ -543,18 +543,35 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> AddUser([FromBody] Shared.Entities.User user)
+        public async Task<IActionResult> AddUser([FromBody] CreateUserRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+                if (request == null) return BadRequest("User payload is required.");
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                user.EnterpriseId = enterpriseId;
-                user.AccessLevel = (short)EnumAccessLevel.Employee;
-                user.IsLogged = 0;
+                // Built field by field: binding the entity also exposed Id, IsActive and the audit
+                // columns, so a caller could create a user that was already soft-deleted or backdate
+                // its creation.
+                var user = new Shared.Entities.User
+                {
+                    FirstName = request.FirstName.Trim(),
+                    LastName = request.LastName.Trim(),
+                    UserName = request.UserName.Trim(),
+                    Password = request.Password,
+                    Email = request.Email.Trim(),
+                    BirthDate = request.BirthDate,
+                    ProfilePicture = request.ProfilePicture?.Trim() ?? string.Empty,
+                    ActualTheme = request.ActualTheme,
+                    Language = request.Language,
+                    EnterpriseId = enterpriseId,
+                    AccessLevel = (short)EnumAccessLevel.Employee,
+                    IsLogged = 0,
+                    IsActive = true
+                };
 
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
                 return Ok(await ToUserDtoAsync(createdUser));
@@ -581,11 +598,11 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateUser([FromBody] Shared.Entities.User user)
+        public async Task<IActionResult> UpdateUser([FromBody] UpdateUserRequestDTO request)
         {
             try
             {
-                if (user == null)
+                if (request == null)
                     return BadRequest("User payload is required.");
 
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
@@ -593,17 +610,27 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                var existentUser = await _userRepository.GetByIdAsync(user.Id);
+                var existentUser = await _userRepository.GetByIdAsync(request.Id);
                 if (existentUser == null || existentUser.IsActive != true || existentUser.EnterpriseId != enterpriseId)
                     return NoContent();
 
-                if (!Enum.IsDefined(typeof(EnumAccessLevel), user.AccessLevel))
+                if (!Enum.IsDefined(typeof(EnumAccessLevel), request.AccessLevel))
                     return BadRequest("Invalid access level.");
 
-                user.EnterpriseId = existentUser.EnterpriseId;
-                user.IsLogged = existentUser.IsLogged;
-                user.Password = string.IsNullOrWhiteSpace(user.Password) ? existentUser.Password : user.Password;
-                user.ProfilePicture = string.IsNullOrWhiteSpace(user.ProfilePicture) ? existentUser.ProfilePicture : user.ProfilePicture;
+                // The stored row is the base, so the tenant, the login state and the audit columns
+                // stay where they were no matter what the body says.
+                var user = existentUser;
+                user.FirstName = request.FirstName.Trim();
+                user.LastName = request.LastName.Trim();
+                user.UserName = request.UserName.Trim();
+                user.Email = request.Email.Trim();
+                user.BirthDate = request.BirthDate;
+                user.AccessLevel = request.AccessLevel;
+                user.ActualTheme = request.ActualTheme;
+                user.Language = request.Language;
+                user.IsActive = request.IsActive;
+                user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
+                user.ProfilePicture = string.IsNullOrWhiteSpace(request.ProfilePicture) ? existentUser.ProfilePicture : request.ProfilePicture;
 
                 Shared.Entities.User updatedUser = _userService.Update(user);
 

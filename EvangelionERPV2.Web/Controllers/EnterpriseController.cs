@@ -222,14 +222,27 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> AddEnterprise([FromBody] Enterprise enterprise)
+        public async Task<IActionResult> AddEnterprise([FromBody] CreateEnterpriseRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
-                if (enterprise == null) return BadRequest("Enterprise payload is required.");
+                if (request == null) return BadRequest("Enterprise payload is required.");
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
+
+                // Built field by field rather than bound: the entity carries CurrentBalance and the
+                // audit columns, and a request body has no business setting either.
+                var enterprise = new Enterprise
+                {
+                    Name = request.Name.Trim(),
+                    Email = request.Email.Trim(),
+                    PhoneNumber = request.PhoneNumber.Trim(),
+                    Adress = request.Adress.Trim(),
+                    Currency = request.Currency?.Trim() ?? string.Empty,
+                    ShouldSendMonthlyBilling = request.ShouldSendMonthlyBilling,
+                    IsActive = true
+                };
 
                 Enterprise createdEnterprise = await _enterpriseService.CreateAsync(enterprise);
                 return Ok(_mapper.Map<EnterpriseDTO>(createdEnterprise));
@@ -252,22 +265,36 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateEnterprise([FromBody] Enterprise enterprise)
+        public async Task<IActionResult> UpdateEnterprise([FromBody] UpdateEnterpriseRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
-                if (enterprise == null) return BadRequest("Enterprise payload is required.");
+                if (request == null) return BadRequest("Enterprise payload is required.");
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                if (enterprise.Id == Guid.Empty)
+                if (request.Id == Guid.Empty)
                     return BadRequest("Enterprise id is required.");
 
-                if (enterprise.Id != enterpriseId)
+                if (request.Id != enterpriseId)
                     return Forbid();
 
-                Enterprise updatedEnterprise = _enterpriseService.Update(enterprise);
+                // The stored row is the base, so CurrentBalance keeps whatever the cash flow
+                // computed. Binding the entity used to let the caller write it directly, and
+                // CashFlowForecastService reads it.
+                Enterprise existingEnterprise = await _repository.GetByIdAsync(request.Id);
+                if (existingEnterprise == null || existingEnterprise.IsActive != true)
+                    return NoContent();
+
+                existingEnterprise.Name = request.Name.Trim();
+                existingEnterprise.Email = request.Email.Trim();
+                existingEnterprise.PhoneNumber = request.PhoneNumber.Trim();
+                existingEnterprise.Adress = request.Adress.Trim();
+                existingEnterprise.Currency = request.Currency?.Trim() ?? existingEnterprise.Currency;
+                existingEnterprise.ShouldSendMonthlyBilling = request.ShouldSendMonthlyBilling;
+
+                Enterprise updatedEnterprise = _enterpriseService.Update(existingEnterprise);
 
                 if (updatedEnterprise == null)
                     return NoContent();

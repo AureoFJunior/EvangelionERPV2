@@ -20,6 +20,7 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.DI;
 using EvangelionERPV2.Web.FluentValidator;
 using EvangelionERPV2.Web.Logging;
+using EvangelionERPV2.Web.HealthChecks;
 using EvangelionERPV2.Web.Security;
 using FluentValidation;
 using FluentValidation.AspNetCore;
@@ -151,31 +152,10 @@ catch (Exception ex)
 
 static void BuildValidators(WebApplicationBuilder builder)
 {
-    builder.Services.AddTransient<IValidator<User>, UserValidator>();
-    builder.Services.AddTransient<IValidator<Enterprise>, EnterpriseValidator>();
-    builder.Services.AddTransient<IValidator<Order>, OrderValidator>();
-    builder.Services.AddTransient<IValidator<OrderedProduct>, OrderedProductValidator>();
-    builder.Services.AddTransient<IValidator<Customer>, CustomerValidator>();
-    builder.Services.AddTransient<IValidator<Product>, ProductValidator>();
-    builder.Services.AddTransient<IValidator<ProductPicture>, ProductPictureValidator>();
-    builder.Services.AddTransient<IValidator<CreateOrderRequestDTO>, CreateOrderRequestValidator>();
-    builder.Services.AddTransient<IValidator<CreateQueuedOrderRequestDTO>, CreateQueuedOrderRequestValidator>();
-    builder.Services.AddTransient<IValidator<UpdateOrderRequestDTO>, UpdateOrderRequestValidator>();
-    builder.Services.AddTransient<IValidator<OrderFilterRequestDTO>, OrderFilterRequestValidator>();
-    builder.Services.AddTransient<IValidator<UpsertPayableBillRequestDTO>, UpsertPayableBillRequestValidator>();
-    builder.Services.AddTransient<IValidator<EnterprisePayrollSettingsDTO>, UpdatePayrollSettingsRequestValidator>();
-    builder.Services.AddTransient<IValidator<EnterpriseFiscalSettingsDTO>, UpdateFiscalSettingsRequestValidator>();
-    builder.Services.AddTransient<IValidator<ProductFilterRequestDTO>, ProductFilterRequestValidator>();
-    builder.Services.AddTransient<IValidator<CreateProductRequestDTO>, CreateProductRequestValidator>();
-    builder.Services.AddTransient<IValidator<UpdateProductRequestDTO>, UpdateProductRequestValidator>();
-    builder.Services.AddTransient<IValidator<UploadProductPictureRequestDTO>, UploadProductPictureRequestValidator>();
-    builder.Services.AddTransient<IValidator<CustomerFilterRequestDTO>, CustomerFilterRequestValidator>();
-    builder.Services.AddTransient<IValidator<CreateCustomerRequestDTO>, CreateCustomerRequestValidator>();
-    builder.Services.AddTransient<IValidator<UpdateCustomerRequestDTO>, UpdateCustomerRequestValidator>();
-    builder.Services.AddTransient<IValidator<EmployeeFilterRequestDTO>, EmployeeFilterRequestValidator>();
-    builder.Services.AddTransient<IValidator<CreateEmployeeRequestDTO>, CreateEmployeeRequestValidator>();
-    builder.Services.AddTransient<IValidator<UpdateEmployeeRequestDTO>, UpdateEmployeeRequestValidator>();
-    builder.Services.AddTransient<IValidator<UploadEmployeePictureRequestDTO>, UploadEmployeePictureRequestValidator>();
+    // Assembly scan rather than a hand-maintained list. A validator that existed but was never
+    // added to that list was silently inert - validation that looks present and does nothing -
+    // and ValidatorCoverageTests now fails when a bound request type has no validator at all.
+    builder.Services.AddValidatorsFromAssemblyContaining<UserValidator>(ServiceLifetime.Transient);
 }
 
 static void SetupSwagger(WebApplication app, IWebHostEnvironment env)
@@ -325,7 +305,8 @@ static void SetupRequestLimits(WebApplicationBuilder builder)
 
 static void SetupHealthCheck(WebApplicationBuilder builder)
 {
-    builder.Services.AddHealthChecks();
+    builder.Services.AddHealthChecks()
+        .AddCheck<DatabaseHealthCheck>("sqlserver");
 }
 
 static void ConfigureIoC(WebApplicationBuilder builder)

@@ -80,7 +80,7 @@ namespace EvangelionERPV2.Test.Security
                 }
             };
 
-            var result = await controller.AddEnterprise(new Enterprise
+            var result = await controller.AddEnterprise(new CreateEnterpriseRequestDTO
             {
                 Name = "NERV",
                 Email = "hq@nerv.example",
