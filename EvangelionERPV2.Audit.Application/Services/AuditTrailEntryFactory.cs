@@ -46,7 +46,10 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             "BirthDate",
             "ProfilePicture",
             "RefundReason",
-            "HtmlContent"
+            "HtmlContent",
+            // LGPD art. 11: the diagnosis code on an atestado is special-category health data and
+            // has no business being reconstructable from a change log.
+            "Cid"
         };
 
         public IReadOnlyCollection<AuditTrail> Create(
@@ -193,6 +196,15 @@ namespace EvangelionERPV2.AuditModule.Application.Services
                     || propertyName.Equals(nameof(Bill.DigitableLine), StringComparison.OrdinalIgnoreCase)
                     || propertyName.Equals(nameof(Bill.BarCode), StringComparison.OrdinalIgnoreCase)
                     || propertyName.Equals(nameof(Bill.OurNumber), StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (entityType == typeof(EmployeeAbsence))
+            {
+                // Cid is already covered by the shared name set; Reason is free text an HR user
+                // types, and "back pain, second time this month" is health data whether or not it
+                // was entered in the CID field.
+                return propertyName.Equals(nameof(EmployeeAbsence.Cid), StringComparison.OrdinalIgnoreCase)
+                    || propertyName.Equals(nameof(EmployeeAbsence.Reason), StringComparison.OrdinalIgnoreCase);
             }
 
             if (entityType == typeof(PayableBill))

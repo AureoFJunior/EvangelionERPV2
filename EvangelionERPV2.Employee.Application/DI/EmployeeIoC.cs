@@ -58,6 +58,7 @@ namespace EvangelionERPV2.EmployeeModule.Application.DI
 
                 #region Services
                 services.AddTransient(typeof(IEmployeeService<Employee>), typeof(EmployeeService));
+                services.AddTransient(typeof(IEmployeeAbsenceService<EmployeeAbsence>), typeof(EmployeeAbsenceService));
 
 
                 #endregion

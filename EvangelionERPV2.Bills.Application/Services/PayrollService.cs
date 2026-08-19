@@ -15,6 +15,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         private readonly IRepository<EnterprisePayrollSettings> _settingsRepository;
         private readonly IRepository<Employee> _employeeRepository;
+        private readonly IRepository<EmployeeAbsence> _absenceRepository;
         private readonly IRepository<PayableBill> _payableBillRepository;
         private readonly IRepository<PayrollBillDetail> _payrollDetailRepository;
         private readonly IPayableBillService _payableBillService;
@@ -22,12 +23,14 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         public PayrollService(
             IRepository<EnterprisePayrollSettings> settingsRepository,
             IRepository<Employee> employeeRepository,
+            IRepository<EmployeeAbsence> absenceRepository,
             IRepository<PayableBill> payableBillRepository,
             IRepository<PayrollBillDetail> payrollDetailRepository,
             IPayableBillService payableBillService)
         {
             _settingsRepository = settingsRepository;
             _employeeRepository = employeeRepository;
+            _absenceRepository = absenceRepository;
             _payableBillRepository = payableBillRepository;
             _payrollDetailRepository = payrollDetailRepository;
             _payableBillService = payableBillService;
@@ -134,6 +137,13 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var staleDetails = orphanedDetails
                 .Where(detail => pendingEmployees.Any(employee => employee.Id == detail.EmployeeId))
                 .ToList();
+            // One query for the whole run, not one per employee: this is the reason absences are a
+            // single table instead of three. Filtering by kind happens in memory (ReducesPay) so
+            // the pay rule lives in exactly one place. Skipped entirely on a re-run where every
+            // employee is already billed.
+            var absencesByEmployee = pendingEmployees.Any()
+                ? await LoadAbsencesAsync(enterpriseId, monthStart, monthEnd)
+                : [];
             var dueDay = Math.Clamp(settings.PayrollDueDay, 1, MaxPayrollDueDay);
             var dueDate = monthEnd.AddDays(dueDay - 1);
             var createdResults = new List<PayrollEmployeeBreakdownDTO>();
@@ -172,7 +182,13 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                     foreach (var employee in pendingEmployees)
                     {
-                        var detail = BuildDetail(employee, settings, year, month, now);
+                        var detail = BuildDetail(
+                            employee,
+                            absencesByEmployee.TryGetValue(employee.Id, out var employeeAbsences) ? employeeAbsences : [],
+                            settings,
+                            year,
+                            month,
+                            now);
                         var bill = await _payableBillService.CreateAsync(new PayableBill
                         {
                             Description = $"Folha de pagamento {month:00}/{year} - {employee.Name}",
@@ -273,12 +289,19 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return (aliveDetails, billsById, orphanedDetails);
         }
 
-        private static PayrollBillDetail BuildDetail(Employee employee, EnterprisePayrollSettings settings, int year, int month, DateTime now)
+        private static PayrollBillDetail BuildDetail(
+            Employee employee,
+            IReadOnlyCollection<EmployeeAbsence> absences,
+            EnterprisePayrollSettings settings,
+            int year,
+            int month,
+            DateTime now)
         {
-            // A mid-month hire or termination is only owed the days actually worked, so the
-            // salary is prorated before any accrual or employer charge is derived from it.
+            // A mid-month hire or termination is only owed the days actually worked, and so is a
+            // month with faltas in it, so the salary is prorated before any accrual or employer
+            // charge is derived from it.
             var daysInMonth = DateTime.DaysInMonth(year, month);
-            var gross = RoundMoney(employee.Salary!.Value * GetWorkedDays(employee, year, month, daysInMonth) / daysInMonth);
+            var gross = RoundMoney(employee.Salary!.Value * GetWorkedDays(employee, absences, year, month, daysInMonth) / daysInMonth);
 
             // Monthly accruals per Brazilian labor legislation (CLT): 13º salário (1/12)
             // and férias plus the 1/3 constitutional bonus (1/12 * 4/3 = 1/9). Employer
@@ -312,9 +335,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             };
         }
 
-        // Inclusive day count of the intersection between the competência month and the
-        // employee's [HireDate, TerminationDate] window.
-        private static int GetWorkedDays(Employee employee, int year, int month, int daysInMonth)
+        /// <summary>
+        /// Inclusive day count of the intersection between the competência month and the
+        /// employee's [HireDate, TerminationDate] window, minus the days an absence took away.
+        /// </summary>
+        private static int GetWorkedDays(Employee employee, IReadOnlyCollection<EmployeeAbsence> absences, int year, int month, int daysInMonth)
         {
             var monthStart = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
             var monthEnd = monthStart.AddDays(daysInMonth - 1);
@@ -325,7 +350,90 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 : monthEnd;
 
             var workedDays = (end - start).Days + 1;
-            return Math.Clamp(workedDays, 0, daysInMonth);
+            if (workedDays <= 0)
+                return 0;
+
+            return Math.Clamp(workedDays - CountUnpaidDays(absences, start, end), 0, daysInMonth);
+        }
+
+        /// <summary>
+        /// Days inside [<paramref name="start"/>, <paramref name="end"/>] covered by an absence
+        /// that costs the employee the day, counted once each.
+        /// </summary>
+        /// <remarks>
+        /// A set, not a sum of range lengths: two overlapping rows (a falta someone also filed an
+        /// atestado for, a range edited into another) must never subtract the same day twice and
+        /// underpay.
+        /// </remarks>
+        private static int CountUnpaidDays(IReadOnlyCollection<EmployeeAbsence> absences, DateTime start, DateTime end)
+        {
+            if (absences.Count == 0)
+                return 0;
+
+            var unpaidDays = new HashSet<DateTime>();
+
+            foreach (var absence in absences.Where(ReducesPay))
+            {
+                var from = absence.StartDate.Date > start ? absence.StartDate.Date : start;
+                var to = absence.EndDate.Date < end ? absence.EndDate.Date : end;
+
+                for (var day = from; day <= to; day = day.AddDays(1))
+                    unpaidDays.Add(day);
+            }
+
+            return unpaidDays.Count;
+        }
+
+        /// <summary>
+        /// The pay rule, in one place.
+        /// </summary>
+        /// <remarks>
+        /// Brazilian labour law does not treat the three kinds alike:
+        /// <list type="bullet">
+        /// <item>A falta injustificada costs the day — CLT art. 473 lists the absences an employer
+        /// must still pay for, and "did not show up" is not one of them.</item>
+        /// <item>A valid atestado is a falta justificada and the day is still owed
+        /// (Lei 605/49 art. 6 §1, CLT art. 131 II), which is why the decision is stored per row as
+        /// <c>IsJustified</c> rather than inferred from the type: HR can reject an atestado, and a
+        /// rejected one costs the day like any other falta.</item>
+        /// <item>An advertência is a disciplinary record, not unworked time. It never costs a day
+        /// on its own — if the employee also missed work, that is a falta row of its own.</item>
+        /// </list>
+        /// </remarks>
+        private static bool ReducesPay(EmployeeAbsence absence)
+        {
+            return !absence.IsJustified
+                && absence.Type != (int)EnumEmployeeAbsenceType.Advertencia;
+        }
+
+        /// <summary>
+        /// Every absence overlapping the competência month for the tenant, grouped by employee.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately unfiltered by kind or by <c>IsJustified</c>: <see cref="ReducesPay"/> is the
+        /// single definition of what costs a day, and a SQL copy of it here would be free to drift.
+        /// The month bound keeps the row count to what one tenant's HR recorded in one month.
+        /// </remarks>
+        private async Task<Dictionary<Guid, List<EmployeeAbsence>>> LoadAbsencesAsync(Guid enterpriseId, DateTime monthStart, DateTime monthEnd)
+        {
+            try
+            {
+                var absences = await _absenceRepository.GetAllAsync(
+                    x => x.IsActive == true
+                         && x.EnterpriseId == enterpriseId
+                         && x.StartDate < monthEnd
+                         && x.EndDate >= monthStart);
+
+                return absences
+                    .GroupBy(x => x.EmployeeId)
+                    .ToDictionary(group => group.Key, group => group.ToList());
+            }
+            catch (NotFoundDatabaseException)
+            {
+                // Same repository contract as employees: an empty result throws. A month with no
+                // absences is the normal case, not an error.
+                return [];
+            }
         }
 
         private static decimal RoundMoney(decimal value)

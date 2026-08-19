@@ -29,6 +29,11 @@ namespace EvangelionERPV2.Web.Security
             Customers.Update,
             Customers.Delete,
 
+            EmployeeAbsences.Read,
+            EmployeeAbsences.Create,
+            EmployeeAbsences.Update,
+            EmployeeAbsences.Delete,
+
             Email.Manage,
             Email.Send,
 
@@ -184,6 +189,14 @@ namespace EvangelionERPV2.Web.Security
             public const string Create = "rbac:customers.create";
             public const string Update = "rbac:customers.update";
             public const string Delete = "rbac:customers.delete";
+        }
+
+        public static class EmployeeAbsences
+        {
+            public const string Read = "rbac:employee-absences.read";
+            public const string Create = "rbac:employee-absences.create";
+            public const string Update = "rbac:employee-absences.update";
+            public const string Delete = "rbac:employee-absences.delete";
         }
 
         public static class Email

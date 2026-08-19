@@ -643,6 +643,207 @@ namespace EvangelionERPV2.BillsModule.Test
                 }));
         }
 
+        #region Absences
+
+        /// <summary>
+        /// The whole point of M10: before absences existed this employee was paid a full month no
+        /// matter how many days they missed.
+        /// </summary>
+        [Fact]
+        public async Task GeneratePayrollAsync_WithUnjustifiedFalta_ShouldReduceTheAmount()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+            // 6 to 10 July inclusive: five days gone out of thirty-one.
+            var falta = BuildAbsence(employee, EnumEmployeeAbsenceType.Falta, 6, 10, isJustified: false);
+
+            var (sut, stores) = BuildSut(employees: [employee], absences: [falta]);
+
+            var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
+
+            // 26 of 31 days, against 3000.00 / 4866.17 for the same employee with no absence.
+            Assert.Equal(2516.13m, breakdown.GrossSalary);
+            Assert.Equal(4081.31m, breakdown.TotalCost);
+            Assert.True(breakdown.TotalCost < 4866.17m);
+
+            // The payable actually written carries the reduced amount, not just the DTO.
+            var bill = Assert.Single(stores.createdBills);
+            Assert.Equal(4081.31m, bill.Amount);
+        }
+
+        /// <summary>
+        /// Lei 605/49 art. 6 §1: a valid atestado is a falta justificada and the day is still owed.
+        /// </summary>
+        [Fact]
+        public async Task GeneratePayrollAsync_WithJustifiedAtestado_ShouldNotReduceTheAmount()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+            var atestado = BuildAbsence(employee, EnumEmployeeAbsenceType.Atestado, 6, 8, isJustified: true);
+
+            var (sut, _) = BuildSut(employees: [employee], absences: [atestado]);
+
+            var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
+
+            Assert.Equal(3000m, breakdown.GrossSalary);
+            Assert.Equal(4866.17m, breakdown.TotalCost);
+        }
+
+        /// <summary>
+        /// The other half of the same rule: the type does not decide, the stored IsJustified does —
+        /// so an atestado HR rejected costs the days like any other falta.
+        /// </summary>
+        [Fact]
+        public async Task GeneratePayrollAsync_WithRejectedAtestado_ShouldReduceTheAmount()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+            var atestado = BuildAbsence(employee, EnumEmployeeAbsenceType.Atestado, 6, 8, isJustified: false);
+
+            var (sut, _) = BuildSut(employees: [employee], absences: [atestado]);
+
+            var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
+
+            // 28 of 31 days.
+            Assert.Equal(2709.68m, breakdown.GrossSalary);
+            Assert.Equal(4395.26m, breakdown.TotalCost);
+        }
+
+        /// <summary>
+        /// An advertência is a disciplinary record, not unworked time — even one stored unjustified
+        /// and spanning days must not touch pay. The falta behind it, if any, is its own row.
+        /// </summary>
+        [Fact]
+        public async Task GeneratePayrollAsync_WithAdvertencia_ShouldNotReduceTheAmount()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+            var advertencia = BuildAbsence(employee, EnumEmployeeAbsenceType.Advertencia, 6, 10, isJustified: false);
+
+            var (sut, _) = BuildSut(employees: [employee], absences: [advertencia]);
+
+            var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
+
+            Assert.Equal(3000m, breakdown.GrossSalary);
+            Assert.Equal(4866.17m, breakdown.TotalCost);
+        }
+
+        [Fact]
+        public async Task GeneratePayrollAsync_WithOverlappingFaltas_ShouldCountEachDayOnce()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+            // 6-10 and 8-12 overlap on three days; the union is 6-12, seven days.
+            var first = BuildAbsence(employee, EnumEmployeeAbsenceType.Falta, 6, 10, isJustified: false);
+            var second = BuildAbsence(employee, EnumEmployeeAbsenceType.Falta, 8, 12, isJustified: false);
+
+            var (sut, _) = BuildSut(employees: [employee], absences: [first, second]);
+
+            var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
+
+            // 24 of 31 days — not the 21 a naive sum of the two ranges would underpay.
+            Assert.Equal(2322.58m, breakdown.GrossSalary);
+            Assert.Equal(3767.35m, breakdown.TotalCost);
+        }
+
+        [Fact]
+        public async Task GeneratePayrollAsync_WithFaltaSpanningTheMonthBoundary_ShouldOnlyCountItsDaysInTheMonth()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+            var falta = new EmployeeAbsence
+            {
+                Id = Guid.NewGuid(),
+                EmployeeId = employee.Id,
+                EnterpriseId = enterpriseId,
+                Type = (int)EnumEmployeeAbsenceType.Falta,
+                StartDate = new DateTime(2026, 6, 28, 0, 0, 0, DateTimeKind.Utc),
+                EndDate = new DateTime(2026, 7, 3, 0, 0, 0, DateTimeKind.Utc),
+                IsJustified = false,
+                IsActive = true
+            };
+
+            var (sut, _) = BuildSut(employees: [employee], absences: [falta]);
+
+            var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
+
+            // Only 1-3 July count: 28 of 31 days. June is June's problem.
+            Assert.Equal(2709.68m, breakdown.GrossSalary);
+            Assert.Equal(4395.26m, breakdown.TotalCost);
+        }
+
+        [Fact]
+        public async Task GeneratePayrollAsync_WithFaltaBeforeTheHireDate_ShouldNotReduceTheProratedDays()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+            employee.HireDate = new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc);
+            // Days the employee could not have worked anyway — subtracting them would pay less
+            // than the seventeen days the proration already accounts for.
+            var falta = BuildAbsence(employee, EnumEmployeeAbsenceType.Falta, 1, 10, isJustified: false);
+
+            var (sut, _) = BuildSut(employees: [employee], absences: [falta]);
+
+            var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
+
+            // 17 of 31 days, exactly as with no absence row at all.
+            Assert.Equal(1645.16m, breakdown.GrossSalary);
+            Assert.Equal(2668.54m, breakdown.TotalCost);
+        }
+
+        [Fact]
+        public async Task GeneratePayrollAsync_WithAnotherEmployeesFalta_ShouldNotReduceThisOne()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var paid = BuildEmployee(enterpriseId, 3000m, "Paid");
+            var absent = BuildEmployee(enterpriseId, 3000m, "Absent");
+            var falta = BuildAbsence(absent, EnumEmployeeAbsenceType.Falta, 6, 10, isJustified: false);
+
+            var (sut, _) = BuildSut(employees: [paid, absent], absences: [falta]);
+
+            var results = (await sut.GeneratePayrollAsync(enterpriseId, 2026, 7)).ToList();
+
+            Assert.Equal(2516.13m, results.Single(x => x.EmployeeName == "Absent").GrossSalary);
+            Assert.Equal(3000m, results.Single(x => x.EmployeeName == "Paid").GrossSalary);
+        }
+
+        [Fact]
+        public async Task GeneratePayrollAsync_WithSoftDeletedFalta_ShouldNotReduceTheAmount()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+            var falta = BuildAbsence(employee, EnumEmployeeAbsenceType.Falta, 6, 10, isJustified: false);
+            falta.IsActive = false;
+
+            var (sut, _) = BuildSut(employees: [employee], absences: [falta]);
+
+            var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
+
+            Assert.Equal(3000m, breakdown.GrossSalary);
+        }
+
+        private static EmployeeAbsence BuildAbsence(
+            Employee employee,
+            EnumEmployeeAbsenceType type,
+            int startDay,
+            int endDay,
+            bool isJustified)
+        {
+            return new EmployeeAbsence
+            {
+                Id = Guid.NewGuid(),
+                EmployeeId = employee.Id,
+                EnterpriseId = employee.EnterpriseId,
+                Type = (int)type,
+                StartDate = new DateTime(2026, 7, startDay, 0, 0, 0, DateTimeKind.Utc),
+                EndDate = new DateTime(2026, 7, endDay, 0, 0, 0, DateTimeKind.Utc),
+                IsJustified = isJustified,
+                IsActive = true
+            };
+        }
+
+        #endregion
+
         private static Employee BuildEmployee(Guid enterpriseId, decimal salary, string name = "Employee")
         {
             return new Employee
@@ -664,6 +865,7 @@ namespace EvangelionERPV2.BillsModule.Test
              Mock<IPayableBillService> payableBillService) stores)
             BuildSut(
                 List<Employee>? employees = null,
+                List<EmployeeAbsence>? absences = null,
                 List<EnterprisePayrollSettings>? settings = null,
                 List<PayableBill>? payableBills = null,
                 List<PayrollBillDetail>? details = null,
@@ -674,6 +876,9 @@ namespace EvangelionERPV2.BillsModule.Test
             var payableBillStore = payableBills ?? [];
             var settingsRepo = CreateRepositoryMock(settings ?? []);
             var employeeRepo = CreateRepositoryMock(employees ?? [], employeeRepositoryThrowsWhenEmpty);
+            // Throws when empty, like the real repositories: a month with no absences at all is the
+            // normal case and must not blow up the payroll run.
+            var absenceRepo = CreateRepositoryMock(absences ?? [], throwsWhenEmpty: true);
             var payableBillRepo = CreateRepositoryMock(payableBillStore);
             var detailRepo = CreateRepositoryMock(detailStore);
 
@@ -722,6 +927,7 @@ namespace EvangelionERPV2.BillsModule.Test
             var sut = new PayrollService(
                 settingsRepo.Object,
                 employeeRepo.Object,
+                absenceRepo.Object,
                 payableBillRepo.Object,
                 detailRepo.Object,
                 payableBillService.Object);
