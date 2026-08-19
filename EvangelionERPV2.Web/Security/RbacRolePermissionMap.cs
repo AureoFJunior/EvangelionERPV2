@@ -68,6 +68,12 @@ namespace EvangelionERPV2.Web.Security
 
             RbacPermissions.Suppliers.Delete,
 
+            // A bank statement exposes the company's whole cash position and every counterparty it
+            // moved money with, so it sits at the tier that already sees CurrentBalance and the
+            // payables — not with customers and products at Supervisor.
+            RbacPermissions.BankReconciliation.Read,
+            RbacPermissions.BankReconciliation.Import,
+
             // Declaring a boleto paid and superseding one are financial assertions nothing else
             // verifies until CNAB retorno exists, so they start at Manager while issuing a boleto
             // stays at Supervisor.

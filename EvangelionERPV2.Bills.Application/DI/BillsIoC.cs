@@ -62,6 +62,7 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 services.AddScoped<IPayrollService, PayrollService>();
                 services.AddScoped<IPayableBillReportGeneratorService, PayableBillReportGeneratorService>();
                 services.AddScoped<ICashFlowForecastService, CashFlowForecastService>();
+                services.AddScoped<IBankReconciliationService, BankReconciliationService>();
                 #endregion
 
                 services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));

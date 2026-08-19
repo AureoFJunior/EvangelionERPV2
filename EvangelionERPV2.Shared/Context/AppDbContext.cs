@@ -43,6 +43,8 @@ namespace EvangelionERPV2.Shared.Context
             }
         }
 
+        public DbSet<BankStatementImport> BankStatementImport { get; set; }
+        public DbSet<BankStatementLine> BankStatementLine { get; set; }
         public DbSet<Customer> Customer { get; set; }
         public DbSet<Employee> Employee { get; set; }
         public DbSet<Enterprise> Enterprise { get; set; }
@@ -151,6 +153,15 @@ namespace EvangelionERPV2.Shared.Context
                 .HasOne(movement => movement.Product)
                 .WithMany()
                 .HasForeignKey(movement => movement.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Restrict, not the Cascade EF infers from a required FK: the import row carries the
+            // bank's closing balance, and deleting it out from under its lines would leave imported
+            // movement with nothing to reconcile against.
+            modelBuilder.Entity<BankStatementLine>()
+                .HasOne(line => line.Import)
+                .WithMany()
+                .HasForeignKey(line => line.ImportId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<PayrollBillDetail>()
