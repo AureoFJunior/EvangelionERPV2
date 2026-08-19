@@ -3,6 +3,7 @@ using Amazon.Runtime;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.ProductModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Shared.Context;
@@ -20,7 +21,10 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         private readonly IConfiguration _configuration;
         private readonly AWSKMSKeyProvider kmsProvider;
         private readonly IProductReportGeneratorService _productReportGeneratorService;
-        private readonly AppDbContext? _appDbContext;
+        // Not optional: the compare-and-swap stock update and its ledger row both need the
+        // context, and the read-modify-write fallback that used to cover a null one could
+        // oversell under concurrency.
+        private readonly AppDbContext _appDbContext;
 
         private bool disposed;
 
@@ -28,7 +32,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             IConfiguration configuration,
             AWSKMSKeyProvider kmsProvider,
             IProductReportGeneratorService productReportGeneratorService,
-            AppDbContext? appDbContext = null)
+            AppDbContext appDbContext)
         {
             _productRepository = productRepository;
             this.kmsProvider = kmsProvider;
@@ -127,38 +131,14 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 if (enterpriseId == Guid.Empty)
                     throw new InsertDatabaseException("Order enterprise is required.");
 
-                var now = DateTime.UtcNow;
-
                 foreach (var orderedProduct in orderedProducts)
                 {
-                    if (_appDbContext != null)
-                    {
-                        var affectedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
-                            $"UPDATE Product SET StorageQuantity = StorageQuantity - {orderedProduct.Quantity}, UpdatedAt = {now} WHERE Id = {orderedProduct.ProductId} AND EnterpriseId = {enterpriseId} AND IsActive = 1 AND StorageQuantity >= {orderedProduct.Quantity}");
-
-                        if (affectedRows <= 0)
-                            throw new InsertDatabaseException($"Insufficient stock for product [{orderedProduct.ProductId}].");
-
-                        // The raw SQL decrement bypasses ProductRepository.Update, so the cached
-                        // Product:{id} entry must be invalidated here or reads keep returning the
-                        // pre-order stock for the cache TTL.
-                        (_productRepository as IProductRepository<Product>)?.RemoveCachedProduct(orderedProduct.ProductId);
-
-                        continue;
-                    }
-
-                    var product = await _productRepository.GetByIdAsync(orderedProduct.ProductId);
-                    if (product == null || product.EnterpriseId != enterpriseId || product.IsActive != true)
-                        throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
-
-                    if (product.StorageQuantity < orderedProduct.Quantity)
-                        throw new InsertDatabaseException($"Insufficient stock for product [{orderedProduct.ProductId}].");
-
-                    product.StorageQuantity -= orderedProduct.Quantity;
-
-                    product.UpdatedAt = now;
-                    _productRepository.Update(product);
-                    await _productRepository.CommitAsync();
+                    await ApplyStockMovementAsync(
+                        orderedProduct.ProductId,
+                        enterpriseId,
+                        -orderedProduct.Quantity,
+                        EnumStockMovementType.Sale,
+                        order.Id);
                 }
             }
             catch (NotFoundDatabaseException)
@@ -169,6 +149,96 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             {
                 throw new InsertDatabaseException("Unexpected error while updating product stock for order.", ex);
             }
+        }
+
+        /// <summary>
+        /// The only place <see cref="Product.StorageQuantity"/> is allowed to move.
+        /// </summary>
+        /// <remarks>
+        /// Every stock change has to do three things together — shift the quantity, record why in
+        /// the ledger, and drop the stale cache entry. Leaving that to each caller means each
+        /// caller can forget one, so all three live here and callers only say what happened.
+        /// </remarks>
+        /// <param name="quantityDelta">Signed: negative consumes stock, positive returns it.</param>
+        public async Task<StockMovement> ApplyStockMovementAsync(
+            Guid productId,
+            Guid enterpriseId,
+            decimal quantityDelta,
+            EnumStockMovementType type,
+            Guid? referenceId)
+        {
+            if (productId == Guid.Empty)
+                throw new InsertDatabaseException("Product is required for a stock movement.");
+
+            if (enterpriseId == Guid.Empty)
+                throw new InsertDatabaseException("Enterprise is required for a stock movement.");
+
+            // Callers that already opened a transaction on the shared context (order creation,
+            // order refund) must keep the movement row inside it, so their rollback also undoes
+            // the ledger. Nesting BeginTransactionAsync would throw instead.
+            if (_appDbContext.Database.CurrentTransaction != null)
+                return await ApplyStockMovementCoreAsync(productId, enterpriseId, quantityDelta, type, referenceId);
+
+            return await _productRepository.ExecuteInTransactionAsync(
+                () => ApplyStockMovementCoreAsync(productId, enterpriseId, quantityDelta, type, referenceId));
+        }
+
+        private async Task<StockMovement> ApplyStockMovementCoreAsync(
+            Guid productId,
+            Guid enterpriseId,
+            decimal quantityDelta,
+            EnumStockMovementType type,
+            Guid? referenceId)
+        {
+            var now = DateTime.UtcNow;
+
+            // Compare-and-swap: the row's current value is read and tested inside the same
+            // statement that writes it, so two concurrent sales of the last unit cannot both see
+            // stock and both succeed. "StorageQuantity + delta >= 0" is the same guard the sale
+            // path always had (delta < 0 makes it StorageQuantity >= quantity), written so a
+            // return or a receipt can share the one statement instead of forking the flow.
+            var affectedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE Product SET StorageQuantity = StorageQuantity + {quantityDelta}, UpdatedAt = {now} WHERE Id = {productId} AND EnterpriseId = {enterpriseId} AND IsActive = 1 AND StorageQuantity + {quantityDelta} >= 0");
+
+            // Zero rows means the product is gone, inactive, owned by another enterprise, or the
+            // quantity would go negative; the statement cannot say which. For a decrement the
+            // overwhelmingly likely cause is stale stock, and OrderController maps this exact
+            // prefix to a user-facing message — an increment cannot be short of stock, so it says
+            // what it actually means instead.
+            if (affectedRows <= 0)
+                throw new InsertDatabaseException(quantityDelta < 0
+                    ? $"Insufficient stock for product [{productId}]."
+                    : $"Product [{productId}] was not found.");
+
+            // Safe only because the UPDATE above holds the row's write lock until the transaction
+            // commits: nothing else can move the quantity in between and make BalanceAfter a lie.
+            var balanceAfter = await _appDbContext.Product
+                .AsNoTracking()
+                .Where(product => product.Id == productId)
+                .Select(product => product.StorageQuantity)
+                .FirstAsync();
+
+            var movement = new StockMovement
+            {
+                Id = Guid.NewGuid(),
+                ProductId = productId,
+                EnterpriseId = enterpriseId,
+                Quantity = quantityDelta,
+                BalanceAfter = balanceAfter,
+                Type = (int)type,
+                ReferenceId = referenceId,
+                CreatedAt = now,
+                IsActive = true
+            };
+
+            _appDbContext.StockMovement.Add(movement);
+            await _appDbContext.SaveChangesAsync();
+
+            // The raw SQL update bypasses ProductRepository.Update, so the cached Product:{id}
+            // entry must be dropped or reads keep serving the pre-movement stock for the cache TTL.
+            (_productRepository as IProductRepository<Product>)?.RemoveCachedProduct(productId);
+
+            return movement;
         }
 
         public Product Delete(Guid id)

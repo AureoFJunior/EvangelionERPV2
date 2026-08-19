@@ -20,6 +20,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly IRepository<Enterprise> _enterpriseRepository;
         private readonly IRepository<Order> _orderRepository;
         private readonly IRepository<OrderedProduct> _orderedProductRepository;
+        private readonly IRepository<StockMovement> _stockMovementRepository;
         private readonly AppDbContext? _appDbContext;
 
         public PayableBillService(
@@ -29,6 +30,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             IRepository<Enterprise> enterpriseRepository,
             IRepository<Order> orderRepository,
             IRepository<OrderedProduct> orderedProductRepository,
+            IRepository<StockMovement> stockMovementRepository,
             AppDbContext? appDbContext = null)
         {
             _payableBillRepository = payableBillRepository;
@@ -37,6 +39,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             _enterpriseRepository = enterpriseRepository;
             _orderRepository = orderRepository;
             _orderedProductRepository = orderedProductRepository;
+            _stockMovementRepository = stockMovementRepository;
             _appDbContext = appDbContext;
         }
 
@@ -404,23 +407,19 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var windowStart = DateTime.UtcNow.Date.AddDays(-historyWindowDays);
 
-            List<Order> orders;
+            // Demand comes from the stock ledger rather than being re-derived from order history.
+            // The ledger already records every unit that left and when, so the order-status
+            // whitelist, the refund exclusion and the OrderedProduct join were all reconstructing
+            // a fact that is now stored directly — and reconstructing it wrongly for any unit that
+            // moved without an order behind it.
+            List<StockMovement> movements;
             try
             {
-                var finalizedStatuses = new HashSet<int>
-                {
-                    (int)EnumOrderStatus.Paid,
-                    (int)EnumOrderStatus.Shipped,
-                    (int)EnumOrderStatus.Delivered,
-                    (int)EnumOrderStatus.Finished
-                };
-
-                orders = (await _orderRepository.GetAllAsync(
-                        x => x.IsActive == true
-                              && x.EnterpriseId == enterpriseId
-                              && !x.RefundedAt.HasValue
-                              && finalizedStatuses.Contains(x.Status)
-                              && x.CreatedAt >= windowStart))
+                movements = (await _stockMovementRepository.GetAllAsync(
+                        x => x.EnterpriseId == enterpriseId
+                             && x.CreatedAt >= windowStart
+                             && (x.Type == (int)EnumStockMovementType.Sale
+                                 || x.Type == (int)EnumStockMovementType.Refund)))
                     .ToList();
             }
             catch (NotFoundDatabaseException)
@@ -428,30 +427,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 return [];
             }
 
-            if (!orders.Any())
+            if (!movements.Any())
                 return [];
 
-            var orderIds = orders.Select(x => x.Id).ToHashSet();
-            var ordersById = orders.ToDictionary(x => x.Id, x => x);
-
-            List<OrderedProduct> orderedProducts;
-            try
-            {
-                orderedProducts = (await _orderedProductRepository.GetAllAsync(
-                        x => x.IsActive == true
-                             && x.OrderId.HasValue
-                             && orderIds.Contains(x.OrderId.Value)))
-                    .ToList();
-            }
-            catch (NotFoundDatabaseException)
-            {
-                return [];
-            }
-
-            if (!orderedProducts.Any())
-                return [];
-
-            var productIds = orderedProducts.Select(x => x.ProductId).Distinct().ToList();
+            var productIds = movements.Select(x => x.ProductId).Distinct().ToList();
             Dictionary<Guid, Product> productsById;
             try
             {
@@ -468,23 +447,24 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var suggestions = new List<ReplenishmentSuggestionDTO>();
 
-            foreach (var skuGroup in orderedProducts.GroupBy(x => x.ProductId))
+            foreach (var skuGroup in movements.GroupBy(x => x.ProductId))
             {
                 if (!productsById.TryGetValue(skuGroup.Key, out var product))
                     continue;
 
-                var groupedLines = skuGroup
-                    .Where(x => x.OrderId.HasValue && ordersById.ContainsKey(x.OrderId!.Value))
-                    .ToList();
+                var productMovements = skuGroup.ToList();
 
-                if (!groupedLines.Any())
-                    continue;
+                // Demand cadence is measured on sales only: a refund tells you nothing about how
+                // often the product is bought, it only cancels units out of the total.
+                var intervals = BuildIntervals(
+                    productMovements.Where(x => x.Type == (int)EnumStockMovementType.Sale));
 
-                var intervals = BuildIntervals(groupedLines, ordersById);
                 if (intervals.Count < 3)
                     continue;
 
-                var totalSold = groupedLines.Sum(x => x.Quantity);
+                // Quantity is signed — sales are negative, refunds positive — so negating the sum
+                // nets refunded units back out of consumption in one pass.
+                var totalSold = -productMovements.Sum(x => x.Quantity);
                 if (totalSold <= 0)
                     continue;
 
@@ -719,11 +699,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             _payableBillProductRepository.UpdateRange(existingItems);
         }
 
-        private static List<int> BuildIntervals(IEnumerable<OrderedProduct> orderedProducts, IReadOnlyDictionary<Guid, Order> ordersById)
+        private static List<int> BuildIntervals(IEnumerable<StockMovement> saleMovements)
         {
-            var demandDates = orderedProducts
-                .Where(x => x.OrderId.HasValue && ordersById.ContainsKey(x.OrderId!.Value))
-                .Select(x => ordersById[x.OrderId!.Value].CreatedAt.Date)
+            var demandDates = saleMovements
+                .Select(x => x.CreatedAt.Date)
                 .Distinct()
                 .OrderBy(x => x)
                 .ToList();

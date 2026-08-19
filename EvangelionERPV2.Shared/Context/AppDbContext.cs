@@ -33,6 +33,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<Order> Order { get; set; }
         public DbSet<OrderedProduct> OrderedProduct { get; set; }
         public DbSet<Product> Product { get; set; }
+        public DbSet<StockMovement> StockMovement { get; set; }
         public DbSet<PayableBill> PayableBill { get; set; }
         public DbSet<PayableBillProduct> PayableBillProduct { get; set; }
         public DbSet<PayrollBillDetail> PayrollBillDetail { get; set; }
@@ -99,6 +100,15 @@ namespace EvangelionERPV2.Shared.Context
                 .HasIndex(item => new { item.PayableBillId, item.ProductId })
                 .HasFilter("[IsActive] = 1")
                 .IsUnique();
+
+            // Restrict, not the Cascade EF would infer from a required FK: a ledger row whose
+            // product row vanished stops being reconstructable, which is the one thing this table
+            // exists to prevent. Products are soft-deleted anyway, so nothing legitimate trips it.
+            modelBuilder.Entity<StockMovement>()
+                .HasOne(movement => movement.Product)
+                .WithMany()
+                .HasForeignKey(movement => movement.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<PayrollBillDetail>()
                 .HasOne(detail => detail.Employee)

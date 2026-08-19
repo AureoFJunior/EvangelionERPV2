@@ -1637,6 +1637,50 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("RefreshToken");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.StockMovement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("BalanceAfter")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<Guid?>("ReferenceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("EnterpriseId", "ProductId", "CreatedAt");
+
+                    b.ToTable("StockMovement");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2001,6 +2045,17 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.StockMovement", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.User", b =>

@@ -651,6 +651,21 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(rent.Id, bill.Id);
         }
 
+        private static StockMovement BuildSaleMovement(Guid enterpriseId, Guid productId, DateTime soldAt, decimal quantity)
+        {
+            return new StockMovement
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                ProductId = productId,
+                // Sales are stored negative — the ledger records the direction, not just the size.
+                Quantity = -quantity,
+                Type = (int)EnumStockMovementType.Sale,
+                CreatedAt = soldAt,
+                IsActive = true
+            };
+        }
+
         private static PayableBill BuildPeriodBill(Guid enterpriseId, string description, DateTime dueDate)
         {
             return new PayableBill
@@ -702,30 +717,24 @@ namespace EvangelionERPV2.BillsModule.Test
                 IsActive = true
             };
 
-            var orders = new List<Order>
-            {
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-40), IsActive = true, Status = (int)EnumOrderStatus.Paid },
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-30), IsActive = true, Status = (int)EnumOrderStatus.Shipped },
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-20), IsActive = true, Status = (int)EnumOrderStatus.Delivered },
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-10), IsActive = true, Status = (int)EnumOrderStatus.Finished },
-            };
+            // Demand is read off the stock ledger now, so the fixture states it directly: four
+            // sale dates ten days apart, which is what makes lead time 10 and coverage 10..20.
+            var saleDates = new[] { now.AddDays(-40), now.AddDays(-30), now.AddDays(-20), now.AddDays(-10) };
 
-            var orderedProducts = new List<OrderedProduct>();
-            foreach (var order in orders)
+            var stockMovements = new List<StockMovement>();
+            foreach (var saleDate in saleDates)
             {
-                orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = order.Id, ProductId = productHigh.Id, Quantity = 10, Value = 10 });
-                orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = order.Id, ProductId = productMedium.Id, Quantity = 10, Value = 10 });
-                orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = order.Id, ProductId = productLow.Id, Quantity = 10, Value = 10 });
+                stockMovements.Add(BuildSaleMovement(enterpriseId, productHigh.Id, saleDate, 10));
+                stockMovements.Add(BuildSaleMovement(enterpriseId, productMedium.Id, saleDate, 10));
+                stockMovements.Add(BuildSaleMovement(enterpriseId, productLow.Id, saleDate, 10));
             }
 
-            // Insufficient history: only 3 orders => 2 intervals
-            orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = orders[0].Id, ProductId = productNoHistory.Id, Quantity = 2, Value = 3 });
-            orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = orders[1].Id, ProductId = productNoHistory.Id, Quantity = 2, Value = 3 });
-            orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = orders[2].Id, ProductId = productNoHistory.Id, Quantity = 2, Value = 3 });
+            // Insufficient history: only 3 sale dates => 2 intervals
+            foreach (var saleDate in saleDates.Take(3))
+                stockMovements.Add(BuildSaleMovement(enterpriseId, productNoHistory.Id, saleDate, 2));
 
             var (_, _, _, _, _, service, _) = BuildSut(
-                orders: orders,
-                orderedProducts: orderedProducts,
+                stockMovements: stockMovements,
                 products: [productHigh, productMedium, productLow, productNoHistory]);
 
             var suggestions = (await service.GetReplenishmentSuggestionsAsync(
@@ -790,13 +799,15 @@ namespace EvangelionERPV2.BillsModule.Test
                 List<PayableBillProduct>? payableItems = null,
                 List<Product>? products = null,
                 List<Order>? orders = null,
-                List<OrderedProduct>? orderedProducts = null)
+                List<OrderedProduct>? orderedProducts = null,
+                List<StockMovement>? stockMovements = null)
         {
             var payableBillStore = payableBills ?? [];
             var payableItemsStore = payableItems ?? [];
             var productStore = products ?? [];
             var orderStore = orders ?? [];
             var orderedProductStore = orderedProducts ?? [];
+            var stockMovementStore = stockMovements ?? [];
 
             var payableBillRepo = CreateRepositoryMock(payableBillStore);
             var payableBillProductRepo = CreateRepositoryMock(payableItemsStore);
@@ -816,6 +827,7 @@ namespace EvangelionERPV2.BillsModule.Test
             });
             var orderRepo = CreateRepositoryMock(orderStore, throwsWhenEmpty: true);
             var orderedProductRepo = CreateRepositoryMock(orderedProductStore, throwsWhenEmpty: true);
+            var stockMovementRepo = CreateRepositoryMock(stockMovementStore, throwsWhenEmpty: true);
 
             var service = new PayableBillService(
                 payableBillRepo.Object,
@@ -823,7 +835,8 @@ namespace EvangelionERPV2.BillsModule.Test
                 productRepo.Object,
                 enterpriseRepo.Object,
                 orderRepo.Object,
-                orderedProductRepo.Object);
+                orderedProductRepo.Object,
+                stockMovementRepo.Object);
 
             return (payableBillRepo, payableBillProductRepo, productRepo, orderRepo, orderedProductRepo, service, payableItemsStore);
         }
