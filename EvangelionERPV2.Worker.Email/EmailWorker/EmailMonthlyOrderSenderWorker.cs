@@ -1,13 +1,12 @@
-﻿using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Utils;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Serilog;
 
 namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 {
-    public sealed class EmailMonthlyOrderSenderWorker : BackgroundService
+    public sealed class EmailMonthlyOrderSenderWorker : LeasedScheduleWorker
     {
         private const int BroadcastHourUtc = 8;
         private const int MaxAttempts = 3;
@@ -15,95 +14,75 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly IConfiguration _configuration;
 
-        public EmailMonthlyOrderSenderWorker(IServiceScopeFactory serviceScopeFactory, IConfiguration configuration)
+        public EmailMonthlyOrderSenderWorker(
+            IServiceScopeFactory serviceScopeFactory,
+            IConfiguration configuration,
+            IDistributedLease lease)
+            : base(lease)
         {
             _serviceScopeFactory = serviceScopeFactory;
             _configuration = configuration;
         }
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        public override string LeaseKey => "eva:lease:email-monthly-order";
+
+        // Checked daily because the dispatch itself only acts on the last day of the month; a 7-day
+        // tick could skip that day entirely.
+        public override TimeSpan TimeUntilNextRun(DateTime utcNow)
+            => BroadcastSchedule.TimeUntilNextDaily(utcNow, BroadcastHourUtc);
+
+        protected override async Task RunPassAsync(CancellationToken stoppingToken)
         {
-            using (var scope = _serviceScopeFactory.CreateScope())
+            using var scope = _serviceScopeFactory.CreateScope();
+
+            for (var attempt = 1; attempt <= MaxAttempts && !stoppingToken.IsCancellationRequested; attempt++)
             {
-                var polly = new PollyHandler();
-
-                while (!stoppingToken.IsCancellationRequested)
+                try
                 {
-                    // Checked daily because the dispatch itself only acts on the last day of the
-                    // month; a 7-day tick could skip that day entirely. Waiting before the first
-                    // send also stops a restart from re-broadcasting.
-                    await Task.Delay(
-                        BroadcastSchedule.TimeUntilNextDaily(DateTime.UtcNow, BroadcastHourUtc),
-                        stoppingToken);
+                    var user = await GetAPIToken(scope);
 
-                    for (var attempt = 1; attempt <= MaxAttempts && !stoppingToken.IsCancellationRequested; attempt++)
+                    Log.Logger.Information($"Sending Monthly Order Emails at: {DateTime.UtcNow}");
+
+                    if (user == null || string.IsNullOrWhiteSpace(user.Token))
                     {
-                        try
-                        {
-                            UserDTO? user;
-                            user = await GetAPIToken(scope);
-
-                            Log.Logger.Information($"Sending Monthly Order Emails at: {DateTime.UtcNow}");
-
-                            if (user == null || string.IsNullOrWhiteSpace(user.Token))
-                            {
-                                Log.Logger.Warning("Email Monthly Order Sender Worker could not obtain an API token.");
-                            }
-                            else
-                            {
-                                await SharedFunctions.PostAsync<object>("Email/SendMonthlyBillingBroadcast", new object(), user.Token);
-                            }
-
-                            Log.Logger.Information($"Email Monthly Order Sender Worker running at: {DateTime.UtcNow}");
-                            break;
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            return;
-                        }
-                        catch (Exception ex)
-                        {
-                            Log.Logger.Error(
-                                "Email Monthly Order Sender Worker with error. Attempt={Attempt}/{MaxAttempts} ErrorType={ErrorType}",
-                                attempt,
-                                MaxAttempts,
-                                ex.GetType().Name);
-
-                            if (attempt < MaxAttempts)
-                                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-                        }
+                        Log.Logger.Warning("Email Monthly Order Sender Worker could not obtain an API token.");
                     }
+                    else
+                    {
+                        await SharedFunctions.PostAsync<object>("Email/SendMonthlyBillingBroadcast", new object(), user.Token);
+                    }
+
+                    Log.Logger.Information($"Email Monthly Order Sender Worker running at: {DateTime.UtcNow}");
+                    return;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Log.Logger.Error(
+                        "Email Monthly Order Sender Worker with error. Attempt={Attempt}/{MaxAttempts} ErrorType={ErrorType}",
+                        attempt,
+                        MaxAttempts,
+                        ex.GetType().Name);
+
+                    if (attempt < MaxAttempts)
+                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
                 }
             }
         }
 
         private async Task<UserDTO?> GetAPIToken(IServiceScope scope)
         {
-            string key = string.Empty;
-
             var kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-            key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+            var key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
 
-            var loginRequest = BuildLoginRequest(key);
-            if (loginRequest == null)
+            if (!SelfApiCredential.TryParse(key, out var userName, out var password))
             {
                 Log.Logger.Warning("Email Monthly Order Sender Worker SelfAPIAuth credentials are missing or invalid.");
                 return null;
             }
 
-            return await SharedFunctions.PostAsync<UserDTO>("User/LogInto", loginRequest);
-        }
-
-        private static LoginRequestDTO? BuildLoginRequest(string key)
-        {
-            if (!SelfApiCredential.TryParse(key, out var userName, out var password))
-                return null;
-
-            return new LoginRequestDTO
-            {
-                UserName = userName,
-                Password = password
-            };
+            return await SharedFunctions.PostAsync<UserDTO>(
+                "User/LogInto",
+                new LoginRequestDTO { UserName = userName, Password = password });
         }
     }
 }

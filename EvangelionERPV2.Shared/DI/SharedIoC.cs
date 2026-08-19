@@ -23,6 +23,9 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 services.AddSingleton<AWSKMSKeyProvider>();
                 #endregion
 
+                // Singleton so every hosted service in this host shares one Redis connection.
+                services.AddSingleton<IDistributedLease, RedisLease>();
+
                 services.AddLogging();
 
                 #region Mapper
