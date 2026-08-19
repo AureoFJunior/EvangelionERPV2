@@ -50,7 +50,14 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Products.DeletePicture,
 
             RbacPermissions.Reports.Read,
-            RbacPermissions.Reports.Generate
+            RbacPermissions.Reports.Generate,
+
+            // A supplier is the mirror image of a customer — a counterparty record with a
+            // document that never leaves the API — so it sits at the customer tier, not the
+            // employee one.
+            RbacPermissions.Suppliers.Read,
+            RbacPermissions.Suppliers.Create,
+            RbacPermissions.Suppliers.Update
         ];
 
         private static readonly string[] ManagerPermissions =
@@ -58,6 +65,8 @@ namespace EvangelionERPV2.Web.Security
             ..SupervisorPermissions,
 
             RbacPermissions.Customers.Delete,
+
+            RbacPermissions.Suppliers.Delete,
 
             // Declaring a boleto paid and superseding one are financial assertions nothing else
             // verifies until CNAB retorno exists, so they start at Manager while issuing a boleto

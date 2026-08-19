@@ -43,6 +43,7 @@ namespace EvangelionERPV2.Shared.Configs
                     .ForSourceMember(src => src.DisplayStatus, opt => opt.DoNotValidate());
                 config.CreateMap<Customer, CustomerDTO>().ReverseMap();
                 config.CreateMap<Employee, EmployeeDTO>().ReverseMap();
+                config.CreateMap<Supplier, SupplierDTO>().ReverseMap();
                 config.CreateMap<Product, ProductDTO>().ReverseMap();
                 config.CreateMap<AuditTrail, AuditTrailDTO>()
                     .ForMember(dest => dest.UserName,

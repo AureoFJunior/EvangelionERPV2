@@ -22,6 +22,12 @@ namespace EvangelionERPV2.Shared.Entities
         public Guid EnterpriseId { get; set; }
         public virtual Enterprise? Enterprise { get; set; }
 
+        // Optional: payables predate suppliers, and payroll or tax bills have no counterparty
+        // at all, so the FK stays nullable rather than forcing a placeholder supplier.
+        [ForeignKey(nameof(Supplier))]
+        public Guid? SupplierId { get; set; } = null;
+        public virtual Supplier? Supplier { get; set; } = null;
+
         public virtual ICollection<PayableBillProduct>? Items { get; set; }
     }
 }

@@ -1406,10 +1406,15 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime?>("RefundedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid?>("SupplierId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SupplierId");
 
                     b.HasIndex("EnterpriseId", "DueDate");
 
@@ -1736,6 +1741,54 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("StockMovement");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Supplier", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Adress")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Document")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId");
+
+                    b.HasIndex("Name");
+
+                    b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "Name");
+
+                    b.ToTable("Supplier");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2052,7 +2105,13 @@ namespace EvangelionERPV2.Shared.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Supplier", "Supplier")
+                        .WithMany()
+                        .HasForeignKey("SupplierId");
+
                     b.Navigation("Enterprise");
+
+                    b.Navigation("Supplier");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PayableBillProduct", b =>
@@ -2122,6 +2181,15 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired();
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Supplier", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId");
+
+                    b.Navigation("Enterprise");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.User", b =>
