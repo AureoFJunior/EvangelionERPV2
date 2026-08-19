@@ -1,7 +1,7 @@
 using EvangelionERPV2.NFeModule.Application.Configs;
 using EvangelionERPV2.NFeModule.Application.Interface;
-using EvangelionERPV2.NFeModule.Application.Models;
 using EvangelionERPV2.NFeModule.Application.Providers;
+using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Domain.Interface;
 using EvangelionERPV2.NFeModule.Infra.Xml;
@@ -36,12 +36,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             NFeDocument? documentSeenByProvider = null;
 
             context.Provider
-                .Setup(x => x.IssueAsync(
-                    It.IsAny<Order>(),
-                    It.IsAny<Enterprise>(),
-                    It.IsAny<Customer>(),
-                    NFeDocumentType.NFe,
-                    It.IsAny<NFeSettings>()))
+                .Setup(x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()))
                 .Callback(() => documentSeenByProvider = Clone(context.Persisted!))
                 .ReturnsAsync(new NFeProviderResult
                 {
@@ -95,12 +90,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var context = new IssuanceContext();
 
             context.Provider
-                .Setup(x => x.IssueAsync(
-                    It.IsAny<Order>(),
-                    It.IsAny<Enterprise>(),
-                    It.IsAny<Customer>(),
-                    NFeDocumentType.NFe,
-                    It.IsAny<NFeSettings>()))
+                .Setup(x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new TimeoutException("SEFAZ did not answer."));
 
             await Assert.ThrowsAsync<TimeoutException>(
@@ -140,12 +130,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal(NFeStatus.Error, context.Persisted!.Status);
             Assert.Null(context.Persisted.TransmittedAtUtc);
             context.Provider.Verify(
-                x => x.IssueAsync(
-                    It.IsAny<Order>(),
-                    It.IsAny<Enterprise>(),
-                    It.IsAny<Customer>(),
-                    It.IsAny<NFeDocumentType>(),
-                    It.IsAny<NFeSettings>()),
+                x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()),
                 Times.Never);
         }
 
@@ -365,12 +350,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             public void SetupAuthorizingProvider()
             {
                 Provider
-                    .Setup(x => x.IssueAsync(
-                        It.IsAny<Order>(),
-                        It.IsAny<Enterprise>(),
-                        It.IsAny<Customer>(),
-                        It.IsAny<NFeDocumentType>(),
-                        It.IsAny<NFeSettings>()))
+                    .Setup(x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()))
                     .ReturnsAsync(new NFeProviderResult
                     {
                         Protocol = "PROT-1",

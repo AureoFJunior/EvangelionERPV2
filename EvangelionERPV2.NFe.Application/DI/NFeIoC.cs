@@ -2,6 +2,7 @@ using Amazon.SecretsManager;
 using EvangelionERPV2.NFeModule.Application.Configs;
 using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.NFeModule.Application.Providers;
+using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Domain.Interface;
 using EvangelionERPV2.NFeModule.Domain.Repositories;

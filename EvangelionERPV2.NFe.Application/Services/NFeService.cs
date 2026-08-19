@@ -2,6 +2,7 @@ using EvangelionERPV2.NFeModule.Application.Configs;
 using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.NFeModule.Application.Providers;
 using EvangelionERPV2.NFeModule.Domain.Interface;
+using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.NFeModule.Infra.Xml;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
@@ -165,13 +166,27 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     await AssignNumberAndAccessKeyAsync(pendingDocument, enterpriseId, type);
                     await MarkTransmittedAsync(pendingDocument);
 
-                    var result = await _provider.IssueAsync(order, enterprise, customer, type, _settings);
+                    var result = await _provider.IssueAsync(new NFeIssueContext
+                    {
+                        Order = order,
+                        Items = order.OrderedProduct?.ToList() ?? [],
+                        FiscalSettings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId),
+                        Enterprise = enterprise,
+                        Customer = customer,
+                        Type = type,
+                        AccessKey = pendingDocument.AccessKey,
+                        Number = pendingDocument.Number,
+                        Series = pendingDocument.Series
+                    });
 
                     // The identity fields are NOT adopted from the result. The chave, number and
                     // series were allocated and committed before transmission precisely so that a
                     // timed-out request can be reconciled against them; taking the provider's word
                     // for them afterwards would put the recovery key back under SEFAZ's control.
                     pendingDocument.Status = result.Status;
+                    pendingDocument.Cstat = result.Cstat;
+                    pendingDocument.XMotivo = result.XMotivo;
+                    pendingDocument.ReceiptNumber = result.ReceiptNumber;
                     pendingDocument.Protocol = result.Protocol;
                     pendingDocument.IssuedAt = result.IssuedAt ?? DateTime.UtcNow;
                     pendingDocument.TotalValue = result.TotalValue;
@@ -249,14 +264,48 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             }
         }
 
+        /// <summary>
+        /// Reads the document and, when SEFAZ is the only thing that can settle its state, asks.
+        /// </summary>
+        /// <remarks>
+        /// A pure database read was the old behaviour and it was misleading: the one case where a
+        /// caller actually needs a consult is a document whose outcome is unknown, and that is
+        /// exactly the case a local read cannot answer. Terminal documents are still answered from
+        /// the database — SEFAZ's verdict on them cannot change, so a round trip would buy nothing.
+        /// </remarks>
         public async Task<NFeDocument?> ConsultAsync(string accessKey, Guid enterpriseId)
         {
             if (string.IsNullOrWhiteSpace(accessKey))
                 return null;
 
-            return await GetScopedDocumentByAccessKeyAsync(accessKey, enterpriseId);
+            var document = await GetScopedDocumentByAccessKeyAsync(accessKey, enterpriseId);
+            if (document == null || !document.IsOutcomeUnknown || !_settings.Enabled)
+                return document;
+
+            var fiscalSettings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
+            var result = await _provider.ConsultAsync(document.AccessKey, fiscalSettings);
+
+            if (result.Status == NFeStatus.Pending)
+                return document;
+
+            ApplyOutcome(document, result);
+
+            _nfeRepository.Update(document);
+            await _nfeRepository.CommitAsync();
+
+            return document;
         }
 
+        /// <summary>
+        /// Sends event 110111 and adopts SEFAZ's answer.
+        /// </summary>
+        /// <remarks>
+        /// This used to write Status = Cancelled locally and invent a "CANCEL-{timestamp}" protocol
+        /// without contacting anybody, which meant the database said cancelled while the note stayed
+        /// valid at SEFAZ and the tax liability stayed real. Nothing is written now unless the event
+        /// was homologated, and the cancellation window comes from the tenant's profile rather than
+        /// a constant, because it differs between NFe and NFCe and is a per-UF rule.
+        /// </remarks>
         public async Task<NFeDocument?> CancelAsync(string accessKey, Guid enterpriseId, string reason = "")
         {
             if (string.IsNullOrWhiteSpace(accessKey))
@@ -269,15 +318,79 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (document.Status == NFeStatus.Cancelled)
                 return document;
 
-            document.Status = NFeStatus.Cancelled;
+            if (document.Status != NFeStatus.Authorized)
+                throw new InsertDatabaseException("Only an authorized document can be cancelled.");
+
+            var fiscalSettings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
+
+            var windowMinutes = document.Type == NFeDocumentType.NFCe
+                ? fiscalSettings.NFCeCancellationWindowMinutes
+                : fiscalSettings.NFeCancellationWindowMinutes;
+
+            // Measured from dhRecbto, which is SEFAZ's clock, not ours. AuthorizedAtUtc is null on
+            // documents authorized before that column existed; those fall back to IssuedAt.
+            var authorizedAt = document.AuthorizedAtUtc ?? document.IssuedAt;
+            if (authorizedAt.HasValue && DateTime.UtcNow > authorizedAt.Value.AddMinutes(windowMinutes))
+                throw new InsertDatabaseException("The cancellation window for this document has closed.");
+
+            // Written before the round trip for the same reason TransmittedAtUtc is: a cancellation
+            // whose answer is lost must be recognisable as attempted rather than as never sent.
+            document.CancelRequestedAt = DateTime.UtcNow;
             document.CancelReason = reason ?? string.Empty;
-            document.CancelProtocol = $"CANCEL-{DateTime.UtcNow:yyyyMMddHHmmss}";
             document.UpdatedAt = DateTime.UtcNow;
+            _nfeRepository.Update(document);
+            await _nfeRepository.CommitAsync();
+
+            var result = await _provider.CancelAsync(
+                document.AccessKey, document.Protocol, document.CancelReason, fiscalSettings);
+
+            document.CancelCstat = result.Cstat;
+            document.CancelXMotivo = result.XMotivo;
+            document.UpdatedAt = DateTime.UtcNow;
+
+            // 135 (evento registrado) and 155 (registrado fora de prazo) are the only homologations.
+            if (result.Status == NFeStatus.Cancelled)
+            {
+                document.Status = NFeStatus.Cancelled;
+                document.CancelProtocol = result.Protocol;
+                document.CancelledAtUtc = result.IssuedAt ?? DateTime.UtcNow;
+            }
+            else
+            {
+                Log.Logger.Warning(
+                    "NFe cancellation refused for document {DocumentId}: cStat {Cstat}.",
+                    document.Id,
+                    result.Cstat);
+            }
 
             _nfeRepository.Update(document);
             await _nfeRepository.CommitAsync();
 
             return document;
+        }
+
+        /// <summary>Copies a SEFAZ verdict onto the document. One place, so consult and the reconciler agree.</summary>
+        private static void ApplyOutcome(NFeDocument document, EvangelionERPV2.NFeModule.Infra.Providers.NFeProviderResult result)
+        {
+            document.Status = result.Status;
+            document.Cstat = result.Cstat;
+            document.XMotivo = result.XMotivo;
+
+            if (!string.IsNullOrWhiteSpace(result.Protocol))
+                document.Protocol = result.Protocol;
+
+            if (!string.IsNullOrWhiteSpace(result.XmlContent))
+                document.XmlContent = result.XmlContent;
+
+            if (result.IssuedAt.HasValue)
+            {
+                document.IssuedAt = result.IssuedAt;
+
+                if (result.Status == NFeStatus.Authorized)
+                    document.AuthorizedAtUtc = result.IssuedAt;
+            }
+
+            document.UpdatedAt = DateTime.UtcNow;
         }
 
         /// <summary>

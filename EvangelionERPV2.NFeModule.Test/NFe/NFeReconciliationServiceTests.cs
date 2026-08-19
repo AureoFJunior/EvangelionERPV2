@@ -1,6 +1,7 @@
 using EvangelionERPV2.NFeModule.Application.Configs;
-using EvangelionERPV2.NFeModule.Application.Models;
+using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.NFeModule.Application.Providers;
+using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
@@ -28,7 +29,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
             var authorizedAt = new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc);
             context.Provider
-                .Setup(x => x.ConsultAsync(document.AccessKey, It.IsAny<NFeSettings>()))
+                .Setup(x => x.ConsultAsync(document.AccessKey, It.IsAny<EnterpriseFiscalSettings>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new NFeProviderResult
                 {
                     Status = NFeStatus.Authorized,
@@ -58,7 +59,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var transmittedAt = document.TransmittedAtUtc;
 
             context.Provider
-                .Setup(x => x.ConsultAsync(It.IsAny<string>(), It.IsAny<NFeSettings>()))
+                .Setup(x => x.ConsultAsync(It.IsAny<string>(), It.IsAny<EnterpriseFiscalSettings>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new NFeProviderResult { Status = NFeStatus.Pending });
 
             var resolved = await context.Service.ReconcileAsync();
@@ -101,7 +102,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
             // Never consulted: there is nothing at SEFAZ to ask about.
             context.Provider.Verify(
-                x => x.ConsultAsync(It.IsAny<string>(), It.IsAny<NFeSettings>()),
+                x => x.ConsultAsync(It.IsAny<string>(), It.IsAny<EnterpriseFiscalSettings>(), It.IsAny<CancellationToken>()),
                 Times.Never);
         }
 
@@ -116,10 +117,10 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             context.Stale(failing, succeeding);
 
             context.Provider
-                .Setup(x => x.ConsultAsync(failing.AccessKey, It.IsAny<NFeSettings>()))
+                .Setup(x => x.ConsultAsync(failing.AccessKey, It.IsAny<EnterpriseFiscalSettings>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new TimeoutException("SEFAZ did not answer."));
             context.Provider
-                .Setup(x => x.ConsultAsync(succeeding.AccessKey, It.IsAny<NFeSettings>()))
+                .Setup(x => x.ConsultAsync(succeeding.AccessKey, It.IsAny<EnterpriseFiscalSettings>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new NFeProviderResult { Status = NFeStatus.Rejected, Cstat = "539" });
 
             var resolved = await context.Service.ReconcileAsync();
@@ -158,6 +159,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             public Mock<IRepository<NFeDocument>> NFeRepository { get; } = new();
             public Mock<INFeRepository<NFeDocument>> NFeRepositoryCustom { get; } = new();
             public Mock<INFeProvider> Provider { get; } = new();
+            public Mock<INFeFiscalSettingsService> FiscalSettings { get; } = new();
 
             public int CommitCalls { get; private set; }
             public NFeReconciliationService Service { get; }
@@ -173,10 +175,15 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                     .Callback(() => CommitCalls++)
                     .Returns(Task.CompletedTask);
 
+                FiscalSettings
+                    .Setup(x => x.GetSettingsAsync(It.IsAny<Guid>()))
+                    .ReturnsAsync(new EnterpriseFiscalSettings { Cnpj = "11222333000181", CodigoUfIbge = 43 });
+
                 Service = new NFeReconciliationService(
                     NFeRepository.Object,
                     NFeRepositoryCustom.Object,
                     Provider.Object,
+                    FiscalSettings.Object,
                     Options.Create(new NFeSettings { Enabled = enabled }));
             }
 

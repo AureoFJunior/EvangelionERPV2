@@ -29,6 +29,7 @@
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="Unimake.DFe" Version="20260722.1716.27" />
   </ItemGroup>
 
   <ItemGroup>

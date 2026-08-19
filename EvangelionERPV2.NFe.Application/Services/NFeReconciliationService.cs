@@ -1,6 +1,7 @@
 using EvangelionERPV2.NFeModule.Application.Configs;
-using EvangelionERPV2.NFeModule.Application.Providers;
+using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.NFeModule.Domain.Interface;
+using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.Shared.Entities;
 using Microsoft.Extensions.Options;
 using Serilog;
@@ -25,17 +26,20 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<NFeDocument> _nfeRepository;
         private readonly INFeRepository<NFeDocument> _nfeRepositoryCustom;
         private readonly INFeProvider _provider;
+        private readonly INFeFiscalSettingsService _fiscalSettingsService;
         private readonly NFeSettings _settings;
 
         public NFeReconciliationService(
             EvangelionERPV2.Shared.Repositories.IRepository<NFeDocument> nfeRepository,
             INFeRepository<NFeDocument> nfeRepositoryCustom,
             INFeProvider provider,
+            INFeFiscalSettingsService fiscalSettingsService,
             IOptions<NFeSettings> settings)
         {
             _nfeRepository = nfeRepository;
             _nfeRepositoryCustom = nfeRepositoryCustom;
             _provider = provider;
+            _fiscalSettingsService = fiscalSettingsService;
             _settings = settings?.Value ?? new NFeSettings();
         }
 
@@ -107,7 +111,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             }
             else
             {
-                var result = await _provider.ConsultAsync(document.AccessKey, _settings);
+                // The consult is signed with the emitting tenant's own certificate and aimed at its
+                // own UF, so the profile has to come from the document's enterprise, not from the
+                // global settings.
+                var fiscalSettings = await _fiscalSettingsService.GetSettingsAsync(document.EnterpriseId);
+                var result = await _provider.ConsultAsync(document.AccessKey, fiscalSettings);
 
                 if (result.Status == NFeStatus.Pending)
                 {

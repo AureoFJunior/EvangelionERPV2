@@ -1,6 +1,7 @@
 using EvangelionERPV2.NFeModule.Application.Configs;
 using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.NFeModule.Application.Providers;
+using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
@@ -39,7 +40,7 @@ namespace EvangelionERPV2.Test.Security
             customerRepository.Verify(x => x.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
             enterpriseRepository.Verify(x => x.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
             nfeRepositoryCustom.Verify(x => x.GetByOrderIdAsync(It.IsAny<Guid>(), It.IsAny<NFeDocumentType?>()), Times.Never);
-            provider.Verify(x => x.IssueAsync(It.IsAny<Order>(), It.IsAny<Enterprise>(), It.IsAny<Customer>(), It.IsAny<NFeDocumentType>(), It.IsAny<NFeSettings>()), Times.Never);
+            provider.Verify(x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
         [Theory]
