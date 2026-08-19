@@ -21,6 +21,28 @@ namespace EvangelionERPV2.Shared.Context
             _auditTrailEntryFactory = auditTrailEntryFactory;
         }
 
+        /// <summary>
+        /// The tenant every query is scoped to, or <see cref="Guid.Empty"/> when no request is in
+        /// flight (a hosted service, a worker, or the login path, which runs before any tenant is
+        /// known).
+        /// </summary>
+        /// <remarks>
+        /// Read through <see cref="IHttpContextAccessor"/> on purpose. That service is a singleton
+        /// backed by an AsyncLocal, so even though EF caches the model — and with it the context
+        /// instance the query filters closed over — the value resolved here is always the one
+        /// belonging to the request executing the query, not the one that happened to build the
+        /// model. TenantQueryFilterTests pins exactly that.
+        /// </remarks>
+        public Guid AmbientEnterpriseId
+        {
+            get
+            {
+                var claimValue = _httpContextAccessor?.HttpContext?.User?.FindFirst(ClaimTypes.GroupSid)?.Value;
+
+                return Guid.TryParse(claimValue, out var enterpriseId) ? enterpriseId : Guid.Empty;
+            }
+        }
+
         public DbSet<Customer> Customer { get; set; }
         public DbSet<Employee> Employee { get; set; }
         public DbSet<Enterprise> Enterprise { get; set; }
@@ -348,6 +370,71 @@ namespace EvangelionERPV2.Shared.Context
                 .WithMany()
                 .HasForeignKey(audit => audit.UserId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            ApplyTenantQueryFilters(modelBuilder);
+        }
+
+        /// <summary>
+        /// Scopes every tenant-owned entity to <see cref="AmbientEnterpriseId"/> in the model itself.
+        /// </summary>
+        /// <remarks>
+        /// Isolation used to be hand-written in every controller, with regression tests as the only
+        /// safety net — which means a new controller is isolated exactly as long as someone remembers.
+        /// Applied as a convention rather than entity by entity so that a module added later inherits
+        /// it without opting in, which is the whole point of landing this before the controller
+        /// surface grows. The hand-written filters stay: redundant, harmless, second belt.
+        ///
+        /// Guid.Empty disables the filter instead of hiding everything. Out-of-request work is
+        /// legitimately cross-tenant — the NFe reconciliation sweeper, the email workers, the login
+        /// lookup that runs before a tenant is known — and a filter that returned nothing there would
+        /// break them silently at runtime rather than loudly at compile time. Inside a request the
+        /// value is never empty: ActiveTenantEnforcementMiddleware 401s an authenticated request whose
+        /// enterprise claim is missing before any handler runs.
+        ///
+        /// A row whose EnterpriseId is NULL is invisible to every request. That matches what the
+        /// hand-written filters already did — they all compare for equality — so this changes no API
+        /// behaviour, and a row belonging to nobody must not surface for everybody.
+        /// </remarks>
+        private void ApplyTenantQueryFilters(ModelBuilder modelBuilder)
+        {
+            foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+            {
+                // Derived types in a hierarchy inherit the root's filter; EF rejects one of their own.
+                if (entityType.BaseType != null || entityType.ClrType == null)
+                    continue;
+
+                // Enterprise is the tenant itself, so its own key is what has to match.
+                var tenantProperty = entityType.ClrType == typeof(Enterprise)
+                    ? nameof(BaseEntity.Id)
+                    : entityType.ClrType.GetProperty(TenantPropertyName) == null ? null : TenantPropertyName;
+
+                if (tenantProperty == null)
+                    continue;
+
+                ApplyTenantQueryFilterMethod
+                    .MakeGenericMethod(entityType.ClrType)
+                    .Invoke(this, [modelBuilder, tenantProperty]);
+            }
+        }
+
+        private const string TenantPropertyName = "EnterpriseId";
+
+        private static readonly System.Reflection.MethodInfo ApplyTenantQueryFilterMethod =
+            typeof(AppDbContext).GetMethod(
+                nameof(ApplyTenantQueryFilter),
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+
+        /// <summary>
+        /// The filter itself, generic so the lambda is a real typed expression rather than a
+        /// hand-assembled tree. <c>EF.Property</c> reads the column whether it is declared
+        /// <c>Guid</c> or <c>Guid?</c>, which the entities are inconsistent about.
+        /// </summary>
+        private void ApplyTenantQueryFilter<TEntity>(ModelBuilder modelBuilder, string tenantProperty)
+            where TEntity : class
+        {
+            modelBuilder.Entity<TEntity>().HasQueryFilter(entity =>
+                AmbientEnterpriseId == Guid.Empty
+                || EF.Property<Guid?>(entity, tenantProperty) == AmbientEnterpriseId);
         }
 
         public override int SaveChanges()
