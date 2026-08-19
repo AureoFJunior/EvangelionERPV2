@@ -17,7 +17,7 @@ namespace EvangelionERPV2.Shared.Migrations
     // The [Migration] attribute is required for EF to discover this class at Database.Migrate()
     // time — without it the migration is silently skipped.
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260819120000_AddStockMovement")]
+    [Migration("20260819130000_AddStockMovement")]
     public partial class AddStockMovement : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)
