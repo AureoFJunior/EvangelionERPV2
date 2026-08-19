@@ -60,6 +60,9 @@ namespace EvangelionERPV2.BillsModule.Test
                     Id = customerId
                 });
             billRepoCustom.Setup(r => r.GetByOrderIdAsync(order.Id)).ReturnsAsync((BillEntity?)null);
+            billRepoCustom
+                .Setup(r => r.AllocateNextNumberAsync(enterpriseId, settings.BankCode, settings.Wallet, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(1L);
             billRepo.Setup(r => r.CreateAsync(It.IsAny<BillEntity>())).ReturnsAsync((BillEntity entity) => entity);
             billRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
@@ -69,6 +72,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 orderRepo.Object,
                 customerRepo.Object,
                 new Mock<IRepository<Enterprise>>().Object,
+                new Mock<IRepository<BillNumberSequence>>().Object,
                 () => new Mock<IEmailService<EmailStructure>>().Object,
                 Options.Create(settings));
 

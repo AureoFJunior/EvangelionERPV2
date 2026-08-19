@@ -21,17 +21,20 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         public const decimal MaxCurrentBalance = 1_000_000_000_000_000m;
         private readonly IRepository<Order> _orderRepository;
         private readonly IRepository<PayableBill> _payableBillRepository;
+        private readonly IRepository<Bill> _billRepository;
         private readonly IRepository<Enterprise> _enterpriseRepository;
         private readonly IRepository<ForecastSimulationLog> _simulationLogRepository;
 
         public CashFlowForecastService(
             IRepository<Order> orderRepository,
             IRepository<PayableBill> payableBillRepository,
+            IRepository<Bill> billRepository,
             IRepository<Enterprise> enterpriseRepository,
             IRepository<ForecastSimulationLog> simulationLogRepository)
         {
             _orderRepository = orderRepository;
             _payableBillRepository = payableBillRepository;
+            _billRepository = billRepository;
             _enterpriseRepository = enterpriseRepository;
             _simulationLogRepository = simulationLogRepository;
         }
@@ -128,11 +131,24 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 .Where(x => !IsOrderRefunded(x) && x.TotalValue > 0)
                 .ToList();
 
+            // Where an order has a boleto, the boleto is the truth about the receivable: the order's
+            // own dates only ever said when we *hoped* to be paid. Cancelled titles are skipped so a
+            // reissued order resolves to the one the payer is actually holding. Scoped by order id
+            // because Bill carries no EnterpriseId of its own.
+            var orderIds = forecastOrders.Select(x => x.Id).ToList();
+            var billsByOrder = (await _billRepository.GetAllAsync(
+                    x => orderIds.Contains(x.OrderId)
+                         && (x.IsActive == null || x.IsActive == true)
+                         && x.Status != BillStatus.Cancelled))
+                .GroupBy(x => x.OrderId)
+                .ToDictionary(x => x.Key, x => x.OrderByDescending(bill => bill.CreatedAt).First());
+
             var receivables = forecastOrders
                 .Select(x => new
                 {
-                    Date = ResolveOrderReceivableDate(x, today)?.AddDays(receivableDelayInDays),
-                    Amount = x.TotalValue
+                    Date = ResolveOrderReceivableDate(x, billsByOrder.GetValueOrDefault(x.Id), today)
+                        ?.AddDays(receivableDelayInDays),
+                    Amount = ResolveReceivableAmount(x, billsByOrder.GetValueOrDefault(x.Id))
                 })
                 .Where(x => x.Date.HasValue)
                 .Select(x => new
@@ -193,8 +209,41 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             };
         }
 
-        private static DateTime? ResolveOrderReceivableDate(Order order, DateTime today)
+        /// <summary>
+        /// When the order's cash lands, or null when it must not be projected at all.
+        /// </summary>
+        /// <remarks>
+        /// The boleto branch is the point of this method. Before it existed the forecast could not
+        /// tell an issued boleto from a paid one: <c>Order.Payday</c> is the date fed to the boleto
+        /// as its *vencimento*, so merely printing a document made the money look received. Now an
+        /// unsettled title only ever projects on its own due date, and a settled one projects on the
+        /// day the money actually landed.
+        /// </remarks>
+        private static DateTime? ResolveOrderReceivableDate(Order order, Bill? bill, DateTime today)
         {
+            if (bill != null)
+            {
+                switch (bill.Status)
+                {
+                    case BillStatus.Paid:
+                        // Same rule the payables side uses: cash that landed before today is already
+                        // inside the current balance and must not be counted a second time.
+                        var settledDate = bill.PaidAt?.Date;
+                        return settledDate >= today ? settledDate : null;
+
+                    case BillStatus.Rejected:
+                        // The bank refused the title. There is no receivable until it is reissued.
+                        return null;
+
+                    default:
+                        // Open, overdue included. Past due is dropped rather than pulled forward:
+                        // a boleto nobody paid on time is not evidence of cash arriving today, and
+                        // the receivables side of this forecast is deliberately the conservative one.
+                        var dueDate = bill.DueDate.Date;
+                        return dueDate < today ? null : dueDate;
+                }
+            }
+
             if (order.Payday.HasValue)
             {
                 var paidDate = order.Payday.Value.Date;
@@ -219,6 +268,18 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var dueDate = payableBill.DueDate.Date;
             return dueDate < today ? today : dueDate;
+        }
+
+        /// <summary>
+        /// What actually arrives. A settled boleto reports what the bank credited, which is not
+        /// always the order total — a payer settles late with interest, or short.
+        /// </summary>
+        private static decimal ResolveReceivableAmount(Order order, Bill? bill)
+        {
+            if (bill is { Status: BillStatus.Paid, PaidAmount: > 0 })
+                return bill.PaidAmount.Value;
+
+            return bill?.Amount > 0 ? bill.Amount : order.TotalValue;
         }
 
         private static bool IsOrderRefunded(Order order)

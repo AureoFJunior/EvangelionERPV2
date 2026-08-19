@@ -18,6 +18,8 @@ namespace EvangelionERPV2.Web.Security
             Bills.Read,
             Bills.Generate,
             Bills.DownloadPdf,
+            Bills.Settle,
+            Bills.Reissue,
 
             CashFlowForecast.Read,
             CashFlowForecast.Simulate,
@@ -161,6 +163,8 @@ namespace EvangelionERPV2.Web.Security
             public const string Read = "rbac:bills.read";
             public const string Generate = "rbac:bills.generate";
             public const string DownloadPdf = "rbac:bills.pdf.download";
+            public const string Settle = "rbac:bills.settle";
+            public const string Reissue = "rbac:bills.reissue";
         }
 
         public static class CashFlowForecast

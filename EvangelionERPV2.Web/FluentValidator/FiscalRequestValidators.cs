@@ -34,6 +34,30 @@ namespace EvangelionERPV2.Web.FluentValidator
         }
     }
 
+    public sealed class SettleBillRequestValidator : AbstractValidator<SettleBillRequestDTO>
+    {
+        // decimal(18,2) end to end, so 16 integer digits is the widest value the column holds.
+        private const decimal MaxPaidAmount = 9_999_999_999_999_999.99m;
+
+        public SettleBillRequestValidator()
+        {
+            RuleFor(x => x.PaidAmount)
+                .GreaterThan(0).WithMessage("Paid amount must be greater than zero.")
+                .LessThanOrEqualTo(MaxPaidAmount).WithMessage("Paid amount is too large.");
+
+            // A settlement dated in the future would be projected by the cash-flow forecast as
+            // money that has not arrived. The service re-checks this; the 400 is cheaper.
+            RuleFor(x => x.PaidAt!.Value)
+                .LessThanOrEqualTo(_ => DateTime.UtcNow.Date.AddDays(1).AddTicks(-1))
+                    .WithMessage("Settlement date cannot be in the future.")
+                .When(x => x.PaidAt.HasValue);
+
+            RuleFor(x => x.SettlementProtocol!)
+                .MaximumLength(64).WithMessage("Settlement protocol is too long.")
+                .When(x => x.SettlementProtocol != null);
+        }
+    }
+
     public sealed class RefundRequestValidator : AbstractValidator<RefundRequestDTO>
     {
         public RefundRequestValidator()

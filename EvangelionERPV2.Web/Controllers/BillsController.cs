@@ -131,6 +131,96 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        /// <summary>
+        /// Every boleto ever issued for the order, superseded ones included — the only way to find
+        /// the id of a title a payer is still holding after a reissue.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Bills.Read)]
+        [HttpGet("{orderId}")]
+        [ProducesResponseType(typeof(IEnumerable<BillDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> History(Guid orderId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var bills = await _billService.GetHistoryAsync(orderId, enterpriseId);
+            if (bills.Count == 0)
+                return NoContent();
+
+            return Ok(_mapper.Map<IEnumerable<BillDTO>>(bills));
+        }
+
+        /// <summary>
+        /// Marks one boleto settled. By bill id, not order id: after a reissue the payer may settle
+        /// the superseded title, and that payment still has to land on the right row.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Bills.Settle)]
+        [HttpPost("{billId}")]
+        [ProducesResponseType(typeof(BillDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> Settle(Guid billId, [FromBody] SettleBillRequestDTO request)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                var bill = await _billService.SettleAsync(
+                    billId, enterpriseId, request.PaidAmount, request.PaidAt, request.SettlementProtocol);
+
+                if (bill == null)
+                    return NoContent();
+
+                return Ok(_mapper.Map<BillDTO>(bill));
+            }
+            catch (InsertDatabaseException exception)
+            {
+                // Wrong state, not a fault: already settled, cancelled, or a nonsense amount/date.
+                Log.Logger.Warning("Bill settlement refused. BillId={BillId} ErrorType={ErrorType}", billId, exception.GetType().Name);
+                return BadRequest(exception.Message);
+            }
+        }
+
+        /// <summary>
+        /// Cancels the order's live boleto and issues a replacement from the order's current dates.
+        /// Fix the order's payment date first — this endpoint deliberately takes no date of its own,
+        /// so the boleto and the receivable can never disagree about when the money is due.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Bills.Reissue)]
+        [HttpPost("{orderId}")]
+        [ProducesResponseType(typeof(BillDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> Reissue(Guid orderId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                var bill = await _billService.ReissueAsync(orderId, enterpriseId);
+                if (bill == null)
+                    return NoContent();
+
+                return Ok(_mapper.Map<BillDTO>(bill));
+            }
+            catch (InsertDatabaseException exception)
+            {
+                Log.Logger.Warning("Bill reissue refused. OrderId={OrderId} ErrorType={ErrorType}", orderId, exception.GetType().Name);
+                return BadRequest(exception.Message);
+            }
+            catch (NotFoundDatabaseException exnf)
+            {
+                Log.Logger.Error("Order not found for bill reissue. OrderId={OrderId} ErrorType={ErrorType}", orderId, exnf.GetType().Name);
+                return NoContent();
+            }
+        }
+
         private bool TryGetEnterpriseId(out Guid enterpriseId)
         {
             var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;

@@ -29,6 +29,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<NFeNumberSequence> NFeNumberSequence { get; set; }
         public DbSet<Email> Email { get; set; }
         public DbSet<Bill> Bill { get; set; }
+        public DbSet<BillNumberSequence> BillNumberSequence { get; set; }
         public DbSet<NFeDocument> NFeDocument { get; set; }
         public DbSet<Order> Order { get; set; }
         public DbSet<OrderedProduct> OrderedProduct { get; set; }
@@ -72,6 +73,25 @@ namespace EvangelionERPV2.Shared.Context
 
             modelBuilder.Entity<Bill>()
                 .ToTable("Boleto");
+
+            // One live boleto per order, but not one boleto per order for all time: a cancelled
+            // title drops out of the index so a reissue can supersede it instead of the API having
+            // to mutate a document a payer may already be holding. Filtered on Status rather than
+            // IsActive because IsActive is nullable — legacy rows carry NULL, which SQL Server
+            // excludes from a "[IsActive] = 1" filter and would silently stop guarding them.
+            modelBuilder.Entity<Bill>()
+                .HasIndex(bill => bill.OrderId)
+                .HasFilter($"[Status] <> {(int)BillStatus.Cancelled}")
+                .IsUnique();
+
+            // Deliberately NOT filtered on IsActive — see BillNumberSequence. A soft-deleted counter
+            // that let a replacement row restart at the range floor would re-issue NossoNumero
+            // values already handed to payers.
+            modelBuilder.Entity<BillNumberSequence>()
+                .HasOne(sequence => sequence.Enterprise)
+                .WithMany()
+                .HasForeignKey(sequence => sequence.EnterpriseId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<Email>()
                 .HasOne(email => email.Enterprise)

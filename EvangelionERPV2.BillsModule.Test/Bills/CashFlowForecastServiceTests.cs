@@ -25,7 +25,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 new Enterprise { Id = enterpriseId, IsActive = true, Name = "E", CurrentBalance = 321.45m });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
 
             var result = await service.GetForecastAsync(enterpriseId, 5);
 
@@ -59,7 +59,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 100);
 
@@ -80,7 +80,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync(new Enterprise { Id = Guid.NewGuid(), CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
 
             await Assert.ThrowsAsync<ArgumentException>(() => service.RunSimulationAsync(Guid.NewGuid(), Guid.NewGuid(), new RunSimulationRequestDTO
             {
@@ -118,7 +118,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 0);
 
@@ -166,7 +166,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 200);
 
@@ -199,7 +199,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 100);
 
@@ -213,5 +213,153 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(60, result.FinalProjectedBalance, 2);
         }
 
+        /// <summary>
+        /// The gap this milestone closes: before payment state existed, printing a boleto made its
+        /// due date look like cash in the bank, because Order.Payday is exactly the date fed to the
+        /// boleto as its vencimento.
+        /// </summary>
+        [Fact]
+        public async Task GetForecastAsync_WhenBoletoIsIssuedButNotPaid_ShouldNotCountItAsReceivedCash()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var today = DateTime.UtcNow.Date;
+            var orderId = Guid.NewGuid();
+
+            // Payday is in the past, which the pre-boleto rule read as "already received".
+            var orders = new List<Order>
+            {
+                new() { Id = orderId, EnterpriseId = enterpriseId, PaymentScheduledDate = today.AddDays(4), Payday = today.AddDays(3), TotalValue = 100, IsActive = true }
+            };
+
+            var openBoleto = new Bill
+            {
+                Id = Guid.NewGuid(),
+                OrderId = orderId,
+                DueDate = today.AddDays(-2),
+                Amount = 100,
+                Status = BillStatus.Registered,
+                IsActive = true
+            };
+
+            var result = await BuildForecastAsync(enterpriseId, orders, openBoleto);
+
+            Assert.All(result.DailyProjection, day => Assert.Equal(0, day.AccountsReceivable, 2));
+            Assert.Equal(0, result.FinalProjectedBalance, 2);
+        }
+
+        [Fact]
+        public async Task GetForecastAsync_WhenBoletoIsSettled_ShouldProjectTheAmountTheBankCredited()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var today = DateTime.UtcNow.Date;
+            var orderId = Guid.NewGuid();
+
+            var orders = new List<Order>
+            {
+                new() { Id = orderId, EnterpriseId = enterpriseId, PaymentScheduledDate = today.AddDays(9), TotalValue = 100, IsActive = true }
+            };
+
+            // Settled late with interest: 112.50 arrived, not the 100 the order asked for.
+            var settled = new Bill
+            {
+                Id = Guid.NewGuid(),
+                OrderId = orderId,
+                DueDate = today.AddDays(1),
+                Amount = 100,
+                Status = BillStatus.Paid,
+                PaidAt = today.AddDays(2),
+                PaidAmount = 112.50m,
+                IsActive = true
+            };
+
+            var result = await BuildForecastAsync(enterpriseId, orders, settled);
+
+            Assert.Equal(112.50m, result.DailyProjection.Single(x => x.Date == today.AddDays(2)).AccountsReceivable, 2);
+            Assert.Equal(0, result.DailyProjection.Single(x => x.Date == today.AddDays(9)).AccountsReceivable, 2);
+            Assert.Equal(112.50m, result.FinalProjectedBalance, 2);
+        }
+
+        /// <summary>
+        /// A cancelled title is the superseded half of a reissue; the boleto that replaced it is the
+        /// one the forecast must read, and it is a different row with a different due date.
+        /// </summary>
+        [Fact]
+        public async Task GetForecastAsync_AfterAReissue_ShouldProjectTheReplacementDueDate()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var today = DateTime.UtcNow.Date;
+            var orderId = Guid.NewGuid();
+
+            var orders = new List<Order>
+            {
+                new() { Id = orderId, EnterpriseId = enterpriseId, PaymentScheduledDate = today.AddDays(2), TotalValue = 100, IsActive = true }
+            };
+
+            var superseded = new Bill
+            {
+                Id = Guid.NewGuid(),
+                OrderId = orderId,
+                DueDate = today.AddDays(2),
+                Amount = 100,
+                Status = BillStatus.Cancelled,
+                CreatedAt = today.AddDays(-1),
+                IsActive = true
+            };
+            var replacement = new Bill
+            {
+                Id = Guid.NewGuid(),
+                OrderId = orderId,
+                DueDate = today.AddDays(6),
+                Amount = 100,
+                Status = BillStatus.Registered,
+                CreatedAt = today,
+                IsActive = true
+            };
+
+            var result = await BuildForecastAsync(enterpriseId, orders, superseded, replacement);
+
+            Assert.Equal(0, result.DailyProjection.Single(x => x.Date == today.AddDays(2)).AccountsReceivable, 2);
+            Assert.Equal(100, result.DailyProjection.Single(x => x.Date == today.AddDays(6)).AccountsReceivable, 2);
+        }
+
+        private static async Task<CashFlowForecastDTO> BuildForecastAsync(
+            Guid enterpriseId, List<Order> orders, params Bill[] bills)
+        {
+            var orderRepo = new Mock<IRepository<Order>>();
+            orderRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>()))
+                .ReturnsAsync((Expression<Func<Order, bool>>? f) => orders.Where(f!.Compile()).ToList());
+
+            var payableRepo = new Mock<IRepository<PayableBill>>();
+            payableRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<PayableBill, bool>>>()))
+                .ReturnsAsync(new List<PayableBill>());
+
+            var enterpriseRepo = new Mock<IRepository<Enterprise>>();
+            enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId))
+                .ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
+
+            var service = new CashFlowForecastService(
+                orderRepo.Object,
+                payableRepo.Object,
+                BillRepoReturning(bills),
+                enterpriseRepo.Object,
+                new Mock<IRepository<ForecastSimulationLog>>().Object);
+
+            return await service.GetForecastAsync(enterpriseId, 30, 0);
+        }
+
+        /// <summary>
+        /// A bill repository holding <paramref name="bills"/>, filtered through the caller's
+        /// predicate the same way EF would. No bills is the default: an order without a boleto must
+        /// keep projecting off its own dates exactly as it did before payment state existed.
+        /// </summary>
+        private static IRepository<Bill> BillRepoReturning(params Bill[] bills)
+        {
+            var repo = new Mock<IRepository<Bill>>();
+            repo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Bill, bool>>>()))
+                .ReturnsAsync((Expression<Func<Bill, bool>>? filter) =>
+                    filter == null ? bills : bills.Where(filter.Compile()).ToList());
+
+            return repo.Object;
+        }
     }
 }

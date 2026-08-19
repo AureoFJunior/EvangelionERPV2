@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using PuppeteerSharp;
 using PuppeteerSharp.Media;
 using Serilog;
+using System.Globalization;
 using System.Net;
 using System.Text.RegularExpressions;
 using BillEntity = EvangelionERPV2.Shared.Entities.Bill;
@@ -23,6 +24,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Order> _orderRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _customerRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _enterpriseRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<BillNumberSequence> _sequenceRepository;
         // Resolved lazily: the email stack (RabbitMQ, SMTP settings) must never be able to fail a
         // bill generation request just by being constructed.
         private readonly Func<IEmailService<EmailStructure>> _emailServiceFactory;
@@ -37,6 +39,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             EvangelionERPV2.Shared.Repositories.IRepository<Order> orderRepository,
             EvangelionERPV2.Shared.Repositories.IRepository<Customer> customerRepository,
             EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> enterpriseRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<BillNumberSequence> sequenceRepository,
             Func<IEmailService<EmailStructure>> emailServiceFactory,
             IOptions<BillsSettings> settings)
         {
@@ -45,6 +48,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             _orderRepository = orderRepository;
             _customerRepository = customerRepository;
             _enterpriseRepository = enterpriseRepository;
+            _sequenceRepository = sequenceRepository;
             _emailServiceFactory = emailServiceFactory;
             _settings = settings?.Value ?? new BillsSettings();
         }
@@ -80,7 +84,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 return existing;
 
             var customer = order.CustomerId.HasValue ? await _customerRepository.GetByIdAsync(order.CustomerId.Value) : null;
-            var billNet = BuildBill(order, customer);
+
+            // Allocated only after the existing-bill check, so a repeated generate call does not
+            // burn a number for a boleto that already exists.
+            var billNet = BuildBill(order, customer, await AllocateNossoNumeroAsync(enterpriseId));
 
             var billBancario = new BoletoBancario
             {
@@ -103,7 +110,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 Amount = billNet.ValorTitulo,
                 DigitableLine = billNet.CodigoBarra.LinhaDigitavel,
                 BarCode = billNet.CodigoBarra.CodigoDeBarras,
-                HtmlContent = html
+                HtmlContent = html,
+                Status = BillStatus.Registered
             };
 
             await _billRepository.CreateAsync(bill);
@@ -129,6 +137,97 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             await TrySendBillEmailAsync(bill, order, customer);
 
             return bill;
+        }
+
+        public async Task<IReadOnlyList<BillEntity>> GetHistoryAsync(Guid orderId, Guid enterpriseId)
+        {
+            if (orderId == Guid.Empty)
+                return [];
+
+            if (!await IsOrderWithinEnterpriseAsync(orderId, enterpriseId))
+                return [];
+
+            return await _billRepositoryCustom.GetAllByOrderIdAsync(orderId);
+        }
+
+        /// <summary>
+        /// Records a settlement against one boleto. Manual for now — the bank has never heard of
+        /// these titles, so nothing else can tell us the money arrived (CNAB retorno is M9). Without
+        /// it a customer pays and the ERP never knows, which is what makes the current boleto
+        /// commercially useless.
+        /// </summary>
+        public async Task<BillEntity?> SettleAsync(
+            Guid billId, Guid enterpriseId, decimal paidAmount, DateTime? paidAt, string? settlementProtocol)
+        {
+            if (billId == Guid.Empty || enterpriseId == Guid.Empty)
+                return null;
+
+            if (paidAmount <= 0)
+                throw new InsertDatabaseException("Paid amount must be greater than zero.");
+
+            var bill = await _billRepository.GetByIdAsync(billId);
+            if (bill == null || bill.IsActive == false)
+                return null;
+
+            // Bill carries no EnterpriseId of its own; the order it belongs to is the tenant gate.
+            if (!await IsOrderWithinEnterpriseAsync(bill.OrderId, enterpriseId))
+                return null;
+
+            if (bill.Status == BillStatus.Paid)
+                throw new InsertDatabaseException("This bill was already settled.");
+
+            if (bill.Status == BillStatus.Cancelled)
+                throw new InsertDatabaseException("A cancelled bill cannot be settled. Settle the boleto that superseded it.");
+
+            var settledAt = paidAt ?? DateTime.UtcNow;
+
+            // A settlement dated in the future would be projected as cash that has not arrived.
+            if (settledAt.Date > DateTime.UtcNow.Date)
+                throw new InsertDatabaseException("Settlement date cannot be in the future.");
+
+            bill.Status = BillStatus.Paid;
+            bill.PaidAt = settledAt;
+            bill.PaidAmount = paidAmount;
+            bill.SettlementProtocol = string.IsNullOrWhiteSpace(settlementProtocol) ? null : settlementProtocol.Trim();
+            bill.UpdatedAt = DateTime.UtcNow;
+
+            _billRepository.Update(bill);
+            await _billRepository.CommitAsync();
+
+            return bill;
+        }
+
+        /// <summary>
+        /// Cancels the order's live boleto and issues a fresh one.
+        /// </summary>
+        /// <remarks>
+        /// Supersede, never mutate: the payer may already be holding the old document, and a
+        /// silently edited due date leaves them with a barcode that no longer matches anything.
+        /// Cancelling first is also what frees the filtered unique index on OrderId so the new row
+        /// can be inserted at all.
+        /// </remarks>
+        public async Task<BillEntity?> ReissueAsync(Guid orderId, Guid enterpriseId)
+        {
+            if (orderId == Guid.Empty)
+                return null;
+
+            var order = await GetScopedOrderAsync(orderId, enterpriseId);
+            if (order == null)
+                return null;
+
+            var current = await _billRepositoryCustom.GetByOrderIdAsync(orderId);
+            if (current != null)
+            {
+                if (current.Status == BillStatus.Paid)
+                    throw new InsertDatabaseException("A settled bill cannot be reissued.");
+
+                current.Status = BillStatus.Cancelled;
+                current.UpdatedAt = DateTime.UtcNow;
+                _billRepository.Update(current);
+                await _billRepository.CommitAsync();
+            }
+
+            return await GenerateAsync(orderId, enterpriseId);
         }
 
         /// <summary>
@@ -300,7 +399,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 var customer = order.CustomerId.HasValue
                     ? await _customerRepository.GetByIdAsync(order.CustomerId.Value)
                     : null;
-                var billNet = BuildBill(order, customer);
+                // The stored NossoNumero, never a fresh allocation: this branch only re-renders a
+                // boleto the payer may already hold, and re-numbering it would make the barcode
+                // disagree with the title the bank was told about.
+                var billNet = BuildBill(order, customer, existing.OurNumber);
                 var billBancario = new BoletoBancario
                 {
                     Boleto = billNet,
@@ -408,7 +510,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return sharedBrowser;
         }
 
-        private BoletoNetCore.Boleto BuildBill(Order order, Customer? customer)
+        private BoletoNetCore.Boleto BuildBill(Order order, Customer? customer, string nossoNumero)
         {
             ValidateSettings();
 
@@ -459,7 +561,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 DataEmissao = DateTime.UtcNow,
                 DataProcessamento = DateTime.UtcNow,
                 ValorTitulo = Convert.ToDecimal(order.TotalValue),
-                NossoNumero = BuildNossoNumero(order),
+                NossoNumero = nossoNumero,
                 NumeroDocumento = BuildDocumentNumber(order),
                 EspecieDocumento = TipoEspecieDocumento.DM,
                 Pagador = pagador,
@@ -522,16 +624,106 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return WebUtility.HtmlEncode((value ?? string.Empty).Trim());
         }
 
-        private string BuildNossoNumero(Order order)
+        /// <summary>
+        /// Hands out the next NossoNumero for this enterprise's (bank, wallet) range, zero-padded to
+        /// the contracted field width.
+        /// </summary>
+        /// <remarks>
+        /// This used to be derived — the last N digits of the order GUID plus its creation
+        /// timestamp. Two different orders can produce the same N digits, and the value lands
+        /// wherever it lands rather than inside the range the convênio grants; a collision at the
+        /// bank rejects the title or credits the wrong one. Allocation is the only shape that is
+        /// both unique and in-range, so the counter is authoritative and the order id is not used
+        /// at all any more.
+        /// </remarks>
+        private async Task<string> AllocateNossoNumeroAsync(Guid enterpriseId)
         {
-            var raw = $"{order.Id:N}{order.CreatedAt:yyyyMMddHHmmss}";
-            var digits = new string(raw.Where(char.IsDigit).ToArray());
-            var length = _settings.NossoNumeroLength <= 0 ? 8 : _settings.NossoNumeroLength;
+            var length = NossoNumeroLength;
 
-            if (digits.Length < length)
-                digits = digits.PadLeft(length, '0');
+            var allocated = await _billRepositoryCustom.AllocateNextNumberAsync(
+                enterpriseId, _settings.BankCode, _settings.Wallet);
 
-            return digits.Substring(digits.Length - length, length);
+            if (allocated == null)
+            {
+                // No row yet, or the range ran out — the statement cannot tell those apart on its
+                // own, and they need opposite reactions: one is seeded here, the other must stop
+                // issuance loudly rather than emit a number the bank will not honour.
+                await EnsureSequenceAsync(enterpriseId);
+
+                allocated = await _billRepositoryCustom.AllocateNextNumberAsync(
+                    enterpriseId, _settings.BankCode, _settings.Wallet)
+                    ?? throw new InsertDatabaseException(
+                        "The NossoNumero range for this bank and wallet is exhausted. Raise BillNumberSequence.Ceiling to the value the convênio contracts.");
+            }
+
+            var number = allocated.Value.ToString(CultureInfo.InvariantCulture);
+
+            // Wider than the field the bank reads means a truncated, therefore wrong, title. The
+            // ceiling should already have stopped this; belt and braces because the ceiling is
+            // operator-configurable.
+            if (number.Length > length)
+                throw new InsertDatabaseException(
+                    $"Allocated NossoNumero {number} does not fit {length} digits. Check BillsSettings.NossoNumeroLength against the convênio.");
+
+            return number.PadLeft(length, '0');
+        }
+
+        private int NossoNumeroLength => _settings.NossoNumeroLength <= 0 ? 8 : _settings.NossoNumeroLength;
+
+        /// <summary>
+        /// Creates the counter row lazily, off the allocation statement, so allocation stays a
+        /// single atomic UPDATE with nothing to create under contention. An existing row is never
+        /// reset — a counter that restarted would re-issue numbers already handed to payers.
+        /// </summary>
+        private async Task EnsureSequenceAsync(Guid enterpriseId)
+        {
+            var existing = await _sequenceRepository.GetAllAsync(
+                x => x.EnterpriseId == enterpriseId
+                     && x.BankCode == _settings.BankCode
+                     && x.Wallet == _settings.Wallet);
+
+            if (existing.Any())
+                return;
+
+            var start = _settings.NossoNumeroStart <= 0 ? 1 : _settings.NossoNumeroStart;
+            var ceiling = _settings.NossoNumeroCeiling > 0
+                ? _settings.NossoNumeroCeiling
+                : WidestNumberFitting(NossoNumeroLength);
+
+            await _sequenceRepository.CreateAsync(new BillNumberSequence
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                BankCode = _settings.BankCode,
+                Wallet = _settings.Wallet,
+                NextNumber = start,
+                Ceiling = ceiling,
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true
+            });
+
+            try
+            {
+                await _sequenceRepository.CommitAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // Another instance seeded the same range first. Its row is the one that counts;
+                // the caller re-runs the allocation against it.
+                Log.Logger.Information(
+                    "Bill number sequence for enterprise {EnterpriseId} was seeded concurrently.",
+                    enterpriseId);
+            }
+        }
+
+        /// <summary>The largest value that still fits <paramref name="digits"/> digits, e.g. 8 -> 99999999.</summary>
+        private static long WidestNumberFitting(int digits)
+        {
+            var widest = 1L;
+            for (var index = 0; index < digits; index++)
+                widest *= 10;
+
+            return widest - 1;
         }
 
         private static string BuildDocumentNumber(Order order)
@@ -596,6 +788,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     (_orderRepository as IDisposable)?.Dispose();
                     (_customerRepository as IDisposable)?.Dispose();
                     (_enterpriseRepository as IDisposable)?.Dispose();
+                    (_sequenceRepository as IDisposable)?.Dispose();
                 }
 
                 disposed = true;

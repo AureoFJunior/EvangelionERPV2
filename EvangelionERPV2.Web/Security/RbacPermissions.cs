@@ -13,6 +13,8 @@ namespace EvangelionERPV2.Web.Security
             Bills.Read,
             Bills.Generate,
             Bills.DownloadPdf,
+            Bills.Settle,
+            Bills.Reissue,
 
             CashFlowForecast.Read,
             CashFlowForecast.Simulate,
@@ -107,6 +109,12 @@ namespace EvangelionERPV2.Web.Security
             public const string Read = "bills.read";
             public const string Generate = "bills.generate";
             public const string DownloadPdf = "bills.pdf.download";
+
+            // Money-state writes, split from Generate: issuing a document and declaring it paid
+            // are different levels of trust, and Settle is the one that moves the cash-flow
+            // forecast. Granted to Manager and above, never to Supervisor.
+            public const string Settle = "bills.settle";
+            public const string Reissue = "bills.reissue";
         }
 
         public static class CashFlowForecast

@@ -59,6 +59,12 @@ namespace EvangelionERPV2.Web.Security
 
             RbacPermissions.Customers.Delete,
 
+            // Declaring a boleto paid and superseding one are financial assertions nothing else
+            // verifies until CNAB retorno exists, so they start at Manager while issuing a boleto
+            // stays at Supervisor.
+            RbacPermissions.Bills.Settle,
+            RbacPermissions.Bills.Reissue,
+
             // Enterprise self-read exposes company-level financials (CurrentBalance), so it
             // starts at Manager instead of the base role set.
             RbacPermissions.Enterprise.ReadSelf,

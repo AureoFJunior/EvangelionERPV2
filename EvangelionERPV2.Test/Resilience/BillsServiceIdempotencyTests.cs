@@ -50,6 +50,10 @@ namespace EvangelionERPV2.Test.Resilience
                 .ReturnsAsync((Bill?)null)
                 .ReturnsAsync(existingBill);
 
+            billRepositoryCustomMock
+                .Setup(x => x.AllocateNextNumberAsync(enterpriseId, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(1L);
+
             billRepositoryMock
                 .Setup(x => x.CreateAsync(It.IsAny<Bill>()))
                 .ReturnsAsync((Bill bill) => bill);
@@ -66,6 +70,7 @@ namespace EvangelionERPV2.Test.Resilience
                 orderRepositoryMock.Object,
                 customerRepositoryMock.Object,
                 new Mock<IRepository<Enterprise>>().Object,
+                new Mock<IRepository<BillNumberSequence>>().Object,
                 () => new Mock<IEmailService<EmailStructure>>().Object,
                 Options.Create(settings));
 

@@ -35,6 +35,20 @@ namespace EvangelionERPV2.BillsModule.Application.Configs
         public int PrintType { get; set; } = 2;
         public int DocumentType { get; set; } = 1;
         public int NossoNumeroLength { get; set; } = 8;
+
+        /// <summary>
+        /// First NossoNumero of the range the convênio grants. Seeds the counter row the first time
+        /// a boleto is generated for an enterprise; changing it afterwards does nothing, because a
+        /// counter that restarted would re-issue numbers already handed to payers.
+        /// </summary>
+        public long NossoNumeroStart { get; set; } = 1;
+
+        /// <summary>
+        /// Last NossoNumero the convênio allows. 0 means "the widest value that still fits
+        /// <see cref="NossoNumeroLength"/> digits" — a safe default only because the number is
+        /// zero-padded to that length and a wider one would not fit the field at all.
+        /// </summary>
+        public long NossoNumeroCeiling { get; set; } = 0;
         public string Instructions { get; set; } = "";
         public string DefaultPayerDocument { get; set; } = "00000000000";
         public string DefaultPayerName { get; set; } = "Customer";

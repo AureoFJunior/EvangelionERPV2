@@ -243,6 +243,9 @@ namespace EvangelionERPV2.BillsModule.Test
             var enterpriseId = order.EnterpriseId!.Value;
 
             billRepoCustom.Setup(r => r.GetByOrderIdAsync(order.Id)).ReturnsAsync((BillEntity?)null);
+            billRepoCustom
+                .Setup(r => r.AllocateNextNumberAsync(enterpriseId, settings.BankCode, settings.Wallet, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(1L);
             orderRepo.Setup(r => r.GetByIdAsync(order.Id)).ReturnsAsync(order);
             customerRepo.Setup(r => r.GetByIdAsync(customerId)).ReturnsAsync(
                 new Customer("Customer", "11999999999", "customer@test.com", "Rua Teste", "11144477735") { Id = customerId });
@@ -257,6 +260,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 orderRepo.Object,
                 customerRepo.Object,
                 enterpriseRepo.Object,
+                new Mock<IRepository<BillNumberSequence>>().Object,
                 () => throw new InvalidOperationException("email stack is down"),
                 Options.Create(settings));
 
@@ -290,6 +294,9 @@ namespace EvangelionERPV2.BillsModule.Test
             };
 
             billRepoCustom.Setup(r => r.GetByOrderIdAsync(order.Id)).ReturnsAsync((BillEntity?)null);
+            billRepoCustom
+                .Setup(r => r.AllocateNextNumberAsync(enterpriseId, settings.BankCode, settings.Wallet, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(1L);
             orderRepo.Setup(r => r.GetByIdAsync(order.Id)).ReturnsAsync(order);
             customerRepo.Setup(r => r.GetByIdAsync(customerId)).ReturnsAsync(customer);
             enterpriseRepo.Setup(r => r.GetByIdAsync(enterpriseId)).ReturnsAsync(enterprise);
@@ -308,6 +315,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 orderRepo.Object,
                 customerRepo.Object,
                 enterpriseRepo.Object,
+                new Mock<IRepository<BillNumberSequence>>().Object,
                 () => emailService.Object,
                 Options.Create(settings));
 
@@ -361,12 +369,21 @@ namespace EvangelionERPV2.BillsModule.Test
             var billRepoCustom = new Mock<IBillsRepository<BillEntity>>();
             var orderRepo = new Mock<IRepository<Order>>();
             var customerRepo = new Mock<IRepository<Customer>>();
+
+            // Every generate path allocates, so the counter answers by default. Tests that care
+            // about the allocated value override this setup.
+            billRepoCustom
+                .Setup(r => r.AllocateNextNumberAsync(
+                    It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(1L);
+
             var service = new BillsService(
                 billRepo.Object,
                 billRepoCustom.Object,
                 orderRepo.Object,
                 customerRepo.Object,
                 new Mock<IRepository<Enterprise>>().Object,
+                new Mock<IRepository<BillNumberSequence>>().Object,
                 () => new Mock<IEmailService<EmailStructure>>().Object,
                 Options.Create(settings));
 

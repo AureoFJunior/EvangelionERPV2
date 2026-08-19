@@ -24,7 +24,13 @@ namespace EvangelionERPV2.Shared.Configs
                 config.CreateMap<Order, OrderDTO>()
                     .ForMember(dest => dest.CustomerName, opt => opt.MapFrom(src => src.Customer != null ? src.Customer.Name : null))
                     .ReverseMap();
-                config.CreateMap<Bill, BillDTO>().ReverseMap();
+                config.CreateMap<Bill, BillDTO>()
+                    // Overdue is derived from the clock, never stored — see Bill.StatusAsOf. Mapped
+                    // here so every read surface agrees instead of each caller deciding.
+                    .ForMember(dest => dest.Status, opt => opt.MapFrom(src => src.StatusAsOf(DateTime.UtcNow)))
+                    .ReverseMap()
+                    // Derived on the way out; it must never be written back onto the entity.
+                    .ForMember(dest => dest.Status, opt => opt.Ignore());
                 config.CreateMap<PayableBill, PayableBillDTO>().ReverseMap();
                 config.CreateMap<PayableBillProduct, PayableBillProductDTO>()
                     .ForMember(dest => dest.ProductName, opt => opt.MapFrom(src => src.Product != null ? src.Product.Name : string.Empty))
