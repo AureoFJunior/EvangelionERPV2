@@ -32,6 +32,18 @@ namespace EvangelionERPV2.Shared.Auditing
             _types.Select(type => type.Name),
             StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// The audited entity names as a collection, for use inside an EF query.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Contains(string)"/> is a custom static method, and EF cannot translate one:
+        /// a query filtering on it throws <c>InvalidOperationException</c> at execution time rather
+        /// than failing to compile. Filtering on this collection translates to an <c>IN (...)</c>.
+        /// Matching is case-insensitive here and follows the database collation in SQL, which for
+        /// this schema is also case-insensitive.
+        /// </remarks>
+        public static IReadOnlyCollection<string> Names => _entityNames;
+
         public static bool Contains(Type entityType)
         {
             return _types.Contains(entityType);

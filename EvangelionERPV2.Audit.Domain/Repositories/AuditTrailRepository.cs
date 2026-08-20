@@ -30,8 +30,11 @@ namespace EvangelionERPV2.AuditModule.Domain.Repositories
             IQueryable<AuditTrail> query = _context.Set<AuditTrail>()
                 .AsNoTracking()
                 .Include(x => x.User)
+                // AuditedEntities.Names, not AuditedEntities.Contains: EF cannot translate a
+                // custom static method, and the query threw at execution time rather than at
+                // compile time. This one becomes an IN (...).
                 .Where(x => x.EnterpriseId == enterpriseId
-                            && AuditedEntities.Contains(x.EntityName));
+                            && AuditedEntities.Names.Contains(x.EntityName));
 
             query = ApplyFilter(query, filter);
             query = descending ? query.OrderByDescending(x => x.ChangedAt) : query.OrderBy(x => x.ChangedAt);
@@ -57,7 +60,7 @@ namespace EvangelionERPV2.AuditModule.Domain.Repositories
                 .Include(x => x.User)
                 .FirstOrDefaultAsync(x => x.Id == id
                                           && x.EnterpriseId == enterpriseId
-                                          && AuditedEntities.Contains(x.EntityName));
+                                          && AuditedEntities.Names.Contains(x.EntityName));
         }
 
         public Task<int> DeleteOlderThanAsync(
