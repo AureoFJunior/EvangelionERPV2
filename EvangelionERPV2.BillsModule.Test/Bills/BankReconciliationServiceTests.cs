@@ -3,6 +3,7 @@ using System.Text;
 using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
+using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using Moq;
 
@@ -290,6 +291,131 @@ namespace EvangelionERPV2.BillsModule.Test
         /// genuinely sees what the first one wrote, which is what makes the idempotency test real
         /// rather than a restatement of the mock setup.
         /// </summary>
+        #region Resolving a line by hand
+
+        [Fact]
+        public async Task ResolveAsync_PointingADebitAtAPayable_ClearsItFromTheDesk()
+        {
+            var harness = new Harness();
+            var payableId = Guid.NewGuid();
+            harness.Payables.Add(new PayableBill
+            {
+                Id = payableId,
+                EnterpriseId = EnterpriseId,
+                Amount = 480.00m,
+                DueDate = new DateTime(2026, 7, 1),
+                IsActive = true
+            });
+
+            // Outside the ±3-day window, which is exactly why the importer left it: manual
+            // resolution must not re-apply the rule that could not take the line.
+            var line = harness.AddLine(amount: -480.00m, postedAt: new DateTime(2026, 8, 8));
+
+            var resolved = await harness.Service.ResolveAsync(EnterpriseId, line.Id, payableId);
+
+            Assert.Equal(nameof(BankStatementLineStatus.Matched), resolved.Status);
+            Assert.Equal(payableId, resolved.MatchedReferenceId);
+            Assert.Empty(await harness.Service.GetUnclearedAsync(EnterpriseId));
+        }
+
+        [Fact]
+        public async Task ResolveAsync_WithNoDocument_MarksTheLineIgnored()
+        {
+            // A bank fee corresponds to nothing in the ERP. Without this the list can never empty.
+            var harness = new Harness();
+            var line = harness.AddLine(amount: -32.90m, postedAt: new DateTime(2026, 8, 8));
+
+            var resolved = await harness.Service.ResolveAsync(EnterpriseId, line.Id, matchedReferenceId: null);
+
+            Assert.Equal(nameof(BankStatementLineStatus.Ignored), resolved.Status);
+            Assert.Null(resolved.MatchedReferenceId);
+            Assert.Empty(await harness.Service.GetUnclearedAsync(EnterpriseId));
+            Assert.Equal(0, (await harness.Service.GetVarianceAsync(EnterpriseId)).UnclearedLines);
+        }
+
+        [Fact]
+        public async Task ResolveAsync_AfterBeingIgnored_CanStillBeMatched()
+        {
+            // Nothing here moves money, so a mistaken judgement has to be correctable.
+            var harness = new Harness();
+            var payableId = Guid.NewGuid();
+            harness.Payables.Add(new PayableBill
+            {
+                Id = payableId,
+                EnterpriseId = EnterpriseId,
+                Amount = 100.00m,
+                DueDate = new DateTime(2026, 8, 8),
+                IsActive = true
+            });
+
+            var line = harness.AddLine(amount: -100.00m, postedAt: new DateTime(2026, 8, 8));
+
+            await harness.Service.ResolveAsync(EnterpriseId, line.Id, matchedReferenceId: null);
+            var resolved = await harness.Service.ResolveAsync(EnterpriseId, line.Id, payableId);
+
+            Assert.Equal(nameof(BankStatementLineStatus.Matched), resolved.Status);
+            Assert.Equal(payableId, resolved.MatchedReferenceId);
+        }
+
+        [Fact]
+        public async Task ResolveAsync_ACreditPointedAtAPayable_IsRefused()
+        {
+            // Money arriving can only settle a receivable. Allowing this would reconcile two
+            // documents in opposite directions off one typo.
+            var harness = new Harness();
+            var payableId = Guid.NewGuid();
+            harness.Payables.Add(new PayableBill
+            {
+                Id = payableId,
+                EnterpriseId = EnterpriseId,
+                Amount = 100.00m,
+                DueDate = new DateTime(2026, 8, 8),
+                IsActive = true
+            });
+
+            var line = harness.AddLine(amount: 100.00m, postedAt: new DateTime(2026, 8, 8));
+
+            await Assert.ThrowsAsync<NotFoundDatabaseException>(
+                () => harness.Service.ResolveAsync(EnterpriseId, line.Id, payableId));
+        }
+
+        [Fact]
+        public async Task ResolveAsync_ADocumentAlreadyClaimedByAnotherLine_IsRefused()
+        {
+            // Two statement lines pointing at one invoice would reconcile the same money twice.
+            var harness = new Harness();
+            var payableId = Guid.NewGuid();
+            harness.Payables.Add(new PayableBill
+            {
+                Id = payableId,
+                EnterpriseId = EnterpriseId,
+                Amount = 100.00m,
+                DueDate = new DateTime(2026, 8, 8),
+                IsActive = true
+            });
+
+            var first = harness.AddLine(amount: -100.00m, postedAt: new DateTime(2026, 8, 8));
+            var second = harness.AddLine(amount: -100.00m, postedAt: new DateTime(2026, 8, 9));
+
+            await harness.Service.ResolveAsync(EnterpriseId, first.Id, payableId);
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => harness.Service.ResolveAsync(EnterpriseId, second.Id, payableId));
+        }
+
+        [Fact]
+        public async Task ResolveAsync_AnotherTenantsLine_IsNotFound()
+        {
+            var harness = new Harness();
+            var line = harness.AddLine(amount: -100.00m, postedAt: new DateTime(2026, 8, 8));
+            line.EnterpriseId = Guid.NewGuid();
+
+            await Assert.ThrowsAsync<NotFoundDatabaseException>(
+                () => harness.Service.ResolveAsync(EnterpriseId, line.Id, matchedReferenceId: null));
+        }
+
+        #endregion
+
         private sealed class Harness
         {
             public List<BankStatementLine> Lines { get; } = [];
@@ -298,6 +424,29 @@ namespace EvangelionERPV2.BillsModule.Test
             public List<PayableBill> Payables { get; } = [];
             public Enterprise Enterprise { get; }
             public BankReconciliationService Service { get; }
+
+            /// <summary>A statement line already sitting on the desk, as an import would have left it.</summary>
+            public BankStatementLine AddLine(decimal amount, DateTime postedAt)
+            {
+                var line = new BankStatementLine
+                {
+                    Id = Guid.NewGuid(),
+                    EnterpriseId = EnterpriseId,
+                    ImportId = Guid.NewGuid(),
+                    BankId = "001",
+                    AccountId = "12345",
+                    FitId = Guid.NewGuid().ToString("N"),
+                    PostedAt = postedAt,
+                    Amount = amount,
+                    TrnType = amount > 0 ? "CREDIT" : "DEBIT",
+                    Memo = "M",
+                    Status = (int)BankStatementLineStatus.Unmatched,
+                    IsActive = true
+                };
+
+                Lines.Add(line);
+                return line;
+            }
 
             public Harness(decimal currentBalance = 0m)
             {
@@ -312,6 +461,15 @@ namespace EvangelionERPV2.BillsModule.Test
                     .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<BankStatementLine, bool>>>()))
                     .ReturnsAsync((int? _, int? _, Expression<Func<BankStatementLine, bool>>? predicate) =>
                         Lines.Where(predicate!.Compile()).ToList());
+                lineRepository
+                    .Setup(x => x.GetByIdAsync(It.IsAny<Guid>()))
+                    .ReturnsAsync((Guid id) => Lines.FirstOrDefault(line => line.Id == id)!);
+                lineRepository
+                    .Setup(x => x.Update(It.IsAny<BankStatementLine>()))
+                    .Returns((BankStatementLine line) => line);
+                lineRepository
+                    .Setup(x => x.CommitAsync(It.IsAny<CancellationToken>()))
+                    .Returns(Task.CompletedTask);
                 lineRepository
                     .Setup(x => x.CreateRangeAsync(It.IsAny<IEnumerable<BankStatementLine>>()))
                     .ReturnsAsync((IEnumerable<BankStatementLine> created) =>

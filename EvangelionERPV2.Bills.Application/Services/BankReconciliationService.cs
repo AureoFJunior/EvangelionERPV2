@@ -2,6 +2,7 @@ using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
+using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 
 namespace EvangelionERPV2.BillsModule.Application.Services
@@ -229,23 +230,121 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 NormalizePageSize(pageSize),
                 line => line.EnterpriseId == enterpriseId
                     && line.IsActive == true
-                    && line.Status != (int)BankStatementLineStatus.Matched);
+                    && (line.Status == (int)BankStatementLineStatus.Unmatched
+                        || line.Status == (int)BankStatementLineStatus.Ambiguous));
 
             return lines
                 .OrderBy(line => line.PostedAt)
-                .Select(line => new BankStatementLineDTO
-                {
-                    Id = line.Id,
-                    FitId = line.FitId,
-                    PostedAt = line.PostedAt,
-                    Amount = line.Amount,
-                    TrnType = line.TrnType,
-                    Memo = line.Memo,
-                    Status = ((BankStatementLineStatus)line.Status).ToString(),
-                    MatchedReferenceId = line.MatchedReferenceId
-                })
+                .Select(Map)
                 .ToList();
         }
+
+        /// <summary>
+        /// Clears one line a human has judged: pointed at the document it settles, or marked as
+        /// corresponding to nothing in the ERP.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Deliberately does not re-apply the import-time rule — see
+        /// <see cref="ResolveBankStatementLineRequestDTO"/>. Every line that reaches here is one the
+        /// automatic match could not take, so re-checking amount and window would refuse them all.
+        /// </para>
+        /// <para>
+        /// A line already Matched or Ignored can be resolved again. Nothing here moves money, so a
+        /// mistaken judgement has to be correctable; the audit trail carries who changed what.
+        /// </para>
+        /// </remarks>
+        public async Task<BankStatementLineDTO> ResolveAsync(
+            Guid enterpriseId,
+            Guid lineId,
+            Guid? matchedReferenceId,
+            CancellationToken cancellationToken = default)
+        {
+            if (enterpriseId == Guid.Empty)
+                throw new InsertDatabaseException("Bank reconciliation enterprise is required.");
+
+            var line = await _lineRepository.GetByIdAsync(lineId);
+
+            // Tenant scoped here as well as by the ambient filter: this is a write, and a line id
+            // is guessable in a way an enterprise id is not.
+            if (line == null || line.IsActive != true || line.EnterpriseId != enterpriseId)
+                throw new NotFoundDatabaseException($"{nameof(BankStatementLine)} was not found in database.");
+
+            if (matchedReferenceId.HasValue)
+            {
+                await EnsureReferenceIsClaimableAsync(enterpriseId, line, matchedReferenceId.Value);
+
+                line.Status = (int)BankStatementLineStatus.Matched;
+                line.MatchedReferenceId = matchedReferenceId.Value;
+            }
+            else
+            {
+                // The reference is dropped, not kept: a line the human says corresponds to nothing
+                // must not leave a stale claim behind holding a document hostage.
+                line.Status = (int)BankStatementLineStatus.Ignored;
+                line.MatchedReferenceId = null;
+            }
+
+            line.UpdatedAt = DateTime.UtcNow;
+
+            _lineRepository.Update(line);
+            await _lineRepository.CommitAsync(cancellationToken);
+
+            return Map(line);
+        }
+
+        /// <summary>
+        /// The document has to exist, belong to this tenant, sit on the side of the statement the
+        /// line's sign implies, and not already be claimed by a different line.
+        /// </summary>
+        /// <remarks>
+        /// The sign check is not pedantry: money arriving can only settle a receivable and money
+        /// leaving can only settle a payable, so a credit pointed at a payable is a typo that would
+        /// otherwise reconcile two documents in opposite directions.
+        /// </remarks>
+        private async Task EnsureReferenceIsClaimableAsync(Guid enterpriseId, BankStatementLine line, Guid referenceId)
+        {
+            if (referenceId == Guid.Empty)
+                throw new InsertDatabaseException("A document is required to match a statement line.");
+
+            if (line.Amount == 0)
+                throw new InsertDatabaseException("A zero-amount statement line settles no document.");
+
+            var exists = line.Amount > 0
+                ? (await _orderRepository.GetAllAsync(order =>
+                        order.Id == referenceId && order.EnterpriseId == enterpriseId && order.IsActive == true)).Any()
+                : (await _payableBillRepository.GetAllAsync(payable =>
+                        payable.Id == referenceId && payable.EnterpriseId == enterpriseId && payable.IsActive == true)).Any();
+
+            if (!exists)
+            {
+                throw new NotFoundDatabaseException(line.Amount > 0
+                    ? "No order of this company matches that reference."
+                    : "No payable bill of this company matches that reference.");
+            }
+
+            var claimedElsewhere = (await _lineRepository.GetAllAsync(other =>
+                    other.EnterpriseId == enterpriseId
+                    && other.IsActive == true
+                    && other.Id != line.Id
+                    && other.MatchedReferenceId == referenceId))
+                .Any();
+
+            if (claimedElsewhere)
+                throw new InsertDatabaseException("That document is already reconciled against another statement line.");
+        }
+
+        private static BankStatementLineDTO Map(BankStatementLine line) => new()
+        {
+            Id = line.Id,
+            FitId = line.FitId,
+            PostedAt = line.PostedAt,
+            Amount = line.Amount,
+            TrnType = line.TrnType,
+            Memo = line.Memo,
+            Status = ((BankStatementLineStatus)line.Status).ToString(),
+            MatchedReferenceId = line.MatchedReferenceId
+        };
 
         public async Task<BankReconciliationVarianceDTO> GetVarianceAsync(Guid enterpriseId)
         {
@@ -261,7 +360,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var uncleared = (await _lineRepository.GetAllAsync(line =>
                     line.EnterpriseId == enterpriseId
                     && line.IsActive == true
-                    && line.Status != (int)BankStatementLineStatus.Matched))
+                    && (line.Status == (int)BankStatementLineStatus.Unmatched
+                        || line.Status == (int)BankStatementLineStatus.Ambiguous)))
                 .Count();
 
             return new BankReconciliationVarianceDTO

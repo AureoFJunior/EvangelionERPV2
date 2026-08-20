@@ -101,6 +101,60 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
+        /// Point one statement line at the document it settles — an Order for money in, a
+        /// PayableBill for money out.
+        /// </summary>
+        /// <remarks>
+        /// The import's amount-and-window rule is not re-applied: every line that gets here is one
+        /// that rule could not take. See <see cref="ResolveBankStatementLineRequestDTO"/>.
+        /// </remarks>
+        [Authorize(Policy = RbacPolicies.BankReconciliation.Resolve)]
+        [HttpPut]
+        [ProducesResponseType(typeof(BankStatementLineDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> MatchLine([FromBody] ResolveBankStatementLineRequestDTO request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            return Ok(await _bankReconciliationService.ResolveAsync(
+                enterpriseId, request.LineId, request.MatchedReferenceId, HttpContext.RequestAborted));
+        }
+
+        /// <summary>
+        /// Clear a line that corresponds to no ERP document — a bank fee, a tax debit, a transfer
+        /// between the company's own accounts.
+        /// </summary>
+        /// <remarks>
+        /// Without this the uncleared list can never empty, because those lines have nothing to be
+        /// matched to. It is reversible: a line marked here can still be matched afterwards.
+        /// </remarks>
+        [Authorize(Policy = RbacPolicies.BankReconciliation.Resolve)]
+        [HttpPut]
+        [ProducesResponseType(typeof(BankStatementLineDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> IgnoreLine([FromBody] IgnoreBankStatementLineRequestDTO request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            return Ok(await _bankReconciliationService.ResolveAsync(
+                enterpriseId, request.LineId, matchedReferenceId: null, HttpContext.RequestAborted));
+        }
+
+        /// <summary>
         /// The app-computed balance, the bank's closing balance, and the gap between them.
         /// </summary>
         [Authorize(Policy = RbacPolicies.BankReconciliation.Read)]

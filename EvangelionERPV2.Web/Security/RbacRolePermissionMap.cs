@@ -73,6 +73,7 @@ namespace EvangelionERPV2.Web.Security
             // payables — not with customers and products at Supervisor.
             RbacPermissions.BankReconciliation.Read,
             RbacPermissions.BankReconciliation.Import,
+            RbacPermissions.BankReconciliation.Resolve,
 
             // Declaring a boleto paid and superseding one are financial assertions nothing else
             // verifies until CNAB retorno exists, so they start at Manager while issuing a boleto

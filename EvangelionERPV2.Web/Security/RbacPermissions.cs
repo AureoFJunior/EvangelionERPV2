@@ -12,6 +12,7 @@ namespace EvangelionERPV2.Web.Security
 
             BankReconciliation.Read,
             BankReconciliation.Import,
+            BankReconciliation.Resolve,
 
             Bills.Read,
             Bills.Generate,
@@ -134,6 +135,13 @@ namespace EvangelionERPV2.Web.Security
             // Enterprise.CurrentBalance. Kept at the same tier as Read because whoever reconciles
             // is whoever uploads, and splitting them would only mean nobody can finish the job.
             public const string Import = "bank-reconciliation.import";
+
+            // Resolving is the human half of the same job as Import — the import leaves the lines
+            // it could not judge, and this clears them. Same tier for the same reason: whoever
+            // uploads the statement is whoever works the leftovers, and a split would leave the
+            // list permanently full. Still a contained write: it labels evidence, it does not move
+            // money or touch Enterprise.CurrentBalance.
+            public const string Resolve = "bank-reconciliation.resolve";
         }
 
         public static class Bills

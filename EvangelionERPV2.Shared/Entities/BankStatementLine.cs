@@ -20,7 +20,14 @@ namespace EvangelionERPV2.Shared.Entities
         /// amounts by date proximity would silently reconcile the wrong document, and a wrong match
         /// is worse than no match because it stops looking like work.
         /// </summary>
-        Ambiguous = 3
+        Ambiguous = 3,
+
+        /// <summary>
+        /// A human decided no ERP document corresponds to this line — a bank fee, a tax debit, a
+        /// transfer between the company's own accounts. Cleared from the desk without inventing a
+        /// match. Appended, never inserted: the value goes on the wire.
+        /// </summary>
+        Ignored = 4
     }
 
     /// <summary>
