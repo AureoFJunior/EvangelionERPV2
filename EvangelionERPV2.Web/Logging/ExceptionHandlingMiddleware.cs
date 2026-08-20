@@ -29,7 +29,7 @@ namespace EvangelionERPV2.Web.Logging
             }
             catch (Exception ex)
             {
-                LogException(ex, context);
+                LogException(ex, context, _environment);
                 var statusCode = GetStatusCodeFromException(ex);
 
                 if (context.Response.HasStarted)
@@ -56,7 +56,7 @@ namespace EvangelionERPV2.Web.Logging
             }
         }
 
-        private static void LogException(Exception ex, HttpContext context)
+        private static void LogException(Exception ex, HttpContext context, IHostEnvironment environment)
         {
             var sanitizedPath = SanitizeEndpointPath(context.Request.Path);
 
@@ -69,6 +69,23 @@ namespace EvangelionERPV2.Web.Logging
                     context.TraceIdentifier,
                     GetSafeExceptionType(ex),
                     GetSafeExceptionChain(ex),
+                    ex.TargetSite?.DeclaringType?.FullName ?? "Unknown");
+                return;
+            }
+
+            if (environment.IsDevelopment())
+            {
+                // Development only. A 400 whose cause is logged as a bare type name cannot be
+                // debugged at all — the message is the only thing that says which rule rejected the
+                // request. It stays out of every other environment because these messages can echo
+                // submitted values back.
+                Log.Logger.Warning(
+                    "Handled client exception. Method={Method}, Path={Path}, TraceId={TraceId}, ErrorType={ErrorType}, ErrorMessage={ErrorMessage}, Source={Source}",
+                    context.Request.Method,
+                    sanitizedPath,
+                    context.TraceIdentifier,
+                    GetSafeExceptionType(ex),
+                    ex.Message,
                     ex.TargetSite?.DeclaringType?.FullName ?? "Unknown");
                 return;
             }

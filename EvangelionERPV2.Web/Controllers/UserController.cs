@@ -614,7 +614,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (existentUser == null || existentUser.IsActive != true || existentUser.EnterpriseId != enterpriseId)
                     return NoContent();
 
-                if (!Enum.IsDefined(typeof(EnumAccessLevel), request.AccessLevel))
+                // (int), not the raw short: Enum.IsDefined(Type, object) demands the enum's own
+                // underlying type, and EnumAccessLevel is backed by int while the wire carries a
+                // short. Without the cast every single update threw ArgumentException, which the
+                // middleware turned into a generic 400 — user editing was impossible.
+                if (!Enum.IsDefined(typeof(EnumAccessLevel), (int)request.AccessLevel))
                     return BadRequest("Invalid access level.");
 
                 // The stored row is the base, so the tenant, the login state and the audit columns

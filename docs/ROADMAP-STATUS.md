@@ -110,6 +110,12 @@ only means anything against a running stack.
 
 ## Open follow-ons left by finished milestones
 
+- **Users**: `DeleteUser` is a **hard** delete — the only one in the system; everything else flips
+  `IsActive`. `AuditTrails.UserId` is `SET NULL`, so the history survives but stops naming who made the
+  change, and `FK_Order_User_UserId` is `NO_ACTION`, so deleting a user who ever placed an order fails
+  with a foreign-key error rather than a message. Making it a soft delete is a behaviour decision, not a
+  cleanup; the admin screen's copy now tells the truth about what the button does.
+
 - **M12**: ~~no resolution endpoint~~ — **closed by M13**. `BankReconciliation/MatchLine` points a line at
   an Order or PayableBill; `IgnoreLine` clears a line that answers to no ERP document (a fee, a tax, a
   transfer between the company's own accounts) via the new `BankStatementLineStatus.Ignored`. Both sit
