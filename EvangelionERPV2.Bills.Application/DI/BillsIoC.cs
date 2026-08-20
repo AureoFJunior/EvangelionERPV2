@@ -63,6 +63,11 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 services.AddScoped<IPayableBillReportGeneratorService, PayableBillReportGeneratorService>();
                 services.AddScoped<ICashFlowForecastService, CashFlowForecastService>();
                 services.AddScoped<IBankReconciliationService, BankReconciliationService>();
+
+                // Concrete, no interface: férias pay is its only caller, and the drawdown is a
+                // consequence of creating that bill rather than a capability anything else asks for.
+                services.AddScoped<VacationProvisionDrawdownService>();
+                services.AddScoped<IVacationPayService, VacationPayService>();
                 #endregion
 
                 services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));

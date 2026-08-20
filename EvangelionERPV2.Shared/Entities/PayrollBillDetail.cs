@@ -25,6 +25,20 @@ namespace EvangelionERPV2.Shared.Entities
         [Column(TypeName = "decimal(18,2)")]
         public decimal VacationProvision { get; set; }
 
+        /// <summary>
+        /// How much of this month's <see cref="VacationProvision"/> a férias payment has already
+        /// drawn down.
+        /// </summary>
+        /// <remarks>
+        /// The provision accrues monthly and the férias bill consumes it, so the forecast must read
+        /// the remainder rather than the accrual — otherwise the same money is counted twice, once
+        /// as a provision still owed and once as cash already going out. Stored per competência
+        /// rather than as one running total on the accrual because a split férias draws on several
+        /// months and the allocation has to stay auditable after the fact.
+        /// </remarks>
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal VacationProvisionConsumed { get; set; }
+
         [Column(TypeName = "decimal(18,2)")]
         public decimal InssAmount { get; set; }
 

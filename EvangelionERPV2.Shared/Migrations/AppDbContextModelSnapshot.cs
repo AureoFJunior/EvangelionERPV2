@@ -1642,6 +1642,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime>("DueDate")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid?>("EmployeeVacationAccrualId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("EnterpriseId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1670,6 +1673,9 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("EmployeeVacationAccrualId")
+                        .HasFilter("[EmployeeVacationAccrualId] IS NOT NULL");
 
                     b.HasIndex("SupplierId");
 
@@ -1784,6 +1790,10 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<decimal>("VacationProvision")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("VacationProvisionConsumed")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
@@ -2401,6 +2411,11 @@ namespace EvangelionERPV2.Shared.Migrations
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PayableBill", b =>
                 {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.EmployeeVacationAccrual", "EmployeeVacationAccrual")
+                        .WithMany()
+                        .HasForeignKey("EmployeeVacationAccrualId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
                         .WithMany()
                         .HasForeignKey("EnterpriseId")
@@ -2410,6 +2425,8 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasOne("EvangelionERPV2.Shared.Entities.Supplier", "Supplier")
                         .WithMany()
                         .HasForeignKey("SupplierId");
+
+                    b.Navigation("EmployeeVacationAccrual");
 
                     b.Navigation("Enterprise");
 

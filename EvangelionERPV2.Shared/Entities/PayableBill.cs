@@ -28,6 +28,20 @@ namespace EvangelionERPV2.Shared.Entities
         public Guid? SupplierId { get; set; } = null;
         public virtual Supplier? Supplier { get; set; } = null;
 
+        /// <summary>
+        /// Set only on a <c>BillType = Vacation</c> bill: the período aquisitivo it pays out.
+        /// </summary>
+        /// <remarks>
+        /// A direct FK rather than a side table, because a férias bill pays exactly one accrual and
+        /// the link is what makes the provision drawdown auditable — without it, "which months did
+        /// this payment consume" is a guess. Nullable and Restrict for the same reasons
+        /// <see cref="SupplierId"/> is: every other kind of payable has no accrual at all, and an
+        /// accrual that was paid out must outlive any attempt to hard-delete it.
+        /// </remarks>
+        [ForeignKey(nameof(EmployeeVacationAccrual))]
+        public Guid? EmployeeVacationAccrualId { get; set; } = null;
+        public virtual EmployeeVacationAccrual? EmployeeVacationAccrual { get; set; } = null;
+
         public virtual ICollection<PayableBillProduct>? Items { get; set; }
     }
 }

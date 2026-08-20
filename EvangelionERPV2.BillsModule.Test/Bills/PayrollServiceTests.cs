@@ -728,6 +728,35 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(4866.17m, breakdown.TotalCost);
         }
 
+        /// <summary>
+        /// The double-payment guard. Férias days are paid separately and up front by
+        /// <c>VacationPayService</c>, so the competência must stop paying ordinary salary for them —
+        /// see the blockquote in docs/employee/SPEC-hr-module.md §4 P5.
+        /// </summary>
+        [Fact]
+        public async Task GeneratePayrollAsync_WithScheduledFerias_ShouldNotPayThoseDaysAgain()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+
+            // Justified, because férias are paid leave — the reduction has to come from the kind,
+            // not from IsJustified. Marking the row unjustified instead would make CLT art. 130
+            // count férias as faltas and shrink next year's entitlement.
+            var ferias = BuildAbsence(employee, EnumEmployeeAbsenceType.Vacation, 6, 15, isJustified: true);
+
+            var (sut, _) = BuildSut(employees: [employee], absences: [ferias]);
+
+            var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
+
+            // 10 férias days out of 31: ordinary payroll owes the other 21.
+            Assert.Equal(2032.26m, breakdown.GrossSalary);
+
+            // And the two halves reconcile to exactly one month of salary, not two. The férias bill
+            // pays 3000 * 10/31 on top of this, plus its own 1/3.
+            var feriasSalaryPortion = Math.Round(3000m * 10 / 31, 2, MidpointRounding.AwayFromZero);
+            Assert.Equal(3000m, breakdown.GrossSalary + feriasSalaryPortion);
+        }
+
         [Fact]
         public async Task GeneratePayrollAsync_WithOverlappingFaltas_ShouldCountEachDayOnce()
         {

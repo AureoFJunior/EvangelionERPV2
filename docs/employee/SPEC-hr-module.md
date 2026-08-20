@@ -199,6 +199,23 @@ what to do with an absence.
 > faltas, so it would make taking férias shrink the *next* year's entitlement. `VacationEntitlement`
 > already excludes `Vacation` by type as well, so that stays true either way.
 
+### P5a — Net the férias bill against the consumed provision — **DECIDED, NOT YET BUILT**
+
+Answered by Aureo 2026-08-20, after P5 landed. The monthly payroll `PayableBill` sets
+`Amount = detail.TotalCost`, and `TotalCost` already includes `VacationProvision` — so the provision is
+**already projected as cash leaving, every month**. Once a férias bill exists the same money is projected
+twice. The chosen fix is to **net the férias bill down**: its `Amount` becomes
+`(salary + 1/3 + abono) − VacationProvisionConsumed`. Historical payroll bills are untouched; the
+alternative (dropping the provision from payroll `Amount`) would have moved every existing bill's amount.
+
+**The trap in implementing it.** `VacationProvisionDrawdownService.RecalculateAsync` sums the *standing
+férias bills* and allocates that total across competências. Netting the bill's `Amount` makes that sum the
+netted figure, so the drawdown would allocate against its own output and converge on the wrong number.
+The allocation must run on the **gross** entitlement (salary + 1/3 + abono) while `Amount` carries the
+netted figure. That means the gross has to be recoverable from the bill — today it is not stored anywhere,
+so this needs either a column or a recomputation from the accrual at drawdown time. Decide which before
+writing it; it is the only reason this was not done in the same pass.
+
 ### P5 — Férias pay
 
 Lives in **Bills, next to `PayrollService`**, not in the Employee module — the precedent is already set,

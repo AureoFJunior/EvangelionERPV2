@@ -398,10 +398,19 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// rejected one costs the day like any other falta.</item>
         /// <item>An advertência is a disciplinary record, not unworked time. It never costs a day
         /// on its own — if the employee also missed work, that is a falta row of its own.</item>
+        /// <item>Férias reduce the competência regardless of <c>IsJustified</c>, because they are
+        /// paid <em>separately and up front</em> by <see cref="VacationPayService"/> at salary plus
+        /// the 1/3 constitucional. Leaving them in would pay the salary portion twice — the trap
+        /// docs/employee/SPEC-hr-module.md §4 P5 is written around. Note that the fix is here and
+        /// not on the absence row: writing <c>IsJustified = false</c> instead would make art. 130
+        /// count férias as faltas and shrink the next year's entitlement.</item>
         /// </list>
         /// </remarks>
         private static bool ReducesPay(EmployeeAbsence absence)
         {
+            if (absence.Type == (int)EnumEmployeeAbsenceType.Vacation)
+                return true;
+
             return !absence.IsJustified
                 && absence.Type != (int)EnumEmployeeAbsenceType.Advertencia;
         }

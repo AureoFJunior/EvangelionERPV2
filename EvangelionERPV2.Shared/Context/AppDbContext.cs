@@ -188,6 +188,21 @@ namespace EvangelionERPV2.Shared.Context
                 .HasForeignKey(accrual => accrual.EmployeeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Restrict again: an accrual that has been paid out is the evidence behind the payment,
+            // so it must outlive any attempt to hard-delete it.
+            modelBuilder.Entity<PayableBill>()
+                .HasOne(bill => bill.EmployeeVacationAccrual)
+                .WithMany()
+                .HasForeignKey(bill => bill.EmployeeVacationAccrualId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Filtered, because only a férias bill carries the link and every other payable would
+            // otherwise pile NULLs into the index. Declared fluently — [Index] cannot express
+            // HasFilter, same as the PayrollBillDetail competência index below.
+            modelBuilder.Entity<PayableBill>()
+                .HasIndex(bill => bill.EmployeeVacationAccrualId)
+                .HasFilter("[EmployeeVacationAccrualId] IS NOT NULL");
+
             // Transactional guard against concurrent GeneratePayroll calls double-billing the
             // same employee for the same competência. Filtered so soft-deleted rows do not block
             // a regeneration.

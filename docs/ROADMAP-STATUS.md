@@ -13,10 +13,10 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | | |
 |---|---|
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
-| Head at stop | M11 P4 férias ledger, on top of the M6 transport commit |
+| Head at stop | M11 P5 férias pay |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1076 passing / 0 failing** across 12 assemblies (916 before M6, 1006 before M11 P4) |
-| Migrations | chain ends `…160000_AddBankReconciliation` → `20260820100000_AddCustomerFiscalAddress` → `20260820110000_AddEmployeeVacationAccrual` |
+| Tests | **1106 passing / 0 failing** across 12 assemblies (916 before M6, 1006 before M11 P4, 1076 before P5) |
+| Migrations | chain ends `20260820100000_AddCustomerFiscalAddress` → `20260820110000_AddEmployeeVacationAccrual` → `20260820130000_AddVacationPayLinks` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers**, verified 0 on the branch |
 
 ## Milestones
@@ -34,39 +34,26 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | M8 | Suppliers | **Done** | `57f69a9` |
 | M9 | Per-tenant billing + CNAB | Not started, gated on a bank | |
 | M10 | HR — absences, atestados, advertências | **Done** | `5b7ab82` |
-| M11 | HR — férias ledger and férias pay | **P4 done 2026-08-20** (ledger, entitlement, scheduling, abono, lapse sweeper). **P5 — férias pay — not started** | this branch's M11 P4 commit |
+| M11 | HR — férias ledger and férias pay | **P4 + P5 done 2026-08-20.** One follow-up decided but unbuilt: netting the férias bill against the consumed provision (SPEC-hr-module §4 P5a) | M11 P4 + M11 P5 commits |
 | M12 | Bank reconciliation | **Done** | `faccd6c` |
 | M13 | Admin surfaces + test debt | Not started | |
 
-## Resume here: M11 P5 — férias pay
+## Resume here: M11 P5a — net the férias bill against the consumed provision
 
-P4 is done: `EmployeeVacationAccrual`, the art. 130 entitlement table, art. 134 §1 scheduling, art. 143
-abono, and the concessivo lapse sweeper on M5's `LeasedScheduleWorker`. P5 is what turns the ledger into
-money, and it lives in **`Bills.Application`, beside `PayrollService`** — not in the Employee module.
-Employee owns *when* the férias happen; Bills owns *what they cost*.
+P5 shipped: `VacationPay` money rules, `VacationPayService` creating one `PayableBill` per férias stretch
+with the art. 145 due date, the `PayrollService.ReducesPay` branch that stops the salary being paid twice,
+and `VacationProvisionDrawdownService` writing `VacationProvisionConsumed` oldest-competência-first.
 
-**The accounting question is answered.** The férias payment **consumes** the accrued `VacationProvision`
-(`docs/employee/SPEC-hr-module.md` §9 H1, closed 2026-08-20), so the forecast shows the liability
-shrinking rather than counting the same money twice. The drawdown needs a back-link from the payment to
-the competências it consumes: período → competências → `PayrollBillDetail`, via the accrual. Not a new
-column on the bill.
+**One decided change is still unbuilt, and it is the first thing to do.** The monthly payroll bill's
+`Amount` already includes the férias provision, so the money is now projected twice — once monthly, once
+when the férias bill is due. Aureo chose to net the férias bill down rather than change historical payroll
+amounts. **Read `docs/employee/SPEC-hr-module.md` §4 P5a before touching it**: the drawdown currently sums
+the standing bills, so netting `Amount` naively makes the allocation feed on its own output. The gross
+entitlement has to stay recoverable.
 
-**Two things must ship inside P5's own PR or the company pays twice:**
-
-1. `PayrollService.ReducesPay` is `!IsJustified && Type != Advertencia`. P4's férias absences are
-   `IsJustified = true`, so payroll still pays those days — correct today, because no férias bill exists
-   and reducing would underpay. The moment a férias `PayableBill` lands, that is the exact trap
-   `SPEC-hr-module.md` §4 P5 warns about. One-line branch.
-2. Append `Vacation` to `EnumPayableBillType` — **append, never insert**; the values go on the wire.
-
-Also still open, and not P4's to fix: **there is no overlap rejection on absences.** M10 handled overlap
-by set-union in `CountUnpaidDays` rather than by rejecting it, which was enough for pay but means férias
-can now be scheduled across days an employee is already signed off sick. Deciding what an atestado does
-to férias already under way is the real work and belongs to `EmployeeAbsenceService`.
-
-Otherwise: **M13** (admin surfaces + test debt, including M12's missing resolution endpoint), or buy the
-A1 certificate (§M1) and answer §M13 to unblock verifying M6. Do **not** start M7 — phases 5–9 all
-consume SEFAZ's answers, and building on an unverified cStat mapping compounds guesswork.
+After that: **M13** (admin surfaces + test debt, including M12's missing resolution endpoint), or buy the
+A1 certificate (§M1) and answer §M13 to unblock verifying M6. Do **not** start M7 — phases 5–9 all consume
+SEFAZ's answers, and building on an unverified cStat mapping compounds guesswork.
 
 ## Needs a human, not code
 
@@ -118,6 +105,14 @@ consume SEFAZ's answers, and building on an unverified cStat mapping compounds g
   ready. Also `PayableBillService._orderRepository` and `_orderedProductRepository` are now dead.
 - **M10**: adding an absence after a competência is billed does not retroactively adjust the bill.
   Delete-and-regenerate is the existing escape hatch.
+- **M11 P5**: `PayrollBillDetail` has no `EnterpriseId`, so it inherits no ambient tenant filter. The
+  drawdown scopes by `EmployeeId` taken off a tenant-filtered accrual, which is sound — but anything else
+  querying that table directly is on its own for isolation.
+- **M11 P5**: abono settles with the first bill an accrual produces. `SoldDays` is a cumulative counter and
+  nothing records how much abono a bill already paid, so days sold *after* the first bill go unbilled.
+  Marked `ponytail:`; fixing it needs a column.
+- **M11 P5**: a férias bill whose stretch is cancelled after issue is reported as an orphan rather than
+  hidden. The money left; nothing reconciles that yet.
 - **M11 P4**: the approaching-deadline liability read exists on `EmployeeVacationLapseService` but has
   **no controller action and no RBAC permission** — `SPEC-hr-module.md` §8 puts that KPI out of scope, so
   the endpoint would be scaffolding for a screen nobody asked for. One action away when a screen wants it.

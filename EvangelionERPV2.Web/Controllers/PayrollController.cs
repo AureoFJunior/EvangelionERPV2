@@ -19,11 +19,16 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxPayrollWriteRequestBodySizeInBytes = 64 * 1024;
 
         private readonly IPayrollService _payrollService;
+        private readonly IVacationPayService _vacationPayService;
         private readonly IMapper _mapper;
 
-        public PayrollController(IPayrollService payrollService, IMapper mapper)
+        public PayrollController(
+            IPayrollService payrollService,
+            IVacationPayService vacationPayService,
+            IMapper mapper)
         {
             _payrollService = payrollService;
+            _vacationPayService = vacationPayService;
             _mapper = mapper;
         }
 
@@ -125,6 +130,58 @@ namespace EvangelionERPV2.Web.Controllers
             catch (InsertDatabaseException ex)
             {
                 Log.Logger.Error("Invalid payroll query. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest(GetSafeInsertErrorMessage(ex));
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        /// <remarks>
+        /// Reuses <see cref="RbacPermissions.Payroll.Generate"/> rather than minting a permission of
+        /// its own: it is the same authority over the same salary-derived data at the same
+        /// admin-only tier, so a separate one would be granted to exactly the same set and buy
+        /// nothing.
+        /// </remarks>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Generate)]
+        [HttpPost]
+        public async Task<IActionResult> GenerateVacationPay([FromQuery] Guid accrualId)
+        {
+            try
+            {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var payments = await _vacationPayService.GenerateAsync(enterpriseId, accrualId);
+                return Ok(payments);
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error("Invalid vacation pay generation. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest(GetSafeInsertErrorMessage(ex));
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Read)]
+        [HttpGet]
+        public async Task<IActionResult> GetVacationPay([FromQuery] Guid accrualId)
+        {
+            try
+            {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var payments = await _vacationPayService.GetAsync(enterpriseId, accrualId);
+                return Ok(payments);
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error("Invalid vacation pay query. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (Exception)

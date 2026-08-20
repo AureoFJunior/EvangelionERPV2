@@ -95,6 +95,8 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(PayrollController), nameof(PayrollController.UpdatePayrollSettings), RbacPermissions.Payroll.UpdateSettings)]
         [InlineData(typeof(PayrollController), nameof(PayrollController.GeneratePayroll), RbacPermissions.Payroll.Generate)]
         [InlineData(typeof(PayrollController), nameof(PayrollController.GetPayroll), RbacPermissions.Payroll.Read)]
+        [InlineData(typeof(PayrollController), nameof(PayrollController.GenerateVacationPay), RbacPermissions.Payroll.Generate)]
+        [InlineData(typeof(PayrollController), nameof(PayrollController.GetVacationPay), RbacPermissions.Payroll.Read)]
         [InlineData(typeof(ProductController), nameof(ProductController.GetProducts), RbacPermissions.Products.Read)]
         [InlineData(typeof(ProductController), nameof(ProductController.GetProductsByFilter), RbacPermissions.Products.Read)]
         [InlineData(typeof(ProductController), nameof(ProductController.GetProduct), RbacPermissions.Products.Read)]
