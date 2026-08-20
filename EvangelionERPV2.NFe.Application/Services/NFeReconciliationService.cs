@@ -126,25 +126,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 }
                 else
                 {
-                    document.Status = result.Status;
-                    document.Cstat = result.Cstat;
-                    document.XMotivo = result.XMotivo;
-
-                    if (!string.IsNullOrWhiteSpace(result.Protocol))
-                        document.Protocol = result.Protocol;
-
-                    if (!string.IsNullOrWhiteSpace(result.XmlContent))
-                        document.XmlContent = result.XmlContent;
-
-                    if (result.IssuedAt.HasValue)
-                    {
-                        document.IssuedAt = result.IssuedAt;
-
-                        // dhRecbto: the clock the cancellation window is measured from, so it is
-                        // only meaningful for a note SEFAZ actually authorized.
-                        if (result.Status == NFeStatus.Authorized)
-                            document.AuthorizedAtUtc = result.IssuedAt;
-                    }
+                    // Shared with NFeService.ConsultAsync rather than copied: this used to be a
+                    // second, hand-maintained transcription of the same rules, and a verdict the
+                    // two disagreed about is a document in two states. It also carries the cStat 217
+                    // case, which retracts the write-ahead marker so the number can be reused.
+                    NFeService.ApplyOutcome(document, result);
 
                     Log.Logger.Information(
                         "NFe document {DocumentId} reconciled to {Status} (cStat {Cstat}).",

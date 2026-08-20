@@ -3,7 +3,7 @@
 Nothing on this list is fixable in code. Each item blocks something; the code backlog is in
 [`SPEC-remaining-code.md`](./SPEC-remaining-code.md).
 
-IDs are referenced from the code spec as §M1 / §M-B1. Last reviewed 2026-08-14.
+IDs are referenced from the code spec as §M1 / §M-B1. Last reviewed 2026-08-20.
 
 ---
 
@@ -49,6 +49,17 @@ IDs are referenced from the code spec as §M1 / §M-B1. Last reviewed 2026-08-14
       decides which default set the phase-4 fixtures exercise. *Owner: pilot tenant's accountant.*
 - [ ] **M8 — Confirm the DANFE is emailed only on explicit user action**, not automatically on
       authorization. The spec assumes explicit; the reverse means un-sending emails. *Owner: you.*
+- [ ] **M13 — `infRespTec`: the software developer's CNPJ, contact name, e-mail and phone.** Required by
+      NT 2018.005 in every UF, and the values are business facts nobody has told this system. `NFeXmlBuilder`
+      **omits the group entirely** rather than filling it with a placeholder, because a placeholder is a false
+      declaration to the fisco. Supply the four values (plus the CSRT + idCSRT if the pilot UF demands them)
+      and they become four columns on `EnterpriseFiscalSettings` plus one block in the builder. **This will
+      cause a rejection on the first real transmission if it is still open.** *Owner: you.*
+- [ ] **M14 — `natOp` and `tPag` are single constants.** Every note says `VENDA DE MERCADORIA` and every
+      payment says `99 / OUTROS`, because `Order` records neither a nature of operation nor a means of
+      payment. Correct for a pure sales flow and wrong the moment devolução, remessa or a real payment
+      breakdown matters. Confirm the pilot only ever issues plain sales, or the two fields go on `Order`.
+      *Owner: you / pilot tenant's accountant.*
 - [ ] **M9 — `NFeDocument.EnterpriseId` FK: `Restrict` or no FK at all.** The original "cascade would
       delete fiscal documents" argument does not survive scrutiny — `NFeNumberSequence` already
       `Restrict`s the tenant delete. A code decision, but yours to make. *Owner: you, before merge.*

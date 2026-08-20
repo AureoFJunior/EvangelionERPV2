@@ -40,6 +40,19 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             "Document",
             "Adress",
             "Address",
+            // The structured destinatário address on Customer. Adress above is the same personal
+            // data in one free-text column and is already redacted; splitting it into named fields
+            // must not be a way around that. Also catches the emitente address on
+            // EnterpriseFiscalSettings, which shares these property names — a company address is
+            // less sensitive, but losing it from a change log costs nothing.
+            "Logradouro",
+            "Numero",
+            "Complemento",
+            "Bairro",
+            "CodigoMunicipioIbge",
+            "Municipio",
+            "Uf",
+            "Cep",
             "FirstName",
             "LastName",
             "UserName",

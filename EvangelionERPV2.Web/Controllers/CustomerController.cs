@@ -242,6 +242,15 @@ namespace EvangelionERPV2.Web.Controllers
                 existingCustomer.PhoneNumber = request.PhoneNumber.Trim();
                 existingCustomer.Adress = request.Adress.Trim();
                 existingCustomer.Document = request.Document?.Trim();
+                existingCustomer.Logradouro = Blank(request.Logradouro);
+                existingCustomer.Numero = Blank(request.Numero);
+                existingCustomer.Complemento = Blank(request.Complemento);
+                existingCustomer.Bairro = Blank(request.Bairro);
+                existingCustomer.CodigoMunicipioIbge = Digits(request.CodigoMunicipioIbge);
+                existingCustomer.Municipio = Blank(request.Municipio);
+                existingCustomer.Uf = Blank(request.Uf)?.ToUpperInvariant();
+                existingCustomer.Cep = Digits(request.Cep);
+                existingCustomer.InscricaoEstadual = Blank(request.InscricaoEstadual);
                 existingCustomer.IsActive = request.IsActive;
                 existingCustomer.UpdatedAt = DateTime.UtcNow;
 
@@ -300,9 +309,37 @@ namespace EvangelionERPV2.Web.Controllers
                 PhoneNumber = request.PhoneNumber.Trim(),
                 Adress = request.Adress.Trim(),
                 Document = request.Document?.Trim(),
+                Logradouro = Blank(request.Logradouro),
+                Numero = Blank(request.Numero),
+                Complemento = Blank(request.Complemento),
+                Bairro = Blank(request.Bairro),
+                CodigoMunicipioIbge = Digits(request.CodigoMunicipioIbge),
+                Municipio = Blank(request.Municipio),
+                Uf = Blank(request.Uf)?.ToUpperInvariant(),
+                Cep = Digits(request.Cep),
+                InscricaoEstadual = Blank(request.InscricaoEstadual),
                 EnterpriseId = enterpriseId,
                 IsActive = request.IsActive ?? true
             };
+        }
+
+        /// <summary>
+        /// Trims, and collapses a whitespace-only value to null. The fiscal address fields are
+        /// "absent or complete": an empty string would look present to the issuance pre-flight
+        /// check and produce an enderDest with a blank xLgr instead of a named error.
+        /// </summary>
+        private static string? Blank(string? value) =>
+            string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+        /// <summary>
+        /// Keeps only the digits. The validator accepts a formatted "90230-000" because that is what
+        /// a form sends, but the columns are exactly 8 and 7 characters wide — storing the separators
+        /// would truncate on write.
+        /// </summary>
+        private static string? Digits(string? value)
+        {
+            var digits = DocumentValidationHelper.NormalizeDocument(value);
+            return digits.Length == 0 ? null : digits;
         }
 
         private Guid? TryGetUserId()

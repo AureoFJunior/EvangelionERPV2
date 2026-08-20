@@ -31,6 +31,8 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .Must(DocumentValidationHelper.BeValidDocument)
                 .When(x => !string.IsNullOrWhiteSpace(x.Document))
                 .WithMessage("Customer document must be a valid CPF, CNPJ, or NIF.");
+
+            CustomerFiscalAddressRules.AddTo(this);
         }
     }
 }

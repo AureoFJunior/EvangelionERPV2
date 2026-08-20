@@ -7,6 +7,7 @@ using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Domain.Interface;
 using EvangelionERPV2.NFeModule.Domain.Repositories;
 using EvangelionERPV2.NFeModule.Infra.Certificates;
+using EvangelionERPV2.NFeModule.Infra.Sefaz;
 using Microsoft.Extensions.Caching.Memory;
 using EvangelionERPV2.Shared.Configs;
 using EvangelionERPV2.Shared.Context;
@@ -59,7 +60,11 @@ namespace EvangelionERPV2.NFeModule.Application.DI
                 #endregion
 
                 #region Providers
-                services.AddSingleton<INFeProvider, StubNFeProvider>();
+                // Scoped, not singleton: it resolves a per-tenant certificate on every call and
+                // must not outlive the request that chose the tenant. StubNFeProvider stays in the
+                // tree until phase 9 deletes it (docs/fiscal/SPEC-remaining-code.md §2.6); nothing
+                // registers it any more.
+                services.AddScoped<INFeProvider, SefazNFeProvider>();
 
                 services.AddMemoryCache();
 

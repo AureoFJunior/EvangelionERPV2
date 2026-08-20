@@ -370,7 +370,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         }
 
         /// <summary>Copies a SEFAZ verdict onto the document. One place, so consult and the reconciler agree.</summary>
-        private static void ApplyOutcome(NFeDocument document, EvangelionERPV2.NFeModule.Infra.Providers.NFeProviderResult result)
+        /// <remarks>
+        /// Internal rather than private because <see cref="NFeReconciliationService"/> adopts a
+        /// verdict through exactly the same rules; two copies of this drifted once already.
+        /// </remarks>
+        internal static void ApplyOutcome(NFeDocument document, EvangelionERPV2.NFeModule.Infra.Providers.NFeProviderResult result)
         {
             document.Status = result.Status;
             document.Cstat = result.Cstat;
@@ -389,6 +393,14 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 if (result.Status == NFeStatus.Authorized)
                     document.AuthorizedAtUtc = result.IssuedAt;
             }
+
+            // SEFAZ answering "this chave does not exist" (cStat 217) is the only evidence strong
+            // enough to retract the write-ahead marker. Clearing it is what lets the allocated
+            // number be sent again instead of being burned: CanReuseAllocation reads exactly this
+            // column, so leaving it set would quietly re-allocate and leak the number to
+            // inutilização paperwork nobody is going to file.
+            if (result.NeverTransmitted)
+                document.TransmittedAtUtc = null;
 
             document.UpdatedAt = DateTime.UtcNow;
         }

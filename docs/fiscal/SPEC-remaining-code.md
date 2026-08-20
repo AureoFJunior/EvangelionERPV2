@@ -1,7 +1,7 @@
 # Fiscal — remaining code work (NFe + Boleto)
 
 Written 2026-08-11. Last verified against the working tree on `feature/33-Boleto-and-NFE-emission`,
-2026-08-14.
+2026-08-20.
 
 > **Resume point and milestone status live in [`../ROADMAP-STATUS.md`](../ROADMAP-STATUS.md). Read that first.**
 
@@ -17,10 +17,10 @@ this file does not repeat them, it lists what is still missing and where.
 | Area | Reality in the tree today |
 |---|---|
 | NFe phases 1–3 | Done. `EnterpriseFiscalSettings`, `NFeNumberSequence`, certificate lifecycle, `NFeDocument` fiscal columns, numbering SQL. |
-| NFe phase 4 | **Most of the way.** Access-key builder, item resolver, `Product` fiscal columns, write-ahead ordering, reconciler, and the provider contract moved down to Infra with `NFeIssueContext`. `Unimake.DFe 20260722.1716.27` is referenced by `NFeModule.Infra` only. **Missing: `NFeXmlBuilder`, `UnimakeConfiguracaoFactory`, `SefazNFeProvider`** — that is the whole remaining gap. |
-| Issuance | `NFeIoC.cs:61` still registers `StubNFeProvider` — hardcodes `Status = Authorized` and invents a protocol. It no longer invents an access key: the service owns that now. `NFeSettings.Enabled = false` in all environments. |
-| Cancel | **Service side done (2026-08-19).** Refuses anything not `Authorized`, enforces the window from the tenant profile, commits `CancelRequestedAt` before the round trip, records a cancellation only when SEFAZ homologates it. Still no transport behind it, and `StubNFeProvider.CancelAsync` now reports failure rather than faking success. |
-| Consult | **Service side done (2026-08-19).** Asks SEFAZ when — and only when — the outcome is unknown, and adopts the answer through the same `ApplyOutcome` the reconciler uses. Still no `ConsultaProtocolo` behind it. |
+| NFe phase 4 | **Code complete (2026-08-20).** `NFeXmlBuilder`, `UnimakeConfiguracaoFactory`, `SefazCStatMap` and `SefazNFeProvider` all exist; `NFeIoC` registers the real transport. Verification against a real autorizador is still cert-gated. |
+| Issuance | **`NFeIoC` registers `SefazNFeProvider` (scoped) as of 2026-08-20.** `StubNFeProvider` is still in the tree but nothing resolves it; phase 9 deletes it. `NFeSettings.Enabled = false` in all environments, so the real transport is inert until someone flips it. |
+| Cancel | **Transport landed 2026-08-20** — event 110111 through `RecepcaoEvento`, and only cStat 135/155/573 write `Cancelled`. Service side done (2026-08-19). Refuses anything not `Authorized`, enforces the window from the tenant profile, commits `CancelRequestedAt` before the round trip, records a cancellation only when SEFAZ homologates it. |
+| Consult | **Transport landed 2026-08-20** — `ConsultaProtocolo`, with cStat 217 reported as `NeverTransmitted` so the number is reused rather than burned. Service side done (2026-08-19). Asks SEFAZ when — and only when — the outcome is unknown, and adopts the answer through the same `ApplyOutcome` the reconciler uses. |
 | Write-ahead ordering | **Done (2026-08-14).** `IssueAsync` allocates the nNF, builds the chave and commits both, then commits `TransmittedAtUtc`, then transmits. `IsOutcomeUnknown` can now be true and its guard fires. Covered by `NFeModule.Test/NFe/NFeIssuanceWriteAheadTests.cs`. |
 | Reconciliation | **Done (2026-08-19).** `NFeReconciliationService` + `NFeReconciliationWorker` (hosted, gated on `NFeSettings.Enabled`) sweep `GetStalePendingAsync`: unknown outcomes are consulted through the new `INFeProvider.ConsultAsync`, never-transmitted rows go back to `Error` keeping their allocation. `StubNFeProvider.ConsultAsync` answers "still unknown", so nothing is invented. |
 | Boleto payment state | **Done (M2).** `Status/PaidAt/PaidAmount/SettlementProtocol`, `BillNumberSequence` replacing the derived NossoNumero, a filtered unique index so a reissue supersedes, and a forecast that no longer counts an issued boleto as received cash. B2, B4 and half of B5 below are closed by it. |
@@ -46,7 +46,45 @@ this, every crashed issuance burned a number that only inutilização can accoun
 
 ## 2. NFe — ordered backlog
 
-### 2.1 Phase 4 remainder — real modelo 55 issuance
+### 2.1 Phase 4 — real modelo 55 issuance — **written 2026-08-20, unverified against SEFAZ**
+
+The three missing files now exist, all in `EvangelionERPV2.NFe.Infra`:
+
+| File | What it does |
+|---|---|
+| `Xml/NFeXmlBuilder.cs` | `NFeIssueContext` → `EnviNFe`. Pure, offline, no certificate. |
+| `Sefaz/UnimakeConfiguracaoFactory.cs` | `EnterpriseFiscalSettings` → `Configuracao`. Never sets a URL — the UF resolves the endpoint. |
+| `Sefaz/SefazCStatMap.cs` | cStat → `SefazVerdict(Status, IsTransient, NeverTransmitted)`, per operation. |
+| `Sefaz/SefazNFeProvider.cs` | The only file that talks to an autorizador. Issue / consult / cancel / status. |
+
+Four things decided while writing them, worth not re-deriving:
+
+1. **`InfNFe.Chave` and `InfNFe.Id` are read-only** — the library derives both from `Ide`. So the builder
+   sets `Ide.CNF` from the allocated chave, lets the library compute the rest, and then **cross-checks that
+   the derived chave equals the one already committed**, refusing to transmit on a mismatch. Our mod-11 and
+   Unimake's now verify each other on every single build, which is stronger than the one-off gate assertion.
+2. **`NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only**, plus PIS/COFINS in the Aliq / NT /
+   Outr groups. Every other code throws by name. Widening it means adding the fields those codes need
+   (`pRedBC`, ST margins, presumed credit) to `Product` first — a default of zero under-declares tax.
+3. **`infRespTec` is omitted, not stubbed.** It carries the *software developer's* CNPJ and CSRT, which
+   nothing has ever told this system. Tracked as §M13 in [`TODO-manual.md`](./TODO-manual.md) — **it will
+   cause a rejection on the first real transmission.**
+4. **cStat 217 retracts the write-ahead marker.** `SefazCStatMap.ForConsult(217)` returns
+   `NeverTransmitted: true`, and `NFeService.ApplyOutcome` now clears `TransmittedAtUtc` when it sees that,
+   because `CanReuseAllocation` gates on exactly that column. Without the clear, the "recovered" number was
+   re-allocated and burned anyway. `NFeReconciliationService` was collapsed onto the same `ApplyOutcome`
+   rather than keeping its own transcription of the rules.
+
+Also landed with it: `Customer` gained nine nullable fiscal-address columns
+(`Logradouro`/`Numero`/`Complemento`/`Bairro`/`CodigoMunicipioIbge`/`Municipio`/`Uf`/`Cep`/`InscricaoEstadual`,
+migration `20260820100000_AddCustomerFiscalAddress`). `enderDest` needs them as separate fields and
+`Customer.Adress` is one free-text blob — the same reason `EnterpriseFiscalSettings` duplicates the emitente
+address. The builder hard-errors on an incomplete one rather than emitting a blank `xLgr`.
+
+**What is still genuinely open:** every cStat mapping is unverified, no note has round-tripped, and §M13
+above is a known rejection. Do not read "code complete" as "works".
+
+### 2.1.1 Original phase-4 plan, kept for context
 
 **The certificate gates transmission, not development.** Phase-0 check (d) signed a complete modelo-55
 note (CRT 3 / ICMS00 / PISAliq / COFINSAliq) to 4685 bytes and passed the embedded 4.00 XSD using a
@@ -334,10 +372,10 @@ can cost a sprint (§M-B8).
 
 ## 4. Suggested order
 
-1. **NFe phase 4 remainder** — start now, do not wait for the certificate (§2.1). The write-ahead
-   rewrite and the reconciler are both done; next is `NFeXmlBuilder` (signing, so `XmlContent` stops
-   coming from the transport), then `UnimakeConfiguracaoFactory` + `SefazNFeProvider`, which is what
-   finally makes the reconciler's consult say something.
+1. ~~**NFe phase 4 remainder**~~ — **done 2026-08-20** (§2.1). Everything up to the socket is written and
+   tested offline. The next honest step is not more code: it is the certificate (§M1) and `infRespTec`
+   (§M13), because phases 5–9 all consume SEFAZ's answers and building them on an unverified cStat mapping
+   compounds guesswork.
 2. **B4 + B2** — payment state and allocated `NossoNumero`. Independent of every external decision, and B4 is the gap that makes the current boleto commercially useless.
 3. **B1** once ownership is decided; it changes the shape of everything boleto after it.
 4. **B3** once the bank and layout are in hand.

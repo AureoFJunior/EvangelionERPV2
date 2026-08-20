@@ -1,6 +1,6 @@
 # Roadmap status — where the work stopped
 
-Written 2026-08-19, on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
+Written 2026-08-19, updated 2026-08-20, on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
 
 The plan itself is the Artifact **"Completing Evangelion ERP"** (M0–M13):
 <https://claude.ai/code/artifact/2edfd7e3-3715-4a0a-965c-299164b28e4a>. It is not in the repo — fetch it
@@ -13,10 +13,10 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | | |
 |---|---|
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
-| Head at stop | `acdae20` "Merge M10 - HR absences" |
+| Head at stop | M6 SEFAZ transport, on top of `03cf60b` |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **916 passing / 0 failing** across 12 assemblies (was 774 at session start) |
-| Migrations | chain ends `…140000_AddSupplier` → `…150000_AddEmployeeAbsence` → `…160000_AddBankReconciliation` |
+| Tests | **1006 passing / 0 failing** across 12 assemblies (was 916 before M6) |
+| Migrations | chain ends `…150000_AddEmployeeAbsence` → `…160000_AddBankReconciliation` → `20260820100000_AddCustomerFiscalAddress` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers**, verified 0 on the branch |
 
 ## Milestones
@@ -29,43 +29,38 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | M3 | Stock ledger | **Done** | `f210e44`, `62d3d8f` |
 | M4 | Tenant isolation by construction | **Done** | `939b055` |
 | M5 | Ops spine (hosted service + Redis lease) | **Done** | `fc6f19d` |
-| M6 | Real NFe issuance, phases 4 + 5 | **Partial — see below** | `596a5d8`, `9d061f0` |
+| M6 | Real NFe issuance, phases 4 + 5 | **Code complete 2026-08-20; unverified against SEFAZ** | `596a5d8`, `9d061f0`, this branch's M6 commit |
 | M7 | NFe phases 7–9 | Not started | |
 | M8 | Suppliers | **Done** | `57f69a9` |
 | M9 | Per-tenant billing + CNAB | Not started, gated on a bank | |
 | M10 | HR — absences, atestados, advertências | **Done** | `5b7ab82` |
-| M11 | HR — férias ledger and férias pay | Not started; **unblocked now** that payroll consumes absences | |
+| M11 | HR — férias ledger and férias pay | Not started; **unblocked**, and the natural next milestone now that M6 is code-blocked on a certificate | |
 | M12 | Bank reconciliation | **Done** | `faccd6c` |
 | M13 | Admin surfaces + test debt | Not started | |
 
-## Resume here: M6, the SEFAZ transport
+## Resume here: M11 (férias), or M7 only once a certificate exists
 
-Everything above the transport is finished. What is missing is the transport itself, all in
-`EvangelionERPV2.NFe.Infra`:
+**M6's transport is written.** `NFeXmlBuilder`, `UnimakeConfiguracaoFactory`, `SefazCStatMap` and
+`SefazNFeProvider` all exist in `EvangelionERPV2.NFe.Infra`, `NFeIoC` registers the real provider
+scoped, and `StubNFeProvider` is orphaned pending its phase-9 deletion. Details and the four
+decisions worth not re-deriving are in [`fiscal/SPEC-remaining-code.md`](./fiscal/SPEC-remaining-code.md) §2.1.
 
-```
-Sefaz/UnimakeConfiguracaoFactory.cs   EnterpriseFiscalSettings -> Unimake Configuracao
-Sefaz/SefazNFeProvider.cs             the ONLY file allowed to name a Unimake type
-Xml/NFeXmlBuilder.cs                  order + items + settings -> Unimake NFe object, signed
-```
+**It has never spoken to SEFAZ.** Every cStat mapping is unverified, no note has round-tripped, and
+`infRespTec` is deliberately absent (§M13 in `fiscal/TODO-manual.md`) which is a *known* rejection on
+the first real transmission. `NFeSettings.Enabled` is still false everywhere, which is what keeps this
+safe.
 
-Already in place, so start from these rather than rebuilding them:
+So the honest next step is one of:
 
-- `Unimake.DFe 20260722.1716.27` is referenced by `EvangelionERPV2.NFeModule.Infra` **and nothing
-  else** — the version the phase-0 gate measured on Linux, not the newest.
-- `INFeProvider`, `NFeProviderResult` and `NFeIssueContext` live in `NFe.Infra/Providers/`. The
-  interface already carries `IssueAsync` / `ConsultAsync` / `CancelAsync` / `GetServiceStatusAsync`.
-- `NFeService` already builds an `NFeIssueContext`, and its cancel and consult paths already do the
-  right thing the moment a real provider is registered.
-- The **verified library API** — service and payload type names, enum values, the namespace trap — is
-  recorded in [`fiscal/SPEC-remaining-code.md`](./fiscal/SPEC-remaining-code.md) §2.1. It was read off
-  the assembly by reflection. Do not re-derive it, and do not trust memory over it.
+1. **M11 — férias.** Pure code, unblocked, no external dependency. The obvious pick.
+2. **Buy the A1 certificate (§M1) and answer §M13**, then verify M6 end to end in homologação. This is
+   the critical path for anything fiscal, and it is procurement, not engineering.
+3. **M13 — admin surfaces + test debt**, including M12's missing resolution endpoint for ambiguous
+   statement lines.
 
-Then `NFeIoC` swaps `StubNFeProvider` for `AddScoped<SefazNFeProvider>` (scoped, not singleton — it
-carries per-request state), and phase 9 deletes the stub.
-
-**Still gated on a real A1 certificate:** cStat 107 `StatusServico` round trip, and any cStat mapping
-for real rejections. Everything upstream of the socket can be written and tested without one.
+Do **not** start M7 (NFe phases 7–9) yet: phases 5–9 all consume SEFAZ's answers, so building them on
+an unverified cStat mapping compounds guesswork. Phase 7 (DANFE from an authorized-XML fixture) and
+phase 8 (`BodyBuilder` attachments) are the two exceptions that need no autorizador.
 
 ## Needs a human, not code
 
@@ -119,6 +114,14 @@ for real rejections. Everything upstream of the socket can be written and tested
   Delete-and-regenerate is the existing escape hatch.
 - **M2**: `Rejected` is reachable in the model but nothing writes it yet — it exists so the CNAB
   retorno mapping in M9 does not have to migrate the column later.
+- **M6**: `NFeXmlBuilder` supports ICMS CST 00 and CSOSN 102/103/300/400 only; every other code throws
+  by name. Widening it needs the fields those codes require (`pRedBC`, ST margins, presumed credit) on
+  `Product` first. `natOp` and `tPag` are single constants because `Order` records neither — §M14.
+- **M6**: `CustomerDTO` returns the new fiscal address unmasked while `Document` stays `[JsonIgnore]`.
+  Deliberate — the fiscal UI has to read back what it wrote — but if the XML download is Manager-tier
+  for exactly this data, the customer read path may deserve the same tightening. RBAC decision.
+- **M6**: audit redaction is keyed by property name, so redacting the customer address also redacts
+  the emitente's, which shares the names. Judged correct; exempting one needs a per-entity rule.
 
 ## The gate every milestone runs
 
