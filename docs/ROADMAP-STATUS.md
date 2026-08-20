@@ -1,6 +1,6 @@
 # Roadmap status — where the work stopped
 
-Written 2026-08-19, updated 2026-08-20 (M6, then M11 P4, P5, P5a, then M13 backend), on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
+Written 2026-08-19, updated 2026-08-20 (M6, then M11 P4, P5, P5a, then M13 across both trees), on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
 
 The plan itself is the Artifact **"Completing Evangelion ERP"** (M0–M13):
 <https://claude.ai/code/artifact/2edfd7e3-3715-4a0a-965c-299164b28e4a>. It is not in the repo — fetch it
@@ -13,7 +13,7 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | | |
 |---|---|
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
-| Head at stop | M13 backend half — statement-line resolution + Audit/Email/Enterprise tests |
+| Head at stop | M13 complete — backend and the FrontV2 admin screens |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
 | Tests | **1164 passing / 0 failing** across 14 assemblies (1106 before P5a, 1117 before M13; the two new assemblies are the Audit/Email/Enterprise test projects) |
 | Migrations | chain ends `20260820110000_AddEmployeeVacationAccrual` → `20260820130000_AddVacationPayLinks` → `20260820140000_AddVacationBillGrossAmount` |
@@ -36,21 +36,31 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | M10 | HR — absences, atestados, advertências | **Done** | `5b7ab82` |
 | M11 | HR — férias ledger and férias pay | **Done 2026-08-20** — P4, P5 and P5a (bill netting) | M11 P4, P5, P5a commits |
 | M12 | Bank reconciliation | **Done** | `faccd6c` |
-| M13 | Admin surfaces + test debt | **Backend done 2026-08-20** — statement-line resolution, plus first tests for Audit, Email and Enterprise. The four FrontV2 admin screens are **not started** | `a108bb1`, `8cd6a12` |
+| M13 | Admin surfaces + test debt | **Done 2026-08-20** — statement-line resolution, first tests for Audit/Email/Enterprise, and the FrontV2 admin screens | `a108bb1`, `8cd6a12`; FrontV2 `07e4988`, `039cd2b`, `bcb2511` |
 
-## Resume here: M13's four FrontV2 admin screens
+## Resume here: M6 verification, or the open follow-ons
 
-The backend half of M13 landed. What is left is the part the artifact describes as "pure exposure of
-controllers that already exist": four screens the sidebar has never had — **user management, enterprise
-admin, audit trail, opportunity radar** — in `~/CodeProjects/EvangelionERPV2.FrontV2`.
+**Every milestone M0–M13 is now built.** What remains is not a milestone; it is the fiscal work that
+needs a human (buy the A1 certificate, §M1 in `docs/fiscal/TODO-manual.md`, and answer §M13) so that M6
+can be verified against SEFAZ, plus the follow-ons listed further down. Do **not** start M7 until one real
+note round-trips — phases 5–9 all consume SEFAZ's answers, and building on an unverified cStat mapping
+compounds guesswork.
 
-Check before starting there: the tree is **dirty** (`services/erpService.ts`, +235 lines uncommitted), and
-`features/` still holds `employees/`, `payroll/` and `settings/` even though M0's commit message says the
-re-export tree was deleted. Neither is understood yet.
+### What M13 turned out to be
 
-Backend alternatives if the frontend waits: buy the A1 certificate (fiscal §M1) and answer fiscal §M13 to
-unblock verifying M6, or pick up the open follow-ons below. Do **not** start M7 — phases 5–9 all consume
-SEFAZ's answers, and building on an unverified cStat mapping compounds guesswork.
+- **Backend**: the bank statement resolution endpoints M12 left open, and first test projects for Audit,
+  Email and Enterprise — the three modules that had none.
+- **FrontV2**: three new screens — **user management** (admin-only), **audit trail** (Supervisor and up)
+  and **opportunity radar** (Manager and up), each with its API client bindings and a test over its pure
+  logic. The fourth screen the plan named, **enterprise admin, already existed** as `components/Settings.tsx`
+  (company data, currency, balance, payroll rates, fiscal settings); it was not rebuilt.
+- Also closed there: the five `features/` re-export shims M0's first pass missed, and the API client
+  bindings for M6's customer fiscal address and M11's férias endpoints, which had been sitting
+  uncommitted in the FrontV2 tree.
+
+**FrontV2 gate**: `npx tsc --noEmit` clean, `npx jest` 31 passing across 9 suites. **Cypress was not run** —
+`cypress.config.js` needs the Expo web server on :8081 and a live API on :8080 with a seeded admin, so it
+only means anything against a running stack.
 
 ## Needs a human, not code
 
