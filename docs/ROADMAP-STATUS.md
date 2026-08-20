@@ -1,6 +1,6 @@
 # Roadmap status — where the work stopped
 
-Written 2026-08-19, updated 2026-08-20 (M6, then M11 P4, P5, P5a), on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
+Written 2026-08-19, updated 2026-08-20 (M6, then M11 P4, P5, P5a, then M13 backend), on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
 
 The plan itself is the Artifact **"Completing Evangelion ERP"** (M0–M13):
 <https://claude.ai/code/artifact/2edfd7e3-3715-4a0a-965c-299164b28e4a>. It is not in the repo — fetch it
@@ -13,9 +13,9 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | | |
 |---|---|
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
-| Head at stop | M11 P5a férias bill netting |
+| Head at stop | M13 backend half — statement-line resolution + Audit/Email/Enterprise tests |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1117 passing / 0 failing** across 12 assemblies (916 before M6, 1006 before M11 P4, 1076 before P5, 1106 before P5a) |
+| Tests | **1164 passing / 0 failing** across 14 assemblies (1106 before P5a, 1117 before M13; the two new assemblies are the Audit/Email/Enterprise test projects) |
 | Migrations | chain ends `20260820110000_AddEmployeeVacationAccrual` → `20260820130000_AddVacationPayLinks` → `20260820140000_AddVacationBillGrossAmount` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers**, verified 0 on the branch |
 
@@ -36,17 +36,20 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | M10 | HR — absences, atestados, advertências | **Done** | `5b7ab82` |
 | M11 | HR — férias ledger and férias pay | **Done 2026-08-20** — P4, P5 and P5a (bill netting) | M11 P4, P5, P5a commits |
 | M12 | Bank reconciliation | **Done** | `faccd6c` |
-| M13 | Admin surfaces + test debt | Not started | |
+| M13 | Admin surfaces + test debt | **Backend done 2026-08-20** — statement-line resolution, plus first tests for Audit, Email and Enterprise. The four FrontV2 admin screens are **not started** | `a108bb1`, `8cd6a12` |
 
-## Resume here: M13 — admin surfaces + test debt
+## Resume here: M13's four FrontV2 admin screens
 
-M11 is closed. P5a netted the férias bill against the provision payroll already accrued for it:
-`PayableBill.GrossAmount` stores what the employee is paid, `Amount` carries the netted figure the
-cash-flow forecast reads, and `VacationProvisionDrawdownService` writes both from the gross so the
-allocation cannot feed on its own output. The full account is `docs/employee/SPEC-hr-module.md` §4 P5a.
+The backend half of M13 landed. What is left is the part the artifact describes as "pure exposure of
+controllers that already exist": four screens the sidebar has never had — **user management, enterprise
+admin, audit trail, opportunity radar** — in `~/CodeProjects/EvangelionERPV2.FrontV2`.
 
-**Next: M13** (admin surfaces + test debt, including M12's missing resolution endpoint), or buy the
-A1 certificate (§M1) and answer §M13 to unblock verifying M6. Do **not** start M7 — phases 5–9 all consume
+Check before starting there: the tree is **dirty** (`services/erpService.ts`, +235 lines uncommitted), and
+`features/` still holds `employees/`, `payroll/` and `settings/` even though M0's commit message says the
+re-export tree was deleted. Neither is understood yet.
+
+Backend alternatives if the frontend waits: buy the A1 certificate (fiscal §M1) and answer fiscal §M13 to
+unblock verifying M6, or pick up the open follow-ons below. Do **not** start M7 — phases 5–9 all consume
 SEFAZ's answers, and building on an unverified cStat mapping compounds guesswork.
 
 ## Needs a human, not code
@@ -92,8 +95,12 @@ SEFAZ's answers, and building on an unverified cStat mapping compounds guesswork
 
 ## Open follow-ons left by finished milestones
 
-- **M12**: ambiguous statement lines are visible but have **no resolution endpoint** — a human can see
-  them, not clear them. Natural M13 work; no UI contract was invented for it.
+- **M12**: ~~no resolution endpoint~~ — **closed by M13**. `BankReconciliation/MatchLine` points a line at
+  an Order or PayableBill; `IgnoreLine` clears a line that answers to no ERP document (a fee, a tax, a
+  transfer between the company's own accounts) via the new `BankStatementLineStatus.Ignored`. Both sit
+  behind `bank-reconciliation.resolve` at Manager. Manual resolution deliberately does **not** re-apply the
+  amount-and-window rule — every line that reaches it is one that rule could not take — and it is
+  reversible, so a mistaken judgement is correctable.
 - **M3**: the stock ledger covers `Sale`/`Refund` only. Bills' goods receipt and its reversal still
   mutate `StorageQuantity` directly; `Receipt`/`Adjustment` exist in the enum and the shared method is
   ready. Also `PayableBillService._orderRepository` and `_orderedProductRepository` are now dead.
