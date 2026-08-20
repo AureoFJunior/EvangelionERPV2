@@ -27,7 +27,20 @@ namespace EvangelionERPV2.Shared.DTOs
         public decimal ConstitutionalThird { get; set; }
         public decimal AbonoAmount { get; set; }
         public decimal AbonoConstitutionalThird { get; set; }
+        /// <summary>Gross: salary + 1/3 + abono, what the employee is actually paid.</summary>
         public decimal TotalAmount { get; set; }
+
+        /// <summary>
+        /// How much of <see cref="TotalAmount"/> was already accrued as a férias provision on the
+        /// monthly payroll bills, and so is not projected as cash leaving a second time.
+        /// </summary>
+        public decimal ProvisionOffset { get; set; }
+
+        /// <summary>
+        /// <see cref="TotalAmount"/> less <see cref="ProvisionOffset"/> — the payable bill's own
+        /// amount, which is what the cash-flow forecast reads. See SPEC-hr-module §4 P5a.
+        /// </summary>
+        public decimal NetAmount { get; set; }
 
         /// <summary>Two days before <see cref="StartDate"/> — CLT art. 145.</summary>
         public DateTime DueDate { get; set; }

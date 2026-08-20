@@ -54,8 +54,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var accrual = await _accrualRepository.GetByIdAsync(accrualId)
                 ?? throw new InvalidOperationException($"Vacation accrual {accrualId} was not found.");
 
-            var paidTotal = await PaidTotalAsync(accrualId);
+            var bills = await StandingBillsAsync(accrualId);
             var competencias = await CompetenciasAsync(accrual);
+
+            // The gross, never the bills' Amount: Amount already carries the netted figure this
+            // method wrote last time, and allocating against it would feed on its own output.
+            var paidTotal = bills.Sum(GrossOf);
 
             var drawdown = VacationProvisionAllocator.Allocate(paidTotal, competencias);
             var byId = competencias.ToDictionary(x => x.Id);
@@ -64,7 +68,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             foreach (var allocation in drawdown.Allocations)
             {
-                var detail = byId[allocation.PayrollBillDetailId];
+                var detail = byId[allocation.Id];
                 if (detail.VacationProvisionConsumed == allocation.Consumed)
                     continue;
 
@@ -78,6 +82,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 _payrollDetailRepository.UpdateRange(changed);
                 await _payrollDetailRepository.CommitAsync(cancellationToken);
             }
+
+            await NetBillsAsync(bills, drawdown.TotalConsumed, now, cancellationToken);
 
             if (drawdown.Shortfall > 0)
             {
@@ -96,12 +102,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return drawdown;
         }
 
-        /// <summary>Everything currently owed or paid on férias bills for this accrual.</summary>
+        /// <summary>Every férias bill currently standing against this accrual, oldest due first.</summary>
         /// <remarks>
         /// Refunded and deactivated bills are excluded so that reversing one releases the provision
         /// it was holding, which is the behaviour that makes recomputation the right shape here.
         /// </remarks>
-        private async Task<decimal> PaidTotalAsync(Guid accrualId)
+        private async Task<List<PayableBill>> StandingBillsAsync(Guid accrualId)
         {
             var bills = await _payableBillRepository.GetAllAsync(
                 x => x.EmployeeVacationAccrualId == accrualId
@@ -109,8 +115,69 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                      && (x.IsActive == null || x.IsActive == true)
                      && x.RefundedAt == null);
 
-            return bills.Sum(x => x.Amount);
+            // Id breaks the tie so two stretches sharing a due date still net deterministically.
+            return [.. bills.OrderBy(x => x.DueDate).ThenBy(x => x.Id)];
         }
+
+        /// <summary>
+        /// Writes each bill's netted <see cref="PayableBill.Amount"/>: its gross less the share of
+        /// the provision it consumed.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The decision is in docs/employee/SPEC-hr-module.md §4 P5a — the monthly payroll bill's
+        /// Amount already includes the provision as cash leaving, so a férias bill charged at gross
+        /// would project the same money twice. Netting here rather than at bill creation is what
+        /// keeps it true afterwards: refunding one bill releases its provision, and the next run
+        /// re-nets whatever is left standing.
+        /// </para>
+        /// <para>
+        /// Oldest due date first, for the same reason the competências fill oldest first — the
+        /// provision that exists today belongs to the payment that falls due first.
+        /// </para>
+        /// </remarks>
+        private async Task NetBillsAsync(
+            List<PayableBill> bills,
+            decimal totalConsumed,
+            DateTime now,
+            CancellationToken cancellationToken)
+        {
+            if (bills.Count == 0)
+                return;
+
+            var offsets = VacationProvisionAllocator.Allocate(
+                totalConsumed,
+                [.. bills.Select(x => (x.Id, GrossOf(x)))]);
+
+            var byId = bills.ToDictionary(x => x.Id);
+            var changed = new List<PayableBill>();
+
+            foreach (var offset in offsets.Allocations)
+            {
+                var bill = byId[offset.Id];
+                var gross = GrossOf(bill);
+                var netted = gross - offset.Consumed;
+
+                if (bill.GrossAmount == gross && bill.Amount == netted)
+                    continue;
+
+                // Backfills the gross on a bill issued before the column existed, whose Amount was
+                // the gross by definition.
+                bill.GrossAmount = gross;
+                bill.Amount = netted;
+                bill.UpdatedAt = now;
+                changed.Add(bill);
+            }
+
+            if (changed.Count == 0)
+                return;
+
+            _payableBillRepository.UpdateRange(changed);
+            await _payableBillRepository.CommitAsync(cancellationToken);
+        }
+
+        /// <summary>What the employee is actually paid for this bill, before any netting.</summary>
+        private static decimal GrossOf(PayableBill bill) => bill.GrossAmount ?? bill.Amount;
 
         /// <summary>
         /// The payroll competências whose provision this accrual is entitled to draw on.

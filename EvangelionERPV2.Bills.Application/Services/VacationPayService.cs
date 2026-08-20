@@ -62,7 +62,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 throw new InsertDatabaseException("No férias have been scheduled against this período aquisitivo yet.");
 
             var existingBills = await ExistingBillsAsync(enterpriseId, accrualId);
-            var billedDueDates = existingBills.Select(x => x.DueDate.Date).ToHashSet();
 
             // The abono is one conversion of days into cash for the whole período, so it settles
             // with the first bill this accrual ever produces and never rides a second one.
@@ -71,46 +70,38 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             // selling days after the leave is already being paid out is not a flow anyone has.
             var abonoDays = existingBills.Count == 0 ? accrual.SoldDays : 0;
 
-            var results = new List<VacationPayDTO>();
             var pending = new List<(EmployeeAbsence Stretch, int SoldDays, VacationPayAmounts Amounts)>();
 
             foreach (var stretch in stretches)
             {
                 var dueDate = VacationPay.DueDateFor(stretch.StartDate);
-                var existing = existingBills.FirstOrDefault(x => x.DueDate.Date == dueDate);
-
-                if (existing != null)
-                {
-                    results.Add(Map(accrual, employee, stretch, SoldDaysOn(existing, accrual, employee, stretch), existing));
+                if (existingBills.Any(x => x.DueDate.Date == dueDate))
                     continue;
-                }
 
                 // Only the first stretch this run bills carries the abono.
                 var soldDays = pending.Count == 0 ? abonoDays : 0;
                 pending.Add((stretch, soldDays, VacationPay.For(
                     employee.Salary!.Value, DaysOf(stretch), soldDays, stretch.StartDate)));
-
-                billedDueDates.Add(dueDate);
             }
 
             if (pending.Count == 0)
-                return results.OrderBy(x => x.StartDate).ToList();
-
-            var created = new List<VacationPayDTO>();
+                return await GetAsync(enterpriseId, accrualId);
 
             // One transaction for the whole accrual: a split férias billed halfway through would
             // leave the employee paid for one stretch and not the next, with no record of which.
             await _payableBillRepository.ExecuteInTransactionAsync(async () =>
             {
-                created.Clear();
-
-                foreach (var (stretch, soldDays, amounts) in pending)
+                foreach (var (stretch, _, amounts) in pending)
                 {
-                    var bill = await _payableBillService.CreateAsync(new PayableBill
+                    await _payableBillService.CreateAsync(new PayableBill
                     {
                         Description = $"Férias {stretch.StartDate:dd/MM/yyyy} a {stretch.EndDate:dd/MM/yyyy} - {employee.Name}",
                         DueDate = VacationPay.DueDateFor(stretch.StartDate),
+                        // Amount is written gross here and netted by the drawdown below, which is
+                        // the only place that knows how much provision this accrual has left to
+                        // give — see docs/employee/SPEC-hr-module.md §4 P5a.
                         Amount = amounts.Total,
+                        GrossAmount = amounts.Total,
                         IsPaid = false,
                         BillType = (int)EnumPayableBillType.Vacation,
                         EnterpriseId = enterpriseId,
@@ -119,8 +110,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                         // "which competências did this payment consume" is a guess.
                         EmployeeVacationAccrualId = accrual.Id
                     }, useAmbientTransaction: true);
-
-                    created.Add(Map(accrual, employee, stretch, soldDays, bill, amounts));
                 }
 
                 // Inside the transaction, after every bill exists: the drawdown recomputes from the
@@ -129,8 +118,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 await _drawdownService.RecalculateAsync(accrual.Id);
             });
 
-            results.AddRange(created);
-            return results.OrderBy(x => x.StartDate).ToList();
+            // Read back rather than reporting what was written: the drawdown nets every standing
+            // bill's Amount, including bills this call did not create, so the amounts in memory
+            // before it ran are stale.
+            return await GetAsync(enterpriseId, accrualId);
         }
 
         public async Task<IEnumerable<VacationPayDTO>> GetAsync(Guid enterpriseId, Guid accrualId)
@@ -247,7 +238,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 return 0;
 
             var withoutAbono = VacationPay.For(employee.Salary!.Value, DaysOf(stretch), 0, stretch.StartDate);
-            return bill.Amount > withoutAbono.Total ? accrual.SoldDays : 0;
+
+            // The gross, not Amount: Amount is netted by the provision drawdown, so a bill that did
+            // settle the abono can still be worth less than the stretch alone.
+            return GrossOf(bill) > withoutAbono.Total ? accrual.SoldDays : 0;
         }
 
         private static VacationPayDTO Map(
@@ -255,10 +249,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             Employee employee,
             EmployeeAbsence stretch,
             int soldDays,
-            PayableBill bill,
-            VacationPayAmounts? amounts = null)
+            PayableBill bill)
         {
-            var split = amounts ?? VacationPay.For(employee.Salary!.Value, DaysOf(stretch), soldDays, stretch.StartDate);
+            var split = VacationPay.For(employee.Salary!.Value, DaysOf(stretch), soldDays, stretch.StartDate);
 
             return new VacationPayDTO
             {
@@ -275,10 +268,15 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 AbonoAmount = split.AbonoAmount,
                 AbonoConstitutionalThird = split.AbonoConstitutionalThird,
                 TotalAmount = split.Total,
+                ProvisionOffset = GrossOf(bill) - bill.Amount,
+                NetAmount = bill.Amount,
                 DueDate = bill.DueDate,
                 IsPaid = bill.IsPaid
             };
         }
+
+        /// <summary>What the employee is paid, before the provision drawdown nets the bill down.</summary>
+        private static decimal GrossOf(PayableBill bill) => bill.GrossAmount ?? bill.Amount;
 
         /// <summary>
         /// A férias bill whose stretch no longer exists — the absence was cancelled after the bill
@@ -295,7 +293,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 StartDate = bill.DueDate.Date.AddDays(VacationPay.PaymentLeadDays),
                 EndDate = bill.DueDate.Date.AddDays(VacationPay.PaymentLeadDays),
                 Days = 0,
-                TotalAmount = bill.Amount,
+                TotalAmount = GrossOf(bill),
+                ProvisionOffset = GrossOf(bill) - bill.Amount,
+                NetAmount = bill.Amount,
                 DueDate = bill.DueDate,
                 IsPaid = bill.IsPaid
             };

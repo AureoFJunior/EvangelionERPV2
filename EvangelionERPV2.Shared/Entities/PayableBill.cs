@@ -42,6 +42,24 @@ namespace EvangelionERPV2.Shared.Entities
         public Guid? EmployeeVacationAccrualId { get; set; } = null;
         public virtual EmployeeVacationAccrual? EmployeeVacationAccrual { get; set; } = null;
 
+        /// <summary>
+        /// What a <c>BillType = Vacation</c> bill is worth before the provision already accrued for
+        /// it is netted out: salary + 1/3 + abono, as the employee is actually paid it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <see cref="Amount"/> on a férias bill carries the <em>netted</em> figure, because the
+        /// monthly payroll bill already projected the provision as cash leaving — see
+        /// docs/employee/SPEC-hr-module.md §4 P5a. Without the gross stored, the drawdown would sum
+        /// netted amounts and allocate against its own output.
+        /// </para>
+        /// <para>
+        /// Nullable: every other kind of payable has no gross distinct from its amount, and bills
+        /// issued before this column existed read as "gross equals amount", which is what they are.
+        /// </para>
+        /// </remarks>
+        public decimal? GrossAmount { get; set; } = null;
+
         public virtual ICollection<PayableBillProduct>? Items { get; set; }
     }
 }

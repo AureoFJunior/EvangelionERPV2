@@ -1,6 +1,6 @@
 # Roadmap status — where the work stopped
 
-Written 2026-08-19, updated 2026-08-20 (M6, then M11 P4), on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
+Written 2026-08-19, updated 2026-08-20 (M6, then M11 P4, P5, P5a), on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
 
 The plan itself is the Artifact **"Completing Evangelion ERP"** (M0–M13):
 <https://claude.ai/code/artifact/2edfd7e3-3715-4a0a-965c-299164b28e4a>. It is not in the repo — fetch it
@@ -13,10 +13,10 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | | |
 |---|---|
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
-| Head at stop | M11 P5 férias pay |
+| Head at stop | M11 P5a férias bill netting |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1106 passing / 0 failing** across 12 assemblies (916 before M6, 1006 before M11 P4, 1076 before P5) |
-| Migrations | chain ends `20260820100000_AddCustomerFiscalAddress` → `20260820110000_AddEmployeeVacationAccrual` → `20260820130000_AddVacationPayLinks` |
+| Tests | **1117 passing / 0 failing** across 12 assemblies (916 before M6, 1006 before M11 P4, 1076 before P5, 1106 before P5a) |
+| Migrations | chain ends `20260820110000_AddEmployeeVacationAccrual` → `20260820130000_AddVacationPayLinks` → `20260820140000_AddVacationBillGrossAmount` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers**, verified 0 on the branch |
 
 ## Milestones
@@ -34,24 +34,18 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | M8 | Suppliers | **Done** | `57f69a9` |
 | M9 | Per-tenant billing + CNAB | Not started, gated on a bank | |
 | M10 | HR — absences, atestados, advertências | **Done** | `5b7ab82` |
-| M11 | HR — férias ledger and férias pay | **P4 + P5 done 2026-08-20.** One follow-up decided but unbuilt: netting the férias bill against the consumed provision (SPEC-hr-module §4 P5a) | M11 P4 + M11 P5 commits |
+| M11 | HR — férias ledger and férias pay | **Done 2026-08-20** — P4, P5 and P5a (bill netting) | M11 P4, P5, P5a commits |
 | M12 | Bank reconciliation | **Done** | `faccd6c` |
 | M13 | Admin surfaces + test debt | Not started | |
 
-## Resume here: M11 P5a — net the férias bill against the consumed provision
+## Resume here: M13 — admin surfaces + test debt
 
-P5 shipped: `VacationPay` money rules, `VacationPayService` creating one `PayableBill` per férias stretch
-with the art. 145 due date, the `PayrollService.ReducesPay` branch that stops the salary being paid twice,
-and `VacationProvisionDrawdownService` writing `VacationProvisionConsumed` oldest-competência-first.
+M11 is closed. P5a netted the férias bill against the provision payroll already accrued for it:
+`PayableBill.GrossAmount` stores what the employee is paid, `Amount` carries the netted figure the
+cash-flow forecast reads, and `VacationProvisionDrawdownService` writes both from the gross so the
+allocation cannot feed on its own output. The full account is `docs/employee/SPEC-hr-module.md` §4 P5a.
 
-**One decided change is still unbuilt, and it is the first thing to do.** The monthly payroll bill's
-`Amount` already includes the férias provision, so the money is now projected twice — once monthly, once
-when the férias bill is due. Aureo chose to net the férias bill down rather than change historical payroll
-amounts. **Read `docs/employee/SPEC-hr-module.md` §4 P5a before touching it**: the drawdown currently sums
-the standing bills, so netting `Amount` naively makes the allocation feed on its own output. The gross
-entitlement has to stay recoverable.
-
-After that: **M13** (admin surfaces + test debt, including M12's missing resolution endpoint), or buy the
+**Next: M13** (admin surfaces + test debt, including M12's missing resolution endpoint), or buy the
 A1 certificate (§M1) and answer §M13 to unblock verifying M6. Do **not** start M7 — phases 5–9 all consume
 SEFAZ's answers, and building on an unverified cStat mapping compounds guesswork.
 
@@ -113,6 +107,11 @@ SEFAZ's answers, and building on an unverified cStat mapping compounds guesswork
   Marked `ponytail:`; fixing it needs a column.
 - **M11 P5**: a férias bill whose stretch is cancelled after issue is reported as an orphan rather than
   hidden. The money left; nothing reconciles that yet.
+- **M11 P5a**: `PayableBill.Amount` on a férias bill is now a *forecast* figure — the netted one. Whoever
+  pays the employee has to read `GrossAmount` (or `VacationPayDTO.TotalAmount`). No payment surface reads
+  férias bills today, so nothing is wrong yet; a payment screen that treats `Amount` as the cheque would
+  underpay by the provision. M12's matcher was fixed in the same pass — it now builds payable candidates
+  from `GrossAmount ?? Amount`, because the bank sees the whole payment leave.
 - **M11 P4**: the approaching-deadline liability read exists on `EmployeeVacationLapseService` but has
   **no controller action and no RBAC permission** — `SPEC-hr-module.md` §8 puts that KPI out of scope, so
   the endpoint would be scaffolding for a screen nobody asked for. One action away when a screen wants it.

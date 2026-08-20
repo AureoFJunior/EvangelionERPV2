@@ -178,7 +178,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 .Select(payable => new Candidate(
                     payable.Id,
                     (payable.PaidAt ?? payable.DueDate).Date,
-                    payable.Amount))
+                    // The gross, where one is recorded: a férias bill's Amount is netted by the
+                    // provision payroll already accrued (SPEC-hr-module §4 P5a), but the bank sees
+                    // the whole payment leave. Null on every other kind of payable, so this is a
+                    // no-op for them.
+                    payable.GrossAmount ?? payable.Amount))
                 .ToList();
 
             // A document already reconciled against an earlier statement line must not be offered

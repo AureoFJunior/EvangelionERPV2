@@ -1648,6 +1648,10 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<Guid>("EnterpriseId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<decimal?>("GrossAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<bool?>("IsActive")
                         .HasColumnType("bit");
 

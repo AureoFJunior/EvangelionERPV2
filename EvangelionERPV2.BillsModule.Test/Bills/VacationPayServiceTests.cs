@@ -282,6 +282,132 @@ namespace EvangelionERPV2.BillsModule.Test
 
         #endregion
 
+        #region Provision netting
+
+        [Fact]
+        public async Task GenerateAsync_NetsTheBillByTheProvisionAlreadyAccruedForIt()
+        {
+            // The monthly payroll bill's Amount already includes the férias provision as cash
+            // leaving, so charging the férias bill at gross projects the same money twice —
+            // docs/employee/SPEC-hr-module.md §4 P5a.
+            var enterpriseId = Guid.NewGuid();
+            var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3000m);
+            var stretch = BuildStretch(employee, FeriasStart, days: 31);
+
+            var (sut, stores) = BuildSut(accrual, employee, [stretch], competencias:
+            [
+                BuildCompetencia(employee, 2025, 1, 1000m),
+                BuildCompetencia(employee, 2025, 2, 500m)
+            ]);
+
+            var payment = Assert.Single(await sut.GenerateAsync(enterpriseId, accrual.Id));
+
+            // The employee is still owed the gross; only what the bill projects moves.
+            Assert.Equal(4000m, payment.TotalAmount);
+            Assert.Equal(1500m, payment.ProvisionOffset);
+            Assert.Equal(2500m, payment.NetAmount);
+
+            var bill = Assert.Single(stores.createdBills);
+            Assert.Equal(2500m, bill.Amount);
+            Assert.Equal(4000m, bill.GrossAmount);
+        }
+
+        [Fact]
+        public async Task GenerateAsync_WhenTheProvisionCoversTheWholeBill_NetsItToZeroAndNoFurther()
+        {
+            // A fully provisioned férias is pure forecast: the cash was already projected month by
+            // month. The bill must land at zero rather than turning into a credit.
+            var enterpriseId = Guid.NewGuid();
+            var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3000m);
+            var stretch = BuildStretch(employee, FeriasStart, days: 31);
+            var competencia = BuildCompetencia(employee, 2025, 1, 9000m);
+
+            var (sut, stores) = BuildSut(accrual, employee, [stretch], competencias: [competencia]);
+
+            var payment = Assert.Single(await sut.GenerateAsync(enterpriseId, accrual.Id));
+
+            Assert.Equal(0m, payment.NetAmount);
+            Assert.Equal(4000m, payment.ProvisionOffset);
+            Assert.Equal(0m, Assert.Single(stores.createdBills).Amount);
+
+            // And the months give up only what was actually paid out.
+            Assert.Equal(4000m, competencia.VacationProvisionConsumed);
+        }
+
+        [Fact]
+        public async Task GenerateAsync_RunTwice_NetsTheBillOnlyOnce()
+        {
+            // The trap this whole change had to avoid: the drawdown sums the standing bills, so if
+            // it summed the netted Amount it would feed on its own output and converge on zero.
+            var enterpriseId = Guid.NewGuid();
+            var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3000m);
+            var stretch = BuildStretch(employee, FeriasStart, days: 31);
+
+            var (sut, stores) = BuildSut(accrual, employee, [stretch], competencias:
+            [
+                BuildCompetencia(employee, 2025, 1, 1500m)
+            ]);
+
+            await sut.GenerateAsync(enterpriseId, accrual.Id);
+            var payment = Assert.Single(await sut.GenerateAsync(enterpriseId, accrual.Id));
+
+            Assert.Equal(2500m, payment.NetAmount);
+            Assert.Equal(2500m, Assert.Single(stores.billStore).Amount);
+        }
+
+        [Fact]
+        public async Task GenerateAsync_SplitFerias_NetsTheEarliestDueBillFirst()
+        {
+            // The provision that exists today belongs to the payment that falls due first; the
+            // second stretch takes what is left.
+            var enterpriseId = Guid.NewGuid();
+            var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3000m);
+
+            var first = BuildStretch(employee, FeriasStart, days: 31);
+            // September has 30 days, so a 30-day stretch there prices at the same 4000 gross.
+            var second = BuildStretch(employee, FeriasStart.AddMonths(2), days: 30);
+
+            var (sut, _) = BuildSut(accrual, employee, [first, second], competencias:
+            [
+                BuildCompetencia(employee, 2025, 1, 5000m)
+            ]);
+
+            var payments = (await sut.GenerateAsync(enterpriseId, accrual.Id))
+                .OrderBy(x => x.DueDate)
+                .ToList();
+
+            Assert.Equal(0m, payments[0].NetAmount);      // 4000 gross, fully covered
+            Assert.Equal(3000m, payments[1].NetAmount);   // 4000 gross, 1000 of provision left
+            Assert.Equal(1000m, payments[1].ProvisionOffset);
+        }
+
+        [Fact]
+        public async Task GetAsync_AfterNetting_StillReportsTheAbonoItSettled()
+        {
+            // Whether a bill settled the abono is inferred from what it is worth, so the inference
+            // has to read the gross — a netted bill can be worth less than the stretch alone.
+            var enterpriseId = Guid.NewGuid();
+            var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3100m);
+            accrual.SoldDays = 10;
+            var stretch = BuildStretch(employee, FeriasStart, days: 20);
+
+            var (sut, _) = BuildSut(accrual, employee, [stretch], competencias:
+            [
+                BuildCompetencia(employee, 2025, 1, 3000m)
+            ]);
+
+            await sut.GenerateAsync(enterpriseId, accrual.Id);
+
+            var payment = Assert.Single(await sut.GetAsync(enterpriseId, accrual.Id));
+
+            Assert.Equal(10, payment.SoldDays);
+            Assert.Equal(1000m, payment.AbonoAmount);
+            Assert.Equal(4000m, payment.TotalAmount);
+            Assert.Equal(1000m, payment.NetAmount);
+        }
+
+        #endregion
+
         private static (EmployeeVacationAccrual Accrual, Employee Employee) BuildAccrual(Guid enterpriseId, decimal salary)
         {
             var employee = new Employee
@@ -329,6 +455,21 @@ namespace EvangelionERPV2.BillsModule.Test
                 IsActive = true
             };
 
+        /// <summary>
+        /// A payroll competência inside the período aquisitivo, carrying the provision a férias
+        /// payment draws down.
+        /// </summary>
+        private static PayrollBillDetail BuildCompetencia(Employee employee, int year, int month, decimal provision) =>
+            new()
+            {
+                Id = Guid.NewGuid(),
+                EmployeeId = employee.Id,
+                ReferenceYear = year,
+                ReferenceMonth = month,
+                VacationProvision = provision,
+                IsActive = true
+            };
+
         private static (
             VacationPayService sut,
             (List<PayableBill> createdBills, List<PayableBill> billStore) stores)
@@ -336,7 +477,8 @@ namespace EvangelionERPV2.BillsModule.Test
                 EmployeeVacationAccrual accrual,
                 Employee employee,
                 List<EmployeeAbsence> stretches,
-                List<PayableBill>? payableBills = null)
+                List<PayableBill>? payableBills = null,
+                List<PayrollBillDetail>? competencias = null)
         {
             var billStore = payableBills ?? [];
 
@@ -346,7 +488,7 @@ namespace EvangelionERPV2.BillsModule.Test
             // is the ordinary case and must not blow up.
             var absenceRepo = CreateRepositoryMock(stretches, throwsWhenEmpty: true);
             var billRepo = CreateRepositoryMock(billStore);
-            var detailRepo = CreateRepositoryMock(new List<PayrollBillDetail>());
+            var detailRepo = CreateRepositoryMock(competencias ?? []);
 
             var createdBills = new List<PayableBill>();
             var payableBillService = new Mock<IPayableBillService>();

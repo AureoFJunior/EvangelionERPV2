@@ -199,7 +199,7 @@ what to do with an absence.
 > faltas, so it would make taking férias shrink the *next* year's entitlement. `VacationEntitlement`
 > already excludes `Vacation` by type as well, so that stays true either way.
 
-### P5a — Net the férias bill against the consumed provision — **DECIDED, NOT YET BUILT**
+### P5a — Net the férias bill against the consumed provision — **BUILT 2026-08-20**
 
 Answered by Aureo 2026-08-20, after P5 landed. The monthly payroll `PayableBill` sets
 `Amount = detail.TotalCost`, and `TotalCost` already includes `VacationProvision` — so the provision is
@@ -208,13 +208,35 @@ twice. The chosen fix is to **net the férias bill down**: its `Amount` becomes
 `(salary + 1/3 + abono) − VacationProvisionConsumed`. Historical payroll bills are untouched; the
 alternative (dropping the provision from payroll `Amount`) would have moved every existing bill's amount.
 
-**The trap in implementing it.** `VacationProvisionDrawdownService.RecalculateAsync` sums the *standing
-férias bills* and allocates that total across competências. Netting the bill's `Amount` makes that sum the
-netted figure, so the drawdown would allocate against its own output and converge on the wrong number.
-The allocation must run on the **gross** entitlement (salary + 1/3 + abono) while `Amount` carries the
-netted figure. That means the gross has to be recoverable from the bill — today it is not stored anywhere,
-so this needs either a column or a recomputation from the accrual at drawdown time. Decide which before
-writing it; it is the only reason this was not done in the same pass.
+**How the gross stayed recoverable.** `VacationProvisionDrawdownService.RecalculateAsync` sums the
+*standing férias bills*, so netting `Amount` would have made the allocation feed on its own output. Of the
+two options the decision left open — a column or a recomputation from the accrual — it is a **column**:
+`PayableBill.GrossAmount`, nullable, migration `20260820140000_AddVacationBillGrossAmount`. Recomputing
+would have had to price the stretches again inside the drawdown, which means the absence calendar and a
+salary that may have changed since the bill was issued; the column is what the employee was actually
+promised, which is the number an auditor wants. `NULL` reads as "gross equals `Amount`", true of every
+bill written before the column and of every non-férias payable, so no backfill was needed.
+
+Consequences worth knowing:
+
+- The netting is written by the **drawdown**, not at bill creation — it is the only place that knows how
+  much provision is left. `VacationPayService.GenerateAsync` therefore writes the gross into both
+  `Amount` and `GrossAmount`, lets the drawdown net it inside the same transaction, and then re-reads
+  through `GetAsync` rather than reporting the stale amounts it held in memory.
+- Netting spreads across the standing bills **oldest due date first**, the same fill as the competências,
+  through a bucket overload of `VacationProvisionAllocator.Allocate`. A split férias where the provision
+  covers only the first stretch nets that one to zero and leaves the second at gross.
+- Refunding a bill releases its provision and the next run re-nets whatever is still standing — the
+  recomputation shape carried this for free.
+- `SoldDaysOn` infers "did this bill settle the abono" from what the bill is worth, so it now reads the
+  gross. A netted bill can be worth less than the stretch alone.
+- **M12's bank reconciliation was corrected in the same pass**: it matched statement lines against
+  `PayableBill.Amount`, which for a férias bill is now the netted figure, while the bank shows the gross
+  leaving. `BankReconciliationService` builds payable candidates from `GrossAmount ?? Amount`; a no-op for
+  every other payable.
+- `VacationPayDTO` carries all three figures: `TotalAmount` (gross, what the employee is paid),
+  `ProvisionOffset`, and `NetAmount` (what the bill projects). **Whoever pays the employee must read the
+  gross** — `PayableBill.Amount` on a férias bill is a forecast figure, not the payment.
 
 ### P5 — Férias pay
 

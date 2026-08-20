@@ -172,6 +172,79 @@ namespace EvangelionERPV2.BillsModule.Test
 
         #endregion
 
+        #region Netting the bill
+
+        [Fact]
+        public async Task Recalculate_NetsTheBillByWhatItConsumed()
+        {
+            // The monthly payroll bill already projected the provision as cash leaving, so the
+            // férias bill carries only the uncovered remainder — SPEC-hr-module §4 P5a.
+            var context = new DrawdownContext(paid: 300m, competencias: [Month(2025, 1, 200m)]);
+
+            await context.Service.RecalculateAsync(AccrualId);
+
+            Assert.Equal(100m, context.Bills[0].Amount);
+            Assert.Equal(300m, context.Bills[0].GrossAmount);
+        }
+
+        [Fact]
+        public async Task Recalculate_AllocatesOnTheGrossRatherThanTheAmountItAlreadyNetted()
+        {
+            // The trap P5a exists to avoid: summing the netted Amount makes the allocation feed on
+            // its own output and walk the bill down to zero one run at a time.
+            var context = new DrawdownContext(paid: 0m, competencias: [Month(2025, 1, 200m)]);
+            var bill = context.AddBill(amount: 100m, gross: 300m);
+
+            var drawdown = await context.Service.RecalculateAsync(AccrualId);
+
+            Assert.Equal(200m, drawdown.TotalConsumed);
+            Assert.Equal(100m, bill.Amount);
+            Assert.Equal(300m, bill.GrossAmount);
+        }
+
+        [Fact]
+        public async Task Recalculate_OnABillIssuedBeforeTheGrossWasStored_TreatsItsAmountAsTheGross()
+        {
+            var context = new DrawdownContext(paid: 0m, competencias: [Month(2025, 1, 200m)]);
+            var bill = context.AddLegacyBill(300m);
+
+            await context.Service.RecalculateAsync(AccrualId);
+
+            Assert.Equal(300m, bill.GrossAmount);
+            Assert.Equal(100m, bill.Amount);
+        }
+
+        [Fact]
+        public async Task Recalculate_WhenTheProvisionCoversTheBill_NetsItToZeroAndNotBelow()
+        {
+            var context = new DrawdownContext(paid: 150m, competencias: [Month(2025, 1, 500m)]);
+
+            await context.Service.RecalculateAsync(AccrualId);
+
+            Assert.Equal(0m, context.Bills[0].Amount);
+            Assert.Equal(150m, context.Consumed(2025, 1));
+        }
+
+        [Fact]
+        public async Task Recalculate_AfterTheFirstBillIsRefunded_ReNetsTheOneStillStanding()
+        {
+            // The provision the refunded bill was holding goes to the payment still due, which is
+            // the behaviour recomputation buys and a delta would have to be told about.
+            var context = new DrawdownContext(paid: 200m, competencias: [Month(2025, 1, 150m)]);
+            var second = context.AddBill(200m);
+
+            await context.Service.RecalculateAsync(AccrualId);
+            Assert.Equal(50m, context.Bills[0].Amount);
+            Assert.Equal(200m, second.Amount);
+
+            context.Bills[0].RefundedAt = DateTime.UtcNow;
+            await context.Service.RecalculateAsync(AccrualId);
+
+            Assert.Equal(50m, second.Amount);
+        }
+
+        #endregion
+
         #region Which rows are eligible
 
         [Fact]
@@ -285,6 +358,10 @@ namespace EvangelionERPV2.BillsModule.Test
                 billRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<PayableBill, bool>>?>()))
                     .ReturnsAsync((Expression<Func<PayableBill, bool>>? predicate) =>
                         predicate == null ? _bills.ToList() : _bills.Where(predicate.Compile()).ToList());
+                billRepo.Setup(x => x.UpdateRange(It.IsAny<IEnumerable<PayableBill>>()))
+                    .Returns((IEnumerable<PayableBill> rows) => rows);
+                billRepo.Setup(x => x.CommitAsync(It.IsAny<CancellationToken>()))
+                    .Returns(Task.CompletedTask);
 
                 var detailRepo = new Mock<IRepository<PayrollBillDetail>>();
                 detailRepo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<PayrollBillDetail, bool>>?>()))
@@ -303,15 +380,42 @@ namespace EvangelionERPV2.BillsModule.Test
                     accrualRepo.Object, billRepo.Object, detailRepo.Object);
             }
 
-            public void AddBill(decimal amount, EnumPayableBillType billType = EnumPayableBillType.Vacation) =>
-                _bills.Add(new PayableBill
+            /// <param name="amount">
+            /// What the bill currently projects. Left equal to the gross unless a test is
+            /// deliberately standing up a bill the drawdown has already netted.
+            /// </param>
+            /// <param name="gross">
+            /// What the employee is paid, before netting. Null models a bill issued before the
+            /// column existed.
+            /// </param>
+            public PayableBill AddBill(
+                decimal amount,
+                EnumPayableBillType billType = EnumPayableBillType.Vacation,
+                decimal? gross = null,
+                DateTime? dueDate = null)
+            {
+                var bill = new PayableBill
                 {
                     Id = Guid.NewGuid(),
                     Amount = amount,
+                    GrossAmount = gross ?? amount,
+                    DueDate = dueDate ?? new DateTime(2026, 1, 1).AddDays(_bills.Count),
                     BillType = (int)billType,
                     EmployeeVacationAccrualId = AccrualId,
                     IsActive = true
-                });
+                };
+
+                _bills.Add(bill);
+                return bill;
+            }
+
+            /// <summary>A bill from before <c>GrossAmount</c> existed: its Amount is its gross.</summary>
+            public PayableBill AddLegacyBill(decimal amount)
+            {
+                var bill = AddBill(amount);
+                bill.GrossAmount = null;
+                return bill;
+            }
 
             public void RefundAllBills()
             {
@@ -325,6 +429,8 @@ namespace EvangelionERPV2.BillsModule.Test
                 detail.EmployeeId = Guid.NewGuid();
                 _details.Add(detail);
             }
+
+            public IReadOnlyList<PayableBill> Bills => _bills;
 
             public decimal Consumed(int year, int month) => Detail(year, month).VacationProvisionConsumed;
 

@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using System.Text;
 using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using Moq;
 
@@ -148,6 +149,33 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(1, result.AmbiguousLines);
             Assert.Equal(0, result.MatchedLines);
             Assert.Null(harness.Lines.Single().MatchedReferenceId);
+        }
+
+        [Fact]
+        public async Task ImportAsync_MatchesAFeriasBillOnWhatActuallyLeftTheBank()
+        {
+            // A férias bill's Amount is netted by the provision payroll already accrued for it
+            // (SPEC-hr-module §4 P5a), but the employee is paid the gross, so that is the figure
+            // the statement carries.
+            var harness = new Harness();
+            var billId = Guid.NewGuid();
+            harness.Payables.Add(new PayableBill
+            {
+                Id = billId,
+                EnterpriseId = EnterpriseId,
+                Amount = 1500.00m,
+                GrossAmount = 4000.00m,
+                BillType = (int)EnumPayableBillType.Vacation,
+                DueDate = new DateTime(2026, 8, 8),
+                IsActive = true
+            });
+
+            var result = await harness.Service.ImportAsync(EnterpriseId, Ofx(
+                ledgerBalance: "0.00",
+                transactions: [Transaction("F1", "20260808", "-4000.00")]));
+
+            Assert.Equal(1, result.MatchedLines);
+            Assert.Equal(billId, harness.Lines.Single().MatchedReferenceId);
         }
 
         [Fact]
