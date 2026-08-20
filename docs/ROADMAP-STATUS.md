@@ -23,7 +23,7 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 
 | # | Milestone | State | Commits |
 |---|---|---|---|
-| M0 | Close both working trees | **Done**, except the orphan projects below | `f0765ee`, FrontV2 `e70760b` |
+| M0 | Close both working trees | **Done** — orphan projects deleted 2026-08-20 | `f0765ee`, FrontV2 `e70760b` |
 | M1 | Integrity + validation holes | **Done** | `0bb2f2d` |
 | M2 | Boleto becomes a real receivable | **Done** | `0a7e77b` |
 | M3 | Stock ledger | **Done** | `f210e44`, `62d3d8f` |
@@ -64,10 +64,10 @@ only means anything against a running stack.
 
 ## Needs a human, not code
 
-1. **Delete the three orphan root projects.** `EvangelionERPV2.Application`, `.Domain`, `.Infra` — a
-   verified closed island: absent from the solution, and the only reference to `.Domain`/`.Infra`
-   comes from `.Application`, which nothing references. `git rm -r` on them was blocked by the agent
-   sandbox and needs to be run by hand.
+1. ~~Delete the three orphan root projects.~~ **Done 2026-08-20.** `EvangelionERPV2.Application`,
+   `.Domain`, `.Infra` are gone — 21 files, re-verified as a closed island first (absent from the
+   solution, no `ProjectReference` and no `using` from anything outside the three). Build stayed at
+   0 errors.
 2. **FrontV2 `abb1b46`** ("refactor(ui): split page modals into per-page components") still carries a
    `Co-Authored-By` trailer and is **already pushed to `origin/master`**. Removing it means
    force-pushing a shared branch — a deliberate decision, not a cleanup.
