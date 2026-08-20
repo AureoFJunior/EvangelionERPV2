@@ -87,6 +87,12 @@ Four new entities in `Shared/Entities` (the repo keeps all entities there, not i
 
 Every dated non-working period, whatever caused it. **This is the only table payroll reads.**
 
+> **This block is the design, not the tree.** M10 shipped something simpler: `IsJustified` instead of the
+> `EmployerPaidDays`/`SocialSecurityPaidDays`/`UnpaidDays` split, no `Status`, and a three-value
+> `EnumEmployeeAbsenceType` (`Falta`, `Atestado`, `Advertencia`) that P4 extended to four by appending
+> `Vacation = 4`. Read the entity, not this listing, and treat the difference as a deliberate
+> simplification rather than missing work.
+
 ```
 EmployeeId, EnterpriseId          scoped like every other tenant row
 Type                              EnumAbsenceType: MedicalLeave, Vacation,
@@ -164,6 +170,14 @@ cases (absence spanning a month end, absence starting before the hire date, over
 Overlap is a real case — an atestado during scheduled férias interrupts the férias — so the service
 rejects overlapping approved absences rather than silently summing them.
 
+**Not what shipped.** M10 has no overlap rejection: `PayrollService.CountUnpaidDays` unions absence days
+into a `HashSet`, so overlaps cannot double-subtract *pay*, and that was enough for P2.
+`VacationEntitlement.CountUnjustifiedFaltas` does the same for the same reason. But P4 can now schedule
+férias across days an employee is already signed off sick, decrementing the accrual for days that are not
+actually leave. Rejecting the overlap is the smaller half; deciding what an atestado does to férias
+already under way (art. 130 interruption) is the real work, and it belongs to `EmployeeAbsenceService`
+rather than to the accrual ledger. Open.
+
 ### P3 — Advertências
 
 Cheapest and fully independent: a table, CRUD, the 30-day art. 474 validation, and a suspension that
@@ -176,6 +190,14 @@ with the art. 134 split rules, and a check that flags accruals approaching `Conc
 
 Still no money: scheduling a férias creates an `EmployeeAbsence` of type `Vacation`, and P2 already knows
 what to do with an absence.
+
+> **Carried out of P4, and it must ship inside P5's own PR.** `PayrollService.ReducesPay` is
+> `!IsJustified && Type != Advertencia`. P4's férias absences are written `IsJustified = true`, so they
+> do **not** reduce payroll days — which is correct while no férias `PayableBill` exists (reducing now
+> would simply underpay), and becomes the double-payment trap below the moment one does. It is a
+> one-line branch. Writing `IsJustified = false` instead is not the fix: art. 130 counts unjustified
+> faltas, so it would make taking férias shrink the *next* year's entitlement. `VacationEntitlement`
+> already excludes `Vacation` by type as well, so that stays true either way.
 
 ### P5 — Férias pay
 
@@ -193,10 +215,16 @@ Also here: a `Vacation` value on `EnumPayableBillType` (currently `…, Other, P
 insert, the values go on the wire), the abono pecuniário amount, and the payment-date rule (2 days before
 start), which drives the `PayableBill.DueDate`.
 
-**Open question for the accountant, not for us:** `VacationProvision` on `PayrollBillDetail` accrues every
-month, and P5 pays the férias out. Whether the payment should *consume* the accrued provision or whether
-the provision stays a pure forecast input is an accounting decision. It changes the cash-flow forecast,
-not the cash. Ask before building, because both are defensible and only one is theirs.
+**Answered 2026-08-20 — the payment consumes the provision.** `VacationProvision` on `PayrollBillDetail`
+accrues every month and the férias `PayableBill` draws it down, so the forecast shows the liability
+shrinking as it is paid rather than counting the same money twice. This changes the cash-flow forecast,
+not the cash.
+
+The consequence for P5, stated so it is not rediscovered: the payment needs a **back-link to the months it
+consumes**. A férias `PayableBill` covering days earned across a período aquisitivo has to know which
+`PayrollBillDetail` rows accrued the provision it is drawing on, or the drawdown is a guess. Decide that
+link when P5 is built — the accrual ledger (`EmployeeVacationAccrual`) already identifies the período, so
+the join is period → competências → details, not a new column on the bill.
 
 ---
 
@@ -274,7 +302,7 @@ them expensive later:
 
 | # | Decision | Owner |
 |---|---|---|
-| H1 | Does the férias payment consume `VacationProvision`, or is the provision purely a forecast input? (§4 P5) | Accountant |
+| ~~H1~~ | ~~Does the férias payment consume `VacationProvision`?~~ **Answered 2026-08-20: yes, the payment consumes the provision.** See §4 P5. | Accountant |
 | H2 | Is FGTS still owed during an INSS-covered afastamento? It is for accident-related leave and not for ordinary illness — confirm before P2 changes any charge base. | Accountant |
 | H3 | Retention period for advertências and atestados after termination. LGPD wants a defined limit; labour-claim exposure wants five years. | You / legal |
 | H4 | Self-service later? If yes, `Employee.UserId` is the first migration and it is cheaper to add before the tables above accumulate rows. | You |

@@ -1,6 +1,6 @@
 # Roadmap status — where the work stopped
 
-Written 2026-08-19, updated 2026-08-20, on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
+Written 2026-08-19, updated 2026-08-20 (M6, then M11 P4), on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
 
 The plan itself is the Artifact **"Completing Evangelion ERP"** (M0–M13):
 <https://claude.ai/code/artifact/2edfd7e3-3715-4a0a-965c-299164b28e4a>. It is not in the repo — fetch it
@@ -13,10 +13,10 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | | |
 |---|---|
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
-| Head at stop | M6 SEFAZ transport, on top of `03cf60b` |
+| Head at stop | M11 P4 férias ledger, on top of the M6 transport commit |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1006 passing / 0 failing** across 12 assemblies (was 916 before M6) |
-| Migrations | chain ends `…150000_AddEmployeeAbsence` → `…160000_AddBankReconciliation` → `20260820100000_AddCustomerFiscalAddress` |
+| Tests | **1076 passing / 0 failing** across 12 assemblies (916 before M6, 1006 before M11 P4) |
+| Migrations | chain ends `…160000_AddBankReconciliation` → `20260820100000_AddCustomerFiscalAddress` → `20260820110000_AddEmployeeVacationAccrual` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers**, verified 0 on the branch |
 
 ## Milestones
@@ -34,33 +34,39 @@ a v2 API). Proposing any of those is re-litigating a settled decision.
 | M8 | Suppliers | **Done** | `57f69a9` |
 | M9 | Per-tenant billing + CNAB | Not started, gated on a bank | |
 | M10 | HR — absences, atestados, advertências | **Done** | `5b7ab82` |
-| M11 | HR — férias ledger and férias pay | Not started; **unblocked**, and the natural next milestone now that M6 is code-blocked on a certificate | |
+| M11 | HR — férias ledger and férias pay | **P4 done 2026-08-20** (ledger, entitlement, scheduling, abono, lapse sweeper). **P5 — férias pay — not started** | this branch's M11 P4 commit |
 | M12 | Bank reconciliation | **Done** | `faccd6c` |
 | M13 | Admin surfaces + test debt | Not started | |
 
-## Resume here: M11 (férias), or M7 only once a certificate exists
+## Resume here: M11 P5 — férias pay
 
-**M6's transport is written.** `NFeXmlBuilder`, `UnimakeConfiguracaoFactory`, `SefazCStatMap` and
-`SefazNFeProvider` all exist in `EvangelionERPV2.NFe.Infra`, `NFeIoC` registers the real provider
-scoped, and `StubNFeProvider` is orphaned pending its phase-9 deletion. Details and the four
-decisions worth not re-deriving are in [`fiscal/SPEC-remaining-code.md`](./fiscal/SPEC-remaining-code.md) §2.1.
+P4 is done: `EmployeeVacationAccrual`, the art. 130 entitlement table, art. 134 §1 scheduling, art. 143
+abono, and the concessivo lapse sweeper on M5's `LeasedScheduleWorker`. P5 is what turns the ledger into
+money, and it lives in **`Bills.Application`, beside `PayrollService`** — not in the Employee module.
+Employee owns *when* the férias happen; Bills owns *what they cost*.
 
-**It has never spoken to SEFAZ.** Every cStat mapping is unverified, no note has round-tripped, and
-`infRespTec` is deliberately absent (§M13 in `fiscal/TODO-manual.md`) which is a *known* rejection on
-the first real transmission. `NFeSettings.Enabled` is still false everywhere, which is what keeps this
-safe.
+**The accounting question is answered.** The férias payment **consumes** the accrued `VacationProvision`
+(`docs/employee/SPEC-hr-module.md` §9 H1, closed 2026-08-20), so the forecast shows the liability
+shrinking rather than counting the same money twice. The drawdown needs a back-link from the payment to
+the competências it consumes: período → competências → `PayrollBillDetail`, via the accrual. Not a new
+column on the bill.
 
-So the honest next step is one of:
+**Two things must ship inside P5's own PR or the company pays twice:**
 
-1. **M11 — férias.** Pure code, unblocked, no external dependency. The obvious pick.
-2. **Buy the A1 certificate (§M1) and answer §M13**, then verify M6 end to end in homologação. This is
-   the critical path for anything fiscal, and it is procurement, not engineering.
-3. **M13 — admin surfaces + test debt**, including M12's missing resolution endpoint for ambiguous
-   statement lines.
+1. `PayrollService.ReducesPay` is `!IsJustified && Type != Advertencia`. P4's férias absences are
+   `IsJustified = true`, so payroll still pays those days — correct today, because no férias bill exists
+   and reducing would underpay. The moment a férias `PayableBill` lands, that is the exact trap
+   `SPEC-hr-module.md` §4 P5 warns about. One-line branch.
+2. Append `Vacation` to `EnumPayableBillType` — **append, never insert**; the values go on the wire.
 
-Do **not** start M7 (NFe phases 7–9) yet: phases 5–9 all consume SEFAZ's answers, so building them on
-an unverified cStat mapping compounds guesswork. Phase 7 (DANFE from an authorized-XML fixture) and
-phase 8 (`BodyBuilder` attachments) are the two exceptions that need no autorizador.
+Also still open, and not P4's to fix: **there is no overlap rejection on absences.** M10 handled overlap
+by set-union in `CountUnpaidDays` rather than by rejecting it, which was enough for pay but means férias
+can now be scheduled across days an employee is already signed off sick. Deciding what an atestado does
+to férias already under way is the real work and belongs to `EmployeeAbsenceService`.
+
+Otherwise: **M13** (admin surfaces + test debt, including M12's missing resolution endpoint), or buy the
+A1 certificate (§M1) and answer §M13 to unblock verifying M6. Do **not** start M7 — phases 5–9 all
+consume SEFAZ's answers, and building on an unverified cStat mapping compounds guesswork.
 
 ## Needs a human, not code
 
@@ -112,6 +118,12 @@ phase 8 (`BodyBuilder` attachments) are the two exceptions that need no autoriza
   ready. Also `PayableBillService._orderRepository` and `_orderedProductRepository` are now dead.
 - **M10**: adding an absence after a competência is billed does not retroactively adjust the bill.
   Delete-and-regenerate is the existing escape hatch.
+- **M11 P4**: the approaching-deadline liability read exists on `EmployeeVacationLapseService` but has
+  **no controller action and no RBAC permission** — `SPEC-hr-module.md` §8 puts that KPI out of scope, so
+  the endpoint would be scaffolding for a screen nobody asked for. One action away when a screen wants it.
+- **M11 P4**: `EmployeeAbsence` has no FK to the accrual a férias belongs to; the link is the calendar
+  ("starts inside this accrual's concessivo window"). Exact rather than heuristic, because consecutive
+  concessivo windows are disjoint — but it is a join nobody can see in the schema.
 - **M2**: `Rejected` is reachable in the model but nothing writes it yet — it exists so the CNAB
   retorno mapping in M9 does not have to migrate the column later.
 - **M6**: `NFeXmlBuilder` supports ICMS CST 00 and CSOSN 102/103/300/400 only; every other code throws

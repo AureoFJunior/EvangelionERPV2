@@ -37,6 +37,9 @@ namespace EvangelionERPV2.Web.Security
             EmployeeAbsences.Update,
             EmployeeAbsences.Delete,
 
+            EmployeeVacations.Read,
+            EmployeeVacations.Schedule,
+
             Email.Manage,
             Email.Send,
 
@@ -206,6 +209,12 @@ namespace EvangelionERPV2.Web.Security
             public const string Create = "rbac:employee-absences.create";
             public const string Update = "rbac:employee-absences.update";
             public const string Delete = "rbac:employee-absences.delete";
+        }
+
+        public static class EmployeeVacations
+        {
+            public const string Read = "rbac:employee-vacations.read";
+            public const string Schedule = "rbac:employee-vacations.schedule";
         }
 
         public static class Email

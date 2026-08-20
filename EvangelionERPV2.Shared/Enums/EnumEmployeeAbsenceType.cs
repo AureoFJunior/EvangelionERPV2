@@ -27,6 +27,18 @@ namespace EvangelionERPV2.Shared.Enums
         /// Advertência — a written warning. A disciplinary record, not unworked time: it never
         /// reduces pay on its own, and the falta that triggered it (if any) is its own row.
         /// </summary>
-        Advertencia = 3
+        Advertencia = 3,
+
+        /// <summary>
+        /// Férias — scheduled statutory leave, written by <c>EmployeeVacationService</c> alongside
+        /// the decrement on the entitlement ledger.
+        /// </summary>
+        /// <remarks>
+        /// Never a falta. It is recorded here because payroll reads exactly one table to answer
+        /// "was this person at work", and because CLT art. 130 counts <em>faltas injustificadas</em>
+        /// against the next entitlement — férias must never reduce the leave they are taken from,
+        /// which is why the row is always justified.
+        /// </remarks>
+        Vacation = 4
     }
 }

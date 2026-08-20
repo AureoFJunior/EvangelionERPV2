@@ -46,6 +46,7 @@ namespace EvangelionERPV2.Shared.Configs
                 // One-way on purpose: the DTO has no Cid, so a ReverseMap would be a mapping that
                 // can only ever blank the encrypted diagnosis code on the entity.
                 config.CreateMap<EmployeeAbsence, EmployeeAbsenceDTO>();
+                config.CreateMap<EmployeeVacationAccrual, EmployeeVacationAccrualDTO>();
                 config.CreateMap<Supplier, SupplierDTO>().ReverseMap();
                 config.CreateMap<Product, ProductDTO>().ReverseMap();
                 config.CreateMap<AuditTrail, AuditTrailDTO>()

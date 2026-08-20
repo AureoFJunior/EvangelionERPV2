@@ -97,6 +97,10 @@ namespace EvangelionERPV2.Web.Security
             // IsJustified decides whether a day is paid — so they follow Payroll and stay
             // admin-only, reachable only through RbacPermissions.All.
 
+            // RbacPermissions.EmployeeVacations is deliberately NOT here either, and for a
+            // stronger reason: scheduling férias writes an absence row, and an accrual that
+            // outruns its concessivo deadline is a debt the company owes twice over.
+
             // Certificate metadata only — subject, expiry, days remaining. Whoever operates
             // issuance needs the expiry warning without waiting on an admin; uploading and
             // replacing the certificate stays admin-only.

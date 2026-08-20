@@ -535,6 +535,62 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("EmployeeAbsence");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.EmployeeVacationAccrual", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("AcquisitionEnd")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("AcquisitionStart")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ConcessionDeadline")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("EntitledDays")
+                        .HasColumnType("int");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("ScheduledDays")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SoldDays")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TakenDays")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.HasIndex("EnterpriseId", "ConcessionDeadline");
+
+                    b.HasIndex("EnterpriseId", "EmployeeId", "AcquisitionStart");
+
+                    b.ToTable("EmployeeVacationAccrual");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Enterprise", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2110,6 +2166,17 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("Order");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.BillNumberSequence", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Enterprise");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Customer", b =>
                 {
                     b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
@@ -2139,6 +2206,23 @@ namespace EvangelionERPV2.Shared.Migrations
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.EmployeeAbsence", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId");
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.EmployeeVacationAccrual", b =>
                 {
                     b.HasOne("EvangelionERPV2.Shared.Entities.Employee", "Employee")
                         .WithMany()
@@ -2186,17 +2270,6 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired();
 
                     b.Navigation("Order");
-                });
-
-            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.BillNumberSequence", b =>
-                {
-                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
-                        .WithMany()
-                        .HasForeignKey("EnterpriseId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Enterprise");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.NFeNumberSequence", b =>

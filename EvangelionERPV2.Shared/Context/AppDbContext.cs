@@ -48,6 +48,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<Customer> Customer { get; set; }
         public DbSet<Employee> Employee { get; set; }
         public DbSet<EmployeeAbsence> EmployeeAbsence { get; set; }
+        public DbSet<EmployeeVacationAccrual> EmployeeVacationAccrual { get; set; }
         public DbSet<Enterprise> Enterprise { get; set; }
         public DbSet<EnterprisePayrollSettings> EnterprisePayrollSettings { get; set; }
         public DbSet<EnterpriseFiscalSettings> EnterpriseFiscalSettings { get; set; }
@@ -177,6 +178,14 @@ namespace EvangelionERPV2.Shared.Context
                 .HasOne(absence => absence.Employee)
                 .WithMany()
                 .HasForeignKey(absence => absence.EmployeeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Same reasoning again: an accrual is the evidence behind a férias payment, and a
+            // lapsed one is evidence of a debt owed in dobro.
+            modelBuilder.Entity<EmployeeVacationAccrual>()
+                .HasOne(accrual => accrual.Employee)
+                .WithMany()
+                .HasForeignKey(accrual => accrual.EmployeeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // Transactional guard against concurrent GeneratePayroll calls double-billing the

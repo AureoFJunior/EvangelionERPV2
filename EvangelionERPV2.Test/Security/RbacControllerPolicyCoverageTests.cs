@@ -50,6 +50,10 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(EmployeeAbsenceController), nameof(EmployeeAbsenceController.AddEmployeeAbsence), RbacPermissions.EmployeeAbsences.Create)]
         [InlineData(typeof(EmployeeAbsenceController), nameof(EmployeeAbsenceController.UpdateEmployeeAbsence), RbacPermissions.EmployeeAbsences.Update)]
         [InlineData(typeof(EmployeeAbsenceController), nameof(EmployeeAbsenceController.DeleteEmployeeAbsence), RbacPermissions.EmployeeAbsences.Delete)]
+        [InlineData(typeof(EmployeeVacationController), nameof(EmployeeVacationController.GetVacationAccruals), RbacPermissions.EmployeeVacations.Read)]
+        [InlineData(typeof(EmployeeVacationController), nameof(EmployeeVacationController.RefreshVacationAccruals), RbacPermissions.EmployeeVacations.Schedule)]
+        [InlineData(typeof(EmployeeVacationController), nameof(EmployeeVacationController.ScheduleVacation), RbacPermissions.EmployeeVacations.Schedule)]
+        [InlineData(typeof(EmployeeVacationController), nameof(EmployeeVacationController.SellVacationDays), RbacPermissions.EmployeeVacations.Schedule)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetEnterprises), RbacPermissions.Enterprise.Read)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetEnterprisesByFilter), RbacPermissions.Enterprise.Read)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetEnterprise), RbacPermissions.Enterprise.Read)]
@@ -232,7 +236,12 @@ namespace EvangelionERPV2.Test.Security
                          RbacPermissions.EmployeeAbsences.Read,
                          RbacPermissions.EmployeeAbsences.Create,
                          RbacPermissions.EmployeeAbsences.Update,
-                         RbacPermissions.EmployeeAbsences.Delete
+                         RbacPermissions.EmployeeAbsences.Delete,
+
+                         // Same tier: scheduling férias writes an absence row, and a lapsed
+                         // accrual is a debt owed in dobro.
+                         RbacPermissions.EmployeeVacations.Read,
+                         RbacPermissions.EmployeeVacations.Schedule
                      })
             {
                 Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Admin, permission));

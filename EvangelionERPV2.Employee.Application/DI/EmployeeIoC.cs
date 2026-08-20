@@ -6,6 +6,7 @@ using EvangelionERPV2.Shared.Configs;
 using EvangelionERPV2.EmployeeModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.EmployeeModule.Domain.Repositories;
+using EvangelionERPV2.EmployeeModule.Application.Configs;
 using EvangelionERPV2.EmployeeModule.Application.Interface;
 using EvangelionERPV2.EmployeeModule.Application.Services;
 using EvangelionERPV2.Shared.Utils;
@@ -59,9 +60,25 @@ namespace EvangelionERPV2.EmployeeModule.Application.DI
                 #region Services
                 services.AddTransient(typeof(IEmployeeService<Employee>), typeof(EmployeeService));
                 services.AddTransient(typeof(IEmployeeAbsenceService<EmployeeAbsence>), typeof(EmployeeAbsenceService));
+                services.AddTransient(typeof(IEmployeeVacationService<EmployeeVacationAccrual>), typeof(EmployeeVacationService));
 
+                #region Vacation lapse sweep
+                services.Configure<EmployeeVacationSettings>(configuration.GetSection("EmployeeVacationSettings"));
+
+                // Concrete, no interface: the worker below is its only caller. Lapsing is a
+                // consequence of the calendar that nothing else may trigger, so the module that
+                // owns the accrual owns the check.
+                services.AddScoped<EmployeeVacationLapseService>();
+                services.AddHostedService<EmployeeVacationLapseWorker>();
+                #endregion
 
                 #endregion
+
+                // Logged rather than left to the catch below, for the same reason NFeIoC logs its
+                // fiscal registrations: a swallowed DI failure here means the lapse sweeper never
+                // runs, and an accrual that quietly passes its concessivo deadline is a debt owed
+                // in dobro that nothing in the system will ever mention.
+                Log.Logger.Information("Employee vacation accrual services and lapse sweeper registered.");
 
                 services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));
             }

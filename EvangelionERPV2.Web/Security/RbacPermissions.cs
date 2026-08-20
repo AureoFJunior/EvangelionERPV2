@@ -38,6 +38,9 @@ namespace EvangelionERPV2.Web.Security
             EmployeeAbsences.Update,
             EmployeeAbsences.Delete,
 
+            EmployeeVacations.Read,
+            EmployeeVacations.Schedule,
+
             Email.Manage,
             Email.Send,
 
@@ -180,6 +183,20 @@ namespace EvangelionERPV2.Web.Security
             public const string Create = "employee-absences.create";
             public const string Update = "employee-absences.update";
             public const string Delete = "employee-absences.delete";
+        }
+
+        public static class EmployeeVacations
+        {
+            // Admin-only for the same reason as EmployeeAbsences, granted through
+            // RbacPermissions.All and never mapped to another role. Scheduling férias writes an
+            // absence row and moves a statutory entitlement, so it is write access to both payroll
+            // and a legal obligation; and a lapsed accrual is a debt owed in dobro, which makes the
+            // read side a liability report rather than a calendar.
+            public const string Read = "employee-vacations.read";
+
+            // One write permission, not four. Schedule, sell and refresh are the same authority
+            // over the same ledger — splitting them would grant nothing anyone would grant apart.
+            public const string Schedule = "employee-vacations.schedule";
         }
 
         public static class Email
