@@ -82,6 +82,11 @@ only means anything against a running stack.
 
 ## Traps this session paid for — do not rediscover
 
+- **Migrations do not apply themselves.** No `Database.Migrate()` call exists anywhere in the host or
+  the workers, so writing a migration and committing it changes no database. The local stack ran nine
+  migrations behind until 2026-08-20; `./scripts/local-db-update.sh` applies them (it also carries the
+  two traps that cost a run: `dotnet ef database update` needs the app's Secrets Manager connection
+  string, and `sqlcmd` without `-I` fails every filtered index with Msg 1934).
 - **Migrations are hand-written.** No `dotnet-ef` tool, no design-time factory. Every migration needs
   an explicit `[Migration(...)]` attribute or EF silently never sees it, and
   `AppDbContextModelSnapshot.cs` is hand-edited. `AppDbContextModelSnapshotSyncTests` catches drift;
