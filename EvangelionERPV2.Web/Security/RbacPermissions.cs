@@ -14,6 +14,8 @@ namespace EvangelionERPV2.Web.Security
             BankReconciliation.Import,
             BankReconciliation.Resolve,
 
+            Dashboard.Read,
+
             Bills.Read,
             Bills.Generate,
             Bills.DownloadPdf,
