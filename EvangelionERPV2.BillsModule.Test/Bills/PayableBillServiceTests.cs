@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using EvangelionERPV2.BillsModule.Application.Services;
+using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
@@ -786,27 +787,205 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Empty(suggestions);
         }
 
+        [Fact]
+        public async Task MarkProductsReceived_ShouldWriteReceiptMovement_PerItem()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var cable = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Cable",
+                StorageQuantity = 5,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+            var mouse = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Mouse",
+                StorageQuantity = 0,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "IT purchase",
+                IsActive = true
+            };
+
+            var items = new List<PayableBillProduct>
+            {
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    PayableBillId = bill.Id,
+                    ProductId = cable.Id,
+                    Quantity = 7,
+                    UnitValue = 10,
+                    LineAmount = 70,
+                    UnitOfMeasure = cable.UnitOfMeasure,
+                    IsActive = true
+                },
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    PayableBillId = bill.Id,
+                    ProductId = mouse.Id,
+                    Quantity = 3,
+                    UnitValue = 20,
+                    LineAmount = 60,
+                    UnitOfMeasure = mouse.UnitOfMeasure,
+                    IsActive = true
+                }
+            };
+
+            var (_, _, _, _, movements, service, _) = BuildSut(
+                payableBills: [bill],
+                payableItems: items,
+                products: [cable, mouse]);
+
+            await service.MarkProductsReceivedAsync(bill.Id, enterpriseId);
+
+            Assert.Equal(2, movements.Count);
+            Assert.All(movements, movement =>
+            {
+                Assert.Equal((int)EnumStockMovementType.Receipt, movement.Type);
+                Assert.Equal(bill.Id, movement.ReferenceId);
+                Assert.Equal(enterpriseId, movement.EnterpriseId);
+                Assert.True(movement.Quantity > 0);
+            });
+
+            var cableMovement = movements.Single(x => x.ProductId == cable.Id);
+            Assert.Equal(7, cableMovement.Quantity);
+            Assert.Equal(12, cableMovement.BalanceAfter);
+        }
+
+        [Fact]
+        public async Task RefundAsync_WithReceivedProducts_ShouldWriteAdjustmentMovement_NotNegativeReceipt()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Keyboard",
+                StorageQuantity = 4,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "Wrong model",
+                Amount = 100,
+                ProductsReceivedAt = DateTime.UtcNow.AddDays(-1),
+                IsActive = true
+            };
+
+            var item = new PayableBillProduct
+            {
+                Id = Guid.NewGuid(),
+                PayableBillId = bill.Id,
+                ProductId = product.Id,
+                Quantity = 4,
+                UnitValue = 25,
+                LineAmount = 100,
+                UnitOfMeasure = product.UnitOfMeasure,
+                IsActive = true
+            };
+
+            var (_, _, _, _, movements, service, _) = BuildSut(
+                payableBills: [bill],
+                payableItems: [item],
+                products: [product]);
+
+            await service.RefundAsync(bill.Id, enterpriseId, "Supplier shipped wrong model");
+
+            var movement = Assert.Single(movements);
+            Assert.Equal((int)EnumStockMovementType.Adjustment, movement.Type);
+            Assert.Equal(-4, movement.Quantity);
+            Assert.Equal(0, movement.BalanceAfter);
+            Assert.Equal(bill.Id, movement.ReferenceId);
+            Assert.Equal(0, product.StorageQuantity);
+        }
+
+        /// <summary>
+        /// M14 behaviour change: the reversal used to clamp at zero and carry on. The shared
+        /// ledger entry point refuses instead, because a balance that cannot go below zero is the
+        /// invariant the whole ledger rests on.
+        /// </summary>
+        [Fact]
+        public async Task RefundAsync_WhenReceivedStockAlreadyLeft_ShouldThrowInsteadOfClampingToZero()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Monitor",
+                StorageQuantity = 1,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "Monitors",
+                Amount = 900,
+                ProductsReceivedAt = DateTime.UtcNow.AddDays(-2),
+                IsActive = true
+            };
+
+            var item = new PayableBillProduct
+            {
+                Id = Guid.NewGuid(),
+                PayableBillId = bill.Id,
+                ProductId = product.Id,
+                Quantity = 3,
+                UnitValue = 300,
+                LineAmount = 900,
+                UnitOfMeasure = product.UnitOfMeasure,
+                IsActive = true
+            };
+
+            var (_, _, _, _, movements, service, _) = BuildSut(
+                payableBills: [bill],
+                payableItems: [item],
+                products: [product]);
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => service.RefundAsync(bill.Id, enterpriseId, "Returning to supplier"));
+
+            Assert.Empty(movements);
+            Assert.Equal(1, product.StorageQuantity);
+        }
+
         private static (
             Mock<IRepository<PayableBill>> payableBillRepo,
             Mock<IRepository<PayableBillProduct>> payableBillProductRepo,
             Mock<IRepository<Product>> productRepo,
-            Mock<IRepository<Order>> orderRepo,
-            Mock<IRepository<OrderedProduct>> orderedProductRepo,
+            Mock<IProductService<Product>> productService,
+            List<StockMovement> movements,
             PayableBillService service,
             List<PayableBillProduct> payableItemsStore)
             BuildSut(
                 List<PayableBill>? payableBills = null,
                 List<PayableBillProduct>? payableItems = null,
                 List<Product>? products = null,
-                List<Order>? orders = null,
-                List<OrderedProduct>? orderedProducts = null,
                 List<StockMovement>? stockMovements = null)
         {
             var payableBillStore = payableBills ?? [];
             var payableItemsStore = payableItems ?? [];
             var productStore = products ?? [];
-            var orderStore = orders ?? [];
-            var orderedProductStore = orderedProducts ?? [];
             var stockMovementStore = stockMovements ?? [];
 
             var payableBillRepo = CreateRepositoryMock(payableBillStore);
@@ -818,27 +997,69 @@ namespace EvangelionERPV2.BillsModule.Test
                 {
                     Id = payableBillStore.FirstOrDefault()?.EnterpriseId
                          ?? productStore.FirstOrDefault()?.EnterpriseId
-                         ?? orderStore.FirstOrDefault()?.EnterpriseId
                          ?? Guid.NewGuid(),
                     Name = "Enterprise",
                     IsActive = true,
                     CurrentBalance = 0
                 }
             });
-            var orderRepo = CreateRepositoryMock(orderStore, throwsWhenEmpty: true);
-            var orderedProductRepo = CreateRepositoryMock(orderedProductStore, throwsWhenEmpty: true);
             var stockMovementRepo = CreateRepositoryMock(stockMovementStore, throwsWhenEmpty: true);
+            var productService = CreateStockLedgerMock(productStore, stockMovementStore);
 
             var service = new PayableBillService(
                 payableBillRepo.Object,
                 payableBillProductRepo.Object,
                 productRepo.Object,
                 enterpriseRepo.Object,
-                orderRepo.Object,
-                orderedProductRepo.Object,
-                stockMovementRepo.Object);
+                stockMovementRepo.Object,
+                productService.Object);
 
-            return (payableBillRepo, payableBillProductRepo, productRepo, orderRepo, orderedProductRepo, service, payableItemsStore);
+            return (payableBillRepo, payableBillProductRepo, productRepo, productService, stockMovementStore, service, payableItemsStore);
+        }
+
+        private static Mock<IProductService<Product>> CreateStockLedgerMock(
+            List<Product> products,
+            List<StockMovement> movements)
+        {
+            var service = new Mock<IProductService<Product>>();
+
+            service
+                .Setup(x => x.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>()))
+                .ReturnsAsync((Guid productId, Guid enterpriseId, decimal delta, EnumStockMovementType type, Guid? referenceId) =>
+                {
+                    var product = products.FirstOrDefault(x =>
+                        x.Id == productId && x.EnterpriseId == enterpriseId && x.IsActive == true);
+
+                    // Mirrors the real compare-and-swap: no row, or a delta that would take the
+                    // balance below zero, and nothing moves.
+                    if (product == null || product.StorageQuantity + delta < 0)
+                        throw new InsertDatabaseException(delta < 0
+                            ? $"Insufficient stock for product [{productId}]."
+                            : $"Product [{productId}] was not found.");
+
+                    product.StorageQuantity += delta;
+                    product.UpdatedAt = DateTime.UtcNow;
+
+                    var movement = new StockMovement
+                    {
+                        Id = Guid.NewGuid(),
+                        ProductId = productId,
+                        EnterpriseId = enterpriseId,
+                        Quantity = delta,
+                        BalanceAfter = product.StorageQuantity,
+                        Type = (int)type,
+                        ReferenceId = referenceId,
+                        CreatedAt = DateTime.UtcNow,
+                        IsActive = true
+                    };
+
+                    movements.Add(movement);
+                    return movement;
+                });
+
+            return service;
         }
 
         private static Mock<IRepository<TEntity>> CreateRepositoryMock<TEntity>(List<TEntity> records, bool throwsWhenEmpty = false)

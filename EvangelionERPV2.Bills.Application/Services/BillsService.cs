@@ -5,10 +5,9 @@ using EvangelionERPV2.BillsModule.Domain.Interface;
 using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
+using EvangelionERPV2.Shared.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using PuppeteerSharp;
-using PuppeteerSharp.Media;
 using Serilog;
 using System.Globalization;
 using System.Net;
@@ -30,8 +29,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly Func<IEmailService<EmailStructure>> _emailServiceFactory;
         private readonly BillsSettings _settings;
         private bool disposed;
-        private static IBrowser? sharedBrowser;
-        private static readonly SemaphoreSlim browserLock = new(1, 1);
 
         public BillsService(
             EvangelionERPV2.Shared.Repositories.IRepository<BillEntity> billRepository,
@@ -290,7 +287,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             byte[] pdf;
             try
             {
-                pdf = await RenderPdfAsync(NormalizeEmbeddedImageMimeTypes(bill.HtmlContent));
+                pdf = await HtmlPdfRenderer.RenderPdfAsync(NormalizeEmbeddedImageMimeTypes(bill.HtmlContent));
             }
             catch (Exception ex)
             {
@@ -412,102 +409,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 html = NormalizeEmbeddedImageMimeTypes(billBancario.MontaHtmlEmbedded());
             }
 
-            return await RenderPdfAsync(html);
-        }
-
-        private static async Task<byte[]> RenderPdfAsync(string html)
-        {
-            var browser = await GetBrowserAsync();
-            await using var page = await browser.NewPageAsync();
-            await page.SetJavaScriptEnabledAsync(false);
-            await page.SetRequestInterceptionAsync(true);
-            page.Request += async (_, eventArgs) =>
-            {
-                if (ShouldBlockBrowserRequest(eventArgs.Request?.Url))
-                {
-                    await eventArgs.Request!.AbortAsync();
-                    return;
-                }
-
-                await eventArgs.Request!.ContinueAsync();
-            };
-            await page.EmulateMediaTypeAsync(MediaType.Screen);
-            await page.SetContentAsync(html, new SetContentOptions
-            {
-                WaitUntil = new[] { WaitUntilNavigation.Load }
-            });
-            var pdf = await page.PdfDataAsync(new PdfOptions
-            {
-                Format = PaperFormat.A4,
-                PrintBackground = true,
-                PreferCSSPageSize = true,
-                MarginOptions = new MarginOptions
-                {
-                    Top = "0cm",
-                    Bottom = "0cm",
-                    Left = "0cm",
-                    Right = "0cm"
-                }
-            });
-            await page.CloseAsync();
-            return pdf;
-        }
-
-        private static bool ShouldBlockBrowserRequest(string? requestUrl)
-        {
-            var normalized = (requestUrl ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(normalized))
-                return true;
-
-            if (normalized.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            if (normalized.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            if (!Uri.TryCreate(normalized, UriKind.Absolute, out var parsedUri))
-                return true;
-
-            return parsedUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-                   parsedUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-                   parsedUri.Scheme.Equals(Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase) ||
-                   parsedUri.Scheme.Equals("ftp", StringComparison.OrdinalIgnoreCase) ||
-                   parsedUri.Scheme.Equals("ws", StringComparison.OrdinalIgnoreCase) ||
-                   parsedUri.Scheme.Equals("wss", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static async Task<IBrowser> GetBrowserAsync()
-        {
-            if (sharedBrowser != null)
-                return sharedBrowser;
-
-            await browserLock.WaitAsync();
-            try
-            {
-                if (sharedBrowser != null)
-                    return sharedBrowser;
-
-                var executablePath = Environment.GetEnvironmentVariable("PUPPETEER_EXECUTABLE_PATH");
-                if (string.IsNullOrWhiteSpace(executablePath))
-                {
-                    var fetcher = new BrowserFetcher();
-                    await fetcher.DownloadAsync();
-                }
-
-                sharedBrowser = await Puppeteer.LaunchAsync(new LaunchOptions
-                {
-                    Headless = true,
-                    ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
-                    // /dev/shm is 64 MB in a default container and Chromium crashes when it fills.
-                    Args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-                });
-            }
-            finally
-            {
-                browserLock.Release();
-            }
-
-            return sharedBrowser;
+            return await HtmlPdfRenderer.RenderPdfAsync(html);
         }
 
         private BoletoNetCore.Boleto BuildBill(Order order, Customer? customer, string nossoNumero)

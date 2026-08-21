@@ -1,4 +1,5 @@
 using EvangelionERPV2.BillsModule.Application.Interface;
+using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Entities;
@@ -18,9 +19,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly IRepository<PayableBillProduct> _payableBillProductRepository;
         private readonly IRepository<Product> _productRepository;
         private readonly IRepository<Enterprise> _enterpriseRepository;
-        private readonly IRepository<Order> _orderRepository;
-        private readonly IRepository<OrderedProduct> _orderedProductRepository;
         private readonly IRepository<StockMovement> _stockMovementRepository;
+        private readonly IProductService<Product> _productService;
         private readonly AppDbContext? _appDbContext;
 
         public PayableBillService(
@@ -28,18 +28,16 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             IRepository<PayableBillProduct> payableBillProductRepository,
             IRepository<Product> productRepository,
             IRepository<Enterprise> enterpriseRepository,
-            IRepository<Order> orderRepository,
-            IRepository<OrderedProduct> orderedProductRepository,
             IRepository<StockMovement> stockMovementRepository,
+            IProductService<Product> productService,
             AppDbContext? appDbContext = null)
         {
             _payableBillRepository = payableBillRepository;
             _payableBillProductRepository = payableBillProductRepository;
             _productRepository = productRepository;
             _enterpriseRepository = enterpriseRepository;
-            _orderRepository = orderRepository;
-            _orderedProductRepository = orderedProductRepository;
             _stockMovementRepository = stockMovementRepository;
+            _productService = productService;
             _appDbContext = appDbContext;
         }
 
@@ -282,12 +280,17 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 foreach (var item in items)
                 {
-                    if (!products.TryGetValue(item.ProductId, out var product))
+                    if (!products.ContainsKey(item.ProductId))
                         throw new InsertDatabaseException($"Product [{item.ProductId}] was not found.");
 
-                    product.StorageQuantity += item.Quantity;
-                    product.UpdatedAt = now;
-                    _productRepository.Update(product);
+                    // Receipt, through the one shared entry point: the quantity, the ledger row
+                    // explaining it and the cache invalidation happen together or not at all.
+                    await _productService.ApplyStockMovementAsync(
+                        item.ProductId,
+                        enterpriseId,
+                        item.Quantity,
+                        EnumStockMovementType.Receipt,
+                        existing.Id);
                 }
 
                 existing.ProductsReceivedAt = now;
@@ -356,15 +359,17 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                     foreach (var item in items)
                     {
-                        if (!products.TryGetValue(item.ProductId, out var product))
+                        if (!products.ContainsKey(item.ProductId))
                             throw new InsertDatabaseException($"Product [{item.ProductId}] was not found.");
 
-                        product.StorageQuantity -= Math.Max(0, item.Quantity);
-                        if (product.StorageQuantity < 0)
-                            product.StorageQuantity = 0;
-
-                        product.UpdatedAt = now;
-                        _productRepository.Update(product);
+                        // Adjustment, not a negative Receipt: a human un-did a receipt, and
+                        // Receipt means units arrived. The ledger has to say which happened.
+                        await _productService.ApplyStockMovementAsync(
+                            item.ProductId,
+                            enterpriseId,
+                            -Math.Max(0, item.Quantity),
+                            EnumStockMovementType.Adjustment,
+                            existing.Id);
                     }
                 }
 
@@ -560,17 +565,16 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                     foreach (var item in existingItems)
                     {
-                        if (!productsById.TryGetValue(item.ProductId, out var product))
+                        if (!productsById.ContainsKey(item.ProductId))
                             throw new InsertDatabaseException($"Product [{item.ProductId}] was not found.");
 
-                        product.StorageQuantity -= Math.Max(0, item.Quantity);
-                        if (product.StorageQuantity < 0)
-                            product.StorageQuantity = 0;
-
-                        product.UpdatedAt = now;
+                        await _productService.ApplyStockMovementAsync(
+                            item.ProductId,
+                            enterpriseId,
+                            -Math.Max(0, item.Quantity),
+                            EnumStockMovementType.Adjustment,
+                            existing.Id);
                     }
-
-                    _productRepository.UpdateRange(productsById.Values);
                 }
 
                 existing.IsActive = false;
