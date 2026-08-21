@@ -96,6 +96,7 @@ namespace EvangelionERPV2.Test.Security
             var controller = new BillsController(
                 _billsServiceMock.Object,
                 _orderServiceMock.Object,
+                Mock.Of<IReceivablesReportService>(),
                 _userRepositoryMock.Object,
                 _mapperMock.Object);
 

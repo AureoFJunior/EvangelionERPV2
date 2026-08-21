@@ -19,21 +19,91 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class BillsController : Controller
     {
+        private const int MaxStatementWindowInDays = 366;
+
         private readonly IBillsService<Bill> _billService;
         private readonly IOrderService<Order> _orderService;
+        private readonly IReceivablesReportService _receivablesReportService;
         private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
 
         public BillsController(
             IBillsService<Bill> billService,
             IOrderService<Order> orderService,
+            IReceivablesReportService receivablesReportService,
             IRepository<User> userRepository,
             IMapper mapper)
         {
             _billService = billService;
             _orderService = orderService;
+            _receivablesReportService = receivablesReportService;
             _userRepository = userRepository;
             _mapper = mapper;
+        }
+
+        /// <summary>
+        /// The carteira split by how late it is, plus the same split per customer.
+        /// </summary>
+        /// <remarks>
+        /// No permission of its own: this is bills.read data aggregated, and whoever holds that can
+        /// already page the same titles one at a time. A receivable here is the order, not the
+        /// boleto — most tenants have no titles at all, and an aging report driven by Bill rows
+        /// would show an empty carteira for a company that is owed money.
+        /// </remarks>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Bills.Read)]
+        [HttpGet]
+        [ProducesResponseType(typeof(ReceivablesAgingDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> Aging()
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            return Ok(await _receivablesReportService.GetAgingAsync(enterpriseId, HttpContext.RequestAborted));
+        }
+
+        /// <summary>Who to chase, worst first.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Bills.Read)]
+        [HttpGet]
+        [ProducesResponseType(typeof(IReadOnlyList<DelinquentCustomerDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> Delinquent(int minimumDaysOverdue = 1)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            return Ok(await _receivablesReportService.GetDelinquentAsync(
+                enterpriseId, minimumDaysOverdue, HttpContext.RequestAborted));
+        }
+
+        /// <summary>
+        /// Extrato: one customer's orders, payments and refunds over a window, with a running balance.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Bills.Read)]
+        [HttpGet("{customerId}")]
+        [ProducesResponseType(typeof(CustomerStatementDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> Statement(Guid customerId, DateTime? from = null, DateTime? to = null)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var toUtc = (to ?? DateTime.UtcNow).Date;
+            var fromUtc = (from ?? toUtc.AddDays(-90)).Date;
+
+            // Bounded so a mistyped year cannot ask for a decade of ledger in one request.
+            if ((toUtc - fromUtc).TotalDays > MaxStatementWindowInDays)
+                return BadRequest("Statement window is too wide.");
+
+            var statement = await _receivablesReportService.GetStatementAsync(
+                enterpriseId, customerId, fromUtc, toUtc, HttpContext.RequestAborted);
+
+            return statement == null ? NotFound() : Ok(statement);
         }
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Bills.Read)]
