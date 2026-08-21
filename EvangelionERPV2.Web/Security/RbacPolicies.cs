@@ -19,6 +19,8 @@ namespace EvangelionERPV2.Web.Security
             BankReconciliation.Import,
             BankReconciliation.Resolve,
 
+            Dashboard.Read,
+
             Bills.Read,
             Bills.Generate,
             Bills.DownloadPdf,
@@ -180,6 +182,11 @@ namespace EvangelionERPV2.Web.Security
             public const string Read = "rbac:bank-reconciliation.read";
             public const string Import = "rbac:bank-reconciliation.import";
             public const string Resolve = "rbac:bank-reconciliation.resolve";
+        }
+
+        public static class Dashboard
+        {
+            public const string Read = "rbac:dashboard.read";
         }
 
         public static class Bills

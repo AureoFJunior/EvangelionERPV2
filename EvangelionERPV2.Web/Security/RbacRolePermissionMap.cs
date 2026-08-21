@@ -75,6 +75,10 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.BankReconciliation.Import,
             RbacPermissions.BankReconciliation.Resolve,
 
+            // The daily panel puts payables and uncleared bank lines on the same screen as
+            // receivables, so it sits at the tier that already sees both.
+            RbacPermissions.Dashboard.Read,
+
             // Declaring a boleto paid and superseding one are financial assertions nothing else
             // verifies until CNAB retorno exists, so they start at Manager while issuing a boleto
             // stays at Supervisor.

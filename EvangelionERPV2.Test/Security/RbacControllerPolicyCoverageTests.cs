@@ -16,6 +16,7 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(BankReconciliationController), nameof(BankReconciliationController.GetVariance), RbacPermissions.BankReconciliation.Read)]
         [InlineData(typeof(BankReconciliationController), nameof(BankReconciliationController.MatchLine), RbacPermissions.BankReconciliation.Resolve)]
         [InlineData(typeof(BankReconciliationController), nameof(BankReconciliationController.IgnoreLine), RbacPermissions.BankReconciliation.Resolve)]
+        [InlineData(typeof(DashboardController), nameof(DashboardController.Today), RbacPermissions.Dashboard.Read)]
         [InlineData(typeof(BillsController), nameof(BillsController.GetByOrder), RbacPermissions.Bills.Read)]
         [InlineData(typeof(BillsController), nameof(BillsController.Generate), RbacPermissions.Bills.Generate)]
         [InlineData(typeof(BillsController), nameof(BillsController.Pdf), RbacPermissions.Bills.DownloadPdf)]

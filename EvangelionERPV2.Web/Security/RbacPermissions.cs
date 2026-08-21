@@ -144,6 +144,16 @@ namespace EvangelionERPV2.Web.Security
             public const string Resolve = "bank-reconciliation.resolve";
         }
 
+        public static class Dashboard
+        {
+            // Manager, the same floor as PayableBills.Read and BankReconciliation.Read. The panel
+            // aggregates payables and the bank's uncleared lines alongside receivables, so a
+            // Supervisor-tier panel would show a Supervisor two things that tier deliberately does
+            // not see. Suppressing those two sections per caller was the alternative and it costs
+            // more branching than an endpoint that either answers or does not.
+            public const string Read = "dashboard.read";
+        }
+
         public static class Bills
         {
             public const string Read = "bills.read";
