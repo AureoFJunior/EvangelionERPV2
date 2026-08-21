@@ -382,6 +382,48 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("Customer");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.DunningLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("OffsetDays")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RecipientEmail")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("nvarchar(254)");
+
+                    b.Property<DateTime>("SentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("EnterpriseId", "OrderId", "OffsetDays")
+                        .IsUnique();
+
+                    b.ToTable("DunningLog");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Email", b =>
                 {
                     b.Property<Guid>("Id")
@@ -631,6 +673,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<string>("PhoneNumber")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("ShouldSendDunning")
+                        .HasColumnType("bit");
 
                     b.Property<bool>("ShouldSendMonthlyBilling")
                         .HasColumnType("bit");
@@ -2198,6 +2243,25 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasForeignKey("EnterpriseId");
 
                     b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.DunningLog", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Order", "Order")
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Enterprise");
+
+                    b.Navigation("Order");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Email", b =>

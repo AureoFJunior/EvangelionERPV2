@@ -55,6 +55,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<NFeNumberSequence> NFeNumberSequence { get; set; }
         public DbSet<Email> Email { get; set; }
         public DbSet<Bill> Bill { get; set; }
+        public DbSet<DunningLog> DunningLog { get; set; }
         public DbSet<BillNumberSequence> BillNumberSequence { get; set; }
         public DbSet<NFeDocument> NFeDocument { get; set; }
         public DbSet<Order> Order { get; set; }
@@ -119,6 +120,15 @@ namespace EvangelionERPV2.Shared.Context
                 .HasOne(sequence => sequence.Enterprise)
                 .WithMany()
                 .HasForeignKey(sequence => sequence.EnterpriseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Restrict on the tenant, Cascade on the title. Two cascade paths would reach
+            // Enterprise (directly, and through Bill → Order), which SQL Server rejects outright —
+            // and the evidence of what a customer was told should outlive a tenant row anyway.
+            modelBuilder.Entity<DunningLog>()
+                .HasOne(log => log.Enterprise)
+                .WithMany()
+                .HasForeignKey(log => log.EnterpriseId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<Email>()

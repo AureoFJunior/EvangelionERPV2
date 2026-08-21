@@ -25,6 +25,17 @@ namespace EvangelionERPV2.Shared.Entities
         public string Currency { get; set; } = "BRL";
         public decimal CurrentBalance { get; set; } = 0;
         public bool ShouldSendMonthlyBilling { get; set; } = false;
+
+        /// <summary>
+        /// Whether the dunning sweeper may mail this tenant's late payers.
+        /// </summary>
+        /// <remarks>
+        /// Per-tenant opt-in for the same reason <see cref="ShouldSendMonthlyBilling"/> is one: the
+        /// cadence itself is installation-wide configuration, but permission to write to somebody
+        /// else's customers is the tenant's to give. Off by default — a tenant that upgrades into
+        /// this feature must not discover it by having its customers emailed.
+        /// </remarks>
+        public bool ShouldSendDunning { get; set; } = false;
         [JsonIgnore]
         public virtual IEnumerable<Customer>? Customer { get; set; } = null;
         [JsonIgnore]

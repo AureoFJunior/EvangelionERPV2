@@ -241,6 +241,7 @@ namespace EvangelionERPV2.Web.Controllers
                     Adress = request.Adress.Trim(),
                     Currency = request.Currency?.Trim() ?? string.Empty,
                     ShouldSendMonthlyBilling = request.ShouldSendMonthlyBilling,
+                    ShouldSendDunning = request.ShouldSendDunning,
                     IsActive = true
                 };
 
@@ -293,6 +294,7 @@ namespace EvangelionERPV2.Web.Controllers
                 existingEnterprise.Adress = request.Adress.Trim();
                 existingEnterprise.Currency = request.Currency?.Trim() ?? existingEnterprise.Currency;
                 existingEnterprise.ShouldSendMonthlyBilling = request.ShouldSendMonthlyBilling;
+                existingEnterprise.ShouldSendDunning = request.ShouldSendDunning;
 
                 Enterprise updatedEnterprise = _enterpriseService.Update(existingEnterprise);
 

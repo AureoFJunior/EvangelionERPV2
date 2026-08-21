@@ -15,5 +15,6 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Adress { get; set; } = string.Empty;
         public string? Currency { get; set; }
         public bool ShouldSendMonthlyBilling { get; set; }
+        public bool ShouldSendDunning { get; set; }
     }
 }

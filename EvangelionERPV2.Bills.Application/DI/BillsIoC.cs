@@ -48,6 +48,7 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 #endregion
 
                 services.Configure<BillsSettings>(configuration.GetSection("BillsSettings"));
+                services.Configure<DunningSettings>(configuration.GetSection("DunningSettings"));
                 #region Repositorys
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<>), typeof(EvangelionERPV2.Shared.Repositories.Repository<>));
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<Bill>), typeof(BillsRepository));
@@ -65,6 +66,11 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 services.AddScoped<IBankReconciliationService, BankReconciliationService>();
                 services.AddScoped<IDailyPanelService, DailyPanelService>();
                 services.AddScoped<IReceivablesReportService, ReceivablesReportService>();
+
+                // Concrete, no interface: the worker is its only caller, and chasing late payers is
+                // a consequence of the schedule rather than a capability anything else asks for.
+                services.AddScoped<DunningService>();
+                services.AddHostedService<DailySweepWorker>();
 
                 // Concrete, no interface: férias pay is its only caller, and the drawdown is a
                 // consequence of creating that bill rather than a capability anything else asks for.

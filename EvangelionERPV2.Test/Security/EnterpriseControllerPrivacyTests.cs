@@ -93,7 +93,13 @@ namespace EvangelionERPV2.Test.Security
             var dto = Assert.IsType<EnterpriseDTO>(ok.Value);
             Assert.Equal(enterpriseId, dto.Id);
             Assert.Equal("NERV", dto.Name);
-            Assert.False(dto.GetType().GetProperty("ShouldSendMonthlyBilling") != null);
+            // The point of this assertion is that the raw entity never reaches the wire, which
+            // Assert.IsType above already establishes. It used to be spelled as "the DTO has no
+            // ShouldSendMonthlyBilling" — that stopped being the same claim once a settings screen
+            // needed to read its own toggles back. CurrentBalance stays read-only on the way in,
+            // which is the property that actually mattered.
+            Assert.IsNotType<Shared.Entities.Enterprise>(ok.Value);
+            Assert.Null(typeof(CreateEnterpriseRequestDTO).GetProperty("CurrentBalance"));
         }
     }
 }
