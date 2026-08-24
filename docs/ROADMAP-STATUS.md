@@ -21,7 +21,7 @@ any of them is re-litigating a settled decision.
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
 | Head | M20 duplicatas — see git log |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1319 passing / 0 failing** across 14 assemblies (1164 at M13) |
+| Tests | **1321 passing / 0 failing** across 14 assemblies (1164 at M13) |
 | FrontV2 | `npx tsc --noEmit` clean, `npx jest` **77 passing** across 18 suites. Cypress still never run — it needs the Expo web server on :8081 and a live API |
 | Migrations | chain ends `…110000_AddEnterprisePeriodLock` → `…120000_AddSupplierNFeAccessKey` → `…140000_AddPayableBillRecurrence` → `…150000_AddSupplierNFeDuplicata` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
@@ -107,6 +107,14 @@ any of them is re-litigating a settled decision.
 - **Four gates fail loudly:** a new RBAC permission must appear in four places or startup throws;
   every new controller action needs an `[InlineData]` row in `RbacControllerPolicyCoverageTests`;
   every `[FromBody]`/`[FromForm]` type needs a validator; every tenant-owned entity needs its filter.
+- **`CustomerRepository.GetAllAsync` and `SupplierRepository.GetAllAsync` throw
+  `NotFoundDatabaseException` on an *empty* result** instead of returning an empty list — and that
+  exception maps to **204 No Content**, so a caller that treats "no rows" as normal silently answers
+  nothing. It cost four shipped bugs (2026-08-24): the NF-e import could not create an unknown
+  supplier, the accountant package 204'd for any tenant with no suppliers, the aging report did the
+  same for a tenant with no customers, and the credit guard turned a missing customer into a generic
+  create failure. **Use `GetPagedAsync` for these two entities** — the un-overridden path, no
+  `Include`, no throw. Their test doubles now throw on empty too, so the next one fails a test.
 - **A defaulted bool on a service method is how a capability gets added without touching callers.**
   `CreateAsync(order, allowCreditOverride = false)` and `CreateAsync(bill, useAmbientTransaction,
   keepProvidedAmount)` both use it — and both broke every Moq setup of the old arity, which is a
@@ -144,11 +152,15 @@ any of them is re-litigating a settled decision.
   payable per duplicata, keyed `(EnterpriseId, SupplierNFeAccessKey, SupplierNFeDuplicata)`
   (migration `…150000`). Item lines ride the first instalment only — the goods arrive once. A nota
   with no schedule, or one whose duplicatas carry no amounts, is still a single bill for vNF.
+  A half-finished import now resumes: only the missing duplicatas are created on the next attempt,
+  and a nota imported before the key widened (null duplicata) is never re-entered as instalments.
   Still open there: an unknown emitter's supplier row is created before the bills, so a refused
-  import can leave an orphan supplier the next attempt reuses.
+  import can leave an orphan supplier — which the resumable path then reuses.
 - **M21**: two simultaneous orders that each fit under the limit but together do not will both pass.
   The limit is a policy, not a ledger invariant; serialising it would lock every order.
-- **M22**: a long-dormant chain catches up one month per sweep, by design. Recurrence must travel on
+- **M22**: a long-dormant chain catches up one month per sweep, by design. Both sweep queries are
+  bounded by `RecurrenceUntilUtc >= today`, so an installation's finished chains do not make the
+  morning pass read a growing table to do nothing. Recurrence must travel on
   **every** payable update — a missing value means "stop repeating", which is how a chain is ended.
 - **M11 P5**: abono settles with the first bill an accrual produces; days sold afterwards go unbilled
   (`ponytail:`, needs a column). A férias bill whose stretch is cancelled after issue is reported as

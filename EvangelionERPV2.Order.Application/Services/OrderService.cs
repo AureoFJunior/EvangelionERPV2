@@ -632,8 +632,12 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             if (enterpriseId == Guid.Empty || customerId == Guid.Empty)
                 return;
 
-            var customer = (await _customerRepository.GetAllAsync(
+            // GetPagedAsync, not GetAllAsync: CustomerRepository's override throws on an empty
+            // result, and a missing customer must leave the order to the foreign key to refuse —
+            // not turn into a generic "unexpected error while creating the order".
+            var customer = (await _customerRepository.GetPagedAsync(
                     x => x.Id == customerId && x.EnterpriseId == enterpriseId))
+                .Items
                 .FirstOrDefault();
 
             var creditLimit = customer?.CreditLimit;

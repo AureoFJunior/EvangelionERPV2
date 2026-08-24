@@ -32,6 +32,11 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIOrderedProductRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct>>();
             _mockIEnterpriseRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Enterprise>>();
             _mockICustomerRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Customer>>();
+            // The credit guard reads customers through GetPagedAsync — the un-overridden path,
+            // because CustomerRepository's GetAllAsync throws when nothing matches. An unstubbed
+            // GetPagedAsync hands back a default tuple whose Items is null, which is not what the
+            // real repository ever does.
+            SetupCustomerLookup(null);
             _mockIBillRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Bill>>();
             _mockIProductService = new Mock<ProductModule.Application.Interface.IProductService<Product>>();
             SetupTransactionalExecution(_mockIOrderRepository);
@@ -298,12 +303,42 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             PaymentScheduledDate = DateTime.UtcNow.Date.AddDays(10)
         };
 
-        private void SetupCustomer(Customer customer)
+        /// <summary>A customer repository that answers "no such customer" the way the real one does.</summary>
+        private static EvangelionERPV2.Shared.Repositories.IRepository<Customer> EmptyCustomerRepository()
         {
+            var repository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Customer>>();
+            repository
+                .Setup(r => r.GetPagedAsync(
+                    It.IsAny<System.Linq.Expressions.Expression<Func<Customer, bool>>?>(),
+                    It.IsAny<Func<IQueryable<Customer>, IOrderedQueryable<Customer>>?>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
+                .ReturnsAsync(((IReadOnlyList<Customer>)new List<Customer>(), 0));
+
+            return repository.Object;
+        }
+
+        private void SetupCustomer(Customer customer) => SetupCustomerLookup(customer);
+
+        private void SetupCustomerLookup(Customer? customer)
+        {
+            var records = customer == null ? new List<Customer>() : [customer];
+
             _mockICustomerRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<System.Linq.Expressions.Expression<Func<Customer, bool>>?>()))
-                .ReturnsAsync((System.Linq.Expressions.Expression<Func<Customer, bool>>? predicate) =>
-                    predicate == null ? [customer] : new[] { customer }.Where(predicate.Compile()).ToList());
+                .Setup(r => r.GetPagedAsync(
+                    It.IsAny<System.Linq.Expressions.Expression<Func<Customer, bool>>?>(),
+                    It.IsAny<Func<IQueryable<Customer>, IOrderedQueryable<Customer>>?>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
+                .ReturnsAsync((
+                    System.Linq.Expressions.Expression<Func<Customer, bool>>? predicate,
+                    Func<IQueryable<Customer>, IOrderedQueryable<Customer>>? _,
+                    int? __,
+                    int? ___) =>
+                {
+                    var items = predicate == null ? records : records.Where(predicate.Compile()).ToList();
+                    return ((IReadOnlyList<Customer>)items, items.Count);
+                });
         }
 
         private void SetupOpenExposure(Customer customer, List<Order> openOrders, List<Bill>? bills = null)
@@ -1044,7 +1079,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 mockProductRepo.Object,
                 mockOrderedProductRepo.Object,
                 mockEnterpriseRepo.Object,
-                new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Customer>>().Object,
+                EmptyCustomerRepository(),
                 new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Bill>>().Object,
                 mockProductService.Object,
                 null,

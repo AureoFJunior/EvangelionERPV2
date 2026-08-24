@@ -129,8 +129,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (customerId == Guid.Empty)
                 return null;
 
-            var customer = (await _customerRepository.GetAllAsync(
+            // GetPagedAsync, not GetAllAsync: the override throws when nothing matches, and an
+            // extrato for an unknown customer must answer "no such customer", not blow up.
+            var customer = (await _customerRepository.GetPagedAsync(
                     x => x.Id == customerId && x.EnterpriseId == enterpriseId && x.IsActive == true))
+                .Items
                 .FirstOrDefault();
 
             if (customer == null)
@@ -249,8 +252,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             // ponytail: one read of the tenant's customer master per report. Project it in the
             // repository if a tenant's customer list ever makes this the expensive half.
-            var customersById = (await _customerRepository.GetAllAsync(
+            //
+            // GetPagedAsync, not GetAllAsync: the override throws on an empty result, so a tenant
+            // with no customers yet would get a 204 instead of an empty carteira.
+            var customersById = (await _customerRepository.GetPagedAsync(
                     x => x.EnterpriseId == enterpriseId && x.IsActive == true))
+                .Items
                 .ToDictionary(x => x.Id, x => x);
 
             if (openOrders.Count == 0)

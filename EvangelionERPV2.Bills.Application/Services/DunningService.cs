@@ -126,8 +126,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                          && (x.IsActive == null || x.IsActive == true)
                          && (x.Status == BillStatus.Registered || x.Status == BillStatus.Paid)));
 
-            var customersById = (await _customerRepository.GetAllAsync(
+            // GetPagedAsync, not GetAllAsync: CustomerRepository's override throws on an empty
+            // result, which would skip a whole tenant's chasing the day its customer list is empty.
+            var customersById = (await _customerRepository.GetPagedAsync(
                     x => x.EnterpriseId == tenant.Id && x.IsActive == true))
+                .Items
                 .ToDictionary(x => x.Id, x => x);
 
             var alreadySent = (await _dunningLogRepository.GetAllAsync(x => x.EnterpriseId == tenant.Id))

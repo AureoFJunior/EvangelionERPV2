@@ -68,13 +68,27 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 .OrderBy(x => x.DueDate)
                 .ToList();
 
-            if (existing.Count > 0)
+            var instalments = ResolveInstalments(nota);
+
+            // A nota imported before the key widened to the duplicata is one bill with a null
+            // duplicata. Nothing here matches it, so without this it would be imported a second
+            // time as N instalments.
+            var importedWholeBeforeInstalments = existing.Any(x => x.SupplierNFeDuplicata == null)
+                && instalments.Count > 1;
+
+            var missing = importedWholeBeforeInstalments
+                ? []
+                : instalments
+                    .Where(instalment => !existing.Any(bill => bill.SupplierNFeDuplicata == instalment.Number))
+                    .ToList();
+
+            if (missing.Count == 0)
             {
                 // The unique index would refuse the inserts anyway; answering with the bills that
                 // already exist is what makes re-dropping the same file harmless.
                 var supplierId = existing[0].SupplierId;
                 var supplier = supplierId.HasValue
-                    ? (await _supplierRepository.GetAllAsync(x => x.Id == supplierId.Value)).FirstOrDefault()
+                    ? (await _supplierRepository.GetPagedAsync(x => x.Id == supplierId.Value)).Items.FirstOrDefault()
                     : null;
 
                 return new SupplierNFeImportResultDTO
@@ -95,12 +109,15 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             var (supplierRecord, supplierCreated) = await ResolveSupplierAsync(enterpriseId, nota);
             var (items, unmatched) = await MatchItemsAsync(enterpriseId, nota);
 
-            var instalments = ResolveInstalments(nota);
-            var created = new List<PayableBill>();
+            var created = new List<PayableBill>(existing);
 
-            for (var index = 0; index < instalments.Count; index++)
+            // Only what is missing, so an import that died halfway — the third instalment threw,
+            // the first two are already rows — finishes on the next attempt instead of leaving the
+            // nota half-entered forever. There is no transaction around the loop precisely because
+            // this makes one unnecessary.
+            foreach (var instalment in missing)
             {
-                var instalment = instalments[index];
+                var index = instalments.IndexOf(instalment);
 
                 var bill = new PayableBill
                 {
@@ -114,7 +131,8 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     IsPaid = false,
                     BillType = (int)(items.Count > 0 ? EnumPayableBillType.ProductStock : EnumPayableBillType.Other),
                     // Only the first instalment carries the goods: the delivery happens once, and
-                    // repeating the lines would let a human receive the same stock three times.
+                    // repeating the lines would let a human receive the same stock three times. On
+                    // a resumed import the first instalment is already a row, so nothing re-attaches.
                     Items = index == 0 && items.Count > 0 ? items : null
                 };
 
@@ -123,6 +141,8 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 // line values, which exclude freight, insurance and ST.
                 created.Add(await _payableBillService.CreateAsync(bill, keepProvidedAmount: true));
             }
+
+            created = created.OrderBy(x => x.DueDate).ToList();
 
             Log.Logger.Information(
                 "Supplier NF-e imported. Instalments={Instalments} MatchedItems={MatchedItems} UnmatchedItems={UnmatchedItems}",
@@ -151,8 +171,12 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// </summary>
         private async Task<(Supplier Supplier, bool Created)> ResolveSupplierAsync(Guid enterpriseId, SupplierNFeDocument nota)
         {
-            var existing = (await _supplierRepository.GetAllAsync(
+            // GetPagedAsync, not GetAllAsync: SupplierRepository's override throws
+            // NotFoundDatabaseException when nothing matches, and "nothing matches" is the whole
+            // point of this lookup — it is how an unknown emitter is detected.
+            var existing = (await _supplierRepository.GetPagedAsync(
                     x => x.EnterpriseId == enterpriseId && x.Document == nota.EmitterDocument))
+                .Items
                 .FirstOrDefault();
 
             if (existing != null)

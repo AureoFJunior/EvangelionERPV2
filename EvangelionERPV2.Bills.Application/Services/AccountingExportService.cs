@@ -115,10 +115,14 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                          && (x.IsActive == null || x.IsActive == true)));
 
             // One read of the tenant's customer master, and only when there is something to name.
+            // GetPagedAsync, not GetAllAsync: CustomerRepository's override throws
+            // NotFoundDatabaseException on an empty result, which would turn "this tenant has no
+            // customers yet" into a 204 with no package.
             var customerNames = new Dictionary<Guid, string>();
             if (orders.Count > 0)
             {
-                customerNames = (await _customerRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId))
+                customerNames = (await _customerRepository.GetPagedAsync(x => x.EnterpriseId == enterpriseId))
+                    .Items
                     .GroupBy(x => x.Id)
                     .ToDictionary(x => x.Key, x => x.First().Name);
             }
@@ -154,10 +158,13 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                          && x.DueDate < to))
                 .ToList();
 
+            // Same reason as the customers above, and it bites harder here: most tenants have no
+            // suppliers at all, so the throwing override would 204 the whole month's package.
             var supplierNames = new Dictionary<Guid, string>();
             if (payables.Count > 0)
             {
-                supplierNames = (await _supplierRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId))
+                supplierNames = (await _supplierRepository.GetPagedAsync(x => x.EnterpriseId == enterpriseId))
+                    .Items
                     .GroupBy(x => x.Id)
                     .ToDictionary(x => x.Key, x => x.First().Name);
             }

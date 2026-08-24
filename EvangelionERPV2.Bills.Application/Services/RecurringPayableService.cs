@@ -52,21 +52,29 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             // A parent becomes eligible the day it falls due: the next bill should be visible from
             // the moment the current one has to be paid, not a month later.
+            //
+            // The end date is part of the predicate, not just of the per-parent check below,
+            // because without it every link of every chain the installation ever generated stays
+            // eligible forever — the sweep would read a growing table every morning to do nothing.
             var parents = (await _payableBillRepository.GetAllAsync(
                     x => x.RecurrenceMonths != null
                          && x.RecurrenceMonths > 0
                          && (x.IsActive == null || x.IsActive == true)
                          && x.RefundedAt == null
-                         && x.DueDate <= today))
+                         && x.DueDate <= today
+                         && (x.RecurrenceUntilUtc == null || x.RecurrenceUntilUtc >= today)))
                 .ToList();
 
             if (parents.Count == 0)
                 return 0;
 
-            // One read of the chains already spawned, rather than a query per parent. Inactive
-            // children count: a soft-deleted clone still means this link was generated, and
-            // regenerating it would bring back a bill somebody deleted on purpose.
-            var alreadySpawned = (await _payableBillRepository.GetAllAsync(x => x.RecurrenceParentId != null))
+            // One read of the chains already spawned, rather than a query per parent — bounded by
+            // the same live-chain predicate, so it does not grow with every bill ever generated.
+            // Inactive children count: a soft-deleted clone still means this link was generated,
+            // and regenerating it would bring back a bill somebody deleted on purpose.
+            var alreadySpawned = (await _payableBillRepository.GetAllAsync(
+                    x => x.RecurrenceParentId != null
+                         && (x.RecurrenceUntilUtc == null || x.RecurrenceUntilUtc >= today)))
                 .Select(x => x.RecurrenceParentId!.Value)
                 .ToHashSet();
 

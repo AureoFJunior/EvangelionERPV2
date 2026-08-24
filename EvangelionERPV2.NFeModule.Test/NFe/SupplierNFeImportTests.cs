@@ -4,6 +4,7 @@ using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Infra.Xml;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using Moq;
@@ -86,7 +87,7 @@ namespace EvangelionERPV2.NFeModule.Test
         public async Task Import_CreatesThePayableForTheNotaTotal_AndTheSupplierBehindIt()
         {
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
-            var (service, bills, suppliers) = BuildSut(products: [product]);
+            var (service, bills, suppliers, _) = BuildSut(products: [product]);
 
             var result = await service.ImportAsync(EnterpriseId, BuildNota());
 
@@ -111,7 +112,7 @@ namespace EvangelionERPV2.NFeModule.Test
             // Three payments the bank will see on three days: one bill for the whole vNF would sit
             // in the carteira against a cash flow that never happens.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
-            var (service, bills, _) = BuildSut(products: [product]);
+            var (service, bills, _, _) = BuildSut(products: [product]);
 
             var result = await service.ImportAsync(EnterpriseId, BuildInstalmentNota());
 
@@ -137,7 +138,7 @@ namespace EvangelionERPV2.NFeModule.Test
             // The delivery happens once whatever the schedule says; repeating the lines would let a
             // human receive the same stock three times.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
-            var (service, bills, _) = BuildSut(products: [product]);
+            var (service, bills, _, _) = BuildSut(products: [product]);
 
             await service.ImportAsync(EnterpriseId, BuildInstalmentNota());
 
@@ -148,7 +149,7 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_OfAnInstalmentNotaTwice_CreatesNothingMore()
         {
-            var (service, bills, _) = BuildSut();
+            var (service, bills, _, _) = BuildSut();
 
             await service.ImportAsync(EnterpriseId, BuildInstalmentNota());
             var second = await service.ImportAsync(EnterpriseId, BuildInstalmentNota());
@@ -160,13 +161,74 @@ namespace EvangelionERPV2.NFeModule.Test
         }
 
         [Fact]
+        public async Task Import_ResumesAnImportThatDiedHalfway()
+        {
+            // The third instalment threw, the first two are already rows. Without this the nota is
+            // half-entered forever: the old code saw "something exists" and reported success.
+            var (service, bills, _, payableBillService) = BuildSut();
+
+            payableBillService
+                .Setup(x => x.CreateAsync(
+                    It.Is<PayableBill>(bill => bill.SupplierNFeDuplicata == "003"),
+                    It.IsAny<bool>(),
+                    It.IsAny<bool>()))
+                .ThrowsAsync(new InvalidOperationException("the database went away"));
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.ImportAsync(EnterpriseId, BuildInstalmentNota()));
+
+            Assert.Equal(2, bills.Count);
+
+            // Second attempt: the two that landed are left alone and the third is created.
+            payableBillService
+                .Setup(x => x.CreateAsync(It.IsAny<PayableBill>(), It.IsAny<bool>(), It.IsAny<bool>()))
+                .ReturnsAsync((PayableBill bill, bool _, bool __) =>
+                {
+                    bill.Id = Guid.NewGuid();
+                    bill.IsActive = true;
+                    bills.Add(bill);
+                    return bill;
+                });
+
+            var result = await service.ImportAsync(EnterpriseId, BuildInstalmentNota());
+
+            Assert.Equal(3, bills.Count);
+            Assert.Equal(3, result.PayableBillIds.Count);
+            Assert.Equal(["001", "002", "003"], bills.Select(x => x.SupplierNFeDuplicata ?? string.Empty).ToArray());
+            Assert.Equal(320m, result.Amount);
+        }
+
+        [Fact]
+        public async Task Import_DoesNotReimportANotaThatLandedBeforeTheKeyWidened()
+        {
+            // A bill imported under the old key carries a null duplicata. Nothing in the schedule
+            // matches it, and without the guard the nota would be entered a second time as three.
+            var (service, bills, _, _) = BuildSut();
+            bills.Add(new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = EnterpriseId,
+                SupplierNFeAccessKey = AccessKey,
+                SupplierNFeDuplicata = null,
+                Amount = 320m,
+                DueDate = new DateTime(2026, 9, 9),
+                IsActive = true
+            });
+
+            var result = await service.ImportAsync(EnterpriseId, BuildInstalmentNota());
+
+            Assert.Single(bills);
+            Assert.True(result.AlreadyImported);
+        }
+
+        [Fact]
         public async Task Import_OfANotaWithNoSchedule_IsOneBillForTheTotal()
         {
             var withoutCobr = Encoding.UTF8.GetString(BuildNota());
             var start = withoutCobr.IndexOf("<cobr>", StringComparison.Ordinal);
             var end = withoutCobr.IndexOf("</cobr>", StringComparison.Ordinal) + "</cobr>".Length;
 
-            var (service, bills, _) = BuildSut();
+            var (service, bills, _, _) = BuildSut();
 
             await service.ImportAsync(EnterpriseId, Encoding.UTF8.GetBytes(withoutCobr.Remove(start, end - start)));
 
@@ -184,7 +246,7 @@ namespace EvangelionERPV2.NFeModule.Test
             var emptySchedule = Encoding.UTF8.GetString(BuildNota())
                 .Replace("<vDup>320.00</vDup>", "<vDup>0.00</vDup>");
 
-            var (service, bills, _) = BuildSut();
+            var (service, bills, _, _) = BuildSut();
 
             await service.ImportAsync(EnterpriseId, Encoding.UTF8.GetBytes(emptySchedule));
 
@@ -202,7 +264,7 @@ namespace EvangelionERPV2.NFeModule.Test
                 .Replace("<nDup>002</nDup>", "<nDup></nDup>")
                 .Replace("<nDup>003</nDup>", "<nDup></nDup>");
 
-            var (service, bills, _) = BuildSut();
+            var (service, bills, _, _) = BuildSut();
 
             await service.ImportAsync(EnterpriseId, Encoding.UTF8.GetBytes(blankNumbers));
 
@@ -248,7 +310,7 @@ namespace EvangelionERPV2.NFeModule.Test
         {
             // A nota is issued when goods ship. MarkProductsReceived is still the arrival event.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
-            var (service, _, _) = BuildSut(products: [product]);
+            var (service, _, _, _) = BuildSut(products: [product]);
 
             await service.ImportAsync(EnterpriseId, BuildNota());
 
@@ -259,7 +321,7 @@ namespace EvangelionERPV2.NFeModule.Test
         public async Task Import_TheSameFileTwice_ReturnsTheBillThatAlreadyExists()
         {
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
-            var (service, bills, suppliers) = BuildSut(products: [product]);
+            var (service, bills, suppliers, _) = BuildSut(products: [product]);
 
             var first = await service.ImportAsync(EnterpriseId, BuildNota());
             var second = await service.ImportAsync(EnterpriseId, BuildNota());
@@ -274,7 +336,7 @@ namespace EvangelionERPV2.NFeModule.Test
         public async Task Import_ReportsALineItCannotMap_AndNeverInventsAProduct()
         {
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
-            var (service, _, _) = BuildSut(products: [product]);
+            var (service, _, _, _) = BuildSut(products: [product]);
 
             var result = await service.ImportAsync(EnterpriseId, BuildNota());
 
@@ -288,7 +350,7 @@ namespace EvangelionERPV2.NFeModule.Test
         public async Task Import_MatchesOnTheDescription_WhenTheLineHasNoBarcode()
         {
             var coolant = BuildProduct("Entry Plug Coolant", ean: null);
-            var (service, _, _) = BuildSut(products: [coolant]);
+            var (service, _, _, _) = BuildSut(products: [coolant]);
 
             var result = await service.ImportAsync(EnterpriseId, BuildNota());
 
@@ -308,7 +370,7 @@ namespace EvangelionERPV2.NFeModule.Test
                 IsActive = true
             };
 
-            var (service, bills, suppliers) = BuildSut(suppliers: [supplier]);
+            var (service, bills, suppliers, _) = BuildSut(suppliers: [supplier]);
 
             var result = await service.ImportAsync(EnterpriseId, BuildNota());
 
@@ -325,7 +387,7 @@ namespace EvangelionERPV2.NFeModule.Test
             var end = withoutCobr.IndexOf("</cobr>", StringComparison.Ordinal) + "</cobr>".Length;
             withoutCobr = withoutCobr.Remove(start, end - start);
 
-            var (service, bills, _) = BuildSut();
+            var (service, bills, _, _) = BuildSut();
 
             await service.ImportAsync(EnterpriseId, Encoding.UTF8.GetBytes(withoutCobr));
 
@@ -342,7 +404,7 @@ namespace EvangelionERPV2.NFeModule.Test
                 .Replace("<cEAN>SEM GTIN</cEAN>", "<cEAN>7891234567895</cEAN>")
                 .Replace("<xProd>Entry Plug Coolant</xProd>", "<xProd>Plugsuit</xProd>");
 
-            var (service, _, _) = BuildSut(products: [product]);
+            var (service, _, _, _) = BuildSut(products: [product]);
 
             var result = await service.ImportAsync(EnterpriseId, Encoding.UTF8.GetBytes(doubled));
 
@@ -365,7 +427,11 @@ namespace EvangelionERPV2.NFeModule.Test
             IsActive = true
         };
 
-        private static (SupplierNFeImportService Service, List<PayableBill> Bills, List<Supplier> Suppliers)
+        private static (
+            SupplierNFeImportService Service,
+            List<PayableBill> Bills,
+            List<Supplier> Suppliers,
+            Mock<IPayableBillService> PayableBillService)
             BuildSut(List<Product>? products = null, List<Supplier>? suppliers = null)
         {
             var billStore = new List<PayableBill>();
@@ -385,22 +451,34 @@ namespace EvangelionERPV2.NFeModule.Test
 
             var service = new SupplierNFeImportService(
                 Repo(billStore).Object,
-                Repo(supplierStore).Object,
+                // Suppliers behave like the real SupplierRepository: its GetAllAsync override
+                // throws when nothing matches, and an unknown emitter is exactly nothing matching.
+                Repo(supplierStore, throwsWhenEmpty: true).Object,
                 Repo(productStore).Object,
                 payableBillService.Object);
 
-            return (service, billStore, supplierStore);
+            return (service, billStore, supplierStore, payableBillService);
         }
 
-        private static Mock<IRepository<TEntity>> Repo<TEntity>(List<TEntity> records)
+        /// <param name="throwsWhenEmpty">
+        /// Mimics CustomerRepository / SupplierRepository, whose GetAllAsync override throws
+        /// NotFoundDatabaseException instead of returning an empty list. A double that quietly
+        /// returns nothing hides every caller that treats "no rows" as a normal answer.
+        /// </param>
+        private static Mock<IRepository<TEntity>> Repo<TEntity>(List<TEntity> records, bool throwsWhenEmpty = false)
             where TEntity : BaseEntity
         {
             var repo = new Mock<IRepository<TEntity>>();
 
             repo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<TEntity, bool>>?>()))
-                .ReturnsAsync((Expression<Func<TEntity, bool>>? predicate) => predicate == null
-                    ? records
-                    : records.Where(predicate.Compile()).ToList());
+                .ReturnsAsync((Expression<Func<TEntity, bool>>? predicate) =>
+                {
+                    var result = predicate == null ? records.ToList() : records.Where(predicate.Compile()).ToList();
+                    if (throwsWhenEmpty && result.Count == 0)
+                        throw new NotFoundDatabaseException();
+
+                    return result;
+                });
 
             repo.Setup(x => x.GetPagedAsync(
                     It.IsAny<Expression<Func<TEntity, bool>>?>(),

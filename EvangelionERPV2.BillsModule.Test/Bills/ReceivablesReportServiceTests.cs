@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using Moq;
@@ -253,18 +254,27 @@ namespace EvangelionERPV2.BillsModule.Test
             return new ReceivablesReportService(
                 Repo(orders).Object,
                 Repo(bills).Object,
-                Repo(customers ?? orders.Select(x => x.Customer!).Where(x => x != null).DistinctBy(x => x.Id).ToList()).Object);
+                // Like the real CustomerRepository: its GetAllAsync override throws on an empty
+                // result, so a tenant with no customers must not take the carteira down with it.
+                Repo(
+                    customers ?? orders.Select(x => x.Customer!).Where(x => x != null).DistinctBy(x => x.Id).ToList(),
+                    throwsWhenEmpty: true).Object);
         }
 
-        private static Mock<IRepository<TEntity>> Repo<TEntity>(List<TEntity> records)
+        private static Mock<IRepository<TEntity>> Repo<TEntity>(List<TEntity> records, bool throwsWhenEmpty = false)
             where TEntity : BaseEntity
         {
             var repo = new Mock<IRepository<TEntity>>();
 
             repo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<TEntity, bool>>?>()))
-                .ReturnsAsync((Expression<Func<TEntity, bool>>? predicate) => predicate == null
-                    ? records
-                    : records.Where(predicate.Compile()).ToList());
+                .ReturnsAsync((Expression<Func<TEntity, bool>>? predicate) =>
+                {
+                    var result = predicate == null ? records.ToList() : records.Where(predicate.Compile()).ToList();
+                    if (throwsWhenEmpty && result.Count == 0)
+                        throw new NotFoundDatabaseException();
+
+                    return result;
+                });
 
             // The carteira reads orders through GetPagedAsync, which is the un-overridden path
             // with no Include graph behind it.

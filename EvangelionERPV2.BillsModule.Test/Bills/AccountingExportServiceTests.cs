@@ -3,6 +3,7 @@ using System.Linq.Expressions;
 using System.Text;
 using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Utils;
@@ -211,9 +212,12 @@ namespace EvangelionERPV2.BillsModule.Test
             return new AccountingExportService(
                 Repo(orders ?? []).Object,
                 Repo(bills ?? []).Object,
-                Repo(customers ?? []).Object,
+                // Customers and suppliers behave like their real repositories, whose GetAllAsync
+                // override throws instead of returning an empty list — a tenant with neither is
+                // the common case, and it used to 204 the whole package.
+                Repo(customers ?? [], throwsWhenEmpty: true).Object,
                 Repo(payables ?? []).Object,
-                Repo(suppliers ?? []).Object,
+                Repo(suppliers ?? [], throwsWhenEmpty: true).Object,
                 Repo(nfeDocuments ?? []).Object,
                 Repo(stockMovements ?? []).Object,
                 Repo(products ?? []).Object);
@@ -344,15 +348,20 @@ namespace EvangelionERPV2.BillsModule.Test
             DueDate = InsidePeriod.Date.AddDays(5)
         };
 
-        private static Mock<IRepository<TEntity>> Repo<TEntity>(List<TEntity> records)
+        private static Mock<IRepository<TEntity>> Repo<TEntity>(List<TEntity> records, bool throwsWhenEmpty = false)
             where TEntity : BaseEntity
         {
             var repo = new Mock<IRepository<TEntity>>();
 
             repo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<TEntity, bool>>?>()))
-                .ReturnsAsync((Expression<Func<TEntity, bool>>? predicate) => predicate == null
-                    ? records
-                    : records.Where(predicate.Compile()).ToList());
+                .ReturnsAsync((Expression<Func<TEntity, bool>>? predicate) =>
+                {
+                    var result = predicate == null ? records.ToList() : records.Where(predicate.Compile()).ToList();
+                    if (throwsWhenEmpty && result.Count == 0)
+                        throw new NotFoundDatabaseException();
+
+                    return result;
+                });
 
             repo.Setup(x => x.GetPagedAsync(
                     It.IsAny<Expression<Func<TEntity, bool>>?>(),
