@@ -12,6 +12,12 @@ namespace EvangelionERPV2.Shared.DTOs
         public decimal Amount { get; set; }
         public bool IsPaid { get; set; }
         public Guid EnterpriseId { get; set; }
+        public int? RecurrenceMonths { get; set; }
+        public DateTime? RecurrenceUntilUtc { get; set; }
+
+        /// <summary>Set when the sweeper generated this bill from the previous one.</summary>
+        public Guid? RecurrenceParentId { get; set; }
+
         public IEnumerable<PayableBillProductDTO>? Items { get; set; }
     }
 }

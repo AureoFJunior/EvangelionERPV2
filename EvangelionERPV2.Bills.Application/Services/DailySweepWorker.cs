@@ -7,8 +7,7 @@ using Serilog;
 namespace EvangelionERPV2.BillsModule.Application.Services
 {
     /// <summary>
-    /// The once-a-day pass over the money: currently the régua de cobrança, and the place the
-    /// recurring-payables sweep will hang off.
+    /// The once-a-day pass over the money: the régua de cobrança and the contas fixas.
     /// </summary>
     /// <remarks>
     /// One worker and one lease for the whole daily slot, not one per job. Two workers waking at
@@ -36,16 +35,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         public override TimeSpan TimeUntilNextRun(DateTime utcNow)
             => BroadcastSchedule.TimeUntilNextDaily(utcNow, Math.Clamp(_settings.SweepHourUtc, 0, 23));
 
-        protected override Task ExecuteAsync(CancellationToken stoppingToken)
-        {
-            if (!_settings.Enabled)
-            {
-                Log.Logger.Information("Daily sweep not started: dunning is disabled.");
-                return Task.CompletedTask;
-            }
-
-            return base.ExecuteAsync(stoppingToken);
-        }
+        // No slot-level gate: dunning gates itself inside DunningService, and recurring payables
+        // must still run for an installation that never turned dunning on. A clone of a bill sends
+        // nothing to anybody, so there is nothing to opt into.
 
         protected override async Task RunPassAsync(CancellationToken stoppingToken)
         {
@@ -65,6 +57,22 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             catch (Exception ex)
             {
                 Log.Logger.Error(ex, "Dunning sweep failed.");
+            }
+
+            try
+            {
+                var recurringPayableService = scope.ServiceProvider.GetRequiredService<RecurringPayableService>();
+                var generated = await recurringPayableService.SweepAsync(stoppingToken);
+                if (generated > 0)
+                    Log.Logger.Information("Recurring payable sweep generated {Generated} bill(s).", generated);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error(ex, "Recurring payable sweep failed.");
             }
         }
     }

@@ -354,6 +354,8 @@ namespace EvangelionERPV2.Web.Controllers
                 IsPaid = request.IsPaid,
                 PaidAt = request.PaidAt,
                 Amount = request.Amount ?? 0,
+                RecurrenceMonths = request.RecurrenceMonths,
+                RecurrenceUntilUtc = request.RecurrenceUntilUtc?.Date,
                 EnterpriseId = enterpriseId,
                 Items = items
             };

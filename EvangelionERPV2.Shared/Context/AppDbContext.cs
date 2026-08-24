@@ -221,6 +221,14 @@ namespace EvangelionERPV2.Shared.Context
                 .HasFilter("[SupplierNFeAccessKey] IS NOT NULL")
                 .IsUnique();
 
+            // One child per parent, which is what makes the recurring-payable sweep idempotent.
+            // No foreign key: it points at the same table, and a self-referencing FK would drag a
+            // delete behaviour decision into a column that is only ever read forward.
+            modelBuilder.Entity<PayableBill>()
+                .HasIndex(bill => bill.RecurrenceParentId)
+                .HasFilter("[RecurrenceParentId] IS NOT NULL")
+                .IsUnique();
+
             // Transactional guard against concurrent GeneratePayroll calls double-billing the
             // same employee for the same competência. Filtered so soft-deleted rows do not block
             // a regeneration.

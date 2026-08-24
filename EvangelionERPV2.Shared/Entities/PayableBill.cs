@@ -31,6 +31,34 @@ namespace EvangelionERPV2.Shared.Entities
         [MaxLength(44)]
         public string? SupplierNFeAccessKey { get; set; } = null;
 
+        /// <summary>
+        /// How many months apart this bill repeats. Null — the default — means it does not.
+        /// </summary>
+        /// <remarks>
+        /// A payable is its own template. Aluguel, internet and the contador are the same bill
+        /// twelve times a year, and a separate template entity would need CRUD, a controller, a
+        /// permission and a screen to hold three fields this row already has room for.
+        /// </remarks>
+        public int? RecurrenceMonths { get; set; } = null;
+
+        /// <summary>The last due date the chain may reach. Required when the bill repeats.</summary>
+        /// <remarks>
+        /// Required so a chain always ends: a contract that renews is a human deciding to extend
+        /// it, not a sweeper generating bills into the next century.
+        /// </remarks>
+        public DateTime? RecurrenceUntilUtc { get; set; } = null;
+
+        /// <summary>
+        /// The bill this one was cloned from, when it was generated rather than typed.
+        /// </summary>
+        /// <remarks>
+        /// Filtered unique: a parent spawns at most one child, and that index <em>is</em> the
+        /// sweeper's idempotency — two passes on the same day cannot produce two bills. The chain
+        /// advances one link per period because each child carries the recurrence forward and
+        /// becomes the next parent once its own due date arrives.
+        /// </remarks>
+        public Guid? RecurrenceParentId { get; set; } = null;
+
         [ForeignKey(nameof(Enterprise))]
         public Guid EnterpriseId { get; set; }
         public virtual Enterprise? Enterprise { get; set; }

@@ -1716,6 +1716,15 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime?>("ProductsReceivedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("RecurrenceMonths")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("RecurrenceParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("RecurrenceUntilUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("RefundReason")
                         .HasColumnType("nvarchar(max)");
 
@@ -1736,6 +1745,10 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("EmployeeVacationAccrualId")
                         .HasFilter("[EmployeeVacationAccrualId] IS NOT NULL");
+
+                    b.HasIndex("RecurrenceParentId")
+                        .IsUnique()
+                        .HasFilter("[RecurrenceParentId] IS NOT NULL");
 
                     b.HasIndex("SupplierId");
 

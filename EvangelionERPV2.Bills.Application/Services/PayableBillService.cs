@@ -214,6 +214,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 existing.Description = payableBill.Description;
                 existing.DueDate = payableBill.DueDate;
+                // Editable so a chain can be stopped: clearing RecurrenceMonths is how a contas
+                // fixa ends early. RecurrenceParentId is never touched — it records history.
+                existing.RecurrenceMonths = payableBill.RecurrenceMonths;
+                existing.RecurrenceUntilUtc = payableBill.RecurrenceUntilUtc;
                 existing.IsPaid = payableBill.IsPaid;
                 existing.PaidAt = payableBill.IsPaid
                     ? (payableBill.PaidAt ?? now)
