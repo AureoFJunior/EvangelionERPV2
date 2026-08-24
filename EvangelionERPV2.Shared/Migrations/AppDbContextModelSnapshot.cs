@@ -327,6 +327,10 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<decimal?>("CreditLimit")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("Document")
                         .HasColumnType("nvarchar(max)");
 

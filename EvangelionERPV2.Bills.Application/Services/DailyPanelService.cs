@@ -6,6 +6,7 @@ using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.Extensions.Caching.Distributed;
 using Serilog;
+using EvangelionERPV2.Shared.Utils;
 
 namespace EvangelionERPV2.BillsModule.Application.Services
 {

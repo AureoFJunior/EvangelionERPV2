@@ -36,6 +36,7 @@ namespace EvangelionERPV2.Web.Security
             Customers.Create,
             Customers.Update,
             Customers.Delete,
+            Customers.CreditOverride,
 
             EmployeeAbsences.Read,
             EmployeeAbsences.Create,
@@ -217,6 +218,7 @@ namespace EvangelionERPV2.Web.Security
             public const string Create = "rbac:customers.create";
             public const string Update = "rbac:customers.update";
             public const string Delete = "rbac:customers.delete";
+            public const string CreditOverride = "rbac:customers.credit.override";
         }
 
         public static class EmployeeAbsences

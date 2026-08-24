@@ -5,6 +5,8 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
@@ -22,9 +24,9 @@ namespace EvangelionERPV2.Test.Security
             Order? capturedOrder = null;
 
             orderService
-                .Setup(s => s.CreateAsync(It.IsAny<Order>()))
-                .Callback<Order>(order => capturedOrder = order)
-                .ReturnsAsync((Order order) => order);
+                .Setup(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
+                .Callback<Order, bool>((order, _) => capturedOrder = order)
+                .ReturnsAsync((Order order, bool _) => order);
 
             var controller = CreateController(
                 orderService.Object,
@@ -54,7 +56,7 @@ namespace EvangelionERPV2.Test.Security
             var result = await controller.InsertQueuedOrder(BuildRequest(enterpriseId, userId));
 
             Assert.IsType<BadRequestObjectResult>(result);
-            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>()), Times.Never);
+            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()), Times.Never);
         }
 
         [Fact]
@@ -72,7 +74,7 @@ namespace EvangelionERPV2.Test.Security
             var result = await controller.InsertQueuedOrder(BuildRequest(enterpriseId, userId));
 
             Assert.IsType<BadRequestObjectResult>(result);
-            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>()), Times.Never);
+            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()), Times.Never);
         }
 
         [Fact]
@@ -88,7 +90,7 @@ namespace EvangelionERPV2.Test.Security
             var result = await controller.InsertQueuedOrder(BuildRequest(Guid.Empty, Guid.Empty));
 
             Assert.IsType<BadRequestObjectResult>(result);
-            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>()), Times.Never);
+            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()), Times.Never);
         }
 
         private static CreateQueuedOrderRequestDTO BuildRequest(Guid enterpriseId, Guid userId)
@@ -149,7 +151,7 @@ namespace EvangelionERPV2.Test.Security
             var services = new ServiceCollection();
             services.AddSingleton(enterpriseRepository);
 
-            return new OrderController(orderService, userRepository, mapper)
+            return new OrderController(orderService, userRepository, Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())), mapper)
             {
                 ControllerContext = new ControllerContext
                 {

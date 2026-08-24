@@ -18,6 +18,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>> _mockIProductRepository;
         private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct>> _mockIOrderedProductRepository;
         private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<Enterprise>> _mockIEnterpriseRepository;
+        private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<Customer>> _mockICustomerRepository;
+        private readonly Mock<EvangelionERPV2.Shared.Repositories.IRepository<Bill>> _mockIBillRepository;
         private readonly Mock<ProductModule.Application.Interface.IProductService<Product>> _mockIProductService;
         private readonly OrderService _orderService;
         private readonly OrderReportGeneratorService _orderReportGeneratorService;
@@ -29,6 +31,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIProductRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Product>>();
             _mockIOrderedProductRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct>>();
             _mockIEnterpriseRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Enterprise>>();
+            _mockICustomerRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Customer>>();
+            _mockIBillRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Bill>>();
             _mockIProductService = new Mock<ProductModule.Application.Interface.IProductService<Product>>();
             SetupTransactionalExecution(_mockIOrderRepository);
             _mockIEnterpriseRepository
@@ -46,6 +50,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 _mockIProductRepository.Object,
                 _mockIOrderedProductRepository.Object,
                 _mockIEnterpriseRepository.Object,
+                _mockICustomerRepository.Object,
+                _mockIBillRepository.Object,
                 _mockIProductService.Object,
                 null,
                 _orderReportGeneratorService,
@@ -160,6 +166,170 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             Assert.NotNull(result);
             _mockIOrderRepository.Verify(r => r.CreateAsync(It.IsAny<Order>()), Times.Once);
         }
+
+        #region Credit limit
+
+        [Fact]
+        public async Task CreateAsync_UnderTheCustomersLimit_IsTaken()
+        {
+            var (order, customer) = BuildOrderForCustomer(total: 400, creditLimit: 1000);
+            SetupCustomer(customer);
+            SetupOpenExposure(customer, []);
+
+            var result = await _orderService.CreateAsync(order);
+
+            Assert.NotNull(result);
+            _mockIOrderRepository.Verify(r => r.CreateAsync(It.IsAny<Order>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task CreateAsync_OverTheLimitOnceTheOpenCarteiraCounts_IsRefused()
+        {
+            var (order, customer) = BuildOrderForCustomer(total: 400, creditLimit: 1000);
+            SetupCustomer(customer);
+
+            // 700 already owed plus this 400 is 1100 against a limit of 1000.
+            SetupOpenExposure(customer, [BuildOpenOrder(customer, 700)]);
+
+            await Assert.ThrowsAsync<CreditLimitExceededException>(() => _orderService.CreateAsync(order));
+            _mockIOrderRepository.Verify(r => r.CreateAsync(It.IsAny<Order>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task CreateAsync_WithNoLimitSet_IgnoresTheCarteiraEntirely()
+        {
+            var (order, customer) = BuildOrderForCustomer(total: 9000, creditLimit: null);
+            SetupCustomer(customer);
+            SetupOpenExposure(customer, [BuildOpenOrder(customer, 50000)]);
+
+            Assert.NotNull(await _orderService.CreateAsync(order));
+        }
+
+        [Fact]
+        public async Task CreateAsync_WithTheOverride_TakesTheOrderAnyway()
+        {
+            var (order, customer) = BuildOrderForCustomer(total: 400, creditLimit: 1000);
+            SetupCustomer(customer);
+            SetupOpenExposure(customer, [BuildOpenOrder(customer, 700)]);
+
+            Assert.NotNull(await _orderService.CreateAsync(order, allowCreditOverride: true));
+        }
+
+        [Fact]
+        public async Task CreateAsync_DoesNotCountARefundedOrderAgainstTheLimit()
+        {
+            var (order, customer) = BuildOrderForCustomer(total: 400, creditLimit: 1000);
+            SetupCustomer(customer);
+
+            var refunded = BuildOpenOrder(customer, 700);
+            refunded.RefundedAt = DateTime.UtcNow.AddDays(-1);
+            refunded.Status = (int)EnumOrderStatus.Refund;
+            SetupOpenExposure(customer, [refunded]);
+
+            Assert.NotNull(await _orderService.CreateAsync(order));
+        }
+
+        [Fact]
+        public async Task CreateAsync_DoesNotCountAnOrderWhoseBoletoIsSettled()
+        {
+            // Settling a boleto never moves Order.Status, so the title is the only record of it —
+            // the same rule the aging report uses, or the salesperson is blocked by money we have.
+            var (order, customer) = BuildOrderForCustomer(total: 400, creditLimit: 1000);
+            SetupCustomer(customer);
+
+            var settled = BuildOpenOrder(customer, 700);
+            var bill = new Bill
+            {
+                Id = Guid.NewGuid(),
+                OrderId = settled.Id,
+                Order = settled,
+                IsActive = true,
+                Amount = 700,
+                DueDate = DateTime.UtcNow.Date.AddDays(-5),
+                Status = BillStatus.Paid,
+                PaidAt = DateTime.UtcNow.Date.AddDays(-4),
+                PaidAmount = 700
+            };
+
+            SetupOpenExposure(customer, [settled], [bill]);
+
+            Assert.NotNull(await _orderService.CreateAsync(order));
+        }
+
+        private (Order Order, Customer Customer) BuildOrderForCustomer(decimal total, decimal? creditLimit)
+        {
+            var enterpriseId = Guid.NewGuid();
+            var customer = new Customer
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Asuka",
+                IsActive = true,
+                CreditLimit = creditLimit
+            };
+
+            var order = new Order(null, DateTime.UtcNow.Date.AddDays(30), total, enterpriseId, customer.Id,
+                new List<OrderedProduct>
+                {
+                    new OrderedProduct
+                    {
+                        CreatedAt = DateTime.UtcNow,
+                        IsActive = true,
+                        Quantity = 1,
+                        Value = total,
+                        ProductId = Guid.NewGuid()
+                    }
+                }, Guid.NewGuid());
+
+            SetupProductLookupForOrder(_mockIProductRepository, order);
+            _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
+
+            return (order, customer);
+        }
+
+        private Order BuildOpenOrder(Customer customer, decimal total) => new()
+        {
+            Id = Guid.NewGuid(),
+            EnterpriseId = customer.EnterpriseId,
+            CustomerId = customer.Id,
+            IsActive = true,
+            TotalValue = total,
+            Status = (int)EnumOrderStatus.Pending,
+            PaymentScheduledDate = DateTime.UtcNow.Date.AddDays(10)
+        };
+
+        private void SetupCustomer(Customer customer)
+        {
+            _mockICustomerRepository
+                .Setup(r => r.GetAllAsync(It.IsAny<System.Linq.Expressions.Expression<Func<Customer, bool>>?>()))
+                .ReturnsAsync((System.Linq.Expressions.Expression<Func<Customer, bool>>? predicate) =>
+                    predicate == null ? [customer] : new[] { customer }.Where(predicate.Compile()).ToList());
+        }
+
+        private void SetupOpenExposure(Customer customer, List<Order> openOrders, List<Bill>? bills = null)
+        {
+            _mockIOrderRepository
+                .Setup(r => r.GetPagedAsync(
+                    It.IsAny<System.Linq.Expressions.Expression<Func<Order, bool>>?>(),
+                    It.IsAny<Func<IQueryable<Order>, IOrderedQueryable<Order>>?>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
+                .ReturnsAsync((
+                    System.Linq.Expressions.Expression<Func<Order, bool>>? predicate,
+                    Func<IQueryable<Order>, IOrderedQueryable<Order>>? _,
+                    int? __,
+                    int? ___) =>
+                {
+                    var items = predicate == null ? openOrders : openOrders.Where(predicate.Compile()).ToList();
+                    return ((IReadOnlyList<Order>)items, items.Count);
+                });
+
+            _mockIBillRepository
+                .Setup(r => r.GetAllAsync(It.IsAny<System.Linq.Expressions.Expression<Func<Bill, bool>>?>()))
+                .ReturnsAsync((System.Linq.Expressions.Expression<Func<Bill, bool>>? _) => bills ?? []);
+        }
+
+        #endregion
 
         /// <summary>Points the enterprise mock at a tenant whose books are closed through a date.</summary>
         private void LockPeriodThrough(DateTime closedThroughUtc)
@@ -874,6 +1044,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 mockProductRepo.Object,
                 mockOrderedProductRepo.Object,
                 mockEnterpriseRepo.Object,
+                new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Customer>>().Object,
+                new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Bill>>().Object,
                 mockProductService.Object,
                 null,
                 orderReportGeneratorService,

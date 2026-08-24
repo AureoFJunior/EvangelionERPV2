@@ -25,6 +25,17 @@ namespace EvangelionERPV2.Shared.Entities
         public string Adress { get; set; } = "";
         public string? Document { get; set; } = null;
 
+        /// <summary>
+        /// How much this customer may owe at once. Null means no limit — the default, and what
+        /// every existing customer keeps.
+        /// </summary>
+        /// <remarks>
+        /// Exposure is computed, never stored: a stored running total drifts the moment a boleto is
+        /// settled outside the app, and the receivable rule already lives in
+        /// <see cref="Utils.ReceivableResolver"/>. Zero is a real value here and means cash only.
+        /// </remarks>
+        public decimal? CreditLimit { get; set; } = null;
+
         #region Fiscal address
 
         // enderDest on an NFe 4.00 needs xLgr, nro, xCpl, xBairro, cMun, xMun, UF and CEP as

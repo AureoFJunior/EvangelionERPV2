@@ -66,6 +66,10 @@ namespace EvangelionERPV2.Web.Security
 
             RbacPermissions.Customers.Delete,
 
+            // Overriding a credit limit is a decision about the company's exposure, so it sits
+            // with the tier that already sees the carteira and the payables.
+            RbacPermissions.Customers.CreditOverride,
+
             // The accountant's monthly package is Manager data by construction: it is the payables
             // and the bank-facing side of the month, and the payroll inside it is aggregated so it
             // never carries an individual's salary the way admin-only payroll.read does.

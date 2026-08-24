@@ -21,6 +21,8 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _productRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct> _orderedProductRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _enterpriseRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _customerRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<Bill> _billRepository;
         private readonly IProductService<Product> _productService;
         public readonly IOrderRabbitMQManager _rabbitMQManager;
         public readonly IOrderReportGeneratorService _orderReportGeneratorService;
@@ -34,6 +36,8 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             EvangelionERPV2.Shared.Repositories.IRepository<Product> productRepository,
             EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct> orderedProductRepository,
             EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> enterpriseRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Customer> customerRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<Bill> billRepository,
             IProductService<Product> productService,
             IOrderRabbitMQManager rabbitMQManager,
             IOrderReportGeneratorService orderReportGeneratorService,
@@ -46,6 +50,8 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             _productRepository = productRepository;
             _orderedProductRepository = orderedProductRepository;
             _enterpriseRepository = enterpriseRepository;
+            _customerRepository = customerRepository;
+            _billRepository = billRepository;
             _productService = productService;
             _rabbitMQManager = rabbitMQManager;
             _orderReportGeneratorService = orderReportGeneratorService;
@@ -55,7 +61,12 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
         #region Persistence
 
-        public async Task<Order> CreateAsync(Order order)
+        /// <param name="allowCreditOverride">
+        /// Skips the customer's credit limit. Defaulted so no existing caller changes and the
+        /// queued path — which has no user behind it — always enforces; the controller sets it only
+        /// for a caller holding customers.credit.override.
+        /// </param>
+        public async Task<Order> CreateAsync(Order order, bool allowCreditOverride = false)
         {
             try
             {
@@ -78,6 +89,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 {
                     VerifyValidValues(ref order);
                     await AssertPeriodOpenAsync(order.EnterpriseId ?? Guid.Empty, order.PaymentScheduledDate, "This order");
+                    await AssertWithinCreditLimitAsync(order, allowCreditOverride);
                     await ValidateOrderProductsAsync(order);
 
                     await _orderRepository.CreateAsync(order);
@@ -95,6 +107,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 });
             }
             catch (PeriodClosedException)
+            {
+                throw;
+            }
+            catch (CreditLimitExceededException)
             {
                 throw;
             }
@@ -590,6 +606,79 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 return null;
 
             return _enterpriseRepository.GetById(enterpriseId)?.ClosedThroughUtc;
+        }
+
+        /// <summary>
+        /// Refuses an order that would put the customer past the limit set for them.
+        /// </summary>
+        /// <remarks>
+        /// Exposure is computed here rather than stored: a running total on Customer drifts the
+        /// moment a boleto is settled outside the app. The rule for what an order still owes is
+        /// <see cref="ReceivableResolver.ResolveOpenExposure"/> — the same one the aging report,
+        /// the panel and the forecast use, so the number a salesperson is blocked by is the number
+        /// the carteira shows.
+        ///
+        /// Inside the creation transaction, so a concurrent order cannot slip past the check; two
+        /// simultaneous orders that each fit but together do not are still possible, and that is
+        /// accepted — the limit is a policy, not a ledger invariant.
+        /// </remarks>
+        private async Task AssertWithinCreditLimitAsync(Order order, bool allowCreditOverride)
+        {
+            if (allowCreditOverride)
+                return;
+
+            var enterpriseId = order.EnterpriseId ?? Guid.Empty;
+            var customerId = order.CustomerId ?? Guid.Empty;
+            if (enterpriseId == Guid.Empty || customerId == Guid.Empty)
+                return;
+
+            var customer = (await _customerRepository.GetAllAsync(
+                    x => x.Id == customerId && x.EnterpriseId == enterpriseId))
+                .FirstOrDefault();
+
+            var creditLimit = customer?.CreditLimit;
+            if (creditLimit == null)
+                return;
+
+            var exposure = await GetOpenExposureAsync(enterpriseId, customerId);
+            var projected = exposure + order.TotalValue;
+            if (projected <= creditLimit.Value)
+                return;
+
+            // Amounts only. The message reaches the caller through the 409, and it is the
+            // company's own figures — never anything the request submitted.
+            throw new CreditLimitExceededException(
+                $"This order would take the customer to {projected:0.00} against a credit limit of {creditLimit.Value:0.00}.");
+        }
+
+        /// <summary>Everything this customer still owes, boleto first, refunds excluded.</summary>
+        private async Task<decimal> GetOpenExposureAsync(Guid enterpriseId, Guid customerId)
+        {
+            // GetPagedAsync deliberately: OrderRepository's GetAllAsync override drags the whole
+            // item graph across the wire, and this reads four columns.
+            var openOrders = (await _orderRepository.GetPagedAsync(
+                    x => x.EnterpriseId == enterpriseId
+                         && x.CustomerId == customerId
+                         && x.IsActive == true
+                         && x.TotalValue > 0
+                         && x.RefundedAt == null
+                         && x.Status != (int)EnumOrderStatus.Refund
+                         && x.Status != (int)EnumOrderStatus.Paid
+                         && x.Status != (int)EnumOrderStatus.Finished))
+                .Items;
+
+            if (openOrders.Count == 0)
+                return 0m;
+
+            // Bill carries no EnterpriseId of its own; it is tenant-scoped through Order.
+            var liveBills = ReceivableResolver.SelectLiveBillsByOrder(
+                await _billRepository.GetAllAsync(
+                    x => x.Order != null
+                         && x.Order.EnterpriseId == enterpriseId
+                         && x.Order.CustomerId == customerId
+                         && (x.IsActive == null || x.IsActive == true)));
+
+            return openOrders.Sum(x => ReceivableResolver.ResolveOpenExposure(x, liveBills.GetValueOrDefault(x.Id)));
         }
 
         private async Task AssertPeriodOpenAsync(Guid enterpriseId, DateTime businessDate, string what)

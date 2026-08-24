@@ -1,7 +1,7 @@
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 
-namespace EvangelionERPV2.BillsModule.Application.Services
+namespace EvangelionERPV2.Shared.Utils
 {
     /// <summary>
     /// The single answer to "what does this order still owe us, and when".
@@ -12,6 +12,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// this rule would be a second opinion about money. The rule itself: where an order has a
     /// boleto, the boleto is the truth about the receivable; the order's own dates only ever said
     /// when we <em>hoped</em> to be paid.
+    ///
+    /// It lives in Shared rather than in Bills because the credit-limit guard on order creation
+    /// needs the same exposure figure, and one module reaching into another's services to ask what
+    /// a customer owes is how a second copy of this rule gets written.
     /// </remarks>
     public static class ReceivableResolver
     {

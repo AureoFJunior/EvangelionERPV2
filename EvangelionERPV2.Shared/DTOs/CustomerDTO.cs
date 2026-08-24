@@ -22,6 +22,9 @@ namespace EvangelionERPV2.Shared.DTOs
         public string? Uf { get; set; }
         public string? Cep { get; set; }
         public string? InscricaoEstadual { get; set; }
+
+        /// <summary>How much this customer may owe at once; null means no limit.</summary>
+        public decimal? CreditLimit { get; set; }
         public Guid? EnterpriseId { get; set; } = null;
     }
 }

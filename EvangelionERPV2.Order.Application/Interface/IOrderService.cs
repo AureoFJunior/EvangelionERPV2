@@ -14,7 +14,11 @@ namespace EvangelionERPV2.OrderModule.Application.Interface
         #endregion
 
         #region Async
-        Task<Order> CreateAsync(Order order);
+        /// <param name="allowCreditOverride">
+        /// Skips the customer's credit limit. Defaulted, so the RabbitMQ path enforces it and only
+        /// a controller that checked customers.credit.override can turn it off.
+        /// </param>
+        Task<Order> CreateAsync(Order order, bool allowCreditOverride = false);
         Task<Order> RefundAsync(Guid id, Guid enterpriseId, string reason);
         Task<IEnumerable<Order>> GetByEnterpriseIdAsync(Guid enterpriseId, int? pageNumber = null, int? pageSize = null);
         Task<Order?> GetByIdAsync(Guid id, Guid enterpriseId);

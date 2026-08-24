@@ -31,6 +31,7 @@ namespace EvangelionERPV2.Web.Security
             Customers.Create,
             Customers.Update,
             Customers.Delete,
+            Customers.CreditOverride,
 
             Employees.Read,
             Employees.Create,
@@ -192,6 +193,11 @@ namespace EvangelionERPV2.Web.Security
             public const string Create = "customers.create";
             public const string Update = "customers.update";
             public const string Delete = "customers.delete";
+
+            // Manager tier. Taking an order that puts a customer past the limit somebody set is a
+            // decision about the company's money, not a sales action — the same reason settling a
+            // boleto starts at Manager while issuing one stays at Supervisor.
+            public const string CreditOverride = "customers.credit.override";
         }
 
         public static class Employees

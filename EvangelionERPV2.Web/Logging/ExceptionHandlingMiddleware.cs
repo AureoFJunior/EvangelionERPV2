@@ -105,14 +105,14 @@ namespace EvangelionERPV2.Web.Logging
                 ArgumentException or FormatException => StatusCodes.Status400BadRequest,
                 UnauthorizedAccessException or SecurityTokenException => StatusCodes.Status401Unauthorized,
                 NotFoundDatabaseException => StatusCodes.Status204NoContent,
-                PeriodClosedException => StatusCodes.Status409Conflict,
+                PeriodClosedException or CreditLimitExceededException => StatusCodes.Status409Conflict,
                 _ => StatusCodes.Status500InternalServerError
             };
         }
 
         private static bool ShouldLogExceptionDetails(Exception ex)
         {
-            return ex is not (ArgumentException or FormatException or NotFoundDatabaseException or PeriodClosedException or UnauthorizedAccessException or SecurityTokenException);
+            return ex is not (ArgumentException or FormatException or NotFoundDatabaseException or PeriodClosedException or CreditLimitExceededException or UnauthorizedAccessException or SecurityTokenException);
         }
 
         private ProblemDetails CreateProblemDetails(Exception ex, int statusCode, string traceId)
@@ -133,11 +133,11 @@ namespace EvangelionERPV2.Web.Logging
             if (statusCode == StatusCodes.Status400BadRequest)
                 return GetSafeBadRequestDetail(ex);
 
-            // The only detail echoed verbatim. A PeriodClosedException message is built from two
-            // dates this code chose — never from submitted values — and without it the caller
-            // cannot tell a closed period from any other conflict.
+            // The only details echoed verbatim. Both messages are built from dates and amounts
+            // this code chose — never from submitted values — and without them the caller cannot
+            // tell a closed period from a credit block from any other conflict.
             if (statusCode == StatusCodes.Status409Conflict)
-                return ex is PeriodClosedException ? ex.Message : null;
+                return ex is PeriodClosedException or CreditLimitExceededException ? ex.Message : null;
 
             if (statusCode == StatusCodes.Status401Unauthorized)
                 return null;
@@ -159,7 +159,7 @@ namespace EvangelionERPV2.Web.Logging
             {
                 StatusCodes.Status400BadRequest => "The request was invalid. Please check the input and try again.",
                 StatusCodes.Status401Unauthorized => "The request could not be authorized.",
-                StatusCodes.Status409Conflict => "The accounting period is closed.",
+                StatusCodes.Status409Conflict => "The request conflicts with the current state of the data.",
                 StatusCodes.Status500InternalServerError => "An internal server error occurred. Please try again later.",
                 _ => "An unexpected error occurred."
             };

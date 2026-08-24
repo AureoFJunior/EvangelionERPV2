@@ -251,6 +251,8 @@ namespace EvangelionERPV2.Web.Controllers
                 existingCustomer.Uf = Blank(request.Uf)?.ToUpperInvariant();
                 existingCustomer.Cep = Digits(request.Cep);
                 existingCustomer.InscricaoEstadual = Blank(request.InscricaoEstadual);
+                // Null clears the limit; zero is a real value and means cash only.
+                existingCustomer.CreditLimit = request.CreditLimit;
                 existingCustomer.IsActive = request.IsActive;
                 existingCustomer.UpdatedAt = DateTime.UtcNow;
 
@@ -318,6 +320,7 @@ namespace EvangelionERPV2.Web.Controllers
                 Uf = Blank(request.Uf)?.ToUpperInvariant(),
                 Cep = Digits(request.Cep),
                 InscricaoEstadual = Blank(request.InscricaoEstadual),
+                CreditLimit = request.CreditLimit,
                 EnterpriseId = enterpriseId,
                 IsActive = request.IsActive ?? true
             };

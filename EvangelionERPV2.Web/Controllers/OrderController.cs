@@ -28,14 +28,17 @@ namespace EvangelionERPV2.Web.Controllers
 
         private readonly IOrderService<Order> _orderService;
         private readonly IRepository<User> _userRepository;
+        private readonly IAuthorizationService _authorizationService;
         private readonly IMapper _mapper;
 
         public OrderController(IOrderService<Order> orderService,
             IRepository<User> userRepository,
+            IAuthorizationService authorizationService,
             IMapper mapper)
         {
             _orderService = orderService;
             _userRepository = userRepository;
+            _authorizationService = authorizationService;
             _mapper = mapper;
         }
 
@@ -246,7 +249,7 @@ namespace EvangelionERPV2.Web.Controllers
                     return Unauthorized();
 
                 var order = MapCreateRequestToOrder(request, enterpriseId, userId);
-                await _orderService.CreateAsync(order);
+                await _orderService.CreateAsync(order, await CanOverrideCreditLimitAsync());
                 return Ok("Order created successfully");
             }
             catch (InsertDatabaseException ex)
@@ -420,6 +423,26 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Whether this caller may take an order past the customer's credit limit.
+        /// </summary>
+        /// <remarks>
+        /// Asked of the authorization service rather than read off a claim, because
+        /// <see cref="PermissionAuthorizationHandler"/> derives permissions from the user's access
+        /// level — there is no permission claim in the token to inspect.
+        ///
+        /// Only the interactive create asks. An order that arrived through the queue is persisted
+        /// by the machine user in <see cref="InsertQueuedOrder"/>, which has no human behind it and
+        /// therefore always enforces the limit.
+        /// </remarks>
+        private async Task<bool> CanOverrideCreditLimitAsync()
+        {
+            var result = await _authorizationService.AuthorizeAsync(
+                User, RbacPolicies.Customers.CreditOverride);
+
+            return result.Succeeded;
         }
 
         private bool TryGetEnterpriseId(out Guid enterpriseId)
