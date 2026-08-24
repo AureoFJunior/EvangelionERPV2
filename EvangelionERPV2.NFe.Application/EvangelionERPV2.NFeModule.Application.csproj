@@ -33,6 +33,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\EvangelionERPV2.Bills.Application\EvangelionERPV2.BillsModule.Application.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.NFe.Domain\EvangelionERPV2.NFeModule.Domain.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.NFe.Infra\EvangelionERPV2.NFeModule.Infra.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Shared\EvangelionERPV2.Shared.csproj" />

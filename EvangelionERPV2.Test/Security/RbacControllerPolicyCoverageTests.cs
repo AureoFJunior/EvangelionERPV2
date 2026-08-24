@@ -73,6 +73,7 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(NFeController), nameof(NFeController.Issue), RbacPermissions.NFe.Issue)]
         [InlineData(typeof(NFeController), nameof(NFeController.Consult), RbacPermissions.NFe.Read)]
         [InlineData(typeof(NFeController), nameof(NFeController.Cancel), RbacPermissions.NFe.Cancel)]
+        [InlineData(typeof(NFeController), nameof(NFeController.ImportInbound), RbacPermissions.PayableBills.Create)]
         [InlineData(typeof(NFeFiscalSettingsController), nameof(NFeFiscalSettingsController.GetFiscalSettings), RbacPermissions.NFe.SettingsRead)]
         [InlineData(typeof(NFeFiscalSettingsController), nameof(NFeFiscalSettingsController.UpdateFiscalSettings), RbacPermissions.NFe.SettingsUpdate)]
         [InlineData(typeof(NFeFiscalSettingsController), nameof(NFeFiscalSettingsController.UploadCertificate), RbacPermissions.NFe.CertificateManage)]

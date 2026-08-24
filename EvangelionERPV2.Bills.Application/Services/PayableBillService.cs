@@ -41,7 +41,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             _appDbContext = appDbContext;
         }
 
-        public async Task<PayableBill> CreateAsync(PayableBill payableBill, bool useAmbientTransaction = false)
+        public async Task<PayableBill> CreateAsync(PayableBill payableBill, bool useAmbientTransaction = false, bool keepProvidedAmount = false)
         {
             if (payableBill == null)
                 throw new InsertDatabaseException($"{nameof(PayableBill)} is null.");
@@ -60,9 +60,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 // context (payroll generation does, so bill and PayrollBillDetail land together).
                 // Nesting BeginTransactionAsync would throw, so the body runs inline instead.
                 if (useAmbientTransaction)
-                    await CreateCoreAsync(payableBill, sourceItems);
+                    await CreateCoreAsync(payableBill, sourceItems, keepProvidedAmount);
                 else
-                    await ExecuteInTransactionAsync(() => CreateCoreAsync(payableBill, sourceItems));
+                    await ExecuteInTransactionAsync(() => CreateCoreAsync(payableBill, sourceItems, keepProvidedAmount));
             }
             catch (DbUpdateException ex)
             {
@@ -73,7 +73,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return createdBill ?? payableBill;
         }
 
-        private async Task CreateCoreAsync(PayableBill payableBill, List<PayableBillProduct> sourceItems)
+        private async Task CreateCoreAsync(PayableBill payableBill, List<PayableBillProduct> sourceItems, bool keepProvidedAmount = false)
         {
             payableBill.CreatedAt = DateTime.UtcNow;
             payableBill.UpdatedAt = DateTime.UtcNow;
@@ -90,7 +90,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 ? await NormalizeItemsAsync(payableBill.Id, payableBill.EnterpriseId, sourceItems)
                 : new List<PayableBillProduct>();
 
-            if (hasProvidedItems)
+            if (hasProvidedItems && !keepProvidedAmount)
                 payableBill.Amount = normalizedItems.Sum(x => x.LineAmount);
             else
                 payableBill.Amount = payableBill.Amount > 0 ? payableBill.Amount : 0;

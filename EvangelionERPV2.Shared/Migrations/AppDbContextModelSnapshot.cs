@@ -1721,6 +1721,10 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<Guid?>("SupplierId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("SupplierNFeAccessKey")
+                        .HasMaxLength(44)
+                        .HasColumnType("nvarchar(44)");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
@@ -1732,6 +1736,10 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasIndex("SupplierId");
 
                     b.HasIndex("EnterpriseId", "DueDate");
+
+                    b.HasIndex("EnterpriseId", "SupplierNFeAccessKey")
+                        .IsUnique()
+                        .HasFilter("[SupplierNFeAccessKey] IS NOT NULL");
 
                     b.ToTable("PayableBill");
                 });

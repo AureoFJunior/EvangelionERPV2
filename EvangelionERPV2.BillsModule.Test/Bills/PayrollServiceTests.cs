@@ -914,8 +914,8 @@ namespace EvangelionERPV2.BillsModule.Test
             var createdBills = new List<PayableBill>();
             var payableBillService = new Mock<IPayableBillService>();
             payableBillService
-                .Setup(x => x.CreateAsync(It.IsAny<PayableBill>(), It.IsAny<bool>()))
-                .ReturnsAsync((PayableBill bill, bool _) =>
+                .Setup(x => x.CreateAsync(It.IsAny<PayableBill>(), It.IsAny<bool>(), It.IsAny<bool>()))
+                .ReturnsAsync((PayableBill bill, bool _, bool __) =>
                 {
                     if (failBillCreation?.Invoke(bill) == true)
                         throw new InsertDatabaseException("Unexpected error while creating payable bill.");

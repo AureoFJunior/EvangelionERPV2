@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using EvangelionERPV2.Shared.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EvangelionERPV2.Shared.Entities
@@ -17,6 +18,18 @@ namespace EvangelionERPV2.Shared.Entities
         public DateTime? ProductsReceivedAt { get; set; } = null;
         public string? RefundReason { get; set; } = null;
         public DateTime? RefundedAt { get; set; } = null;
+
+        /// <summary>
+        /// The 44-digit chave of the supplier NF-e this payable was imported from, when it was.
+        /// </summary>
+        /// <remarks>
+        /// This column <em>is</em> the import's idempotency: a filtered unique index on
+        /// (EnterpriseId, SupplierNFeAccessKey) means the same XML dropped twice returns the bill
+        /// that already exists instead of a second one. No SupplierInvoice entity — the payable is
+        /// the document, and the chave is the only thing about the nota that has to be unique.
+        /// </remarks>
+        [MaxLength(44)]
+        public string? SupplierNFeAccessKey { get; set; } = null;
 
         [ForeignKey(nameof(Enterprise))]
         public Guid EnterpriseId { get; set; }

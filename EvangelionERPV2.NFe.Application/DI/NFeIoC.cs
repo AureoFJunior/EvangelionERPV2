@@ -89,6 +89,10 @@ namespace EvangelionERPV2.NFeModule.Application.DI
                 services.AddScoped<INFeFiscalSettingsService, NFeFiscalSettingsService>();
                 services.AddScoped<INFeCertificateService, NFeCertificateService>();
 
+                // Inbound notas: the XML becomes a payable. Registered here because the parsing
+                // lives in this module; the bill it creates goes through Bills' own service.
+                services.AddScoped<ISupplierNFeImportService, SupplierNFeImportService>();
+
                 // Concrete, no interface: the worker below is its only caller. The sweeper is the
                 // only owner of a document left Pending with the write-ahead marker set, so it is
                 // registered here rather than in the host — the module that can create that state

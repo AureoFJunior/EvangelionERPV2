@@ -24,21 +24,82 @@ namespace EvangelionERPV2.Web.Controllers
         private const int NFeAccessKeyLength = 44;
         private const int MaxNFeCancelReasonLength = 500;
         private static readonly Regex NFeAccessKeyRegex = new($"^[0-9]{{{NFeAccessKeyLength}}}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // A supplier's nota is a few dozen kilobytes of XML; the bound is re-checked here because
+        // the read into memory happens here, not only in the validator.
+        private const long MaxInboundNFeUploadSizeInBytes = 2 * 1024 * 1024;
+
         private readonly INFeService<NFeDocument> _nfeService;
         private readonly IOrderService<Order> _orderService;
+        private readonly ISupplierNFeImportService _supplierNFeImportService;
         private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
 
         public NFeController(
             INFeService<NFeDocument> nfeService,
             IOrderService<Order> orderService,
+            ISupplierNFeImportService supplierNFeImportService,
             IRepository<User> userRepository,
             IMapper mapper)
         {
             _nfeService = nfeService;
             _orderService = orderService;
+            _supplierNFeImportService = supplierNFeImportService;
             _userRepository = userRepository;
             _mapper = mapper;
+        }
+
+        /// <summary>
+        /// Import a supplier's NF-e XML as a payable bill. Safe to call twice with the same file.
+        /// </summary>
+        /// <remarks>
+        /// Reuses payable-bills.create rather than adding a permission: the effect of this endpoint
+        /// is a payable, and whoever may type one may drop the XML that types it for them. Stock
+        /// does not move here — MarkProductsReceived is still the arrival event.
+        /// </remarks>
+        [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Create)]
+        [HttpPost]
+        [ProducesResponseType(typeof(SupplierNFeImportResultDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> ImportInbound([FromForm] ImportSupplierNFeRequestDTO request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+            var file = request?.File;
+
+            if (file == null || file.Length == 0)
+                return BadRequest("NF-e file is required.");
+
+            if (file.Length > MaxInboundNFeUploadSizeInBytes)
+                return BadRequest("NF-e file is too large.");
+
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            using var buffer = new MemoryStream();
+            await file.CopyToAsync(buffer, HttpContext.RequestAborted);
+
+            try
+            {
+                var result = await _supplierNFeImportService.ImportAsync(
+                    enterpriseId, buffer.ToArray(), HttpContext.RequestAborted);
+
+                return Ok(result);
+            }
+            catch (FormatException ex)
+            {
+                // The uploader holds the file; a parse complaint tells them nothing they did not
+                // send. The log stays type-only, per the convention in this codebase.
+                Log.Logger.Error("Supplier NF-e import rejected. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest("The file could not be read as an NF-e.");
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error("Supplier NF-e import failed. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest("The NF-e could not be imported.");
+            }
         }
 
         [Authorize(Policy = "rbac:" + RbacPermissions.NFe.Read)]
