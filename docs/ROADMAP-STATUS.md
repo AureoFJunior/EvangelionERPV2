@@ -19,11 +19,11 @@ any of them is re-litigating a settled decision.
 | | |
 |---|---|
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
-| Head | `61f6131` — M22, contas fixas |
+| Head | M20 duplicatas — see git log |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1305 passing / 0 failing** across 14 assemblies (1164 at M13) |
-| FrontV2 | `f2f6114`; `npx tsc --noEmit` clean, `npx jest` **75 passing** across 18 suites. Cypress still never run — it needs the Expo web server on :8081 and a live API |
-| Migrations | chain ends `…110000_AddEnterprisePeriodLock` → `…120000_AddSupplierNFeAccessKey` → `…130000_AddCustomerCreditLimit` → `…140000_AddPayableBillRecurrence` |
+| Tests | **1311 passing / 0 failing** across 14 assemblies (1164 at M13) |
+| FrontV2 | `npx tsc --noEmit` clean, `npx jest` **77 passing** across 18 suites. Cypress still never run — it needs the Expo web server on :8081 and a live API |
+| Migrations | chain ends `…110000_AddEnterprisePeriodLock` → `…120000_AddSupplierNFeAccessKey` → `…140000_AddPayableBillRecurrence` → `…150000_AddSupplierNFeDuplicata` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -137,10 +137,12 @@ any of them is re-litigating a settled decision.
 - **M18**: the package is built entirely in memory (`ponytail:`). Stream it if a tenant makes that hurt.
 - **M19**: every guarded write costs one primary-key read of `Enterprise`; on the stock path that is
   one per order line (`ponytail:`).
-- **M20**: only the **first duplicata** is honoured (`ponytail:`). A nota paid in instalments wants one
-  bill per duplicata, which collides with the access key being the idempotency — the fix is a widened
-  key of `{chNFe}-{nDup}`. Also: an unknown emitter's supplier row is created before the bill, so a
-  refused bill can leave an orphan supplier the next attempt reuses.
+- ~~**M20**: only the first duplicata is honoured.~~ **Closed 2026-08-24**: the import now creates one
+  payable per duplicata, keyed `(EnterpriseId, SupplierNFeAccessKey, SupplierNFeDuplicata)`
+  (migration `…150000`). Item lines ride the first instalment only — the goods arrive once. A nota
+  with no schedule, or one whose duplicatas carry no amounts, is still a single bill for vNF.
+  Still open there: an unknown emitter's supplier row is created before the bills, so a refused
+  import can leave an orphan supplier the next attempt reuses.
 - **M21**: two simultaneous orders that each fit under the limit but together do not will both pass.
   The limit is a policy, not a ledger invariant; serialising it would lock every order.
 - **M22**: a long-dormant chain catches up one month per sweep, by design. Recurrence must travel on

@@ -106,6 +106,144 @@ namespace EvangelionERPV2.NFeModule.Test
         }
 
         [Fact]
+        public async Task Import_OfAnInstalmentNota_CreatesOnePayablePerDuplicata()
+        {
+            // Three payments the bank will see on three days: one bill for the whole vNF would sit
+            // in the carteira against a cash flow that never happens.
+            var product = BuildProduct("Plugsuit", ean: "7891234567895");
+            var (service, bills, _) = BuildSut(products: [product]);
+
+            var result = await service.ImportAsync(EnterpriseId, BuildInstalmentNota());
+
+            Assert.Equal(3, bills.Count);
+            Assert.Equal(3, result.PayableBillIds.Count);
+
+            Assert.Equal(["001", "002", "003"], bills.Select(x => x.SupplierNFeDuplicata ?? string.Empty).ToArray());
+            Assert.Equal([120m, 100m, 100m], bills.Select(x => x.Amount).ToArray());
+            Assert.Equal(
+                [new DateTime(2026, 9, 9), new DateTime(2026, 10, 9), new DateTime(2026, 11, 9)],
+                bills.Select(x => x.DueDate).ToArray());
+
+            // The reported total is the nota, the first due date is the first instalment.
+            Assert.Equal(320m, result.Amount);
+            Assert.Equal(new DateTime(2026, 9, 9), result.DueDate);
+            Assert.All(bills, bill => Assert.Equal(AccessKey, bill.SupplierNFeAccessKey));
+            Assert.Contains("(1/3)", bills[0].Description);
+        }
+
+        [Fact]
+        public async Task Import_PutsTheGoodsOnTheFirstInstalmentOnly()
+        {
+            // The delivery happens once whatever the schedule says; repeating the lines would let a
+            // human receive the same stock three times.
+            var product = BuildProduct("Plugsuit", ean: "7891234567895");
+            var (service, bills, _) = BuildSut(products: [product]);
+
+            await service.ImportAsync(EnterpriseId, BuildInstalmentNota());
+
+            Assert.NotNull(bills[0].Items);
+            Assert.All(bills.Skip(1), bill => Assert.Null(bill.Items));
+        }
+
+        [Fact]
+        public async Task Import_OfAnInstalmentNotaTwice_CreatesNothingMore()
+        {
+            var (service, bills, _) = BuildSut();
+
+            await service.ImportAsync(EnterpriseId, BuildInstalmentNota());
+            var second = await service.ImportAsync(EnterpriseId, BuildInstalmentNota());
+
+            Assert.Equal(3, bills.Count);
+            Assert.True(second.AlreadyImported);
+            Assert.Equal(3, second.PayableBillIds.Count);
+            Assert.Equal(320m, second.Amount);
+        }
+
+        [Fact]
+        public async Task Import_OfANotaWithNoSchedule_IsOneBillForTheTotal()
+        {
+            var withoutCobr = Encoding.UTF8.GetString(BuildNota());
+            var start = withoutCobr.IndexOf("<cobr>", StringComparison.Ordinal);
+            var end = withoutCobr.IndexOf("</cobr>", StringComparison.Ordinal) + "</cobr>".Length;
+
+            var (service, bills, _) = BuildSut();
+
+            await service.ImportAsync(EnterpriseId, Encoding.UTF8.GetBytes(withoutCobr.Remove(start, end - start)));
+
+            var bill = Assert.Single(bills);
+            Assert.Null(bill.SupplierNFeDuplicata);
+            Assert.Equal(320m, bill.Amount);
+            Assert.DoesNotContain("/", bill.Description);
+        }
+
+        [Fact]
+        public async Task Import_IgnoresAScheduleThatCarriesNoAmounts()
+        {
+            // Some emitters send a cobr block with only a fat in it. A payable for zero is a bill
+            // nobody owes.
+            var emptySchedule = Encoding.UTF8.GetString(BuildNota())
+                .Replace("<vDup>320.00</vDup>", "<vDup>0.00</vDup>");
+
+            var (service, bills, _) = BuildSut();
+
+            await service.ImportAsync(EnterpriseId, Encoding.UTF8.GetBytes(emptySchedule));
+
+            var bill = Assert.Single(bills);
+            Assert.Null(bill.SupplierNFeDuplicata);
+            Assert.Equal(320m, bill.Amount);
+        }
+
+        [Fact]
+        public async Task Import_NumbersADuplicataTheEmitterLeftBlank()
+        {
+            // The number is half the idempotency key, so it cannot be empty.
+            var blankNumbers = Encoding.UTF8.GetString(BuildInstalmentNota())
+                .Replace("<nDup>001</nDup>", "<nDup></nDup>")
+                .Replace("<nDup>002</nDup>", "<nDup></nDup>")
+                .Replace("<nDup>003</nDup>", "<nDup></nDup>");
+
+            var (service, bills, _) = BuildSut();
+
+            await service.ImportAsync(EnterpriseId, Encoding.UTF8.GetBytes(blankNumbers));
+
+            Assert.Equal(["001", "002", "003"], bills.Select(x => x.SupplierNFeDuplicata ?? string.Empty).ToArray());
+        }
+
+        /// <summary>The same nota, paid in three instalments: 120.00 then 100.00 twice.</summary>
+        private static byte[] BuildInstalmentNota()
+        {
+            var single = Encoding.UTF8.GetString(BuildNota());
+            const string oneDuplicata = """
+                        <dup>
+                          <nDup>001</nDup>
+                          <dVenc>2026-09-09</dVenc>
+                          <vDup>320.00</vDup>
+                        </dup>
+                """;
+
+            const string threeDuplicatas = """
+                        <dup>
+                          <nDup>001</nDup>
+                          <dVenc>2026-09-09</dVenc>
+                          <vDup>120.00</vDup>
+                        </dup>
+                        <dup>
+                          <nDup>002</nDup>
+                          <dVenc>2026-10-09</dVenc>
+                          <vDup>100.00</vDup>
+                        </dup>
+                        <dup>
+                          <nDup>003</nDup>
+                          <dVenc>2026-11-09</dVenc>
+                          <vDup>100.00</vDup>
+                        </dup>
+                """;
+
+            Assert.Contains(oneDuplicata, single);
+            return Encoding.UTF8.GetBytes(single.Replace(oneDuplicata, threeDuplicatas));
+        }
+
+        [Fact]
         public async Task Import_DoesNotMoveStock()
         {
             // A nota is issued when goods ship. MarkProductsReceived is still the arrival event.

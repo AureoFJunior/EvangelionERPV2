@@ -28,11 +28,18 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>What the import did.</summary>
     public sealed class SupplierNFeImportResultDTO
     {
+        /// <summary>The first payable created — the earliest instalment.</summary>
         public Guid PayableBillId { get; set; }
+
+        /// <summary>Every payable this nota produced: one per duplicata.</summary>
+        public List<Guid> PayableBillIds { get; set; } = [];
         public string AccessKey { get; set; } = string.Empty;
         public string Number { get; set; } = string.Empty;
         public DateTime IssuedAt { get; set; }
+        /// <summary>The first instalment's due date.</summary>
         public DateTime DueDate { get; set; }
+
+        /// <summary>The whole nota: the sum of every instalment created.</summary>
         public decimal Amount { get; set; }
 
         public Guid SupplierId { get; set; }

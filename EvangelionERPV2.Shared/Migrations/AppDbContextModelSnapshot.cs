@@ -1738,6 +1738,10 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasMaxLength(44)
                         .HasColumnType("nvarchar(44)");
 
+                    b.Property<string>("SupplierNFeDuplicata")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
@@ -1754,7 +1758,7 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("EnterpriseId", "DueDate");
 
-                    b.HasIndex("EnterpriseId", "SupplierNFeAccessKey")
+                    b.HasIndex("EnterpriseId", "SupplierNFeAccessKey", "SupplierNFeDuplicata")
                         .IsUnique()
                         .HasFilter("[SupplierNFeAccessKey] IS NOT NULL");
 

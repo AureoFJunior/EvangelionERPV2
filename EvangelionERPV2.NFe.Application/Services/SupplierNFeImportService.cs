@@ -24,6 +24,13 @@ namespace EvangelionERPV2.NFeModule.Application.Services
     /// <c>MarkProductsReceived</c> is already the arrival event and, since M14, writes the ledger.
     /// Importing creates the obligation, a human confirms the arrival.
     /// </para>
+    /// <para>
+    /// One payable per duplicata. A nota paid in three instalments is three payments the bank will
+    /// see on three different days, and a single bill for the whole vNF would sit in the carteira
+    /// against a cash flow that never happens. A nota with no <c>cobr</c> block is one bill for the
+    /// total, thirty days out. The item lines ride the first instalment only — the goods arrive
+    /// once, whatever the payment schedule says.
+    /// </para>
     /// </remarks>
     public class SupplierNFeImportService : ISupplierNFeImportService
     {
@@ -58,25 +65,28 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
             var existing = (await _payableBillRepository.GetAllAsync(
                     x => x.EnterpriseId == enterpriseId && x.SupplierNFeAccessKey == nota.AccessKey))
-                .FirstOrDefault();
+                .OrderBy(x => x.DueDate)
+                .ToList();
 
-            if (existing != null)
+            if (existing.Count > 0)
             {
-                // The unique index would refuse the insert anyway; answering with the bill that
-                // already exists is what makes re-dropping the same file harmless.
-                var supplier = existing.SupplierId.HasValue
-                    ? (await _supplierRepository.GetAllAsync(x => x.Id == existing.SupplierId.Value)).FirstOrDefault()
+                // The unique index would refuse the inserts anyway; answering with the bills that
+                // already exist is what makes re-dropping the same file harmless.
+                var supplierId = existing[0].SupplierId;
+                var supplier = supplierId.HasValue
+                    ? (await _supplierRepository.GetAllAsync(x => x.Id == supplierId.Value)).FirstOrDefault()
                     : null;
 
                 return new SupplierNFeImportResultDTO
                 {
-                    PayableBillId = existing.Id,
+                    PayableBillId = existing[0].Id,
+                    PayableBillIds = existing.Select(x => x.Id).ToList(),
                     AccessKey = nota.AccessKey,
                     Number = nota.Number,
                     IssuedAt = nota.IssuedAt,
-                    DueDate = existing.DueDate,
-                    Amount = existing.Amount,
-                    SupplierId = existing.SupplierId ?? Guid.Empty,
+                    DueDate = existing[0].DueDate,
+                    Amount = existing.Sum(x => x.Amount),
+                    SupplierId = supplierId ?? Guid.Empty,
                     SupplierName = supplier?.Name ?? string.Empty,
                     AlreadyImported = true
                 };
@@ -85,35 +95,48 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             var (supplierRecord, supplierCreated) = await ResolveSupplierAsync(enterpriseId, nota);
             var (items, unmatched) = await MatchItemsAsync(enterpriseId, nota);
 
-            var bill = new PayableBill
-            {
-                EnterpriseId = enterpriseId,
-                SupplierId = supplierRecord.Id,
-                SupplierNFeAccessKey = nota.AccessKey,
-                Description = $"NF-e {nota.Number} - {supplierRecord.Name}",
-                DueDate = ResolveDueDate(nota),
-                Amount = nota.TotalAmount,
-                IsPaid = false,
-                BillType = (int)(items.Count > 0 ? EnumPayableBillType.ProductStock : EnumPayableBillType.Other),
-                Items = items.Count > 0 ? items : null
-            };
+            var instalments = ResolveInstalments(nota);
+            var created = new List<PayableBill>();
 
-            // keepProvidedAmount: vNF is the payable, and it is not the sum of the lines — freight,
-            // insurance and ST all live outside them.
-            var created = await _payableBillService.CreateAsync(bill, keepProvidedAmount: true);
+            for (var index = 0; index < instalments.Count; index++)
+            {
+                var instalment = instalments[index];
+
+                var bill = new PayableBill
+                {
+                    EnterpriseId = enterpriseId,
+                    SupplierId = supplierRecord.Id,
+                    SupplierNFeAccessKey = nota.AccessKey,
+                    SupplierNFeDuplicata = instalment.Number,
+                    Description = BuildDescription(nota, supplierRecord.Name, index, instalments.Count),
+                    DueDate = instalment.DueDate,
+                    Amount = instalment.Amount,
+                    IsPaid = false,
+                    BillType = (int)(items.Count > 0 ? EnumPayableBillType.ProductStock : EnumPayableBillType.Other),
+                    // Only the first instalment carries the goods: the delivery happens once, and
+                    // repeating the lines would let a human receive the same stock three times.
+                    Items = index == 0 && items.Count > 0 ? items : null
+                };
+
+                // keepProvidedAmount: the payable is what the nota says is owed — vDup per
+                // instalment, or vNF for a nota with no schedule — and neither is the sum of the
+                // line values, which exclude freight, insurance and ST.
+                created.Add(await _payableBillService.CreateAsync(bill, keepProvidedAmount: true));
+            }
 
             Log.Logger.Information(
-                "Supplier NF-e imported. PayableBillId={PayableBillId} MatchedItems={MatchedItems} UnmatchedItems={UnmatchedItems}",
-                created.Id, items.Count, unmatched.Count);
+                "Supplier NF-e imported. Instalments={Instalments} MatchedItems={MatchedItems} UnmatchedItems={UnmatchedItems}",
+                created.Count, items.Count, unmatched.Count);
 
             return new SupplierNFeImportResultDTO
             {
-                PayableBillId = created.Id,
+                PayableBillId = created[0].Id,
+                PayableBillIds = created.Select(x => x.Id).ToList(),
                 AccessKey = nota.AccessKey,
                 Number = nota.Number,
                 IssuedAt = nota.IssuedAt,
-                DueDate = created.DueDate,
-                Amount = created.Amount,
+                DueDate = created[0].DueDate,
+                Amount = created.Sum(x => x.Amount),
                 SupplierId = supplierRecord.Id,
                 SupplierName = supplierRecord.Name,
                 SupplierCreated = supplierCreated,
@@ -230,19 +253,42 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             return byName.TryGetValue(line.Description.Trim(), out var byDescription) ? byDescription : null;
         }
 
+        /// <summary>One payable's worth of the nota: its duplicata number, date and amount.</summary>
+        private sealed record Instalment(string? Number, DateTime DueDate, decimal Amount);
+
         /// <summary>
-        /// The first duplicata's vencimento, or the issue date plus thirty days when the nota
-        /// carries no schedule at all.
+        /// The nota's payment schedule, or a single instalment for the whole total when it has none.
         /// </summary>
         /// <remarks>
-        /// ponytail: only the first duplicata is honoured. A nota paid in three instalments wants
-        /// three bills, which collides with the access key being the idempotency — the fix is a
-        /// widened key of {chNFe}-{nDup}, and it can wait for a supplier who actually instals.
+        /// A duplicata with no amount, or a schedule whose amounts are all zero, is treated as no
+        /// schedule at all: some emitters send a <c>cobr</c> block with only a <c>fat</c> in it, and
+        /// generating a payable for zero would put a bill nobody owes in the carteira.
         /// </remarks>
-        private static DateTime ResolveDueDate(SupplierNFeDocument nota)
+        private static List<Instalment> ResolveInstalments(SupplierNFeDocument nota)
         {
-            var firstScheduled = nota.Duplicatas.FirstOrDefault(x => x.DueDate.HasValue)?.DueDate;
-            return firstScheduled ?? nota.IssuedAt.Date.AddDays(DefaultPaymentTermInDays);
+            var scheduled = nota.Duplicatas
+                .Where(x => x.Amount > 0)
+                .Select((duplicata, index) => new Instalment(
+                    // The number is the key's second half, so it must exist. Emitters do omit it.
+                    string.IsNullOrWhiteSpace(duplicata.Number) ? $"{index + 1:000}" : duplicata.Number.Trim(),
+                    duplicata.DueDate?.Date ?? nota.IssuedAt.Date.AddDays(DefaultPaymentTermInDays),
+                    duplicata.Amount))
+                .ToList();
+
+            if (scheduled.Count > 0)
+                return scheduled;
+
+            return [new Instalment(null, nota.IssuedAt.Date.AddDays(DefaultPaymentTermInDays), nota.TotalAmount)];
+        }
+
+        private static string BuildDescription(
+            SupplierNFeDocument nota,
+            string supplierName,
+            int index,
+            int total)
+        {
+            var head = $"NF-e {nota.Number} - {supplierName}";
+            return total > 1 ? $"{head} ({index + 1}/{total})" : head;
         }
     }
 }

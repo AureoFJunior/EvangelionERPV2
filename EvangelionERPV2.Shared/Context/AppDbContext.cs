@@ -213,11 +213,11 @@ namespace EvangelionERPV2.Shared.Context
                 .HasIndex(bill => bill.EmployeeVacationAccrualId)
                 .HasFilter("[EmployeeVacationAccrualId] IS NOT NULL");
 
-            // The supplier-NF-e import's idempotency key. Filtered on the column itself, not on
-            // IsActive: a soft-deleted import must still block a re-import, or deleting the bill
-            // would let the same nota back in as a second payable.
+            // The supplier-NF-e import's idempotency key: one payable per duplicata of a nota.
+            // Filtered on the access key, not on IsActive: a soft-deleted import must still block a
+            // re-import, or deleting the bill would let the same instalment back in as a second one.
             modelBuilder.Entity<PayableBill>()
-                .HasIndex(bill => new { bill.EnterpriseId, bill.SupplierNFeAccessKey })
+                .HasIndex(bill => new { bill.EnterpriseId, bill.SupplierNFeAccessKey, bill.SupplierNFeDuplicata })
                 .HasFilter("[SupplierNFeAccessKey] IS NOT NULL")
                 .IsUnique();
 

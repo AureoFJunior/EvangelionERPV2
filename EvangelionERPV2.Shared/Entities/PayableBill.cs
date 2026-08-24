@@ -32,6 +32,18 @@ namespace EvangelionERPV2.Shared.Entities
         public string? SupplierNFeAccessKey { get; set; } = null;
 
         /// <summary>
+        /// The duplicata (instalment) of that nota this bill pays, when the nota carried a schedule.
+        /// </summary>
+        /// <remarks>
+        /// A nota paid in three instalments is three payables — the bank sees three payments and
+        /// the carteira has to agree. Null when the nota carried no <c>cobr</c> block at all; SQL
+        /// Server treats nulls as equal in a unique index, so a second import of a schedule-less
+        /// nota is still refused.
+        /// </remarks>
+        [MaxLength(60)]
+        public string? SupplierNFeDuplicata { get; set; } = null;
+
+        /// <summary>
         /// How many months apart this bill repeats. Null — the default — means it does not.
         /// </summary>
         /// <remarks>
