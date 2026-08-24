@@ -1,4 +1,5 @@
 using EvangelionERPV2.NFeModule.Infra.Providers;
+using EvangelionERPV2.NFeModule.Infra.Sefaz;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Utils;
 
@@ -42,7 +43,11 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         private const int CodigoNumericoOffset = 35;
         private const int CodigoNumericoLength = 8;
 
-        public static EnviNFe Build(NFeIssueContext context)
+        /// <param name="responsibleTechnician">
+        /// The <c>infRespTec</c> group, when the installation has been told who wrote the software.
+        /// Null omits it, which is what every note did before the values existed.
+        /// </param>
+        public static EnviNFe Build(NFeIssueContext context, NFeResponsibleTechnician? responsibleTechnician = null)
         {
             ArgumentNullException.ThrowIfNull(context);
 
@@ -95,10 +100,14 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
 
             CrossCheckAccessKey(infNFe, context.AccessKey);
 
-            // infRespTec is deliberately absent. It carries the *software developer's* CNPJ, contact
-            // and CSRT — business facts this system has never been told. Emitting a placeholder would
-            // be a false declaration to the fisco, so it is tracked as a human-blocked item in
-            // docs/fiscal/TODO-manual.md instead.
+            // infRespTec carries the *software developer's* CNPJ and contact — facts about this
+            // installation, not about the tenant. It is written when configured and omitted when
+            // not: a placeholder CNPJ would be a false declaration to the fisco. See
+            // docs/fiscal/TODO-manual.md §M13 for the values still owed.
+            if (responsibleTechnician != null)
+            {
+                infNFe.InfRespTec = BuildRespTec(responsibleTechnician);
+            }
 
             return new EnviNFe
             {
@@ -508,6 +517,32 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         /// a manual SEFAZ query. Cheap to check, and it also catches a cUF/CNPJ/série mismatch
         /// between the fiscal profile and the allocation.
         /// </remarks>
+        /// <summary>
+        /// <c>infRespTec</c>. The CSRT is handed over raw on purpose: the library derives
+        /// <c>hashCSRT</c> from it and the chave, and a hash computed here would be a second
+        /// implementation of a rule the fisco already fixed.
+        /// </summary>
+        private static InfRespTec BuildRespTec(NFeResponsibleTechnician technician)
+        {
+            var respTec = new InfRespTec
+            {
+                CNPJ = technician.Cnpj,
+                XContato = technician.ContactName,
+                Email = technician.Email,
+                Fone = technician.Phone
+            };
+
+            // Both or neither: an idCSRT without its CSRT produces a hash the autorizador cannot
+            // verify, which is a rejection with a confusing motivo.
+            if (!string.IsNullOrWhiteSpace(technician.IdCsrt) && !string.IsNullOrWhiteSpace(technician.Csrt))
+            {
+                respTec.IdCSRT = technician.IdCsrt;
+                respTec.CSRT = technician.Csrt;
+            }
+
+            return respTec;
+        }
+
         private static void CrossCheckAccessKey(InfNFe infNFe, string expected)
         {
             var built = infNFe.Chave;

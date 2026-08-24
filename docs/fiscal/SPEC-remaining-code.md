@@ -66,9 +66,14 @@ Four things decided while writing them, worth not re-deriving:
 2. **`NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only**, plus PIS/COFINS in the Aliq / NT /
    Outr groups. Every other code throws by name. Widening it means adding the fields those codes need
    (`pRedBC`, ST margins, presumed credit) to `Product` first — a default of zero under-declares tax.
-3. **`infRespTec` is omitted, not stubbed.** It carries the *software developer's* CNPJ and CSRT, which
-   nothing has ever told this system. Tracked as §M13 in [`TODO-manual.md`](./TODO-manual.md) — **it will
-   cause a rejection on the first real transmission.**
+3. **`infRespTec` is configuration as of 2026-08-24.** It carries the *software developer's* CNPJ,
+   contact and optional CSRT — installation-wide facts, not per-tenant ones, so they live in
+   `NFeRespTecSettings` rather than on `EnterpriseFiscalSettings`. `SefazNFeProvider` resolves them
+   (CSRT through Secrets Manager) and `NFeXmlBuilder.Build(context, responsibleTechnician)` writes the
+   group; null omits it, and a partially filled group is omitted with a warning rather than stubbed.
+   Tracked as §M13 in [`TODO-manual.md`](./TODO-manual.md) — **still a rejection on the first real
+   transmission until the four values are filled**, but no longer a code change.
+   [`GO-LIVE-CHECKLIST.md`](./GO-LIVE-CHECKLIST.md) is the ordered procedure for that day.
 4. **cStat 217 retracts the write-ahead marker.** `SefazCStatMap.ForConsult(217)` returns
    `NeverTransmitted: true`, and `NFeService.ApplyOutcome` now clears `TransmittedAtUtc` when it sees that,
    because `CanReuseAllocation` gates on exactly that column. Without the clear, the "recovered" number was

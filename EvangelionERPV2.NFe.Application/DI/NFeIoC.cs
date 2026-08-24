@@ -53,6 +53,11 @@ namespace EvangelionERPV2.NFeModule.Application.DI
 
                 services.Configure<NFeSettings>(configuration.GetSection("NFeSettings"));
 
+                // infRespTec: who wrote the software, installation-wide. Empty until the values in
+                // docs/fiscal/TODO-manual.md M13 are supplied, and an empty group is omitted.
+                services.Configure<EvangelionERPV2.NFeModule.Infra.Sefaz.NFeRespTecSettings>(
+                    configuration.GetSection("NFeRespTecSettings"));
+
                 #region Repositorys
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<>), typeof(EvangelionERPV2.Shared.Repositories.Repository<>));
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<NFeDocument>), typeof(NFeRepository));

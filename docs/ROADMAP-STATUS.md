@@ -21,7 +21,7 @@ any of them is re-litigating a settled decision.
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
 | Head | M20 duplicatas — see git log |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1311 passing / 0 failing** across 14 assemblies (1164 at M13) |
+| Tests | **1319 passing / 0 failing** across 14 assemblies (1164 at M13) |
 | FrontV2 | `npx tsc --noEmit` clean, `npx jest` **77 passing** across 18 suites. Cypress still never run — it needs the Expo web server on :8081 and a live API |
 | Migrations | chain ends `…110000_AddEnterprisePeriodLock` → `…120000_AddSupplierNFeAccessKey` → `…140000_AddPayableBillRecurrence` → `…150000_AddSupplierNFeDuplicata` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
@@ -57,10 +57,13 @@ any of them is re-litigating a settled decision.
 1. **M23, orçamento** — the plan's own recommendation is to build it last and only if the business
    actually sends quotes today. If they draft orders as `Pending` and it works, this is a formatting
    feature wearing a milestone costume. It is also blocked in production by `M-B8` (Chromium, below).
-2. **The A1 certificate** (`docs/fiscal/TODO-manual.md` §M1) plus an answer to §M13 (`infRespTec`
-   carries the *software developer's* CNPJ and CSRT — it will cause a rejection on the first real
-   transmission). Until one note round-trips, M6 stays unverified and M7 / M20b stay shut. Do **not**
-   start M7 on an unverified cStat mapping: phases 5–9 all consume SEFAZ's answers.
+2. **The A1 certificate** (`docs/fiscal/TODO-manual.md` §M1) and the four `infRespTec` values.
+   §M13 is **no longer a code change** (2026-08-24): `NFeRespTecSettings` binds them from
+   configuration, `SefazNFeProvider` resolves them and the builder writes the group — filling them in
+   is all that is left, and an empty group is still a rejection.
+   **`docs/fiscal/GO-LIVE-CHECKLIST.md` is the ordered procedure for the day the certificate arrives**:
+   upload, cStat 107, one homologação note, consult, cancel, then produção. Until one note round-trips,
+   M6 stays unverified and M7 / M20b stay shut — do not start M7 on an unverified cStat mapping.
 3. **A bank**, for M9's CNAB remessa/retorno.
 4. **Juros e multa** (`M-B12`) — not modelled anywhere. The dunning email states amount and due date
    and **no late fee** until you and the accountant set a policy.

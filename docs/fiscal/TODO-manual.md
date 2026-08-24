@@ -50,11 +50,15 @@ IDs are referenced from the code spec as §M1 / §M-B1. Last reviewed 2026-08-20
 - [ ] **M8 — Confirm the DANFE is emailed only on explicit user action**, not automatically on
       authorization. The spec assumes explicit; the reverse means un-sending emails. *Owner: you.*
 - [ ] **M13 — `infRespTec`: the software developer's CNPJ, contact name, e-mail and phone.** Required by
-      NT 2018.005 in every UF, and the values are business facts nobody has told this system. `NFeXmlBuilder`
-      **omits the group entirely** rather than filling it with a placeholder, because a placeholder is a false
-      declaration to the fisco. Supply the four values (plus the CSRT + idCSRT if the pilot UF demands them)
-      and they become four columns on `EnterpriseFiscalSettings` plus one block in the builder. **This will
-      cause a rejection on the first real transmission if it is still open.** *Owner: you.*
+      NT 2018.005 in every UF, and the values are business facts nobody has told this system. **No longer a
+      code change (2026-08-24):** they are configuration — `NFeRespTecSettings` in
+      `appsettings.{Development,Production}.json` — bound installation-wide, because the software developer
+      is the same company for every tenant. `SefazNFeProvider` resolves them and `NFeXmlBuilder` writes the
+      group; all four values or none, and a partial group is omitted with a warning naming this item rather
+      than half-filled, because a placeholder CNPJ is a false declaration to the fisco. `IdCsrt` +
+      `CsrtSecret` (a Secrets Manager reference) only if the pilot UF demands the CSRT — the library derives
+      `hashCSRT` from it and the chave. **Fill the four values or the first real transmission is still
+      rejected.** *Owner: you — the values, not the code.*
 - [ ] **M14 — `natOp` and `tPag` are single constants.** Every note says `VENDA DE MERCADORIA` and every
       payment says `99 / OUTROS`, because `Order` records neither a nature of operation nor a means of
       payment. Correct for a pure sales flow and wrong the moment devolução, remessa or a real payment

@@ -4,6 +4,7 @@ using EvangelionERPV2.NFeModule.Infra.Xml;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
+using Microsoft.Extensions.Options;
 
 using Serilog;
 
@@ -52,11 +53,70 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
         private const int MaximumJustificationLength = 255;
 
         private readonly IEnterpriseCertificateProvider _certificates;
+        private readonly NFeRespTecSettings _respTecSettings;
+        private readonly AWSKMSKeyProvider? _kmsKeyProvider;
 
-        public SefazNFeProvider(IEnterpriseCertificateProvider certificates)
+        public SefazNFeProvider(
+            IEnterpriseCertificateProvider certificates,
+            IOptions<NFeRespTecSettings>? respTecSettings = null,
+            AWSKMSKeyProvider? kmsKeyProvider = null)
         {
             _certificates = certificates;
+            _respTecSettings = respTecSettings?.Value ?? new NFeRespTecSettings();
+            _kmsKeyProvider = kmsKeyProvider;
         }
+
+        /// <summary>
+        /// The configured <c>infRespTec</c>, or null when this installation has not been told who
+        /// wrote the software.
+        /// </summary>
+        /// <remarks>
+        /// All four core values or none: a partially filled group is a rejection at SEFAZ with a
+        /// motivo that points at the field rather than at the configuration, so it is logged here
+        /// and omitted, which is exactly what every note did before these settings existed.
+        ///
+        /// The CSRT is a Secrets Manager reference like every other secret in this system. Without
+        /// a resolver — the unit-test path — the optional half is simply dropped: idCSRT and CSRT
+        /// are required only where the UF demands them, and a note without them is still valid.
+        /// </remarks>
+        private async Task<NFeResponsibleTechnician?> ResolveResponsibleTechnicianAsync(CancellationToken cancellationToken)
+        {
+            var cnpj = OnlyDigits(_respTecSettings.Cnpj);
+            var contact = _respTecSettings.ContactName?.Trim() ?? string.Empty;
+            var email = _respTecSettings.Email?.Trim() ?? string.Empty;
+            var phone = OnlyDigits(_respTecSettings.Phone);
+
+            var provided = new[] { cnpj, contact, email, phone }.Count(x => !string.IsNullOrWhiteSpace(x));
+            if (provided == 0)
+                return null;
+
+            if (provided < 4 || cnpj.Length != 14)
+            {
+                Log.Logger.Warning(
+                    "infRespTec is configured but incomplete, so it was omitted from the note. See docs/fiscal/TODO-manual.md M13.");
+
+                return null;
+            }
+
+            string? csrt = null;
+            var idCsrt = _respTecSettings.IdCsrt?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(idCsrt) && !string.IsNullOrWhiteSpace(_respTecSettings.CsrtSecret) && _kmsKeyProvider != null)
+            {
+                csrt = await _kmsKeyProvider.GetKMSKeyAsync(_respTecSettings.CsrtSecret, cancellationToken);
+            }
+
+            return new NFeResponsibleTechnician(
+                cnpj,
+                contact,
+                email,
+                phone,
+                string.IsNullOrWhiteSpace(csrt) ? null : idCsrt,
+                string.IsNullOrWhiteSpace(csrt) ? null : csrt);
+        }
+
+        private static string OnlyDigits(string? value)
+            => value == null ? string.Empty : new string(value.Where(char.IsDigit).ToArray());
 
         public async Task<NFeProviderResult> IssueAsync(NFeIssueContext context, CancellationToken cancellationToken = default)
         {
@@ -71,7 +131,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             {
                 var certificate = await _certificates.GetAsync(settings.EnterpriseId, cancellationToken);
                 var configuracao = UnimakeConfiguracaoFactory.Create(settings, context.Type, certificate);
-                var enviNFe = NFeXmlBuilder.Build(context);
+                var enviNFe = NFeXmlBuilder.Build(context, await ResolveResponsibleTechnicianAsync(cancellationToken));
 
                 // Schema validation happens inside this constructor and throws ValidarXMLException
                 // with the offending element, line and column. Do not call ValidarEstruturaXML

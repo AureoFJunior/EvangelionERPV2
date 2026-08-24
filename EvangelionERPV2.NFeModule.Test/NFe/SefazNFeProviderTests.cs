@@ -5,6 +5,8 @@ using EvangelionERPV2.NFeModule.Infra.Xml;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 
+using System.Reflection;
+using Microsoft.Extensions.Options;
 using Moq;
 
 using System.Security.Cryptography.X509Certificates;
@@ -88,6 +90,67 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                 Series = "1"
             };
         }
+
+        #region infRespTec resolution
+
+        [Fact]
+        public async Task ResolveResponsibleTechnician_WithNothingConfigured_ReturnsNull()
+        {
+            Assert.Null(await ResolveRespTec(new NFeRespTecSettings()));
+        }
+
+        [Fact]
+        public async Task ResolveResponsibleTechnician_WithEveryValue_ReturnsTheGroupWithDigitsOnly()
+        {
+            var technician = await ResolveRespTec(new NFeRespTecSettings
+            {
+                Cnpj = "12.345.678/0001-99",
+                ContactName = " Aureo ",
+                Email = "dev@nerv.jp",
+                Phone = "(51) 99999-0000"
+            });
+
+            Assert.NotNull(technician);
+            Assert.Equal("12345678000199", technician!.Cnpj);
+            Assert.Equal("Aureo", technician.ContactName);
+            Assert.Equal("51999990000", technician.Phone);
+
+            // Without a resolver there is no CSRT, and a note is valid without one.
+            Assert.Null(technician.IdCsrt);
+            Assert.Null(technician.Csrt);
+        }
+
+        [Theory]
+        [InlineData("12345678000199", "Aureo", "dev@nerv.jp", "")]
+        [InlineData("12345678000199", "Aureo", "", "5199990000")]
+        [InlineData("123", "Aureo", "dev@nerv.jp", "5199990000")]
+        public async Task ResolveResponsibleTechnician_WhenHalfConfigured_OmitsTheGroup(
+            string cnpj, string contact, string email, string phone)
+        {
+            // A partial group is a rejection at SEFAZ whose motivo points at the field rather than
+            // at the configuration. Omitting it is what every note did before these settings.
+            var technician = await ResolveRespTec(new NFeRespTecSettings
+            {
+                Cnpj = cnpj,
+                ContactName = contact,
+                Email = email,
+                Phone = phone
+            });
+
+            Assert.Null(technician);
+        }
+
+        private static async Task<NFeResponsibleTechnician?> ResolveRespTec(NFeRespTecSettings settings)
+        {
+            var provider = new SefazNFeProvider(Certificates().Object, Options.Create(settings));
+            var method = typeof(SefazNFeProvider).GetMethod(
+                "ResolveResponsibleTechnicianAsync",
+                BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+            return await (Task<NFeResponsibleTechnician?>)method.Invoke(provider, [CancellationToken.None])!;
+        }
+
+        #endregion
 
         private static Mock<IEnterpriseCertificateProvider> Certificates() => new(MockBehavior.Strict);
 

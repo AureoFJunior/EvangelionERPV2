@@ -1,4 +1,5 @@
 using EvangelionERPV2.NFeModule.Infra.Providers;
+using EvangelionERPV2.NFeModule.Infra.Sefaz;
 using EvangelionERPV2.NFeModule.Infra.Xml;
 using EvangelionERPV2.Shared.Entities;
 
@@ -133,6 +134,54 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         }
 
         private static InfNFe Build(NFeIssueContext context) => NFeXmlBuilder.Build(context).NFe[0].InfNFe[0];
+
+        #region infRespTec
+
+        [Fact]
+        public void Build_OmitsRespTec_WhenTheInstallationHasNotBeenToldWhoWroteTheSoftware()
+        {
+            // The behaviour every note had before the settings existed: no placeholder CNPJ, which
+            // would be a false declaration to the fisco.
+            Assert.Null(Build(Context()).InfRespTec);
+        }
+
+        [Fact]
+        public void Build_WritesRespTec_WhenItIsConfigured()
+        {
+            var technician = new NFeResponsibleTechnician(
+                "12345678000199", "Aureo", "dev@nerv.jp", "5199990000", null, null);
+
+            var respTec = NFeXmlBuilder.Build(Context(), technician).NFe[0].InfNFe[0].InfRespTec;
+
+            Assert.NotNull(respTec);
+            Assert.Equal("12345678000199", respTec!.CNPJ);
+            Assert.Equal("Aureo", respTec.XContato);
+            Assert.Equal("dev@nerv.jp", respTec.Email);
+            Assert.Equal("5199990000", respTec.Fone);
+
+            // Not demanded by this UF, so neither half of the CSRT pair is written.
+            Assert.True(string.IsNullOrEmpty(respTec.IdCSRT));
+        }
+
+        [Fact]
+        public void Build_WritesTheCsrtPair_WhenBothHalvesArePresent()
+        {
+            // The CSRT goes out raw: the library derives hashCSRT from it and the chave, and a hash
+            // computed here would be a second implementation of a rule the fisco already fixed.
+            var technician = new NFeResponsibleTechnician(
+                "12345678000199", "Aureo", "dev@nerv.jp", "5199990000", "01", "G8063VRTNDMPS3W2SPT9V6NEEJ0MYCF7");
+
+            var respTec = NFeXmlBuilder.Build(Context(), technician).NFe[0].InfNFe[0].InfRespTec;
+
+            Assert.Equal("01", respTec!.IdCSRT);
+            Assert.Equal("G8063VRTNDMPS3W2SPT9V6NEEJ0MYCF7", respTec.CSRT);
+
+            // hashCSRT is still empty here on purpose: the library derives it from the CSRT and the
+            // chave when the document is serialised, which is after this builder has run.
+            Assert.True(string.IsNullOrEmpty(respTec.HashCSRT));
+        }
+
+        #endregion
 
         [Fact]
         public void Build_ProducesTheAllocatedIdentity_RatherThanMintingItsOwn()
