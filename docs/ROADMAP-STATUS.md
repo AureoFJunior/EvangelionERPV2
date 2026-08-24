@@ -74,10 +74,18 @@ any of them is re-litigating a settled decision.
    failure and mails the bill with no PDF, so this fails silently. Nobody has confirmed
    PuppeteerSharp's runtime download succeeds in the production network or survives a read-only
    filesystem. Inherited by M23, which would render quotes the same way.
-3. **Redis connection string is probably broken in production.** The 11 `AddStackExchangeRedisCache`
-   calls pass `RedisSettings:ConnectionString` **raw**, but in production that value is a Secrets
-   Manager reference, and IoC's `try/catch` swallows the failure. M5's lease resolves the secret
-   properly; the cache registrations were left alone. Worth a ticket.
+3. ~~Redis connection string is broken in production.~~ **Checked 2026-08-24: it is not.** The
+   claim survived in this file from an older state of the tree. There are three
+   `AddStackExchangeRedisCache` calls, not eleven — `OrderIoC:85`, `ProductIoC:66`, `ReportsIoC:26` —
+   and all three resolve `RedisSettings:InstanceName` and `:ConnectionString` through
+   `AWSKMSKeyProvider.GetKMSKey`, exactly as `RedisLease` does. `appsettings.Production.json` holds
+   Secrets Manager references (`evangelion/prd/redis:ConnectionString`), which is what that resolver
+   expects, and `RabbitMQManagerBase` handles its six settings the same way. Nothing to fix.
+
+   Two residual notes, neither a defect: the three registrations each add an `IDistributedCache`
+   descriptor, so the last one registered wins and the other two are dead weight; and because the
+   values are read inside the options callback rather than at registration, a Secrets Manager
+   outage surfaces the first time something touches the cache, not at startup.
 
 ## Traps this session paid for — do not rediscover
 
