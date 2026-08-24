@@ -21,9 +21,9 @@ any of them is re-litigating a settled decision.
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
 | Head | `01b826c` — the empty-read bug pass. FrontV2 `aec66a0` |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1326 passing / 0 failing** across 14 assemblies (1164 at M13) |
-| FrontV2 | `npx tsc --noEmit` clean, `npx jest` **80 passing**. **Cypress: 27 of 30**, 2 pending, 1 flaky (below) |
-| Migrations | chain ends `…150000_AddSupplierNFeDuplicata`. **Applied to the local container 2026-08-24** (backup taken first); all seven new columns and both filtered unique indexes verified in `sys.indexes` |
+| Tests | **1346 passing / 0 failing** across 14 assemblies (1164 at M13) |
+| FrontV2 | `npx tsc --noEmit` clean, `npx jest` **91 passing**. **Cypress: 28 of 30 passing, 0 failing**, 2 pending |
+| Migrations | chain ends `20260824100000_AddQuotes`. **Applied to the local container 2026-08-24** (backup taken first); all seven new columns and both filtered unique indexes verified in `sys.indexes` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -48,12 +48,19 @@ any of them is re-litigating a settled decision.
 | M20b | DFe distribuição + manifestação | **Gated** — same certificate gate as M7 | |
 | M21 | Limite de crédito + override | **Done** | `0e24765` |
 | M22 | Contas fixas | **Done** | `61f6131` |
-| M23 | Orçamento → pedido | **Not started — decide first** | |
+| M23 | Orçamento → pedido | **Done 2026-08-24** — backend, screen and conversion; no PDF yet | `875a854`, FrontV2 `5d6f19b` |
 
 ## What still needs doing
 
 Nothing here is half-built: every milestone is either finished or waiting on something outside the
 code. In rough order of what unlocks the most.
+
+**M23 landed without its answer.** You said to continue the roadmap, so it was built rather than
+left pending: `Quote` + `QuoteItem` + `QuoteNumberSequence`, a screen, and conversion into an
+ordinary order. If the business turns out not to send quotes, nothing else depends on it — the
+tables are isolated and no financial read touches them. What it does **not** have yet is a PDF: a
+quote you cannot send is half a feature, and the renderer is the one path `M-B8` still shadows in
+production. That is the obvious next slice.
 
 ### A. Waiting on you — nothing moves until these are answered
 
@@ -61,7 +68,7 @@ code. In rough order of what unlocks the most.
 |---|---|---|---|
 | A1 | **Buy the A1 certificate** (`TODO-manual.md` §M1) and finish credenciamento (§M4) | M6 is unverified and M7 + M20b are shut until one real note round-trips. Every `SefazCStatMap` entry is a guess until an autorizador produces it | the round trip itself is one session — `GO-LIVE-CHECKLIST.md` is the procedure |
 | A2 | **The four `infRespTec` values**: your CNPJ, a contact name, e-mail, phone | Without them every real transmission is rejected under NT 2018.005. **No longer a code change** — fill `NFeRespTecSettings` in appsettings | minutes |
-| A3 | **Does the business send quotes today?** | Decides whether M23 (orçamento) is built at all. If they draft orders as `Pending` and it works, the plan says drop it | L if yes |
+| A3 | ~~Does the business send quotes today?~~ | **Built anyway 2026-08-24.** If the answer turns out to be no, delete the module — nothing depends on it | done |
 | A4 | **Juros e multa policy** (`M-B12`), with your accountant | The dunning e-mail says amount, due date and **no late fee**. Inventing a rate is a claim the ERP cannot back | S — a rate and a rule |
 | A5 | **A bank** (`M-B1`: platform account or per-tenant?) | M9's CNAB remessa/retorno cannot start without the layout and the beneficiary decision | L |
 | A6 | **Does the pilot sell services?** | NFS-e is per-municipality webservices, hundreds of incompatible ones. Changes the cut list | L if yes |
