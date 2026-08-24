@@ -112,6 +112,7 @@ namespace EvangelionERPV2.Test.Security
                 _billsServiceMock.Object,
                 _orderServiceMock.Object,
                 Mock.Of<IReceivablesReportService>(),
+                Mock.Of<IAccountingExportService>(),
                 _userRepositoryMock.Object,
                 _mapperMock.Object);
 

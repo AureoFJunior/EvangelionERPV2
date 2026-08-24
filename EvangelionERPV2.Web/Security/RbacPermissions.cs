@@ -7,6 +7,8 @@ namespace EvangelionERPV2.Web.Security
             Metrics.Read,
             Health.Read,
 
+            Accounting.Export,
+
             Audit.Read,
             Audit.CleanupRetention,
 
@@ -115,6 +117,15 @@ namespace EvangelionERPV2.Web.Security
         public static class Health
         {
             public const string Read = "health.read";
+        }
+
+        public static class Accounting
+        {
+            // Manager tier, the same floor as PayableBills.Read and BankReconciliation.Read: the
+            // monthly package is every receivable, payable, nota and stock movement of a month in
+            // one file. It is a read — the export writes nothing — but it leaves the building as an
+            // attachment, which is why payroll appears in it aggregated and never per employee.
+            public const string Export = "accounting.export";
         }
 
         public static class Audit

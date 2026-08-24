@@ -24,6 +24,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IBillsService<Bill> _billService;
         private readonly IOrderService<Order> _orderService;
         private readonly IReceivablesReportService _receivablesReportService;
+        private readonly IAccountingExportService _accountingExportService;
         private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
 
@@ -31,12 +32,14 @@ namespace EvangelionERPV2.Web.Controllers
             IBillsService<Bill> billService,
             IOrderService<Order> orderService,
             IReceivablesReportService receivablesReportService,
+            IAccountingExportService accountingExportService,
             IRepository<User> userRepository,
             IMapper mapper)
         {
             _billService = billService;
             _orderService = orderService;
             _receivablesReportService = receivablesReportService;
+            _accountingExportService = accountingExportService;
             _userRepository = userRepository;
             _mapper = mapper;
         }
@@ -288,6 +291,42 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 Log.Logger.Error("Order not found for bill reissue. OrderId={OrderId} ErrorType={ErrorType}", orderId, exnf.GetType().Name);
                 return NoContent();
+            }
+        }
+
+        /// <summary>
+        /// One month of movement as a zip of four CSVs, ready to hand to the accountant.
+        /// </summary>
+        /// <remarks>
+        /// Its own permission rather than bills.read: the package reaches past receivables into
+        /// payables, notas and the stock ledger, and it leaves the building as a file.
+        /// </remarks>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Accounting.Export)]
+        [HttpGet]
+        [Produces("application/zip")]
+        [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> AccountingPackage(int year, int month)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                var package = await _accountingExportService.BuildMonthlyAsync(
+                    enterpriseId, year, month, HttpContext.RequestAborted);
+
+                return File(package, "application/zip", $"contabilidade-{year:0000}-{month:00}.zip");
+            }
+            catch (ArgumentException ex)
+            {
+                Log.Logger.Warning(
+                    "Invalid accounting export period. Year={Year} Month={Month} ErrorType={ErrorType}",
+                    year, month, ex.GetType().Name);
+
+                return BadRequest("Invalid period.");
             }
         }
 

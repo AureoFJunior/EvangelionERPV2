@@ -66,6 +66,11 @@ namespace EvangelionERPV2.Web.Security
 
             RbacPermissions.Customers.Delete,
 
+            // The accountant's monthly package is Manager data by construction: it is the payables
+            // and the bank-facing side of the month, and the payroll inside it is aggregated so it
+            // never carries an individual's salary the way admin-only payroll.read does.
+            RbacPermissions.Accounting.Export,
+
             RbacPermissions.Suppliers.Delete,
 
             // A bank statement exposes the company's whole cash position and every counterparty it

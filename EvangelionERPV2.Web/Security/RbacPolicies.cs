@@ -12,6 +12,8 @@ namespace EvangelionERPV2.Web.Security
             Metrics.Read,
             Health.Read,
 
+            Accounting.Export,
+
             Audit.Read,
             Audit.CleanupRetention,
 
@@ -169,6 +171,11 @@ namespace EvangelionERPV2.Web.Security
         public static class Health
         {
             public const string Read = "rbac:health.read";
+        }
+
+        public static class Accounting
+        {
+            public const string Export = "rbac:accounting.export";
         }
 
         public static class Audit

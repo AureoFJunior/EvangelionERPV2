@@ -66,6 +66,7 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 services.AddScoped<IBankReconciliationService, BankReconciliationService>();
                 services.AddScoped<IDailyPanelService, DailyPanelService>();
                 services.AddScoped<IReceivablesReportService, ReceivablesReportService>();
+                services.AddScoped<IAccountingExportService, AccountingExportService>();
 
                 // Concrete, no interface: the worker is its only caller, and chasing late payers is
                 // a consequence of the schedule rather than a capability anything else asks for.

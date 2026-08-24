@@ -26,6 +26,7 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(BillsController), nameof(BillsController.Aging), RbacPermissions.Bills.Read)]
         [InlineData(typeof(BillsController), nameof(BillsController.Delinquent), RbacPermissions.Bills.Read)]
         [InlineData(typeof(BillsController), nameof(BillsController.Statement), RbacPermissions.Bills.Read)]
+        [InlineData(typeof(BillsController), nameof(BillsController.AccountingPackage), RbacPermissions.Accounting.Export)]
         [InlineData(typeof(CashFlowForecastController), nameof(CashFlowForecastController.GetForecast), RbacPermissions.CashFlowForecast.Read)]
         [InlineData(typeof(CashFlowForecastController), nameof(CashFlowForecastController.GetForecastWithBalanceOverride), RbacPermissions.CashFlowForecast.Read)]
         [InlineData(typeof(CashFlowForecastController), nameof(CashFlowForecastController.RunSimulation), RbacPermissions.CashFlowForecast.Simulate)]
