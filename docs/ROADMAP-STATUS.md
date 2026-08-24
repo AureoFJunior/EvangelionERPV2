@@ -22,8 +22,8 @@ any of them is re-litigating a settled decision.
 | Head | `01b826c` — the empty-read bug pass. FrontV2 `aec66a0` |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
 | Tests | **1321 passing / 0 failing** across 14 assemblies (1164 at M13) |
-| FrontV2 | `npx tsc --noEmit` clean, `npx jest` **77 passing** across 18 suites. Cypress still never run — it needs the Expo web server on :8081 and a live API |
-| Migrations | chain ends `…110000_AddEnterprisePeriodLock` → `…120000_AddSupplierNFeAccessKey` → `…130000_AddCustomerCreditLimit` → `…140000_AddPayableBillRecurrence` → `…150000_AddSupplierNFeDuplicata`. **None of them are applied anywhere yet** |
+| FrontV2 | `npx tsc --noEmit` clean, `npx jest` **80 passing**. **Cypress ran for the first time 2026-08-24: 26 of 30 passing**, 2 pending, 2 failing (below) |
+| Migrations | chain ends `…150000_AddSupplierNFeDuplicata`. **Applied to the local container 2026-08-24** (backup taken first); all seven new columns and both filtered unique indexes verified in `sys.indexes` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -71,10 +71,10 @@ code. In rough order of what unlocks the most.
 
 | # | What |
 |---|---|
-| B1 | **Apply the migrations.** Nothing calls `Database.Migrate()`; five migrations from this session have never run anywhere. `./scripts/local-db-update.sh`, and remember `sqlcmd -I` — three of them create filtered indexes |
+| B1 | ~~Apply the migrations.~~ **Done 2026-08-24** on the local container. Production is still untouched — nothing calls `Database.Migrate()` |
 | B2 | **Push the branch.** `feature/33-Boleto-and-NFE-emission` has no upstream and carries M14–M22 plus the bug pass |
 | B3 | **Confirm Chromium in the production image** (`M-B8`). `BuildBillAttachmentsAsync` swallows a renderer failure and mails the bill with no PDF — it fails silently, and M23 would render quotes the same way |
-| B4 | **Run Cypress once against a live stack.** It has never run; it needs Expo on :8081 and the API on :8080 with a seeded admin |
+| B4 | ~~Run Cypress once.~~ **Done 2026-08-24 — and it earned its keep.** 16/30 on the first run, **26/30** after the fixes below. Two still red: *Orders — deletes an order* (the API and the database both say the soft delete works; the spec's `isGone` poller disagrees, so this is the harness, not the app — one speculative fix was tried and reverted) and *Receivables — previews the bill PDF* (`bill-generate` never appears in the modal, so no `/Bills/Generate` is ever called; the Chromium question `M-B8` is still unanswered because the flow does not reach the renderer) |
 | B5 | **Decide on FrontV2 `abb1b46`** — it carries a `Co-Authored-By` trailer and is already pushed to `origin/master`. Removing it means force-pushing a shared branch |
 
 ### C. Known debt — none of it silent, none of it urgent
@@ -110,6 +110,16 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
    outage surfaces the first time something touches the cache, not at startup.
 
 ## Traps this session paid for — do not rediscover
+
+- **A React hook inside an early return crashes the screen, and only a browser sees it.**
+  `useFeedbackToast` was being called inside `if (loading)`, inside `if (!canRead)` / `if (!isAdmin)`,
+  and — worst — inside `renderBill`, a per-row callback, so React's hook count tracked the number of
+  bills on screen. Nine components, seven Cypress failures, invisible to `tsc` and to jest because
+  no unit test renders those screens through a state change. Cypress is the only gate that catches
+  this class: **run it before believing a screen works**.
+- **A `testID` on the compact layout only is a testID that does not exist.** `Orders` exposed
+  `order-view-{id}` on the mobile card and nothing on the desktop table row, so nothing could open an
+  order at a browser width.
 
 - **Migrations do not apply themselves.** No `Database.Migrate()` call exists anywhere. Apply with
   `./scripts/local-db-update.sh` (it carries the two traps that cost a run: `dotnet ef database
