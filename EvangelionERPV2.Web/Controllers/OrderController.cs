@@ -343,6 +343,11 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return Ok(_mapper.Map<OrderDTO>(updatedOrder));
             }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error("Invalid order update. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest(GetSafeInsertErrorMessage(ex));
+            }
             catch (NotFoundDatabaseException exnf)
             {
                 Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
@@ -413,6 +418,11 @@ namespace EvangelionERPV2.Web.Controllers
                     return NoContent();
 
                 return Ok(_mapper.Map<OrderDTO>(order));
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error("Invalid order delete. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (NotFoundDatabaseException exnf)
             {

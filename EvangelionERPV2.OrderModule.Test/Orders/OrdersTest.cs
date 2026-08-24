@@ -303,6 +303,29 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             PaymentScheduledDate = DateTime.UtcNow.Date.AddDays(10)
         };
 
+        [Fact]
+        public void Delete_OfAFinishedOrder_ReportsTheRuleRatherThanCrashing()
+        {
+            // It used to rewrap its own refusal with an inner exception, which the controller could
+            // not tell from a crash — a Finished order answered 500 instead of a sentence.
+            var order = new Order
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = Guid.NewGuid(),
+                IsActive = true,
+                Status = (int)EnumOrderStatus.Finished,
+                PaymentScheduledDate = DateTime.UtcNow.Date
+            };
+
+            _mockIOrderRepository.Setup(r => r.GetById(order.Id)).Returns(order);
+
+            var exception = Assert.Throws<InsertDatabaseException>(
+                () => _orderService.Delete(order.Id, order.EnterpriseId!.Value));
+
+            Assert.Equal("Orders with status Finished or Refund cannot be edited.", exception.Message);
+            Assert.Null(exception.InnerException);
+        }
+
         /// <summary>A customer repository that answers "no such customer" the way the real one does.</summary>
         private static EvangelionERPV2.Shared.Repositories.IRepository<Customer> EmptyCustomerRepository()
         {

@@ -414,6 +414,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             {
                 throw;
             }
+            catch (InsertDatabaseException)
+            {
+                // A business rule saying no — "this order is Finished", "stock is short". Rewrapping
+                // it hid the reason behind an inner exception and the controller answered 500 to
+                // what is a 400 with a sentence the caller can act on.
+                throw;
+            }
             catch (Exception ex)
             {
                 throw new InsertDatabaseException("Unexpected error while updating the order.", ex);
@@ -476,6 +483,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             }
             catch (PeriodClosedException)
             {
+                throw;
+            }
+            catch (InsertDatabaseException)
+            {
+                // A business rule saying no — "this order is Finished", "stock is short". Rewrapping
+                // it hid the reason behind an inner exception and the controller answered 500 to
+                // what is a 400 with a sentence the caller can act on.
                 throw;
             }
             catch (Exception ex)

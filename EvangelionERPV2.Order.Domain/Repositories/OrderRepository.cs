@@ -217,6 +217,60 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             throw new NotFoundDatabaseException("Empty filter with no data found.");
         }
 
+        /// <summary>
+        /// Every write drops the cached copy first.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="GetByIdAsync"/> serves from Redis for an hour, and nothing used to clear it:
+        /// a deleted order kept answering 200 as if it were live, a refund read back unrefunded and
+        /// an edit read back stale. Every write path in OrderService — update, soft delete, refund —
+        /// ends at Update, so one override covers all three. The raw-SQL guards those paths run
+        /// before it are unaffected; this only removes a key.
+        /// </remarks>
+        public override Order Update(Order entity)
+        {
+            InvalidateCachedOrder(entity?.Id);
+            return base.Update(entity);
+        }
+
+        public override IEnumerable<Order> UpdateRange(IEnumerable<Order> entities)
+        {
+            var materialised = entities?.ToList() ?? [];
+            foreach (var entity in materialised)
+                InvalidateCachedOrder(entity?.Id);
+
+            return base.UpdateRange(materialised);
+        }
+
+        public override Order Delete(Order entity)
+        {
+            InvalidateCachedOrder(entity?.Id);
+            return base.Delete(entity);
+        }
+
+        /// <summary>
+        /// Drops the key, and never fails the write for it: a cache that is down must not stop an
+        /// order being saved. The cost of a missed removal is a stale read until the hour is up,
+        /// which is exactly the state this method exists to end — so it is logged loudly.
+        /// </summary>
+        private void InvalidateCachedOrder(Guid? id)
+        {
+            if (id == null || id == Guid.Empty)
+                return;
+
+            try
+            {
+                _cache.Remove($"{CacheKeyPrefix}{id}");
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error(
+                    "Could not drop the cached order after a write; reads may be stale for up to an hour. OrderId={OrderId} ErrorType={ErrorType}",
+                    id,
+                    ex.GetType().Name);
+            }
+        }
+
         private async Task SetCachedOrder(string cacheKey, Order order)
         {
             var orderToCache = JsonSerializer.Serialize(order);
