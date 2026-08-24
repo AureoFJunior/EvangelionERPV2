@@ -62,6 +62,12 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 services.AddScoped(typeof(IOrderService<Order>), typeof(OrderService));
                 services.AddScoped(typeof(IOrderReportGeneratorService), typeof(OrderReportGeneratorService));
 
+                // Orçamento. It lives in this module because converting a quote is creating an
+                // order — the one thing a quote is for — and a separate module would mean a
+                // project reference back here for that single call.
+                services.AddScoped<IQuoteRepository, QuoteRepository>();
+                services.AddScoped<IQuoteService, QuoteService>();
+
 
                 #endregion
 

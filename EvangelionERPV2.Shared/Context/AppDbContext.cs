@@ -62,6 +62,9 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<OrderedProduct> OrderedProduct { get; set; }
         public DbSet<Product> Product { get; set; }
         public DbSet<StockMovement> StockMovement { get; set; }
+        public DbSet<Quote> Quote { get; set; }
+        public DbSet<QuoteItem> QuoteItem { get; set; }
+        public DbSet<QuoteNumberSequence> QuoteNumberSequence { get; set; }
         public DbSet<PayableBill> PayableBill { get; set; }
         public DbSet<PayableBillProduct> PayableBillProduct { get; set; }
         public DbSet<PayrollBillDetail> PayrollBillDetail { get; set; }
@@ -146,6 +149,42 @@ namespace EvangelionERPV2.Shared.Context
                 .WithOne(item => item.PayableBill)
                 .HasForeignKey(item => item.PayableBillId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict on both, declared here and not only in the migration: a quote is evidence of
+            // what was offered, and deleting the tenant or the customer must not take it with them.
+            // Left to EF's defaults these become Cascade and NoAction.
+            modelBuilder.Entity<Quote>()
+                .HasOne(quote => quote.Enterprise)
+                .WithMany()
+                .HasForeignKey(quote => quote.EnterpriseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Quote>()
+                .HasOne(quote => quote.Customer)
+                .WithMany()
+                .HasForeignKey(quote => quote.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Quote>()
+                .HasMany(quote => quote.Items)
+                .WithOne(item => item.Quote)
+                .HasForeignKey(item => item.QuoteId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict, like every other line pointing at a product: a quote must never be the
+            // reason a product row can be deleted out from under the catalogue.
+            modelBuilder.Entity<QuoteItem>()
+                .HasOne(item => item.Product)
+                .WithMany()
+                .HasForeignKey(item => item.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // A quote converts exactly once. Filtered because almost every row is null, and unique
+            // because two orders from one promise is the failure this whole entity exists to avoid.
+            modelBuilder.Entity<Quote>()
+                .HasIndex(quote => quote.ConvertedOrderId)
+                .HasFilter("[ConvertedOrderId] IS NOT NULL")
+                .IsUnique();
 
             modelBuilder.Entity<PayableBillProduct>()
                 .HasOne(item => item.Product)

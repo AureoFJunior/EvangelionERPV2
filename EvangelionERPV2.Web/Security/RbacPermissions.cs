@@ -86,6 +86,12 @@ namespace EvangelionERPV2.Web.Security
             Payroll.Generate,
             Payroll.UpdateSettings,
 
+            Quotes.Read,
+            Quotes.Create,
+            Quotes.Update,
+            Quotes.Convert,
+            Quotes.Delete,
+
             Products.Read,
             Products.Create,
             Products.Update,
@@ -321,6 +327,17 @@ namespace EvangelionERPV2.Web.Security
             public const string Delete = "products.delete";
             public const string UploadPicture = "products.picture.upload";
             public const string DeletePicture = "products.picture.delete";
+        }
+
+        public static class Quotes
+        {
+            // Supervisor tier, with the rest of selling. A quote reserves nothing and moves no
+            // money; converting one creates an ordinary order, which a Supervisor may already do.
+            public const string Read = "quotes.read";
+            public const string Create = "quotes.create";
+            public const string Update = "quotes.update";
+            public const string Convert = "quotes.convert";
+            public const string Delete = "quotes.delete";
         }
 
         public static class Reports

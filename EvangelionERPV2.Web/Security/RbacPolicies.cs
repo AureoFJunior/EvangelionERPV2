@@ -85,6 +85,12 @@ namespace EvangelionERPV2.Web.Security
             Payroll.Generate,
             Payroll.UpdateSettings,
 
+            Quotes.Read,
+            Quotes.Create,
+            Quotes.Update,
+            Quotes.Convert,
+            Quotes.Delete,
+
             Products.Read,
             Products.Create,
             Products.Update,
@@ -303,6 +309,15 @@ namespace EvangelionERPV2.Web.Security
             public const string Delete = "rbac:products.delete";
             public const string UploadPicture = "rbac:products.picture.upload";
             public const string DeletePicture = "rbac:products.picture.delete";
+        }
+
+        public static class Quotes
+        {
+            public const string Read = "rbac:quotes.read";
+            public const string Create = "rbac:quotes.create";
+            public const string Update = "rbac:quotes.update";
+            public const string Convert = "rbac:quotes.convert";
+            public const string Delete = "rbac:quotes.delete";
         }
 
         public static class Reports

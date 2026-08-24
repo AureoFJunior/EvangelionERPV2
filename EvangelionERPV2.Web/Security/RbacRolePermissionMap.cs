@@ -49,6 +49,13 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Products.UploadPicture,
             RbacPermissions.Products.DeletePicture,
 
+            // Quoting is selling: same tier as creating the order it becomes.
+            RbacPermissions.Quotes.Read,
+            RbacPermissions.Quotes.Create,
+            RbacPermissions.Quotes.Update,
+            RbacPermissions.Quotes.Convert,
+            RbacPermissions.Quotes.Delete,
+
             RbacPermissions.Reports.Read,
             RbacPermissions.Reports.Generate,
 
