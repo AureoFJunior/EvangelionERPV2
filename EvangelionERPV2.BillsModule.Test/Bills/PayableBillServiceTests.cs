@@ -667,6 +667,102 @@ namespace EvangelionERPV2.BillsModule.Test
             };
         }
 
+        #region Period lock
+
+        private static readonly DateTime ClosedThrough = new(2026, 3, 31, 0, 0, 0, DateTimeKind.Utc);
+
+        [Fact]
+        public async Task CreateAsync_IntoAClosedMonth_IsRefused()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var (_, _, _, _, _, service, _) = BuildSut(enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            var bill = BuildPeriodBill(enterpriseId, "Rent", new DateTime(2026, 3, 10));
+
+            await Assert.ThrowsAsync<PeriodClosedException>(() => service.CreateAsync(bill));
+        }
+
+        [Fact]
+        public async Task CreateAsync_AfterTheLock_StillWorks()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var (payableBillRepo, _, _, _, _, service, _) = BuildSut(enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            var bill = BuildPeriodBill(enterpriseId, "Rent", new DateTime(2026, 4, 1));
+            bill.Amount = 1500;
+
+            await service.CreateAsync(bill);
+
+            payableBillRepo.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task UpdateAsync_OfABillInAClosedMonth_IsRefused()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var existing = BuildPeriodBill(enterpriseId, "Rent", new DateTime(2026, 3, 10));
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [existing], enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            var edit = new PayableBill
+            {
+                Id = existing.Id,
+                EnterpriseId = enterpriseId,
+                Description = "Rent (corrected)",
+                DueDate = existing.DueDate,
+                Amount = 1600
+            };
+
+            await Assert.ThrowsAsync<PeriodClosedException>(() => service.UpdateAsync(edit, enterpriseId));
+        }
+
+        [Fact]
+        public async Task UpdateAsync_MovingAnOpenBillIntoAClosedMonth_IsRefused()
+        {
+            // The other half of the rule: the lock is useless if an edit can carry a document back
+            // across it.
+            var enterpriseId = Guid.NewGuid();
+            var existing = BuildPeriodBill(enterpriseId, "Rent", new DateTime(2026, 4, 10));
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [existing], enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            var edit = new PayableBill
+            {
+                Id = existing.Id,
+                EnterpriseId = enterpriseId,
+                Description = "Rent",
+                DueDate = new DateTime(2026, 3, 10),
+                Amount = 1500
+            };
+
+            await Assert.ThrowsAsync<PeriodClosedException>(() => service.UpdateAsync(edit, enterpriseId));
+        }
+
+        [Fact]
+        public async Task RefundAsync_OfABillInAClosedMonth_IsRefused()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var existing = BuildPeriodBill(enterpriseId, "Supplier", new DateTime(2026, 3, 10));
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [existing], enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            await Assert.ThrowsAsync<PeriodClosedException>(
+                () => service.RefundAsync(existing.Id, enterpriseId, "Wrong invoice"));
+        }
+
+        [Fact]
+        public async Task DeleteAsync_OfABillInAClosedMonth_IsRefused()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var existing = BuildPeriodBill(enterpriseId, "Supplier", new DateTime(2026, 3, 10));
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [existing], enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            await Assert.ThrowsAsync<PeriodClosedException>(() => service.DeleteAsync(existing.Id, enterpriseId));
+        }
+
+        #endregion
+
         private static PayableBill BuildPeriodBill(Guid enterpriseId, string description, DateTime dueDate)
         {
             return new PayableBill
@@ -981,7 +1077,9 @@ namespace EvangelionERPV2.BillsModule.Test
                 List<PayableBill>? payableBills = null,
                 List<PayableBillProduct>? payableItems = null,
                 List<Product>? products = null,
-                List<StockMovement>? stockMovements = null)
+                List<StockMovement>? stockMovements = null,
+                Guid? enterpriseId = null,
+                DateTime? closedThroughUtc = null)
         {
             var payableBillStore = payableBills ?? [];
             var payableItemsStore = payableItems ?? [];
@@ -995,12 +1093,14 @@ namespace EvangelionERPV2.BillsModule.Test
             {
                 new()
                 {
-                    Id = payableBillStore.FirstOrDefault()?.EnterpriseId
+                    Id = enterpriseId
+                         ?? payableBillStore.FirstOrDefault()?.EnterpriseId
                          ?? productStore.FirstOrDefault()?.EnterpriseId
                          ?? Guid.NewGuid(),
                     Name = "Enterprise",
                     IsActive = true,
-                    CurrentBalance = 0
+                    CurrentBalance = 0,
+                    ClosedThroughUtc = closedThroughUtc
                 }
             });
             var stockMovementRepo = CreateRepositoryMock(stockMovementStore, throwsWhenEmpty: true);

@@ -77,6 +77,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 await ExecuteInTransactionAsync(async () =>
                 {
                     VerifyValidValues(ref order);
+                    await AssertPeriodOpenAsync(order.EnterpriseId ?? Guid.Empty, order.PaymentScheduledDate, "This order");
                     await ValidateOrderProductsAsync(order);
 
                     await _orderRepository.CreateAsync(order);
@@ -92,6 +93,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                         order.EnterpriseId ?? Guid.Empty,
                         EnterpriseBalanceContributionHelper.GetOrderRealizedContribution(order, DateTime.UtcNow.Date));
                 });
+            }
+            catch (PeriodClosedException)
+            {
+                throw;
             }
             catch (DbUpdateException ex)
             {
@@ -207,6 +212,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (IsImmutableStatus(existentOrder.Status))
                         throw new InsertDatabaseException("Orders with status Finished or Refund cannot be edited.");
 
+                    // The order's own date, not today: a refund reverses revenue in the month the
+                    // order was booked into, which is the month that must still be open.
+                    await AssertPeriodOpenAsync(enterpriseId, existentOrder.PaymentScheduledDate, "The order being refunded");
+
                     var orderedProducts = (await _orderedProductRepository.GetAllAsync(
                             x => x.IsActive == true && x.OrderId.HasValue && x.OrderId.Value == existentOrder.Id))
                         .ToList();
@@ -289,6 +298,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             {
                 throw;
             }
+            catch (PeriodClosedException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 throw new InsertDatabaseException("Unexpected error while refunding the order.", ex);
@@ -333,6 +346,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (!Enum.IsDefined(typeof(EnumOrderStatus), order.Status))
                         throw new InsertDatabaseException("Invalid order status.");
 
+                    // Both dates: the month it sits in has to be open, and so does the month it is
+                    // being moved to — otherwise an edit could carry a document into closed books.
+                    var lockedThrough = GetClosedThroughUtc(existentOrder.EnterpriseId ?? enterpriseId);
+                    PeriodLock.Assert(lockedThrough, existentOrder.PaymentScheduledDate, "This order");
+                    if (order.PaymentScheduledDate != default)
+                        PeriodLock.Assert(lockedThrough, order.PaymentScheduledDate, "The new order date");
+
                     var oldContribution = EnterpriseBalanceContributionHelper.GetOrderRealizedContribution(existentOrder, DateTime.UtcNow.Date);
                     var now = DateTime.UtcNow;
 
@@ -374,6 +394,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             {
                 throw;
             }
+            catch (PeriodClosedException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 throw new InsertDatabaseException("Unexpected error while updating the order.", ex);
@@ -404,6 +428,12 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (IsImmutableStatus(order.Status))
                         throw new InsertDatabaseException("Orders with status Finished or Refund cannot be edited.");
 
+                    // Deleting is how revenue leaves a month, so it is governed exactly like an edit.
+                    PeriodLock.Assert(
+                        GetClosedThroughUtc(order.EnterpriseId ?? enterpriseId),
+                        order.PaymentScheduledDate,
+                        "This order");
+
                     var oldContribution = EnterpriseBalanceContributionHelper.GetOrderRealizedContribution(order, DateTime.UtcNow.Date);
 
                     if (_appDbContext != null)
@@ -425,6 +455,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 });
             }
             catch (NotFoundDatabaseException)
+            {
+                throw;
+            }
+            catch (PeriodClosedException)
             {
                 throw;
             }
@@ -547,6 +581,24 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             enterprise.UpdatedAt = DateTime.UtcNow;
             _enterpriseRepository.Update(enterprise);
             _enterpriseRepository.Commit();
+        }
+
+        /// <summary>The tenant's period lock, or null when nothing is closed.</summary>
+        private DateTime? GetClosedThroughUtc(Guid enterpriseId)
+        {
+            if (enterpriseId == Guid.Empty)
+                return null;
+
+            return _enterpriseRepository.GetById(enterpriseId)?.ClosedThroughUtc;
+        }
+
+        private async Task AssertPeriodOpenAsync(Guid enterpriseId, DateTime businessDate, string what)
+        {
+            if (enterpriseId == Guid.Empty)
+                return;
+
+            var enterprise = await _enterpriseRepository.GetByIdAsync(enterpriseId);
+            PeriodLock.Assert(enterprise?.ClosedThroughUtc, businessDate, what);
         }
 
         private async Task ApplyEnterpriseBalanceDeltaAsync(Guid enterpriseId, decimal delta)

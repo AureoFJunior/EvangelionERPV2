@@ -29,6 +29,19 @@ namespace EvangelionERPV2.Web.FluentValidator
         }
     }
 
+    public sealed class ClosePeriodRequestValidator : AbstractValidator<ClosePeriodRequestDTO>
+    {
+        public ClosePeriodRequestValidator()
+        {
+            // A lock in the future would close months nobody has lived through yet, and every
+            // write into them would answer 409 with no way to explain why.
+            RuleFor(x => x.ClosedThroughUtc)
+                .Must(value => value!.Value.Date <= DateTime.UtcNow.Date)
+                .WithMessage("The closing date cannot be in the future.")
+                .When(x => x.ClosedThroughUtc.HasValue);
+        }
+    }
+
     public sealed class UpdateEnterpriseRequestValidator : AbstractValidator<UpdateEnterpriseRequestDTO>
     {
         public UpdateEnterpriseRequestValidator()

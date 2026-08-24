@@ -310,6 +310,54 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
+        /// Closes the books through a date, or reopens them when the date is null.
+        /// </summary>
+        /// <remarks>
+        /// Admin-only, reusing enterprise.manage: freezing what the accountant already received is
+        /// the same class of act as the other settings behind that permission, and reopening one
+        /// matters more than closing it — which is why Enterprise is audited from this milestone on.
+        ///
+        /// It is a dedicated action rather than a field on the general update so that whoever can
+        /// edit a phone number cannot move the lock.
+        /// </remarks>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Enterprise.Manage)]
+        [HttpPut]
+        [RequestSizeLimit(MaxEnterpriseWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(EnterpriseDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> CloseThrough([FromBody] ClosePeriodRequestDTO request)
+        {
+            try
+            {
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+                if (request == null) return BadRequest("Closing payload is required.");
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                Enterprise existingEnterprise = await _repository.GetByIdAsync(enterpriseId);
+                if (existingEnterprise == null || existingEnterprise.IsActive != true)
+                    return NoContent();
+
+                // Date only: the lock is a day, and a stray time component would make "closed
+                // through the 31st" mean 31st 00:00 for one caller and 31st 23:59 for the next.
+                existingEnterprise.ClosedThroughUtc = request.ClosedThroughUtc?.Date;
+
+                Enterprise updatedEnterprise = _enterpriseService.Update(existingEnterprise);
+                if (updatedEnterprise == null)
+                    return NoContent();
+
+                return Ok(_mapper.Map<EnterpriseDTO>(updatedEnterprise));
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Delete an enterprise (soft delete)
         /// </summary>
         /// <param name="id">Enterprise's Id</param>

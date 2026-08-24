@@ -36,6 +36,21 @@ namespace EvangelionERPV2.Shared.Entities
         /// this feature must not discover it by having its customers emailed.
         /// </remarks>
         public bool ShouldSendDunning { get; set; } = false;
+
+        /// <summary>
+        /// The last day the books are closed through. Null means nothing is closed.
+        /// </summary>
+        /// <remarks>
+        /// One column rather than a table of periods: months close forward and stay closed, and
+        /// nobody reopens February while March is shut. Reopening is the same column moved back,
+        /// which is why <see cref="Enterprise"/> is audited — the trail is the only record that a
+        /// closed month was ever unlocked.
+        ///
+        /// Settling a boleto that fell due in a closed month is deliberately still allowed: the
+        /// lock is about writing documents into a closed period, not about refusing money.
+        /// </remarks>
+        public DateTime? ClosedThroughUtc { get; set; } = null;
+
         [JsonIgnore]
         public virtual IEnumerable<Customer>? Customer { get; set; } = null;
         [JsonIgnore]

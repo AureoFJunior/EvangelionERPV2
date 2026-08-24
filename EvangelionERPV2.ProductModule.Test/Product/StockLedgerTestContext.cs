@@ -37,6 +37,9 @@ namespace EvangelionERPV2.ProductModule.Test
             using var schema = CreateContext();
             CreateTable(schema, typeof(Product));
             CreateTable(schema, typeof(StockMovement));
+            // The stock ledger reads Enterprise.ClosedThroughUtc before it writes: a movement into
+            // a closed period is refused. No row means no lock, which is what these tests assume.
+            CreateTable(schema, typeof(Enterprise));
         }
 
         /// <summary>

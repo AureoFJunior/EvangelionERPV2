@@ -205,6 +205,53 @@ namespace EvangelionERPV2.ProductModule.Test
                 context);
         }
 
+        [Fact]
+        public async Task ApplyStockMovementAsync_WhenThePeriodIsClosed_WritesNothing()
+        {
+            // The ledger is always stamped now, so the only period it can violate is today's.
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+            var enterpriseId = Guid.NewGuid();
+
+            var pens = await SeedProductAsync(context, enterpriseId, "Pens", 10m);
+            await SeedEnterpriseAsync(context, enterpriseId, DateTime.UtcNow.Date);
+
+            await Assert.ThrowsAsync<PeriodClosedException>(
+                () => service.ApplyStockMovementAsync(pens, enterpriseId, -1m, EnumStockMovementType.Sale, null));
+
+            Assert.Equal(10m, await ReadStockAsync(context, pens));
+            Assert.Empty(await ReadMovementsAsync(context));
+        }
+
+        [Fact]
+        public async Task ApplyStockMovementAsync_WhenTheLockIsInThePast_StillMoves()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+            var enterpriseId = Guid.NewGuid();
+
+            var pens = await SeedProductAsync(context, enterpriseId, "Pens", 10m);
+            await SeedEnterpriseAsync(context, enterpriseId, DateTime.UtcNow.Date.AddDays(-1));
+
+            await service.ApplyStockMovementAsync(pens, enterpriseId, -1m, EnumStockMovementType.Sale, null);
+
+            Assert.Equal(9m, await ReadStockAsync(context, pens));
+        }
+
+        /// <summary>
+        /// Raw INSERT rather than the DbSet: Enterprise carries store-generated defaults
+        /// (Currency, CurrentBalance) that the fixture's minimal DDL does not declare, so EF's
+        /// RETURNING clause reads NULL back and the save blows up.
+        /// </summary>
+        private static async Task SeedEnterpriseAsync(AppDbContext context, Guid enterpriseId, DateTime? closedThroughUtc)
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $@"INSERT INTO Enterprise (Id, Name, PhoneNumber, Email, Adress, Currency, CurrentBalance, ShouldSendMonthlyBilling, ShouldSendDunning, ClosedThroughUtc, CreatedAt, IsActive)
+                   VALUES ({enterpriseId}, 'Nerv', '', '', '', 'BRL', 0, 0, 0, {closedThroughUtc}, {DateTime.UtcNow}, 1)");
+
+            context.ChangeTracker.Clear();
+        }
+
         private static async Task<Guid> SeedProductAsync(AppDbContext context, Guid enterpriseId, string name, decimal storageQuantity)
         {
             var product = new Product

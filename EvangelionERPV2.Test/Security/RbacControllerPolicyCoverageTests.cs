@@ -67,6 +67,7 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.GetMyEnterprise), RbacPermissions.Enterprise.ReadSelf)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.AddEnterprise), RbacPermissions.Enterprise.Create)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.UpdateEnterprise), RbacPermissions.Enterprise.Update)]
+        [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.CloseThrough), RbacPermissions.Enterprise.Manage)]
         [InlineData(typeof(EnterpriseController), nameof(EnterpriseController.DeleteEnterprise), RbacPermissions.Enterprise.Delete)]
         [InlineData(typeof(NFeController), nameof(NFeController.GetByOrder), RbacPermissions.NFe.Read)]
         [InlineData(typeof(NFeController), nameof(NFeController.Issue), RbacPermissions.NFe.Issue)]

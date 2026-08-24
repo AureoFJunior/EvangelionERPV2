@@ -106,6 +106,86 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         }
 
         [Fact]
+        public async Task CreateAsync_IntoAClosedMonth_IsRefused()
+        {
+            var enterpriseId = Guid.NewGuid();
+            LockPeriodThrough(new DateTime(2026, 3, 31, 0, 0, 0, DateTimeKind.Utc));
+
+            var order = new Order(null, new DateTime(2026, 3, 10), 100, enterpriseId, Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+                    new OrderedProduct
+                    {
+                        CreatedAt = DateTime.UtcNow,
+                        IsActive = true,
+                        Quantity = 2,
+                        Value = 50,
+                        ProductId = Guid.NewGuid()
+                    }
+                }, Guid.NewGuid());
+
+            SetupProductLookupForOrder(_mockIProductRepository, order);
+            _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
+
+            // Not an InsertDatabaseException: the request is fine, the books are shut. The
+            // controller layer maps this to 409, so it must survive OrderService's catch-all.
+            await Assert.ThrowsAsync<PeriodClosedException>(() => _orderService.CreateAsync(order));
+            _mockIOrderRepository.Verify(r => r.CreateAsync(It.IsAny<Order>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task CreateAsync_AfterTheLock_StillWorks()
+        {
+            var enterpriseId = Guid.NewGuid();
+            LockPeriodThrough(new DateTime(2026, 3, 31, 0, 0, 0, DateTimeKind.Utc));
+
+            var order = new Order(null, new DateTime(2026, 4, 1), 100, enterpriseId, Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+                    new OrderedProduct
+                    {
+                        CreatedAt = DateTime.UtcNow,
+                        IsActive = true,
+                        Quantity = 2,
+                        Value = 50,
+                        ProductId = Guid.NewGuid()
+                    }
+                }, Guid.NewGuid());
+
+            SetupProductLookupForOrder(_mockIProductRepository, order);
+            _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
+
+            var result = await _orderService.CreateAsync(order);
+
+            Assert.NotNull(result);
+            _mockIOrderRepository.Verify(r => r.CreateAsync(It.IsAny<Order>()), Times.Once);
+        }
+
+        /// <summary>Points the enterprise mock at a tenant whose books are closed through a date.</summary>
+        private void LockPeriodThrough(DateTime closedThroughUtc)
+        {
+            _mockIEnterpriseRepository
+                .Setup(r => r.GetById(It.IsAny<Guid>()))
+                .Returns((Guid enterpriseId) => new Enterprise
+                {
+                    Id = enterpriseId,
+                    IsActive = true,
+                    Name = "Enterprise",
+                    ClosedThroughUtc = closedThroughUtc
+                });
+
+            _mockIEnterpriseRepository
+                .Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
+                .ReturnsAsync((Guid enterpriseId) => new Enterprise
+                {
+                    Id = enterpriseId,
+                    IsActive = true,
+                    Name = "Enterprise",
+                    ClosedThroughUtc = closedThroughUtc
+                });
+        }
+
+        [Fact]
         public async Task CreateAsync_IgnoresClientProvidedIds_GeneratesServerIds()
         {
             // Arrange

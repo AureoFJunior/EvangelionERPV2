@@ -21,6 +21,10 @@ namespace EvangelionERPV2.Shared.Auditing
             // Admin-only settings whose edits change the tax treatment of every future document.
             typeof(EnterpriseFiscalSettings),
 
+            // The period lock lives here: the one setting that freezes the books cannot be the one
+            // with no trail, and reopening a closed month matters more than closing it.
+            typeof(Enterprise),
+
             // Absences are the evidence behind a payroll amount and an advertência is a document
             // with legal weight in a labour dispute, so who flipped IsJustified — and when — has
             // to be recoverable. AuditTrailEntryFactory redacts the CID and the reason text out of

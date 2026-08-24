@@ -13,5 +13,8 @@ namespace EvangelionERPV2.Shared.DTOs
         // client breaks by gaining two booleans.
         public bool ShouldSendMonthlyBilling { get; set; }
         public bool ShouldSendDunning { get; set; }
+
+        /// <summary>The last day the books are closed through; null when nothing is closed.</summary>
+        public DateTime? ClosedThroughUtc { get; set; }
     }
 }

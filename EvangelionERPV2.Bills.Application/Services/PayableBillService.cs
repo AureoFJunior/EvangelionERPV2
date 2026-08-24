@@ -49,6 +49,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (payableBill.EnterpriseId == Guid.Empty)
                 throw new InsertDatabaseException("Payable bill enterprise is required.");
 
+            await AssertPeriodOpenAsync(payableBill.EnterpriseId, payableBill.DueDate, "This payable bill");
+
             var sourceItems = payableBill.Items?.ToList() ?? [];
             payableBill.Id = Guid.NewGuid();
 
@@ -180,6 +182,13 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 if (existing.RefundedAt.HasValue)
                     throw new InsertDatabaseException("Payable bill is refunded and cannot be edited.");
+
+                // Both dates: the month it sits in has to be open, and so does the month it would
+                // move to — an edit must not be able to carry an obligation into closed books.
+                var lockedThrough = await GetClosedThroughUtcAsync(enterpriseId);
+                PeriodLock.Assert(lockedThrough, existing.DueDate, "This payable bill");
+                if (payableBill.DueDate != default)
+                    PeriodLock.Assert(lockedThrough, payableBill.DueDate, "The new due date");
 
                 var oldContribution = EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(existing, DateTime.UtcNow.Date);
                 var now = DateTime.UtcNow;
@@ -318,6 +327,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 if (existing.RefundedAt.HasValue)
                     throw new InsertDatabaseException("Payable bill was already refunded.");
+
+                // The bill's own date, not today: a refund reverses an expense in the month the
+                // obligation belonged to.
+                await AssertPeriodOpenAsync(enterpriseId, existing.DueDate, "The payable bill being refunded");
 
                 var oldContribution = EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(existing, DateTime.UtcNow.Date);
 
@@ -531,6 +544,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 var existing = await _payableBillRepository.GetByIdAsync(id);
                 if (existing == null || existing.EnterpriseId != enterpriseId || existing.IsActive != true)
                     throw new NotFoundDatabaseException($"{nameof(PayableBill)} was not found in database.");
+
+                // Deleting is how an expense leaves a month, so it is governed exactly like an edit.
+                await AssertPeriodOpenAsync(enterpriseId, existing.DueDate, "This payable bill");
 
                 var existingItems = (await _payableBillProductRepository.GetAllAsync(
                         x => x.IsActive == true && x.PayableBillId == existing.Id))
@@ -782,6 +798,21 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return Enum.IsDefined(typeof(EnumPayableBillType), billType)
                 ? billType
                 : (int)EnumPayableBillType.Other;
+        }
+
+        /// <summary>The tenant's period lock, or null when nothing is closed.</summary>
+        private async Task<DateTime?> GetClosedThroughUtcAsync(Guid enterpriseId)
+        {
+            if (enterpriseId == Guid.Empty)
+                return null;
+
+            var enterprise = await _enterpriseRepository.GetByIdAsync(enterpriseId);
+            return enterprise?.ClosedThroughUtc;
+        }
+
+        private async Task AssertPeriodOpenAsync(Guid enterpriseId, DateTime businessDate, string what)
+        {
+            PeriodLock.Assert(await GetClosedThroughUtcAsync(enterpriseId), businessDate, what);
         }
 
         private async Task ApplyEnterpriseBalanceDeltaAsync(Guid enterpriseId, decimal delta)

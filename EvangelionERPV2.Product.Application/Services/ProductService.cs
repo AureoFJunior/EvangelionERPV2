@@ -173,6 +173,11 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             if (enterpriseId == Guid.Empty)
                 throw new InsertDatabaseException("Enterprise is required for a stock movement.");
 
+            // The ledger is append-only and always stamped now, so a closed period can only ever
+            // be violated by writing into today — which is why the business date here is UtcNow
+            // and not something the caller passes.
+            PeriodLock.Assert(await GetClosedThroughUtcAsync(enterpriseId), DateTime.UtcNow, "This stock movement");
+
             // Callers that already opened a transaction on the shared context (order creation,
             // order refund) must keep the movement row inside it, so their rollback also undoes
             // the ledger. Nesting BeginTransactionAsync would throw instead.
@@ -181,6 +186,23 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
             return await _productRepository.ExecuteInTransactionAsync(
                 () => ApplyStockMovementCoreAsync(productId, enterpriseId, quantityDelta, type, referenceId));
+        }
+
+        /// <summary>
+        /// The tenant's period lock, read without tracking. Null when nothing is closed.
+        /// </summary>
+        /// <remarks>
+        /// ponytail: one single-column read per movement, so an order with ten lines pays for ten.
+        /// It is a primary-key lookup on a tiny table; cache it per request if a profile ever
+        /// disagrees.
+        /// </remarks>
+        private async Task<DateTime?> GetClosedThroughUtcAsync(Guid enterpriseId)
+        {
+            return await _appDbContext.Enterprise
+                .AsNoTracking()
+                .Where(x => x.Id == enterpriseId)
+                .Select(x => x.ClosedThroughUtc)
+                .FirstOrDefaultAsync();
         }
 
         private async Task<StockMovement> ApplyStockMovementCoreAsync(
