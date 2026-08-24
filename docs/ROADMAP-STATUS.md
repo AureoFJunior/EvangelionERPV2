@@ -21,8 +21,8 @@ any of them is re-litigating a settled decision.
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
 | Head | `01b826c` — the empty-read bug pass. FrontV2 `aec66a0` |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1321 passing / 0 failing** across 14 assemblies (1164 at M13) |
-| FrontV2 | `npx tsc --noEmit` clean, `npx jest` **80 passing**. **Cypress ran for the first time 2026-08-24: 26 of 30 passing**, 2 pending, 2 failing (below) |
+| Tests | **1326 passing / 0 failing** across 14 assemblies (1164 at M13) |
+| FrontV2 | `npx tsc --noEmit` clean, `npx jest` **80 passing**. **Cypress: 27 of 30**, 2 pending, 1 flaky (below) |
 | Migrations | chain ends `…150000_AddSupplierNFeDuplicata`. **Applied to the local container 2026-08-24** (backup taken first); all seven new columns and both filtered unique indexes verified in `sys.indexes` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
@@ -73,8 +73,8 @@ code. In rough order of what unlocks the most.
 |---|---|
 | B1 | ~~Apply the migrations.~~ **Done 2026-08-24** on the local container. Production is still untouched — nothing calls `Database.Migrate()` |
 | B2 | **Push the branch.** `feature/33-Boleto-and-NFE-emission` has no upstream and carries M14–M22 plus the bug pass |
-| B3 | **Confirm Chromium in the production image** (`M-B8`). `BuildBillAttachmentsAsync` swallows a renderer failure and mails the bill with no PDF — it fails silently, and M23 would render quotes the same way |
-| B4 | ~~Run Cypress once.~~ **Done 2026-08-24 — and it earned its keep.** 16/30 on the first run, **26/30** after the fixes below. Two still red: *Orders — deletes an order* (the API and the database both say the soft delete works; the spec's `isGone` poller disagrees, so this is the harness, not the app — one speculative fix was tried and reverted) and *Receivables — previews the bill PDF* (`bill-generate` never appears in the modal, so no `/Bills/Generate` is ever called; the Chromium question `M-B8` is still unanswered because the flow does not reach the renderer) |
+| B3 | **Confirm Chromium in the *production* image** (`M-B8`). Partly answered 2026-08-24: in the **local** container `/Bills/Pdf` returns 200 with a real PDF, so PuppeteerSharp works there. Production is a different image and a different network, and `BuildBillAttachmentsAsync` still swallows a renderer failure and mails the bill with no PDF |
+| B4 | ~~Run Cypress once.~~ **Done 2026-08-24 — and it earned its keep.** 16/30 on the first run, **27/30** now. It found four app bugs (see below). One test remains flaky: the two Products specs share a single seeded product, so whichever runs second finds it already deactivated and `GetProductsByFilter` answers 204. A fixture problem in the spec, not the app |
 | B5 | **Decide on FrontV2 `abb1b46`** — it carries a `Co-Authored-By` trailer and is already pushed to `origin/master`. Removing it means force-pushing a shared branch |
 
 ### C. Known debt — none of it silent, none of it urgent
@@ -111,6 +111,15 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
 
 ## Traps this session paid for — do not rediscover
 
+- **A cached read must be dropped on write.** `OrderRepository.GetByIdAsync` serves from Redis for
+  an hour and nothing cleared it, so a soft-deleted order kept answering 200 with `isActive: true`
+  while the database held `IsActive = 0` — and a refund or an edit read back stale the same way.
+  `Update`/`UpdateRange`/`Delete` now drop the key (and never fail the write for a cache outage).
+  Any future entity that gains a read cache needs the same override.
+- **A business-rule refusal that gets rewrapped becomes a 500.** `OrderService.Delete` and `Update`
+  caught their own `InsertDatabaseException` in the generic handler and rewrapped it with an inner,
+  so "Orders with status Finished or Refund cannot be edited" reached the caller as an unhandled
+  server error. Rethrow it unwrapped and let the controller map it to 400.
 - **A React hook inside an early return crashes the screen, and only a browser sees it.**
   `useFeedbackToast` was being called inside `if (loading)`, inside `if (!canRead)` / `if (!isAdmin)`,
   and — worst — inside `renderBill`, a per-row callback, so React's hook count tracked the number of
