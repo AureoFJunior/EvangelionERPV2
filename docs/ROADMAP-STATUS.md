@@ -19,11 +19,11 @@ any of them is re-litigating a settled decision.
 | | |
 |---|---|
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
-| Head | M20 duplicatas — see git log |
+| Head | `01b826c` — the empty-read bug pass. FrontV2 `aec66a0` |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
 | Tests | **1321 passing / 0 failing** across 14 assemblies (1164 at M13) |
 | FrontV2 | `npx tsc --noEmit` clean, `npx jest` **77 passing** across 18 suites. Cypress still never run — it needs the Expo web server on :8081 and a live API |
-| Migrations | chain ends `…110000_AddEnterprisePeriodLock` → `…120000_AddSupplierNFeAccessKey` → `…140000_AddPayableBillRecurrence` → `…150000_AddSupplierNFeDuplicata` |
+| Migrations | chain ends `…110000_AddEnterprisePeriodLock` → `…120000_AddSupplierNFeAccessKey` → `…130000_AddCustomerCreditLimit` → `…140000_AddPayableBillRecurrence` → `…150000_AddSupplierNFeDuplicata`. **None of them are applied anywhere yet** |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -44,30 +44,49 @@ any of them is re-litigating a settled decision.
 | M17 | Régua de cobrança + `DailySweepWorker` | **Done** | `e16bfd5` |
 | M18 | Pacote do contador | **Done** | `b023f2c` |
 | M19 | Fechamento de período | **Done** | `bc23832` |
-| M20 | NFe de entrada (XML → payable) | **Done** | `af774a6` |
+| M20 | NFe de entrada (XML → payable), one payable per duplicata | **Done** | `af774a6`, `f4a5cf3` |
 | M20b | DFe distribuição + manifestação | **Gated** — same certificate gate as M7 | |
 | M21 | Limite de crédito + override | **Done** | `0e24765` |
 | M22 | Contas fixas | **Done** | `61f6131` |
 | M23 | Orçamento → pedido | **Not started — decide first** | |
 
-## Resume here
+## What still needs doing
 
-**Everything buildable is built.** What remains needs a human decision or a thing only a human can buy:
+Nothing here is half-built: every milestone is either finished or waiting on something outside the
+code. In rough order of what unlocks the most.
 
-1. **M23, orçamento** — the plan's own recommendation is to build it last and only if the business
-   actually sends quotes today. If they draft orders as `Pending` and it works, this is a formatting
-   feature wearing a milestone costume. It is also blocked in production by `M-B8` (Chromium, below).
-2. **The A1 certificate** (`docs/fiscal/TODO-manual.md` §M1) and the four `infRespTec` values.
-   §M13 is **no longer a code change** (2026-08-24): `NFeRespTecSettings` binds them from
-   configuration, `SefazNFeProvider` resolves them and the builder writes the group — filling them in
-   is all that is left, and an empty group is still a rejection.
-   **`docs/fiscal/GO-LIVE-CHECKLIST.md` is the ordered procedure for the day the certificate arrives**:
-   upload, cStat 107, one homologação note, consult, cancel, then produção. Until one note round-trips,
-   M6 stays unverified and M7 / M20b stay shut — do not start M7 on an unverified cStat mapping.
-3. **A bank**, for M9's CNAB remessa/retorno.
-4. **Juros e multa** (`M-B12`) — not modelled anywhere. The dunning email states amount and due date
-   and **no late fee** until you and the accountant set a policy.
-5. **NFS-e** — does the pilot sell services? It changes the cut list and it is large.
+### A. Waiting on you — nothing moves until these are answered
+
+| # | What | Why it blocks | Size once answered |
+|---|---|---|---|
+| A1 | **Buy the A1 certificate** (`TODO-manual.md` §M1) and finish credenciamento (§M4) | M6 is unverified and M7 + M20b are shut until one real note round-trips. Every `SefazCStatMap` entry is a guess until an autorizador produces it | the round trip itself is one session — `GO-LIVE-CHECKLIST.md` is the procedure |
+| A2 | **The four `infRespTec` values**: your CNPJ, a contact name, e-mail, phone | Without them every real transmission is rejected under NT 2018.005. **No longer a code change** — fill `NFeRespTecSettings` in appsettings | minutes |
+| A3 | **Does the business send quotes today?** | Decides whether M23 (orçamento) is built at all. If they draft orders as `Pending` and it works, the plan says drop it | L if yes |
+| A4 | **Juros e multa policy** (`M-B12`), with your accountant | The dunning e-mail says amount, due date and **no late fee**. Inventing a rate is a claim the ERP cannot back | S — a rate and a rule |
+| A5 | **A bank** (`M-B1`: platform account or per-tenant?) | M9's CNAB remessa/retorno cannot start without the layout and the beneficiary decision | L |
+| A6 | **Does the pilot sell services?** | NFS-e is per-municipality webservices, hundreds of incompatible ones. Changes the cut list | L if yes |
+| A7 | **Confirm the pilot only issues plain sales** (§M14) | `natOp` and `tPag` are single constants because `Order` records neither. Wrong the moment devolução or a real payment breakdown matters | S — two fields on `Order` |
+
+### B. Operational, before any of this is real
+
+| # | What |
+|---|---|
+| B1 | **Apply the migrations.** Nothing calls `Database.Migrate()`; five migrations from this session have never run anywhere. `./scripts/local-db-update.sh`, and remember `sqlcmd -I` — three of them create filtered indexes |
+| B2 | **Push the branch.** `feature/33-Boleto-and-NFE-emission` has no upstream and carries M14–M22 plus the bug pass |
+| B3 | **Confirm Chromium in the production image** (`M-B8`). `BuildBillAttachmentsAsync` swallows a renderer failure and mails the bill with no PDF — it fails silently, and M23 would render quotes the same way |
+| B4 | **Run Cypress once against a live stack.** It has never run; it needs Expo on :8081 and the API on :8080 with a seeded admin |
+| B5 | **Decide on FrontV2 `abb1b46`** — it carries a `Co-Authored-By` trailer and is already pushed to `origin/master`. Removing it means force-pushing a shared branch |
+
+### C. Known debt — none of it silent, none of it urgent
+
+Each is recorded with its reasoning in *Open follow-ons* below. The ones most likely to bite first:
+
+- **M11 P5 abono** — days sold after the first bill go unbilled. Needs a column.
+- **M20 orphan supplier** — a refused import leaves the supplier row it created; the resumable path
+  reuses it, so this is untidy rather than wrong.
+- **M21 credit-limit race** — two simultaneous orders that each fit but together do not both pass.
+- **Users `DeleteUser`** is a hard delete, the only one in the system.
+- **Three duplicate `IDistributedCache` registrations** — last one wins, the other two are dead weight.
 
 ## Needs a human, not code
 
