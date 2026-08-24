@@ -74,7 +74,7 @@ code. In rough order of what unlocks the most.
 | B1 | ~~Apply the migrations.~~ **Done 2026-08-24** on the local container. Production is still untouched — nothing calls `Database.Migrate()` |
 | B2 | **Push the branch.** `feature/33-Boleto-and-NFE-emission` has no upstream and carries M14–M22 plus the bug pass |
 | B3 | **Confirm Chromium in the *production* image** (`M-B8`). Partly answered 2026-08-24: in the **local** container `/Bills/Pdf` returns 200 with a real PDF, so PuppeteerSharp works there. Production is a different image and a different network, and `BuildBillAttachmentsAsync` still swallows a renderer failure and mails the bill with no PDF |
-| B4 | ~~Run Cypress once.~~ **Done 2026-08-24 — and it earned its keep.** 16/30 on the first run, **27/30** now. It found four app bugs (see below). One test remains flaky: the two Products specs share a single seeded product, so whichever runs second finds it already deactivated and `GetProductsByFilter` answers 204. A fixture problem in the spec, not the app |
+| B4 | ~~Run Cypress once.~~ **Done 2026-08-24 — and it earned its keep.** 16/30 on the first run, **27/30** now. It found four app bugs (see below). One test remains flaky: the two Products specs share a single seeded product, so whichever runs second finds it already deactivated and `GetProductsByFilter` answers 204. A fixture problem in the spec, not the app. **Run `./scripts/e2e-cleanup.sh --apply` after a session** — the suite can only soft-delete through the API, so every run leaves its seeds in the tables (204 rows after four runs, cleared 2026-08-24) |
 | B5 | **Decide on FrontV2 `abb1b46`** — it carries a `Co-Authored-By` trailer and is already pushed to `origin/master`. Removing it means force-pushing a shared branch |
 
 ### C. Known debt — none of it silent, none of it urgent
@@ -111,6 +111,10 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
 
 ## Traps this session paid for — do not rediscover
 
+- **Cypress seeds accumulate.** Teardown goes through the API, which only soft-deletes, so every
+  run leaves its `E2E `-prefixed customers, products, employees and orders in the tables — invisible
+  in the UI, in the way of anyone reading the database. `./scripts/e2e-cleanup.sh` removes them in
+  foreign-key order (dry run by default, backup before it commits).
 - **A cached read must be dropped on write.** `OrderRepository.GetByIdAsync` serves from Redis for
   an hour and nothing cleared it, so a soft-deleted order kept answering 200 with `isActive: true`
   while the database held `IsActive = 0` — and a refund or an edit read back stale the same way.
