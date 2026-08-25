@@ -91,6 +91,12 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .Must(language => Enum.IsDefined(typeof(EnumLanguage), (int)language))
                 .WithMessage("Language is not supported.");
 
+            // A fraction, not a percentage: 0.05 is 5%. Capped at 1 because a rate above 100% pays
+            // the seller more than the sale brought in, which is a typo every time.
+            RuleFor(x => x.CommissionRate)
+                .InclusiveBetween(0m, 1m).WithMessage("Commission rate must be between 0 and 1.")
+                .When(x => x.CommissionRate.HasValue);
+
             RuleFor(x => x.ProfilePicture)
                 .Must(Base64PayloadValidationHelper.IsValidBase64Payload)
                     .WithMessage("Profile picture must be a valid base64 payload.")

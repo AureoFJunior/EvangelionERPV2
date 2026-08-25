@@ -2186,6 +2186,50 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("RefreshToken");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.SalesGoal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Month")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TargetAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId", "Year", "Month");
+
+                    b.HasIndex("EnterpriseId", "UserId", "Year", "Month")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SalesGoal");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.StockMovement", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2292,6 +2336,10 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.Property<DateTime>("BirthDate")
                         .HasColumnType("datetime2");
+
+                    b.Property<decimal?>("CommissionRate")
+                        .HasPrecision(5, 4)
+                        .HasColumnType("decimal(5,4)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -2787,6 +2835,24 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasForeignKey("EnterpriseId");
 
                     b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.SalesGoal", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Enterprise");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.User", b =>

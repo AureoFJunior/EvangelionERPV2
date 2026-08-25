@@ -68,6 +68,11 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 services.AddScoped<IQuoteRepository, QuoteRepository>();
                 services.AddScoped<IQuoteService, QuoteService>();
 
+                // Metas e comissão. Here rather than in Reports because Order.UserId is the only
+                // record of who sold what, and the generic repositories this needs are already
+                // registered in this module.
+                services.AddScoped<ISalesPerformanceService, SalesPerformanceService>();
+
 
                 #endregion
 

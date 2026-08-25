@@ -632,6 +632,7 @@ namespace EvangelionERPV2.Web.Controllers
                 user.AccessLevel = request.AccessLevel;
                 user.ActualTheme = request.ActualTheme;
                 user.Language = request.Language;
+                user.CommissionRate = request.CommissionRate;
                 user.IsActive = request.IsActive;
                 user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
                 user.ProfilePicture = string.IsNullOrWhiteSpace(request.ProfilePicture) ? existentUser.ProfilePicture : request.ProfilePicture;

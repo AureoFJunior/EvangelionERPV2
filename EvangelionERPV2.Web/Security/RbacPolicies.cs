@@ -91,6 +91,9 @@ namespace EvangelionERPV2.Web.Security
             Quotes.Convert,
             Quotes.Delete,
 
+            SalesPerformance.Read,
+            SalesPerformance.ManageGoals,
+
             Products.Read,
             Products.Create,
             Products.Update,
@@ -300,6 +303,12 @@ namespace EvangelionERPV2.Web.Security
             public const string Read = "rbac:payroll.read";
             public const string Generate = "rbac:payroll.generate";
             public const string UpdateSettings = "rbac:payroll.settings.update";
+        }
+
+        public static class SalesPerformance
+        {
+            public const string Read = "rbac:sales.performance.read";
+            public const string ManageGoals = "rbac:sales.goals.manage";
         }
 
         public static class Products

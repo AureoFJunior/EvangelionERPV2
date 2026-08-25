@@ -89,6 +89,11 @@ namespace EvangelionERPV2.Web.Security
             // financial as CurrentBalance and the payables, so it starts here.
             RbacPermissions.Products.ReadCost,
 
+            // Same tier and the same reason: one screen carrying every seller's numbers and what
+            // each of them is owed.
+            RbacPermissions.SalesPerformance.Read,
+            RbacPermissions.SalesPerformance.ManageGoals,
+
             // A bank statement exposes the company's whole cash position and every counterparty it
             // moved money with, so it sits at the tier that already sees CurrentBalance and the
             // payables — not with customers and products at Supervisor.

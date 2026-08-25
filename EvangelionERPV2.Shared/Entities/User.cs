@@ -46,6 +46,18 @@ namespace EvangelionERPV2.Shared.Entities
         [JsonIgnore]
         public virtual Enterprise? Enterprise { get; set; }
         public short AccessLevel { get; set; }
+
+        /// <summary>
+        /// Share of what this seller's orders bring in, as a fraction — 0.05 is 5%. Null means no
+        /// commission is owed, which is not the same as a rate of zero: a null seller is left off
+        /// the commission column entirely rather than shown as earning nothing.
+        /// </summary>
+        /// <remarks>
+        /// decimal(5,4) is mandatory: the global HavePrecision(18,2) convention in AppDbContext
+        /// would truncate a 0.0350 rate to 0.04 — the same trap the payroll rates carry.
+        /// </remarks>
+        [Column(TypeName = "decimal(5,4)")]
+        public decimal? CommissionRate { get; set; } = null;
         public short Language { get; set; }
     }
 }

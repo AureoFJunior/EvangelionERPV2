@@ -108,6 +108,29 @@ namespace EvangelionERPV2.Shared.Utils
             return ResolveReceivableAmount(order, bill);
         }
 
+        /// <summary>
+        /// What has actually been collected on this order. The mirror of
+        /// <see cref="ResolveOpenExposure"/>: exposure is what is still owed, this is what came in.
+        /// </summary>
+        /// <remarks>
+        /// Commission is paid on this, not on the order total. Paying a seller for an invoice
+        /// nobody has settled is how a small company ends up funding its own bad debt.
+        ///
+        /// An order with a boleto is answered by the boleto — an unsettled one has collected
+        /// nothing however old it is. An order without one falls back to Payday, which OrderService
+        /// only ever sets for a status that means the money arrived.
+        /// </remarks>
+        public static decimal ResolveReceivedAmount(Order order, Bill? bill)
+        {
+            if (IsOrderRefunded(order))
+                return 0;
+
+            if (bill != null)
+                return bill.Status == BillStatus.Paid ? ResolveReceivableAmount(order, bill) : 0;
+
+            return order.Payday.HasValue ? order.TotalValue : 0;
+        }
+
         public static bool IsOrderRefunded(Order order)
         {
             return order.RefundedAt.HasValue || order.Status == (int)EnumOrderStatus.Refund;

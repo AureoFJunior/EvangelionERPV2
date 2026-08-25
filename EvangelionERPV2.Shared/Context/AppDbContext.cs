@@ -65,6 +65,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<Quote> Quote { get; set; }
         public DbSet<QuoteItem> QuoteItem { get; set; }
         public DbSet<QuoteNumberSequence> QuoteNumberSequence { get; set; }
+        public DbSet<SalesGoal> SalesGoal { get; set; }
         public DbSet<PayableBill> PayableBill { get; set; }
         public DbSet<PayableBillProduct> PayableBillProduct { get; set; }
         public DbSet<PayrollBillDetail> PayrollBillDetail { get; set; }
@@ -184,6 +185,27 @@ namespace EvangelionERPV2.Shared.Context
             modelBuilder.Entity<Quote>()
                 .HasIndex(quote => quote.ConvertedOrderId)
                 .HasFilter("[ConvertedOrderId] IS NOT NULL")
+                .IsUnique();
+
+            modelBuilder.Entity<SalesGoal>()
+                .HasOne(goal => goal.Enterprise)
+                .WithMany()
+                .HasForeignKey(goal => goal.EnterpriseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SalesGoal>()
+                .HasOne(goal => goal.User)
+                .WithMany()
+                .HasForeignKey(goal => goal.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // One live target per seller per competência, the enterprise-wide row (UserId null)
+            // included — SQL Server treats nulls as equal in a unique index, which is exactly the
+            // behaviour wanted here. Filtered on IsActive so a target that was deleted and set
+            // again does not collide with its own tombstone.
+            modelBuilder.Entity<SalesGoal>()
+                .HasIndex(goal => new { goal.EnterpriseId, goal.UserId, goal.Year, goal.Month })
+                .HasFilter("[IsActive] = 1")
                 .IsUnique();
 
             modelBuilder.Entity<PayableBillProduct>()

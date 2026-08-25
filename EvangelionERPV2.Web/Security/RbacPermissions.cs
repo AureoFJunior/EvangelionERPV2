@@ -92,6 +92,9 @@ namespace EvangelionERPV2.Web.Security
             Quotes.Convert,
             Quotes.Delete,
 
+            SalesPerformance.Read,
+            SalesPerformance.ManageGoals,
+
             Products.Read,
             Products.Create,
             Products.Update,
@@ -318,6 +321,16 @@ namespace EvangelionERPV2.Web.Security
             public const string Read = "payroll.read";
             public const string Generate = "payroll.generate";
             public const string UpdateSettings = "payroll.settings.update";
+        }
+
+        /// <summary>
+        /// Metas e comissão. Manager tier: the screen shows every seller's numbers and what each is
+        /// owed, which is company financial data, not an extension of being able to read orders.
+        /// </summary>
+        public static class SalesPerformance
+        {
+            public const string Read = "sales.performance.read";
+            public const string ManageGoals = "sales.goals.manage";
         }
 
         public static class Products
