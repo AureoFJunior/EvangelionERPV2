@@ -1,15 +1,16 @@
 # Roadmap status — where the work stopped
 
-Written 2026-08-19, rewritten 2026-08-24 after M14–M22 landed, on `feature/33-Boleto-and-NFE-emission`.
-**Read this first when resuming.**
+Written 2026-08-19, rewritten 2026-08-24 after M14–M22 landed, extended 2026-08-25 with M24–M28,
+on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
 
-Two roadmaps, both now built out to their gates:
+Three roadmaps, all built out to their gates:
 
 - **M0–M13, the system of record** — the Artifact **"Completing Evangelion ERP"**:
   <https://claude.ai/code/artifact/2edfd7e3-3715-4a0a-965c-299164b28e4a>
 - **M14–M23, the daily-routine layer** — `~/.claude/plans/let-s-plan-more-needed-scalable-hare.md`
+- **M24–M28, the selling layer** — `~/.claude/plans/i-want-some-new-cheerful-boole.md`
 
-Neither is in the repo, and both list what deliberately must **not** be built (warehouses, double-entry
+None is in the repo, and each lists what deliberately must **not** be built (warehouses, double-entry
 accounting, CRM pipeline, `PurchaseOrder`, NFCe, PIX, Quartz/Hangfire, multi-currency, a v2 API,
 employee self-service, a global-search backend, price lists, a Notification table, XLSX). Proposing
 any of them is re-litigating a settled decision.
@@ -19,11 +20,11 @@ any of them is re-litigating a settled decision.
 | | |
 |---|---|
 | Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
-| Head | `01b826c` — the empty-read bug pass. FrontV2 `aec66a0` |
+| Head | `6a9b6cd` — the customer map. FrontV2 `7f3c3dc` |
 | Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1346 passing / 0 failing** across 14 assemblies (1164 at M13) |
-| FrontV2 | `npx tsc --noEmit` clean, `npx jest` **91 passing**. **Cypress: 28 of 30 passing, 0 failing**, 2 pending |
-| Migrations | chain ends `20260824100000_AddQuotes`. **Applied to the local container 2026-08-24** (backup taken first); all seven new columns and both filtered unique indexes verified in `sys.indexes` |
+| Tests | **1386 passing / 0 failing** across 14 assemblies (1346 at M23) |
+| FrontV2 | `npx tsc --noEmit` clean, `npx jest` **96 passing**. Cypress **not re-run since M23** — five new screens are unexercised |
+| Migrations | chain ends `20260825120000_AddCustomerCoordinates`. The three M24–M28 migrations are **NOT applied anywhere** — the local container was down on 2026-08-25. Run `./scripts/local-db-update.sh` before touching the new screens or every one of them answers 500 with `Invalid column name` |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -49,6 +50,43 @@ any of them is re-litigating a settled decision.
 | M21 | Limite de crédito + override | **Done** | `0e24765` |
 | M22 | Contas fixas | **Done** | `61f6131` |
 | M23 | Orçamento → pedido | **Done 2026-08-24** — backend, screen and conversion; no PDF yet | `875a854`, FrontV2 `5d6f19b` |
+| M24 | Custo e margem real | **Done 2026-08-25** | `68986a8`, FrontV2 `8df4213` |
+| M25 | Metas + comissão de vendedores | **Done 2026-08-25** | `760eeba`, FrontV2 `a82ac5d` |
+| M26 | Ficha do cliente (Customer 360) | **Done 2026-08-25** | `be4a34a`, FrontV2 `005de5d` |
+| M27 | Busca global (Ctrl+K) + WhatsApp | **Done 2026-08-25** — FrontV2 only | FrontV2 `198186e` |
+| M28 | Mapa de clientes | **Done 2026-08-25** | `6a9b6cd`, FrontV2 `7f3c3dc` |
+
+## What M24–M28 added, and what they left open
+
+Five features aimed at the person who *sells*, none of which re-litigates a settled cut — three of
+them are the roadmap's own cut list turned into its recommended "honest 5%".
+
+- **M24 custo e margem.** `Product.CostPrice` plus `OrderedProduct.UnitCost`, a **snapshot** taken at
+  line creation so editing a cost never rewrites a past order's margin. `Shared/Utils/OrderMargin` is
+  the one implementation; an unknown cost answers **null**, never zero, and one uncosted line makes
+  the whole order unknown rather than reporting a margin that is far too good. Cost is gated behind
+  the new `products.cost.read` (Manager+) and withheld in one funnel per controller;
+  `OrderedProduct.UnitCost` is `[JsonIgnore]`d so it cannot leak through the order lines.
+  **Open:** nothing backfills cost — every existing product is uncosted until somebody types it, so
+  the margin columns read "—" until then. Quotes carry no margin.
+- **M25 metas + comissão.** `User.CommissionRate` (decimal(5,4) — the money precision would round
+  0.035 to 0.04) and a `SalesGoal` table. **Commission is paid on what was *received***, resolved
+  through the new `ReceivableResolver.ResolveReceivedAmount`, not on what was sold.
+  **Open:** a seller cannot see their own row — the whole screen is Manager+. The enterprise row is
+  deliberately not the sum of the seller rows (a queued order has no seller).
+- **M26 ficha do cliente.** One endpoint, `Customer/GetCustomerSummary`, composed entirely of reads
+  that already existed. The financial block is nulled for a caller without `bills.read`.
+  **Open:** it reuses `GetAgingAsync`, which scans the tenant's whole open carteira to read one
+  customer's row (`ponytail:` — give that service a customer filter if a big tenant feels it).
+- **M27 busca global + WhatsApp.** FrontV2 only, as the roadmap scoped it: `Ctrl/Cmd+K` fans out over
+  the existing `*ByFilter` endpoints, and `utils/whatsapp.ts` builds `wa.me` links.
+  **Open:** the palette switches module but does not yet open the specific record.
+- **M28 mapa de clientes.** `Customer.Latitude/Longitude`, a bounding-box + Haversine `GetNearbyCustomers`,
+  and a batch `GeocodePendingCustomers`. **Geocoding never runs on the write path** — saving a
+  customer must not depend on a public API being up.
+  **Open:** precision is CEP-level via BrasilAPI, not street-level. **One new npm dependency,
+  `leaflet`**, web-only and `require`d lazily so native never loads it; native shows the ranked list.
+  Nothing has verified the OSM tile host is reachable from the production network.
 
 ## What still needs doing
 
@@ -79,7 +117,9 @@ production. That is the obvious next slice.
 | # | What |
 |---|---|
 | B1 | ~~Apply the migrations.~~ **Done 2026-08-24** on the local container. Production is still untouched — nothing calls `Database.Migrate()` |
-| B2 | **Push the branch.** `feature/33-Boleto-and-NFE-emission` has no upstream and carries M14–M22 plus the bug pass |
+| B2 | **Push the branch.** `feature/33-Boleto-and-NFE-emission` has no upstream and carries M14–M28 plus the bug pass |
+| B6 | **Apply the three M24–M28 migrations** (`20260825100000`, `110000`, `120000`). The container was down on 2026-08-25, so they exist only as files. `./scripts/local-db-update.sh` |
+| B7 | **Re-run Cypress.** Five screens landed since the last pass — margin fields, the performance screen, the ficha, the command palette and the map — and none has been through a browser. That suite is the only gate that catches a hook called inside a branch |
 | B3 | **Confirm Chromium in the *production* image** (`M-B8`). Partly answered 2026-08-24: in the **local** container `/Bills/Pdf` returns 200 with a real PDF, so PuppeteerSharp works there. Production is a different image and a different network, and `BuildBillAttachmentsAsync` still swallows a renderer failure and mails the bill with no PDF |
 | B4 | ~~Run Cypress once.~~ **Done 2026-08-24 — and it earned its keep.** 16/30 on the first run, **27/30** now. It found four app bugs (see below). One test remains flaky: the two Products specs share a single seeded product, so whichever runs second finds it already deactivated and `GetProductsByFilter` answers 204. A fixture problem in the spec, not the app. **Run `./scripts/e2e-cleanup.sh --apply` after a session** — the suite can only soft-delete through the API, so every run leaves its seeds in the tables (204 rows after four runs, cleared 2026-08-24) |
 | B5 | **Decide on FrontV2 `abb1b46`** — it carries a `Co-Authored-By` trailer and is already pushed to `origin/master`. Removing it means force-pushing a shared branch |
