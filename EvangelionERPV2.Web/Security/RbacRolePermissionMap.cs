@@ -84,6 +84,11 @@ namespace EvangelionERPV2.Web.Security
 
             RbacPermissions.Suppliers.Delete,
 
+            // What a unit costs is what the company earns on it. A Supervisor sells and quotes
+            // against the price list; the margin behind that price is the same class of company
+            // financial as CurrentBalance and the payables, so it starts here.
+            RbacPermissions.Products.ReadCost,
+
             // A bank statement exposes the company's whole cash position and every counterparty it
             // moved money with, so it sits at the tier that already sees CurrentBalance and the
             // payables — not with customers and products at Supervisor.

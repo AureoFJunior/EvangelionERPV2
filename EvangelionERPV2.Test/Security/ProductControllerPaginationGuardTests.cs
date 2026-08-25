@@ -7,6 +7,7 @@ using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using EvangelionERPV2.Web.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
@@ -322,7 +323,7 @@ namespace EvangelionERPV2.Test.Security
             Guid enterpriseId,
             Guid callerId)
         {
-            var controller = new ProductController(productService, productRepository, userRepository, mapper);
+            var controller = new ProductController(productService, productRepository, userRepository, mapper, Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())));
             var claims = new ClaimsPrincipal(new ClaimsIdentity(
             [
                 new Claim(ClaimTypes.GroupSid, enterpriseId.ToString())

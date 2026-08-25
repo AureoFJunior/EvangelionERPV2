@@ -25,6 +25,13 @@ namespace EvangelionERPV2.Shared.Entities
         public string Description { get; set; } = "";
         public decimal DefaultValue { get; set; } = 0;
 
+        /// <summary>
+        /// What the unit costs the company. Null means "nobody has told us yet" and is not the same
+        /// as zero: a zero cost would report the whole sale price as margin, which is a lie the
+        /// reports would then repeat. Every margin figure is null while this is null.
+        /// </summary>
+        public decimal? CostPrice { get; set; } = null;
+
         // StorageQuantity is not money: UnitOfMeasure allows Kg/Litre/Meter, so the global
         // decimal(18,2) convention would truncate fractional units like 0.004 Kg to 0.
         [Column(TypeName = "decimal(18,4)")]

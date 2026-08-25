@@ -97,6 +97,7 @@ namespace EvangelionERPV2.Web.Security
             Products.Delete,
             Products.UploadPicture,
             Products.DeletePicture,
+            Products.ReadCost,
 
             Reports.Read,
             Reports.Generate,
@@ -309,6 +310,7 @@ namespace EvangelionERPV2.Web.Security
             public const string Delete = "rbac:products.delete";
             public const string UploadPicture = "rbac:products.picture.upload";
             public const string DeletePicture = "rbac:products.picture.delete";
+            public const string ReadCost = "rbac:products.cost.read";
         }
 
         public static class Quotes

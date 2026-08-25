@@ -571,6 +571,25 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             if (products.Count() != requestedProductIds.Count)
                 throw new InsertDatabaseException("Some products were not found in enterprise inventory.");
+
+            SnapshotLineCosts(order, products);
+        }
+
+        /// <summary>
+        /// Copies each product's CostPrice onto its order line. A snapshot, not a join: the margin
+        /// of an order booked today must not change the next time somebody edits a product's cost.
+        /// A product with no cost recorded leaves the line null, and OrderMargin then reports the
+        /// whole order's margin as unknown rather than inventing one.
+        /// </summary>
+        private static void SnapshotLineCosts(Order order, IEnumerable<Product> products)
+        {
+            var costByProductId = products.ToDictionary(x => x.Id, x => x.CostPrice);
+
+            foreach (var line in order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>())
+            {
+                if (costByProductId.TryGetValue(line.ProductId, out var cost))
+                    line.UnitCost = cost;
+            }
         }
 
         private async Task ExecuteInTransactionAsync(Func<Task> operation)

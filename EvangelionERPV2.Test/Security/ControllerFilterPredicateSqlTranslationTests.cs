@@ -8,6 +8,7 @@ using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -80,7 +81,8 @@ namespace EvangelionERPV2.Test.Security
                 new Mock<IProductService<Product>>(MockBehavior.Strict).Object,
                 repository.Object,
                 new Mock<IRepository<User>>(MockBehavior.Strict).Object,
-                new Mock<IMapper>(MockBehavior.Strict).Object);
+                new Mock<IMapper>(MockBehavior.Strict).Object,
+                Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())));
             AttachEnterpriseClaim(controller, enterpriseId);
 
             await controller.GetProductsByFilter(

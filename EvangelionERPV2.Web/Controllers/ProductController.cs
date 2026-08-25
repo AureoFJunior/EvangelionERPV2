@@ -31,16 +31,24 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _repository;
         private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
+        private readonly IAuthorizationService _authorizationService;
+
+        // Memoized for the lifetime of this request (controllers are per-request): ToProductDtosAsync
+        // maps a page of products in parallel, and evaluating the policy per row would read the
+        // caller's user row from the database once per product.
+        private bool? _canReadCost;
 
         public ProductController(IProductService<Product> productService,
             EvangelionERPV2.Shared.Repositories.IRepository<Product> repository,
             IRepository<User> userRepository,
-            IMapper mapper)
+            IMapper mapper,
+            IAuthorizationService authorizationService)
         {
             _productService = productService;
             _repository = repository;
             _userRepository = userRepository;
             _mapper = mapper;
+            _authorizationService = authorizationService;
         }
 
         /// <summary>
@@ -193,6 +201,9 @@ namespace EvangelionERPV2.Web.Controllers
                         Name = normalizedRequest.Name.Trim(),
                         Description = normalizedRequest.Description?.Trim() ?? string.Empty,
                         DefaultValue = normalizedRequest.DefaultValue.GetValueOrDefault(),
+                        // Not GetValueOrDefault: an omitted cost stays unknown. Defaulting it to
+                        // zero would make every margin report claim a 100% margin on this product.
+                        CostPrice = await CanReadCostAsync() ? normalizedRequest.CostPrice : null,
                         StorageQuantity = normalizedRequest.StorageQuantity.GetValueOrDefault(),
                         UnitOfMeasure = normalizedRequest.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty,
                         IsExternal = normalizedRequest.IsExternal.GetValueOrDefault(),
@@ -245,6 +256,11 @@ namespace EvangelionERPV2.Web.Controllers
                 existentProduct.Name = request.Name.Trim();
                 existentProduct.Description = request.Description?.Trim() ?? string.Empty;
                 existentProduct.DefaultValue = request.DefaultValue;
+                // Only a caller entitled to see the cost may change it, and an omitted value keeps
+                // the stored one: everyone else receives a null cost in the DTO, so echoing the
+                // form back would otherwise erase it on every edit they save.
+                if (request.CostPrice.HasValue && await CanReadCostAsync())
+                    existentProduct.CostPrice = request.CostPrice;
                 existentProduct.StorageQuantity = request.StorageQuantity;
                 existentProduct.UnitOfMeasure = request.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty;
                 existentProduct.IsExternal = request.IsExternal;
@@ -401,6 +417,9 @@ namespace EvangelionERPV2.Web.Controllers
                 PictureAdress = ResolveLegacyOrRootValue(request.PictureAdress, request.Product.PictureAdress),
                 File = request.File,
 
+                // Same reasoning as the fiscal block: the legacy nested shape has no cost field.
+                CostPrice = request.CostPrice,
+
                 // Carried straight across: the legacy nested shape predates fiscal data and has
                 // no counterpart to fall back to, so rebuilding the request must not drop them.
                 Ncm = request.Ncm,
@@ -480,6 +499,9 @@ namespace EvangelionERPV2.Web.Controllers
             if (productList.Count == 0)
                 return Enumerable.Empty<ProductDTO>();
 
+            // Primed before the parallel loop so the policy is evaluated once for the whole page.
+            await CanReadCostAsync();
+
             var productDtos = new ProductDTO[productList.Count];
             var parallelOptions = new ParallelOptions
             {
@@ -494,9 +516,31 @@ namespace EvangelionERPV2.Web.Controllers
             return productDtos;
         }
 
+        /// <summary>
+        /// Whether this caller may see what the goods cost. Manager tier and above — see
+        /// RbacRolePermissionMap. Cheap: the handler reads the caller's user row, which every
+        /// authorized action on this controller has already read.
+        /// </summary>
+        private async Task<bool> CanReadCostAsync()
+        {
+            // A benign race under Parallel.ForEachAsync: two evaluations of the same policy for the
+            // same caller answer the same thing, and the loser only overwrites an identical value.
+            _canReadCost ??= (await _authorizationService.AuthorizeAsync(User, RbacPolicies.Products.ReadCost)).Succeeded;
+            return _canReadCost.Value;
+        }
+
         private async Task<ProductDTO> ToProductDtoAsync(Product product, bool includePicture = true)
         {
             ProductDTO dto = _mapper.Map<ProductDTO>(product);
+
+            // Withheld rather than never mapped, the same shape EmployeeDTO uses for salary: one
+            // funnel, so no read surface on this controller can leak the cost by forgetting.
+            if (!await CanReadCostAsync())
+            {
+                dto.CostPrice = null;
+                dto.MarginPercent = null;
+            }
+
             if (!includePicture || string.IsNullOrWhiteSpace(product.PictureAdress))
             {
                 dto.PictureAdress = string.Empty;

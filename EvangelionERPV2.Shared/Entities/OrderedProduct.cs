@@ -23,6 +23,20 @@ namespace EvangelionERPV2.Shared.Entities
         [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; } = 0;
         public decimal Value { get; set; } = 0;
+
+        /// <summary>
+        /// The product's CostPrice as it stood when this line was created — a snapshot, never a live
+        /// join. Reading the product's current cost would rewrite the margin of every past order the
+        /// next time somebody edits a price.
+        /// </summary>
+        /// <remarks>
+        /// [JsonIgnore] because cost is Manager-tier data: order lines are serialized inside OrderDTO
+        /// for every caller who can read an order, and this is the one field in them that must not
+        /// be. The gated totals on OrderDTO are how cost reaches a caller entitled to see it.
+        /// </remarks>
+        [JsonIgnore]
+        public decimal? UnitCost { get; set; } = null;
+
         public string UnitOfMeasure { get; set; } = nameof(EnumUnitOfMeasure.Unit);
 
         [ForeignKey(nameof(Order))]

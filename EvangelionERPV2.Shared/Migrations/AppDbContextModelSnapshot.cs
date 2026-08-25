@@ -1606,6 +1606,10 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,4)");
 
+                    b.Property<decimal?>("UnitCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("UnitOfMeasure")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -1928,6 +1932,10 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<string>("CodigoBeneficioFiscal")
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
+
+                    b.Property<decimal?>("CostPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");

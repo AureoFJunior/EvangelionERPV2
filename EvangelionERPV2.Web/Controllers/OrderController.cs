@@ -31,6 +31,9 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IAuthorizationService _authorizationService;
         private readonly IMapper _mapper;
 
+        // Memoized for this request; see CanReadCostAsync.
+        private bool? _canReadCost;
+
         public OrderController(IOrderService<Order> orderService,
             IRepository<User> userRepository,
             IAuthorizationService authorizationService,
@@ -72,7 +75,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!orders.Any())
                     return NoContent();
 
-                IEnumerable<OrderDTO> orderDTO = _mapper.Map<IEnumerable<OrderDTO>>(orders);
+                IEnumerable<OrderDTO> orderDTO = await ToOrderDtosAsync(orders);
                 return Ok(orderDTO);
             }
             catch (NotFoundDatabaseException exnf)
@@ -143,7 +146,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!orders.Any())
                     return NoContent();
 
-                IEnumerable<OrderDTO> orderDTO = _mapper.Map<IEnumerable<OrderDTO>>(orders);
+                IEnumerable<OrderDTO> orderDTO = await ToOrderDtosAsync(orders);
                 return Ok(orderDTO);
             }
             catch (NotFoundDatabaseException exnf)
@@ -180,7 +183,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (order == null)
                     return NoContent();
 
-                OrderDTO orderDTO = _mapper.Map<OrderDTO>(order);
+                OrderDTO orderDTO = await ToOrderDtoAsync(order);
                 return Ok(orderDTO);
             }
             catch (Exception)
@@ -341,7 +344,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedOrder == null)
                     return NoContent();
 
-                return Ok(_mapper.Map<OrderDTO>(updatedOrder));
+                return Ok(await ToOrderDtoAsync(updatedOrder));
             }
             catch (InsertDatabaseException ex)
             {
@@ -378,7 +381,7 @@ namespace EvangelionERPV2.Web.Controllers
                     return BadRequest($"Reason must be {MaxRefundReasonLength} characters or fewer.");
 
                 var refundedOrder = await _orderService.RefundAsync(id, enterpriseId, reason);
-                return Ok(_mapper.Map<OrderDTO>(refundedOrder));
+                return Ok(await ToOrderDtoAsync(refundedOrder));
             }
             catch (InsertDatabaseException ex)
             {
@@ -417,7 +420,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (order == null)
                     return NoContent();
 
-                return Ok(_mapper.Map<OrderDTO>(order));
+                return Ok(await ToOrderDtoAsync(order));
             }
             catch (InsertDatabaseException ex)
             {
@@ -574,5 +577,49 @@ namespace EvangelionERPV2.Web.Controllers
 
             return "An internal error occurred. Please try again later.";
         }
+
+        /// <summary>
+        /// Whether this caller may see what the order's goods cost, and therefore its margin.
+        /// Manager tier and above — the same products.cost.read gate ProductController applies.
+        /// </summary>
+        private async Task<bool> CanReadCostAsync()
+        {
+            _canReadCost ??= (await _authorizationService.AuthorizeAsync(User, RbacPolicies.Products.ReadCost)).Succeeded;
+            return _canReadCost.Value;
+        }
+
+        /// <summary>
+        /// The single funnel from Order to OrderDTO. Cost and margin are withheld here rather than
+        /// never mapped, so no read on this controller can leak them by forgetting; the per-line
+        /// UnitCost they are derived from is [JsonIgnore]d on the entity itself.
+        /// </summary>
+        private async Task<OrderDTO> ToOrderDtoAsync(Order order)
+        {
+            var dto = _mapper.Map<OrderDTO>(order);
+            if (!await CanReadCostAsync())
+                StripCost(dto);
+
+            return dto;
+        }
+
+        private async Task<IEnumerable<OrderDTO>> ToOrderDtosAsync(IEnumerable<Order> orders)
+        {
+            var dtos = _mapper.Map<IEnumerable<OrderDTO>>(orders).ToList();
+            if (await CanReadCostAsync())
+                return dtos;
+
+            foreach (var dto in dtos)
+                StripCost(dto);
+
+            return dtos;
+        }
+
+        private static void StripCost(OrderDTO dto)
+        {
+            dto.TotalCost = null;
+            dto.MarginAmount = null;
+            dto.MarginPercent = null;
+        }
+
     }
 }

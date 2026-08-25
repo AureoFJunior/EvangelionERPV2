@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 ﻿using EvangelionERPV2.OrderModule.Application.Services;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Hubs;
@@ -1135,6 +1136,42 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             repositoryMock
                 .Setup(r => r.ExecuteInTransaction(It.IsAny<Func<Order>>(), It.IsAny<CancellationToken>()))
                 .Returns((Func<Order> operation, CancellationToken _) => operation());
+        }
+
+        [Fact]
+        public async Task CreateAsync_SnapshotsTheProductCostOntoEachLine()
+        {
+            // The snapshot is what makes margin history stable: editing a product's cost tomorrow
+            // must not change what this order reports it earned today.
+            var enterpriseId = Guid.NewGuid();
+            var costedProductId = Guid.NewGuid();
+            var uncostedProductId = Guid.NewGuid();
+
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 0, enterpriseId, Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+                    new() { IsActive = true, Quantity = 2, Value = 50, ProductId = costedProductId },
+                    new() { IsActive = true, Quantity = 1, Value = 30, ProductId = uncostedProductId }
+                }, Guid.NewGuid());
+
+            _mockIProductRepository
+                .Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>?>()))
+                .ReturnsAsync(new List<Product>
+                {
+                    new() { Id = costedProductId, EnterpriseId = enterpriseId, IsActive = true, Name = "Costed", UnitOfMeasure = "UN", StorageQuantity = 100, CostPrice = 18.50m },
+                    new() { Id = uncostedProductId, EnterpriseId = enterpriseId, IsActive = true, Name = "Uncosted", UnitOfMeasure = "UN", StorageQuantity = 100, CostPrice = null }
+                });
+
+            _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
+
+            var created = await _orderService.CreateAsync(order);
+
+            var lines = created.OrderedProduct!.ToList();
+            Assert.Equal(18.50m, lines.Single(x => x.ProductId == costedProductId).UnitCost);
+            Assert.Null(lines.Single(x => x.ProductId == uncostedProductId).UnitCost);
+
+            // One uncosted line makes the whole order's margin unknown rather than overstated.
+            Assert.Null(OrderMargin.TotalCost(lines));
         }
 
         private static void SetupProductLookupForOrder(

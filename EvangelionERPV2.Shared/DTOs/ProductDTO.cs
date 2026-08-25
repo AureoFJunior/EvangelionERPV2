@@ -7,6 +7,12 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public decimal DefaultValue { get; set; }
+
+        // Cost and margin are Manager-tier: nulled by ProductController for a caller without
+        // products.cost.read, the same withholding shape EmployeeDTO uses for salary.
+        public decimal? CostPrice { get; set; }
+        public decimal? MarginPercent { get; set; }
+
         public decimal StorageQuantity { get; set; }
         public string UnitOfMeasure { get; set; } = nameof(EnumUnitOfMeasure.Unit);
         public bool IsExternal { get; set; }

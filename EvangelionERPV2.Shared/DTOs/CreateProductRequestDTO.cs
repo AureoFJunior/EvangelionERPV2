@@ -5,6 +5,10 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public decimal? DefaultValue { get; set; }
+
+        /// <summary>Optional. Null leaves the cost unknown; it is never defaulted to zero.</summary>
+        public decimal? CostPrice { get; set; }
+
         public decimal? StorageQuantity { get; set; }
         public string UnitOfMeasure { get; set; } = string.Empty;
         public bool? IsExternal { get; set; }

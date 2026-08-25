@@ -98,6 +98,7 @@ namespace EvangelionERPV2.Web.Security
             Products.Delete,
             Products.UploadPicture,
             Products.DeletePicture,
+            Products.ReadCost,
 
             Reports.Read,
             Reports.Generate,
@@ -327,6 +328,13 @@ namespace EvangelionERPV2.Web.Security
             public const string Delete = "products.delete";
             public const string UploadPicture = "products.picture.upload";
             public const string DeletePicture = "products.picture.delete";
+
+            /// <summary>
+            /// What the company pays for its goods, and therefore what it earns on every sale. Not
+            /// an [Authorize] on any action — it decides whether the cost and margin fields survive
+            /// into ProductDTO and OrderDTO, which is why the coverage test does not list it.
+            /// </summary>
+            public const string ReadCost = "products.cost.read";
         }
 
         public static class Quotes

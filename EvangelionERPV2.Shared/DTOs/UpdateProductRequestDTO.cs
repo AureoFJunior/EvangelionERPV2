@@ -6,6 +6,14 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public decimal DefaultValue { get; set; }
+
+        /// <summary>
+        /// Optional, and unlike the fiscal block below an omitted value keeps the stored cost
+        /// instead of clearing it: a caller without products.cost.read never receives the cost in
+        /// the first place, so echoing back a null would silently erase it on every edit they save.
+        /// </summary>
+        public decimal? CostPrice { get; set; }
+
         public decimal StorageQuantity { get; set; }
         public string UnitOfMeasure { get; set; } = string.Empty;
         public string? PictureAdress { get; set; }

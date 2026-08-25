@@ -1,6 +1,7 @@
 ﻿using AutoMapper;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Utils;
 using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Extensions.Logging;
@@ -23,6 +24,16 @@ namespace EvangelionERPV2.Shared.Configs
                 config.CreateMap<EnterpriseFiscalSettings, EnterpriseFiscalSettingsDTO>().ReverseMap();
                 config.CreateMap<Order, OrderDTO>()
                     .ForMember(dest => dest.CustomerName, opt => opt.MapFrom(src => src.Customer != null ? src.Customer.Name : null))
+                    // Margin is derived from the line cost snapshots, never stored. Mapped here so
+                    // every read surface agrees, the same reason Bill.Status is derived here.
+                    // Answers null when the lines were not loaded, which is honest: "not known on
+                    // this read" and "no cost recorded" are both null, and neither may be shown
+                    // as a margin of zero.
+                    .ForMember(dest => dest.TotalCost, opt => opt.MapFrom(src => OrderMargin.TotalCost(src.OrderedProduct)))
+                    .ForMember(dest => dest.MarginAmount, opt => opt.MapFrom(src => OrderMargin.Amount(src.TotalValue, OrderMargin.TotalCost(src.OrderedProduct))))
+                    .ForMember(dest => dest.MarginPercent, opt => opt.MapFrom(src => OrderMargin.Percent(src.TotalValue, OrderMargin.TotalCost(src.OrderedProduct))))
+                    // No reverse ForMember for the three: they have no counterpart on Order, so
+                    // there is nothing for AutoMapper to write back.
                     .ReverseMap();
                 config.CreateMap<Bill, BillDTO>()
                     // Overdue is derived from the clock, never stored — see Bill.StatusAsOf. Mapped
@@ -48,7 +59,9 @@ namespace EvangelionERPV2.Shared.Configs
                 config.CreateMap<EmployeeAbsence, EmployeeAbsenceDTO>();
                 config.CreateMap<EmployeeVacationAccrual, EmployeeVacationAccrualDTO>();
                 config.CreateMap<Supplier, SupplierDTO>().ReverseMap();
-                config.CreateMap<Product, ProductDTO>().ReverseMap();
+                config.CreateMap<Product, ProductDTO>()
+                    .ForMember(dest => dest.MarginPercent, opt => opt.MapFrom(src => OrderMargin.UnitPercent(src.DefaultValue, src.CostPrice)))
+                    .ReverseMap();
                 config.CreateMap<AuditTrail, AuditTrailDTO>()
                     .ForMember(dest => dest.UserName,
                         opt => opt.MapFrom(src => GetSafeAuditTrailUserIdentifier(src.User == null ? null : src.User.UserName)));
