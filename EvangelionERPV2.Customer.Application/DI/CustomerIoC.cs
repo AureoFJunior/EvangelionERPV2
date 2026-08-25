@@ -59,6 +59,15 @@ namespace EvangelionERPV2.CustomerModule.Application.DI
                 #region Services
                 services.AddTransient(typeof(ICustomerService<Customer>), typeof(CustomerService));
 
+                // Mapa de clientes. The geocoder gets its own HttpClient with a short timeout: it
+                // decorates a map, so it must never be the reason a request hangs.
+                services.AddScoped<ICustomerLocationService, CustomerLocationService>();
+                services.AddHttpClient<ICepGeocoder, BrasilApiCepGeocoder>(client =>
+                {
+                    client.BaseAddress = new Uri("https://brasilapi.com.br/");
+                    client.Timeout = TimeSpan.FromSeconds(5);
+                });
+
 
                 #endregion
 

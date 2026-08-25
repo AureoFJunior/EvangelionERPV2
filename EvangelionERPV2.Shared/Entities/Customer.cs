@@ -83,6 +83,22 @@ namespace EvangelionERPV2.Shared.Entities
 
         #endregion
 
+        /// <summary>
+        /// Where this customer is, for the map. Resolved from the CEP by the geocoding backfill —
+        /// nothing on the write path calls out to the internet, so saving a customer never waits on
+        /// a third party or fails because one is down.
+        /// </summary>
+        /// <remarks>
+        /// decimal(9,6) is roughly 11 cm of precision and is mandatory here: the global
+        /// HavePrecision(18,2) convention would round -23.5505 to -23.55, which is about half a
+        /// kilometre — enough to put a customer on the wrong side of a radius.
+        /// </remarks>
+        [Column(TypeName = "decimal(9,6)")]
+        public decimal? Latitude { get; set; } = null;
+
+        [Column(TypeName = "decimal(9,6)")]
+        public decimal? Longitude { get; set; } = null;
+
         [ForeignKey(nameof(Enterprise))]
         public Guid? EnterpriseId { get; set; } = null;
         public virtual Enterprise? Enterprise { get; set; } = null;

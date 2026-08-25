@@ -34,6 +34,8 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(CustomerController), nameof(CustomerController.GetCustomersByFilter), RbacPermissions.Customers.Read)]
         [InlineData(typeof(CustomerController), nameof(CustomerController.GetCustomer), RbacPermissions.Customers.Read)]
         [InlineData(typeof(CustomerController), nameof(CustomerController.GetCustomerSummary), RbacPermissions.Customers.Read)]
+        [InlineData(typeof(CustomerController), nameof(CustomerController.GetNearbyCustomers), RbacPermissions.Customers.Read)]
+        [InlineData(typeof(CustomerController), nameof(CustomerController.GeocodePendingCustomers), RbacPermissions.Customers.Update)]
         [InlineData(typeof(CustomerController), nameof(CustomerController.AddCustomer), RbacPermissions.Customers.Create)]
         [InlineData(typeof(CustomerController), nameof(CustomerController.UpdateCustomer), RbacPermissions.Customers.Update)]
         [InlineData(typeof(CustomerController), nameof(CustomerController.DeleteCustomer), RbacPermissions.Customers.Delete)]

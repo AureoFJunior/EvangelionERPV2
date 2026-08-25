@@ -187,6 +187,12 @@ namespace EvangelionERPV2.Shared.Context
                 .HasFilter("[ConvertedOrderId] IS NOT NULL")
                 .IsUnique();
 
+            // Covers the bounding-box filter the customer map runs. Filtered because a tenant that
+            // has never geocoded anything should not carry an index full of nulls.
+            modelBuilder.Entity<Customer>()
+                .HasIndex(customer => new { customer.EnterpriseId, customer.Latitude, customer.Longitude })
+                .HasFilter("[Latitude] IS NOT NULL AND [Longitude] IS NOT NULL");
+
             modelBuilder.Entity<SalesGoal>()
                 .HasOne(goal => goal.Enterprise)
                 .WithMany()

@@ -348,9 +348,17 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<bool?>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<decimal?>("Latitude")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(9,6)");
+
                     b.Property<string>("Logradouro")
                         .HasMaxLength(60)
                         .HasColumnType("nvarchar(60)");
+
+                    b.Property<decimal?>("Longitude")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(9,6)");
 
                     b.Property<string>("Municipio")
                         .HasMaxLength(60)
@@ -377,9 +385,10 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("EnterpriseId");
-
                     b.HasIndex("Name");
+
+                    b.HasIndex("EnterpriseId", "Latitude", "Longitude")
+                        .HasFilter("[Latitude] IS NOT NULL AND [Longitude] IS NOT NULL");
 
                     b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "Name");
 
@@ -2219,13 +2228,13 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("UserId");
+
                     b.HasIndex("EnterpriseId", "Year", "Month");
 
                     b.HasIndex("EnterpriseId", "UserId", "Year", "Month")
                         .IsUnique()
                         .HasFilter("[IsActive] = 1");
-
-                    b.HasIndex("UserId");
 
                     b.ToTable("SalesGoal");
                 });
@@ -2338,7 +2347,7 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<decimal?>("CommissionRate")
-                        .HasPrecision(5, 4)
+                        .HasPrecision(18, 2)
                         .HasColumnType("decimal(5,4)");
 
                     b.Property<DateTime>("CreatedAt")
@@ -2817,6 +2826,24 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.SalesGoal", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
+                        .WithMany()
+                        .HasForeignKey("EnterpriseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Enterprise");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.StockMovement", b =>
                 {
                     b.HasOne("EvangelionERPV2.Shared.Entities.Product", "Product")
@@ -2835,24 +2862,6 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasForeignKey("EnterpriseId");
 
                     b.Navigation("Enterprise");
-                });
-
-            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.SalesGoal", b =>
-                {
-                    b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
-                        .WithMany()
-                        .HasForeignKey("EnterpriseId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("Enterprise");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.User", b =>

@@ -60,6 +60,7 @@ namespace EvangelionERPV2.Test.Security
                 customerRepository.Object,
                 userRepository.Object,
                 new Mock<ICustomerSummaryService>().Object,
+                new Mock<ICustomerLocationService>().Object,
                 Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())),
                 mapper.Object);
         }

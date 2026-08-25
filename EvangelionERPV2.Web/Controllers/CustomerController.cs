@@ -31,6 +31,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _repository;
         private readonly IRepository<User> _userRepository;
         private readonly ICustomerSummaryService _customerSummaryService;
+        private readonly ICustomerLocationService _customerLocationService;
         private readonly IAuthorizationService _authorizationService;
         private readonly IMapper _mapper;
 
@@ -38,6 +39,7 @@ namespace EvangelionERPV2.Web.Controllers
             EvangelionERPV2.Shared.Repositories.IRepository<Customer> repository,
             IRepository<User> userRepository,
             ICustomerSummaryService customerSummaryService,
+            ICustomerLocationService customerLocationService,
             IAuthorizationService authorizationService,
             IMapper mapper)
         {
@@ -45,8 +47,79 @@ namespace EvangelionERPV2.Web.Controllers
             _repository = repository;
             _userRepository = userRepository;
             _customerSummaryService = customerSummaryService;
+            _customerLocationService = customerLocationService;
             _authorizationService = authorizationService;
             _mapper = mapper;
+        }
+
+        /// <summary>
+        /// Customers within a radius of a point, nearest first. Both limits apply: the radius and
+        /// the count.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Read)]
+        [HttpGet]
+        [ProducesResponseType(typeof(IEnumerable<NearbyCustomerDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetNearbyCustomers(
+            decimal latitude,
+            decimal longitude,
+            double radiusKm = 50,
+            int take = 100)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                var nearby = await _customerLocationService.GetNearbyAsync(
+                    enterpriseId, latitude, longitude, radiusKm, take, HttpContext.RequestAborted);
+
+                return Ok(nearby);
+            }
+            catch (InsertDatabaseException ex)
+            {
+                return BadRequest(GetSafeLocationErrorMessage(ex));
+            }
+        }
+
+        /// <summary>
+        /// Fills in coordinates for customers that have a CEP and no location yet.
+        /// </summary>
+        /// <remarks>
+        /// A batch behind customers.update rather than a hook on the write path: geocoding calls a
+        /// public API, and saving a customer must never depend on one being up.
+        /// </remarks>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Update)]
+        [HttpPost]
+        [ProducesResponseType(typeof(GeocodeBackfillResultDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GeocodePendingCustomers(int take = 25)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var result = await _customerLocationService.GeocodePendingAsync(enterpriseId, take, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+
+        /// <summary>Echoes back only messages this code wrote, never a submitted value.</summary>
+        private static string GetSafeLocationErrorMessage(InsertDatabaseException ex)
+        {
+            if (ex.InnerException != null)
+                return "An internal error occurred. Please try again later.";
+
+            var message = ex.Message?.Trim() ?? string.Empty;
+
+            string[] allowed =
+            [
+                "Latitude or longitude is out of range.",
+                "Radius must be greater than zero."
+            ];
+
+            return allowed.Contains(message) ? message : "An internal error occurred. Please try again later.";
         }
 
         /// <summary>

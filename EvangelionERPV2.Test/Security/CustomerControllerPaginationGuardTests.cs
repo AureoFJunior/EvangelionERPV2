@@ -110,7 +110,7 @@ namespace EvangelionERPV2.Test.Security
             IMapper mapper,
             Guid enterpriseId)
         {
-            var controller = new CustomerController(customerService, customerRepository, userRepository, new Mock<ICustomerSummaryService>().Object, Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())), mapper);
+            var controller = new CustomerController(customerService, customerRepository, userRepository, new Mock<ICustomerSummaryService>().Object, new Mock<ICustomerLocationService>().Object, Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())), mapper);
 
             var claims = new ClaimsPrincipal(new ClaimsIdentity(
             [
