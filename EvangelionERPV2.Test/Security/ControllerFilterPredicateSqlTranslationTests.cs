@@ -5,6 +5,7 @@ using EvangelionERPV2.CustomerModule.Application.Interface;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
@@ -43,6 +44,8 @@ namespace EvangelionERPV2.Test.Security
                 new Mock<ICustomerService<Customer>>(MockBehavior.Strict).Object,
                 repository.Object,
                 new Mock<IRepository<User>>(MockBehavior.Strict).Object,
+                new Mock<ICustomerSummaryService>().Object,
+                Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())),
                 new Mock<IMapper>(MockBehavior.Strict).Object);
             AttachEnterpriseClaim(controller, enterpriseId);
 

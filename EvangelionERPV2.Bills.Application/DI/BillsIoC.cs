@@ -66,6 +66,10 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 services.AddScoped<IBankReconciliationService, BankReconciliationService>();
                 services.AddScoped<IDailyPanelService, DailyPanelService>();
                 services.AddScoped<IReceivablesReportService, ReceivablesReportService>();
+
+                // Ficha do cliente. Here rather than in the Customer module because most of the
+                // answer is money and the aging rule it reuses already lives in this module.
+                services.AddScoped<ICustomerSummaryService, CustomerSummaryService>();
                 services.AddScoped<IAccountingExportService, AccountingExportService>();
 
                 // Concrete, no interface: the worker is its only caller, and chasing late payers is

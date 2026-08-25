@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using AutoMapper;
+using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.CustomerModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
@@ -29,17 +30,49 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly ICustomerService<Customer> _customerService;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _repository;
         private readonly IRepository<User> _userRepository;
+        private readonly ICustomerSummaryService _customerSummaryService;
+        private readonly IAuthorizationService _authorizationService;
         private readonly IMapper _mapper;
 
         public CustomerController(ICustomerService<Customer> customerService,
             EvangelionERPV2.Shared.Repositories.IRepository<Customer> repository,
             IRepository<User> userRepository,
+            ICustomerSummaryService customerSummaryService,
+            IAuthorizationService authorizationService,
             IMapper mapper)
         {
             _customerService = customerService;
             _repository = repository;
             _userRepository = userRepository;
+            _customerSummaryService = customerSummaryService;
+            _authorizationService = authorizationService;
             _mapper = mapper;
+        }
+
+        /// <summary>
+        /// The ficha do cliente: identity, history and — for a caller who may also read the
+        /// carteira — what they still owe.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Read)]
+        [HttpGet("{id}")]
+        [ProducesResponseType(typeof(CustomerSummaryDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetCustomerSummary(Guid id)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            // Reading a customer and reading what they owe are different permissions. Without
+            // bills.read the identity and history blocks still render and the money block is null,
+            // the same in-controller check QuoteController uses for the credit override.
+            var includeFinancial = (await _authorizationService.AuthorizeAsync(User, RbacPolicies.Bills.Read)).Succeeded;
+
+            var summary = await _customerSummaryService.GetSummaryAsync(
+                id, enterpriseId, includeFinancial, HttpContext.RequestAborted);
+
+            return summary == null ? NoContent() : Ok(summary);
         }
 
         /// <summary>
