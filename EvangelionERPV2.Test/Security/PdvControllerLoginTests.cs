@@ -28,7 +28,11 @@ namespace EvangelionERPV2.Test.Security
     {
         private const string UserName = "caixa01";
         private const string Password = "correct-horse";
-        private const string TerminalId = "CAIXA-01";
+        /// <summary>
+        /// One per test — xUnit builds a fresh instance for each. The login rate-limit counters are
+        /// process-static, so a shared terminal id would make these tests each other's failures.
+        /// </summary>
+        private readonly string TerminalId = $"CAIXA-{Guid.NewGuid():N}"[..24];
         private const string Credential = "the-credential";
 
         [Fact]
@@ -186,7 +190,7 @@ namespace EvangelionERPV2.Test.Security
             Assert.Null(typeof(PdvLoginRequestDTO).GetProperty("RecaptchaToken"));
         }
 
-        private static PdvController CreateController(
+        private PdvController CreateController(
             Guid terminalEnterpriseId,
             string? terminalHeader,
             bool revoked = false,

@@ -48,6 +48,18 @@ namespace EvangelionERPV2.Web.Controllers
         // it takes two, which keeps one bad batch from occupying a request thread indefinitely.
         private const int MaxSalesPerBatch = 200;
 
+        // Two counters, because either one alone leaves a hole: per terminal-and-operator stops a
+        // password being guessed, per terminal stops one password being sprayed across every
+        // cashier's account from the same till.
+        private static readonly TimeSpan LoginRateLimitWindow = TimeSpan.FromMinutes(15);
+        private const int LoginRateLimitMaxFailedAttempts = 5;
+
+        private static readonly FailedAttemptLimiter _terminalLoginLimiter =
+            new(LoginRateLimitWindow, LoginRateLimitMaxFailedAttempts);
+
+        private static readonly FailedAttemptLimiter _operatorLoginLimiter =
+            new(LoginRateLimitWindow, LoginRateLimitMaxFailedAttempts);
+
         private readonly IPdvService _pdvService;
         private readonly IRepository<PdvTerminal> _terminalRepository;
         private readonly PasswordLoginService _passwordLogin;
@@ -147,22 +159,36 @@ namespace EvangelionERPV2.Web.Controllers
                 string.IsNullOrWhiteSpace(request.Password))
                 return BadRequest("userName and password are required.");
 
-            var terminal = await ResolveTerminalAsync();
-            if (terminal == null)
+            if (!TryReadTerminalHeader(out var terminalId, out var credential))
                 return Unauthorized();
+
+            var terminalKey = FailedAttemptLimiter.StableKey(terminalId);
+            var operatorKey = FailedAttemptLimiter.StableKey(
+                $"{terminalId}:{PasswordLoginService.NormalizeUserName(request.UserName).ToLowerInvariant()}");
+
+            if (_terminalLoginLimiter.IsLimited(terminalKey) || _operatorLoginLimiter.IsLimited(operatorKey))
+                return StatusCode(StatusCodes.Status429TooManyRequests);
+
+            var terminal = await ResolveTerminalAsync(terminalId, credential);
+            if (terminal == null)
+                return RegisterFailedLogin(terminalKey, operatorKey);
 
             var login = await _passwordLogin.AuthenticateAsync(request.UserName, request.Password);
             if (login.User == null)
-                return Unauthorized();
+                return RegisterFailedLogin(terminalKey, operatorKey);
 
             // The terminal says only "this caller is a till we enrolled". An operator from another
             // company logging in here would read this company's catalog.
             if (login.User.EnterpriseId != terminal.EnterpriseId)
-                return Unauthorized();
+                return RegisterFailedLogin(terminalKey, operatorKey);
 
             var permissions = PdvTokenScope.PermissionsFor(login.User.AccessLevel);
             if (permissions.Count == 0)
-                return Unauthorized();
+                return RegisterFailedLogin(terminalKey, operatorKey);
+
+            // The operator proved who they are, so their counter is spent. The terminal's is not:
+            // clearing it would let a guesser reset the till's budget with one valid login.
+            _operatorLoginLimiter.Clear(operatorKey);
 
             terminal.LastSeenAt = DateTime.UtcNow;
             _terminalRepository.Update(terminal);
@@ -183,24 +209,42 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
-        /// Reads the <c>X-Pdv-Terminal</c> header and returns the terminal it authenticates, or
-        /// null. Logs every use of a terminal credential, accepted or not.
+        /// Every rejection is one failed attempt against both counters. Always returns 401: which
+        /// of the checks failed is exactly what an attacker is trying to learn.
         /// </summary>
-        private async Task<PdvTerminal?> ResolveTerminalAsync()
+        private IActionResult RegisterFailedLogin(string terminalKey, string operatorKey)
         {
+            _terminalLoginLimiter.RegisterFailure(terminalKey);
+            _operatorLoginLimiter.RegisterFailure(operatorKey);
+            return Unauthorized();
+        }
+
+        /// <summary>
+        /// Splits the <c>X-Pdv-Terminal</c> header into its two halves.
+        /// </summary>
+        private bool TryReadTerminalHeader(out string terminalId, out string credential)
+        {
+            terminalId = string.Empty;
+            credential = string.Empty;
+
             // Header form is "terminalId:credential". A credential is base64 and may contain '+'
             // and '/' but never ':', so the first colon is the separator.
             var header = Request.Headers[TerminalHeaderName].ToString();
             var separator = header.IndexOf(':');
-            if (separator <= 0 || separator == header.Length - 1)
-                return null;
+            if (separator <= 0 || separator == header.Length - 1 || separator > MaxTerminalIdLength)
+                return false;
 
-            var terminalId = header[..separator];
-            var credential = header[(separator + 1)..];
+            terminalId = header[..separator];
+            credential = header[(separator + 1)..];
+            return true;
+        }
 
-            if (terminalId.Length > MaxTerminalIdLength)
-                return null;
-
+        /// <summary>
+        /// Returns the terminal the credential authenticates, or null. Logs every use of a terminal
+        /// credential, accepted or not — never the credential itself.
+        /// </summary>
+        private async Task<PdvTerminal?> ResolveTerminalAsync(string terminalId, string credential)
+        {
             // The credential is what picks the tenant: the login carries no discriminator, and the
             // same terminal id can name a till in more than one enterprise.
             var candidates = (await _terminalRepository.GetAllAsync(
