@@ -43,6 +43,9 @@ namespace EvangelionERPV2.Web.Controllers
         // terminal's sync from pulling an unbounded page of users into memory.
         private const int MaxSupervisorVerifiers = 500;
 
+        // Every user in the enterprise, active or not, so revocations travel with the snapshot.
+        private const int MaxSyncStateUsers = 2000;
+
         /// <summary>Header a till identifies itself with: <c>terminalId:credential</c>.</summary>
         private const string TerminalHeaderName = "X-Pdv-Terminal";
 
@@ -376,6 +379,53 @@ namespace EvangelionERPV2.Web.Controllers
                 .ToList();
 
             return Ok(verifiers);
+        }
+
+        /// <summary>
+        /// The permission snapshot and revocation list a till refreshes on every sync.
+        /// </summary>
+        /// <remarks>
+        /// Scoped to the caller's enterprise throughout: a till handed another tenant's operators
+        /// would be handed their PIN verifiers with them.
+        /// </remarks>
+        [HttpGet]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
+        [ProducesResponseType(typeof(PdvSyncStateDTO), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        public async Task<IActionResult> GetSyncState()
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var users = await _userRepository.GetAllAsync(
+                1, MaxSyncStateUsers, x => x.EnterpriseId == enterpriseId);
+
+            var operators = users
+                .Where(user => user.IsActive == true && PdvTokenScope.PermissionsFor(user.AccessLevel).Count > 0)
+                .Select(user => new PdvOperatorDTO
+                {
+                    UserId = user.Id,
+                    EnterpriseId = enterpriseId,
+                    DisplayName = $"{user.FirstName} {user.LastName}".Trim(),
+                    Permissions = PdvTokenScope.PermissionsFor(user.AccessLevel),
+
+                    // Only someone who can authorise an override needs a verifier on a shop floor.
+                    PinVerifier = IsSupervisorTier(user.AccessLevel) ? user.PdvPinVerifier : null
+                })
+                .ToList();
+
+            var revokedUserIds = users
+                .Where(user => user.IsActive != true)
+                .Select(user => user.Id)
+                .ToList();
+
+            return Ok(new PdvSyncStateDTO
+            {
+                ServerTimeUtc = DateTime.UtcNow,
+                Operators = operators,
+                RevokedUserIds = revokedUserIds
+            });
         }
 
         /// <summary>

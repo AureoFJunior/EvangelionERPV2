@@ -184,4 +184,40 @@ namespace EvangelionERPV2.Shared.DTOs
         public string PinVerifier { get; set; } = string.Empty;
         public IReadOnlyList<string> Permissions { get; set; } = [];
     }
+
+    /// <summary>
+    /// Everything a till needs to decide, on its own, who may do what.
+    /// </summary>
+    /// <remarks>
+    /// Refreshed on every sync rather than at login: a terminal can run for days on one token, and
+    /// a till that never hears about a sacking keeps honouring that person's overrides.
+    ///
+    /// <c>ServerTimeUtc</c> is what the terminal measures its own staleness against — a shop-floor
+    /// clock is nobody's source of truth.
+    /// </remarks>
+    public sealed class PdvSyncStateDTO
+    {
+        public DateTime ServerTimeUtc { get; set; }
+        public IReadOnlyList<PdvOperatorDTO> Operators { get; set; } = [];
+
+        /// <summary>Users the till must purge. Absence from <c>Operators</c> is not enough: a till syncing a partial page would read it as "not mentioned" rather than "revoked".</summary>
+        public IReadOnlyList<Guid> RevokedUserIds { get; set; } = [];
+    }
+
+    /// <summary>
+    /// One operator a till knows about, and what they may do at it.
+    /// </summary>
+    public sealed class PdvOperatorDTO
+    {
+        public Guid UserId { get; set; }
+        public Guid EnterpriseId { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public IReadOnlyList<string> Permissions { get; set; } = [];
+
+        /// <summary>
+        /// Null for everyone who cannot authorise an override. Only a supervisor's verifier travels
+        /// to a shop floor; a cashier is listed so the till knows what to grey out, nothing more.
+        /// </summary>
+        public string? PinVerifier { get; set; }
+    }
 }
