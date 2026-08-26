@@ -2025,6 +2025,60 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("PayrollBillDetail");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PdvOverrideAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClientOverrideId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClientSaleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("OperatorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Permission")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("Succeeded")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("SupervisorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TerminalId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId", "ClientOverrideId")
+                        .IsUnique();
+
+                    b.ToTable("PdvOverrideAudit");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PdvSale", b =>
                 {
                     b.Property<Guid>("Id")

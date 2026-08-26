@@ -46,6 +46,14 @@ namespace EvangelionERPV2.Web.Controllers
         // Every user in the enterprise, active or not, so revocations travel with the snapshot.
         private const int MaxSyncStateUsers = 2000;
 
+        // One override attempt and nothing else.
+        private const int MaxOverrideRequestBodySizeInBytes = 4 * 1024;
+
+        // How far back the failed-override feed reaches, and how many rows of it travel. The till
+        // only needs enough to run a lockout window, not the year's audit trail.
+        private static readonly TimeSpan FailedOverrideFeedWindow = TimeSpan.FromHours(24);
+        private const int MaxFailedOverridesInSyncState = 500;
+
         /// <summary>Header a till identifies itself with: <c>terminalId:credential</c>.</summary>
         private const string TerminalHeaderName = "X-Pdv-Terminal";
 
@@ -75,6 +83,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IPdvService _pdvService;
         private readonly IRepository<PdvTerminal> _terminalRepository;
         private readonly IRepository<Shared.Entities.User> _userRepository;
+        private readonly IRepository<PdvOverrideAudit> _overrideAuditRepository;
         private readonly PasswordLoginService _passwordLogin;
         private readonly TokenService _tokenService;
 
@@ -82,12 +91,14 @@ namespace EvangelionERPV2.Web.Controllers
             IPdvService pdvService,
             IRepository<PdvTerminal> terminalRepository,
             IRepository<Shared.Entities.User> userRepository,
+            IRepository<PdvOverrideAudit> overrideAuditRepository,
             PasswordLoginService passwordLogin,
             TokenService tokenService)
         {
             _pdvService = pdvService;
             _terminalRepository = terminalRepository;
             _userRepository = userRepository;
+            _overrideAuditRepository = overrideAuditRepository;
             _passwordLogin = passwordLogin;
             _tokenService = tokenService;
         }
@@ -382,6 +393,82 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
+        /// Records one override a till reports, refused ones included.
+        /// </summary>
+        /// <remarks>
+        /// Idempotent on <c>ClientOverrideId</c>, like <c>SyncSale</c>: a terminal that loses the
+        /// response resends, and an audit trail that double-counts refusals would lock a supervisor
+        /// out over a flaky connection.
+        ///
+        /// The PIN never reaches here. The till checks it against the cached verifier and reports
+        /// the outcome.
+        /// </remarks>
+        [HttpPost]
+        [RequestSizeLimit(MaxOverrideRequestBodySizeInBytes)]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
+        [ProducesResponseType(typeof(RegisterOverrideResponseDTO), 200)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        public async Task<IActionResult> RegisterOverride([FromBody] RegisterOverrideRequestDTO request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var operatorUserId = TryGetUserId();
+            if (operatorUserId == null)
+                return Unauthorized();
+
+            if (request == null ||
+                request.ClientOverrideId == Guid.Empty ||
+                request.SupervisorUserId == Guid.Empty ||
+                string.IsNullOrWhiteSpace(request.Permission))
+                return BadRequest("clientOverrideId, supervisorUserId and permission are required.");
+
+            var terminalId = (request.TerminalId ?? string.Empty).Trim();
+            if (terminalId.Length > MaxTerminalIdLength)
+                return BadRequest("terminalId is too long.");
+
+            var existing = await _overrideAuditRepository.GetAllAsync(
+                1, 1, x => x.EnterpriseId == enterpriseId && x.ClientOverrideId == request.ClientOverrideId);
+
+            if (existing.Any())
+            {
+                return Ok(new RegisterOverrideResponseDTO
+                {
+                    ClientOverrideId = request.ClientOverrideId,
+                    WasAlreadyRecorded = true
+                });
+            }
+
+            await _overrideAuditRepository.CreateAsync(PdvOverrideAudit.Record(
+                enterpriseId,
+                request.ClientOverrideId,
+                request.SupervisorUserId,
+                operatorUserId.Value,
+                terminalId,
+                request.ClientSaleId,
+                request.Permission.Trim(),
+                request.Succeeded,
+                request.OccurredAt));
+
+            await _overrideAuditRepository.CommitAsync();
+
+            Log.Logger.Information(
+                "PDV override recorded. TerminalId={TerminalId} Permission={Permission} Succeeded={Succeeded}",
+                terminalId, request.Permission, request.Succeeded);
+
+            return Ok(new RegisterOverrideResponseDTO
+            {
+                ClientOverrideId = request.ClientOverrideId,
+                WasAlreadyRecorded = false
+            });
+        }
+
+        /// <summary>
         /// The permission snapshot and revocation list a till refreshes on every sync.
         /// </summary>
         /// <remarks>
@@ -420,11 +507,26 @@ namespace EvangelionERPV2.Web.Controllers
                 .Select(user => user.Id)
                 .ToList();
 
+            // A terminal only ever sees its own refusals, so the lockout it runs would be per till
+            // rather than per supervisor — and the guesser walks to the next one.
+            var since = DateTime.UtcNow.Subtract(FailedOverrideFeedWindow);
+            var failedOverrides = (await _overrideAuditRepository.GetAllAsync(
+                    1,
+                    MaxFailedOverridesInSyncState,
+                    x => x.EnterpriseId == enterpriseId && !x.Succeeded && x.OccurredAt >= since))
+                .Select(audit => new PdvFailedOverrideDTO
+                {
+                    SupervisorUserId = audit.SupervisorUserId,
+                    OccurredAt = audit.OccurredAt
+                })
+                .ToList();
+
             return Ok(new PdvSyncStateDTO
             {
                 ServerTimeUtc = DateTime.UtcNow,
                 Operators = operators,
-                RevokedUserIds = revokedUserIds
+                RevokedUserIds = revokedUserIds,
+                FailedOverrides = failedOverrides
             });
         }
 

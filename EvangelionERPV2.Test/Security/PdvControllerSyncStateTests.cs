@@ -27,6 +27,7 @@ namespace EvangelionERPV2.Test.Security
     public class PdvControllerSyncStateTests
     {
         private readonly Guid _callerEnterpriseId = Guid.NewGuid();
+        private readonly List<PdvOverrideAudit> _failedOverrides = [];
 
         [Fact]
         public void GetSyncState_RequiresATillGrant()
@@ -92,6 +93,24 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task GetSyncState_ShipsRefusedOverridesFromEveryTerminal()
+        {
+            var supervisor = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
+            var controller = CreateController(supervisor);
+
+            _failedOverrides.Add(PdvOverrideAudit.Record(
+                _callerEnterpriseId, Guid.NewGuid(), supervisor.Id, Guid.NewGuid(),
+                "CAIXA-02", Guid.NewGuid(), RbacPermissions.Pdv.VoidItem,
+                succeeded: false, occurredAt: DateTime.UtcNow));
+
+            var dto = await Read(controller);
+
+            // A till counts only what it saw unless the server tells it otherwise, and a lockout
+            // that counts per terminal is one the guesser walks around.
+            Assert.Equal(supervisor.Id, Assert.Single(dto.FailedOverrides).SupervisorUserId);
+        }
+
+        [Fact]
         public async Task GetSyncState_ReturnsUnauthorized_WhenEnterpriseClaimIsMissing()
         {
             var controller = CreateController(users: []);
@@ -133,12 +152,19 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync((int? _, int? __, Expression<Func<User, bool>> predicate) =>
                     users.Where(predicate.Compile()));
 
+            var overrideAuditRepository = new Mock<IRepository<PdvOverrideAudit>>();
+            overrideAuditRepository
+                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<PdvOverrideAudit, bool>>>()))
+                .ReturnsAsync((int? _, int? __, Expression<Func<PdvOverrideAudit, bool>> predicate) =>
+                    _failedOverrides.Where(predicate.Compile()));
+
             var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
 
             return new PdvController(
                 new Mock<IPdvService>(MockBehavior.Strict).Object,
                 new Mock<IRepository<PdvTerminal>>(MockBehavior.Strict).Object,
                 userRepository.Object,
+                overrideAuditRepository.Object,
                 new PasswordLoginService(userRepository.Object),
                 new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration))
             {

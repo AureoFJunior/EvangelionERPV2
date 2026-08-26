@@ -200,6 +200,12 @@ namespace EvangelionERPV2.Shared.DTOs
         public DateTime ServerTimeUtc { get; set; }
         public IReadOnlyList<PdvOperatorDTO> Operators { get; set; } = [];
 
+        /// <summary>
+        /// Refused overrides from across the estate, inside the server's recent window. The till
+        /// counts these so a supervisor's lockout follows them from one terminal to the next.
+        /// </summary>
+        public IReadOnlyList<PdvFailedOverrideDTO> FailedOverrides { get; set; } = [];
+
         /// <summary>Users the till must purge. Absence from <c>Operators</c> is not enough: a till syncing a partial page would read it as "not mentioned" rather than "revoked".</summary>
         public IReadOnlyList<Guid> RevokedUserIds { get; set; } = [];
     }
@@ -219,5 +225,28 @@ namespace EvangelionERPV2.Shared.DTOs
         /// to a shop floor; a cashier is listed so the till knows what to grey out, nothing more.
         /// </summary>
         public string? PinVerifier { get; set; }
+    }
+
+    /// <summary>What the ERP recorded for an override, and whether it had already been told.</summary>
+    public sealed class RegisterOverrideResponseDTO
+    {
+        public Guid ClientOverrideId { get; set; }
+
+        /// <summary>True when this id was already on file — a till resending its backlog, not a second override.</summary>
+        public bool WasAlreadyRecorded { get; set; }
+    }
+
+    /// <summary>
+    /// A refused override, as the till is told about it.
+    /// </summary>
+    /// <remarks>
+    /// The lockout counts per supervisor rather than per terminal, or the guesser simply walks to
+    /// the next till. A terminal only ever sees its own refusals, so the server ships back what
+    /// happened on the others.
+    /// </remarks>
+    public sealed class PdvFailedOverrideDTO
+    {
+        public Guid SupervisorUserId { get; set; }
+        public DateTime OccurredAt { get; set; }
     }
 }

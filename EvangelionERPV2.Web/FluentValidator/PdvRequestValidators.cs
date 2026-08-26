@@ -186,4 +186,21 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .Matches("^[0-9]{6,12}$").WithMessage("Pin must be 6 to 12 digits.");
         }
     }
+
+    public sealed class RegisterOverrideRequestValidator : AbstractValidator<RegisterOverrideRequestDTO>
+    {
+        public RegisterOverrideRequestValidator()
+        {
+            RuleFor(x => x.ClientOverrideId).NotEmpty().WithMessage("ClientOverrideId is required.");
+            RuleFor(x => x.SupervisorUserId).NotEmpty().WithMessage("SupervisorUserId is required.");
+
+            RuleFor(x => x.TerminalId)
+                .NotEmpty().WithMessage("TerminalId is required.")
+                .MaximumLength(64).WithMessage("TerminalId is too long.");
+
+            RuleFor(x => x.Permission)
+                .NotEmpty().WithMessage("Permission is required.")
+                .MaximumLength(64).WithMessage("Permission is too long.");
+        }
+    }
 }

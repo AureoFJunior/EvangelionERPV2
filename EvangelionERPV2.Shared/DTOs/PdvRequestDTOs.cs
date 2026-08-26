@@ -142,4 +142,31 @@ namespace EvangelionERPV2.Shared.DTOs
     {
         public string Pin { get; set; } = string.Empty;
     }
+
+    /// <summary>
+    /// One override a till is reporting: a supervisor was asked to authorise something the operator
+    /// could not do alone.
+    /// </summary>
+    /// <remarks>
+    /// Refused attempts are reported too, and matter more — see <c>PdvOverrideAudit</c>. The PIN
+    /// itself never leaves the terminal; the till checks it against the cached verifier and sends
+    /// only the outcome.
+    /// </remarks>
+    public sealed class RegisterOverrideRequestDTO
+    {
+        /// <summary>The override as the terminal numbered it. A resend with the same id records once.</summary>
+        public Guid ClientOverrideId { get; set; }
+
+        public Guid SupervisorUserId { get; set; }
+        public string TerminalId { get; set; } = string.Empty;
+
+        /// <summary>The basket it happened in. Empty when no sale was open.</summary>
+        public Guid ClientSaleId { get; set; }
+
+        public string Permission { get; set; } = string.Empty;
+        public bool Succeeded { get; set; }
+
+        /// <summary>When it happened, per the terminal clock, in UTC.</summary>
+        public DateTime OccurredAt { get; set; }
+    }
 }
