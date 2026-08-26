@@ -68,7 +68,8 @@ namespace EvangelionERPV2.Test.Security
                 kmsProvider,
                 tokenService,
                 emailService,
-                new RecaptchaVerifier(new HttpClient(), configuration, kmsProvider));
+                new RecaptchaVerifier(new HttpClient(), configuration, kmsProvider),
+                new PasswordLoginService(userRepository));
         }
 
         private static object GetResetPasswordRateLimitDictionary()

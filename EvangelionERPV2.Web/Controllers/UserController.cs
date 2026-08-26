@@ -36,6 +36,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly TokenService _tokenService;
         private readonly IEmailService<EmailStructure> _emailService;
         private readonly IRecaptchaVerifier _recaptchaVerifier;
+        private readonly PasswordLoginService _passwordLoginService;
         private static readonly HttpClient _httpClient = new HttpClient();
         private static readonly ConcurrentDictionary<string, ResetPasswordRateLimitEntry> _resetPasswordRateLimit = new();
         private static readonly object _resetPasswordRateLimitSync = new();
@@ -65,7 +66,8 @@ namespace EvangelionERPV2.Web.Controllers
             AWSKMSKeyProvider kmsProvider,
             TokenService tokenService,
             IEmailService<EmailStructure> emailService,
-            IRecaptchaVerifier recaptchaVerifier)
+            IRecaptchaVerifier recaptchaVerifier,
+            PasswordLoginService passwordLoginService)
         {
             _userService = userService;
             _userRepository = userRepository;
@@ -75,6 +77,7 @@ namespace EvangelionERPV2.Web.Controllers
             _tokenService = tokenService;
             _emailService = emailService;
             _recaptchaVerifier = recaptchaVerifier;
+            _passwordLoginService = passwordLoginService;
         }
 
         /// <summary>
@@ -107,27 +110,12 @@ namespace EvangelionERPV2.Web.Controllers
                     return BadRequest("userName and password are required.");
 
                 // Usernames are only unique per enterprise, and the login request carries no
-                // tenant discriminator, so the password picks the account: verify against every
-                // active candidate and log in only when exactly one matches.
-                var candidates = await GetActivePasswordLoginCandidatesAsync(normalizedUserName);
+                // tenant discriminator, so the password picks the account. Shared with the till's
+                // own login so the two can never drift apart — see PasswordLoginService.
+                var login = await _passwordLoginService.AuthenticateAsync(normalizedUserName, request.Password);
 
-                Shared.Entities.User? user = null;
-                var needsRehash = false;
-                foreach (var candidate in candidates)
-                {
-                    if (!SharedFunctions.VerifyPassword(request.Password, candidate.Password, out var candidateNeedsRehash))
-                        continue;
-
-                    if (user != null)
-                    {
-                        // Same username and password active in more than one tenant — ambiguous.
-                        user = null;
-                        break;
-                    }
-
-                    user = candidate;
-                    needsRehash = candidateNeedsRehash;
-                }
+                var user = login.User;
+                var needsRehash = login.NeedsRehash;
 
                 if (user == null)
                     return Unauthorized();
@@ -358,23 +346,6 @@ namespace EvangelionERPV2.Web.Controllers
             return (token, refreshToken);
         }
 
-        private async Task<IReadOnlyList<Shared.Entities.User>> GetActivePasswordLoginCandidatesAsync(string normalizedUserName)
-        {
-            if (string.IsNullOrWhiteSpace(normalizedUserName))
-                return Array.Empty<Shared.Entities.User>();
-
-            var normalizedUserNameLower = normalizedUserName.ToLowerInvariant();
-            return (await _userRepository.GetAllAsyncByFilter(
-                    descending: false,
-                    pageNumber: 1,
-                    pageSize: MaxPasswordLoginCandidates,
-                    predicate: x =>
-                        x.IsActive == true &&
-                        x.UserName != null &&
-                        x.UserName.ToLower() == normalizedUserNameLower,
-                    orderBy: x => x.Id))
-                .ToList();
-        }
 
         private static string NormalizeUserName(string? userName)
         {

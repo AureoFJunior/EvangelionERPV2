@@ -334,6 +334,9 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     {
         client.Timeout = TimeSpan.FromSeconds(5);
     });
+
+    // One password check, shared by the web login and the till's. Scoped: it holds a repository.
+    builder.Services.AddScoped<PasswordLoginService>();
 }
 
 static void SetupCors(WebApplicationBuilder builder)
