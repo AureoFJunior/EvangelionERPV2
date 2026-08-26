@@ -103,6 +103,15 @@ namespace EvangelionERPV2.Web.Security
             Products.DeletePicture,
             Products.ReadCost,
 
+            Pdv.Operate,
+            Pdv.OpenSession,
+            Pdv.CloseSession,
+            Pdv.CashMovement,
+            Pdv.ApplyDiscount,
+            Pdv.OverrideDiscount,
+            Pdv.CancelSale,
+            Pdv.ReadReports,
+
             Reports.Read,
             Reports.Generate,
 
@@ -348,6 +357,33 @@ namespace EvangelionERPV2.Web.Security
             /// into ProductDTO and OrderDTO, which is why the coverage test does not list it.
             /// </summary>
             public const string ReadCost = "products.cost.read";
+        }
+
+        /// <summary>
+        /// The till. Split finely on purpose: the operator who rings sales all day is not the
+        /// person who should be able to open the drawer for a sangria or void a completed sale.
+        /// </summary>
+        public static class Pdv
+        {
+            /// <summary>Ring up and sync sales. The floor operator's permission.</summary>
+            public const string Operate = "pdv.operate";
+
+            public const string OpenSession = "pdv.session.open";
+            public const string CloseSession = "pdv.session.close";
+
+            /// <summary>Sangria and suprimento — taking cash out of the drawer, or adding it.</summary>
+            public const string CashMovement = "pdv.cash.movement";
+
+            /// <summary>A discount within whatever the shop lets an operator give.</summary>
+            public const string ApplyDiscount = "pdv.discount.apply";
+
+            /// <summary>A discount past that, which is why it is a separate, supervisor-tier grant.</summary>
+            public const string OverrideDiscount = "pdv.discount.override";
+
+            public const string CancelSale = "pdv.sale.cancel";
+
+            /// <summary>The X and Z readings, which show the day's takings.</summary>
+            public const string ReadReports = "pdv.reports.read";
         }
 
         public static class Quotes

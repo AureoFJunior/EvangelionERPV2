@@ -18,7 +18,12 @@ namespace EvangelionERPV2.OrderModule.Application.Interface
         /// Skips the customer's credit limit. Defaulted, so the RabbitMQ path enforces it and only
         /// a controller that checked customers.credit.override can turn it off.
         /// </param>
-        Task<Order> CreateAsync(Order order, bool allowCreditOverride = false);
+        /// <param name="allowNegativeStock">
+        /// Lets the sale post even when stock says there is not enough. Only the PDV offline sync
+        /// sets it: that sale already happened at the till, so refusing it here would lose the
+        /// revenue without putting the goods back on the shelf.
+        /// </param>
+        Task<Order> CreateAsync(Order order, bool allowCreditOverride = false, bool allowNegativeStock = false);
         Task<Order> RefundAsync(Guid id, Guid enterpriseId, string reason);
         Task<IEnumerable<Order>> GetByEnterpriseIdAsync(Guid enterpriseId, int? pageNumber = null, int? pageSize = null);
         Task<Order?> GetByIdAsync(Guid id, Guid enterpriseId);

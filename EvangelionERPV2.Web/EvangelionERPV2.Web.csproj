@@ -80,6 +80,7 @@
     <ProjectReference Include="..\EvangelionERPV2.Order.Domain\EvangelionERPV2.OrderModule.Domain.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Order.Infra\EvangelionERPV2.OrderModule.Infra.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Product.Application\EvangelionERPV2.ProductModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Pdv.Application\EvangelionERPV2.PdvModule.Application.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Product.Domain\EvangelionERPV2.ProductModule.Domain.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Product.Infra\EvangelionERPV2.ProductModule.Infra.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Shared\EvangelionERPV2.Shared.csproj" />

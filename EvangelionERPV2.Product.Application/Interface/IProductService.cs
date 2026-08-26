@@ -12,19 +12,30 @@ namespace EvangelionERPV2.ProductModule.Application.Interface
 
         #region Async
         public Task<TEntity> CreateAsync(ProductPicture product);
-        public Task UpdateForOrder(Order order);
+        /// <param name="allowNegativeStock">
+        /// Threaded straight to <see cref="ApplyStockMovementAsync"/>. See the note there: only a
+        /// PDV offline sale sets it, because that sale is already history by the time it arrives.
+        /// </param>
+        public Task UpdateForOrder(Order order, bool allowNegativeStock = false);
 
         /// <summary>
         /// The one shared entry point for changing stock: moves the quantity, writes the
         /// <see cref="StockMovement"/> that explains it and invalidates the product cache, so no
         /// caller can do one without the others.
         /// </summary>
+        /// <param name="allowNegative">
+        /// Lets the balance go below zero. Only the PDV offline-sale sync passes true: that sale
+        /// already happened, the customer already left with the goods, and refusing the movement
+        /// would lose the sale rather than restore the stock. The resulting negative balance is a
+        /// count discrepancy to be reported, which is the honest record of what occurred.
+        /// </param>
         Task<StockMovement> ApplyStockMovementAsync(
             Guid productId,
             Guid enterpriseId,
             decimal quantityDelta,
             EnumStockMovementType type,
-            Guid? referenceId);
+            Guid? referenceId,
+            bool allowNegative = false);
         public Task<TEntity> UpdateAsync(Product product);
         Task<Product> UpdatePictureAsync(ProductPicture productPicture);
         Task<string> GetProductsBodyAsync(Enterprise? enterprise);

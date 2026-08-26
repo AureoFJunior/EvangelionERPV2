@@ -114,7 +114,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
         }
 
-        public async Task UpdateForOrder(Order order)
+        public async Task UpdateForOrder(Order order, bool allowNegativeStock = false)
         {
             try
             {
@@ -138,7 +138,8 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                         enterpriseId,
                         -orderedProduct.Quantity,
                         EnumStockMovementType.Sale,
-                        order.Id);
+                        order.Id,
+                        allowNegativeStock);
                 }
             }
             catch (NotFoundDatabaseException)
@@ -165,7 +166,8 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             Guid enterpriseId,
             decimal quantityDelta,
             EnumStockMovementType type,
-            Guid? referenceId)
+            Guid? referenceId,
+            bool allowNegative = false)
         {
             if (productId == Guid.Empty)
                 throw new InsertDatabaseException("Product is required for a stock movement.");
@@ -182,10 +184,10 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             // order refund) must keep the movement row inside it, so their rollback also undoes
             // the ledger. Nesting BeginTransactionAsync would throw instead.
             if (_appDbContext.Database.CurrentTransaction != null)
-                return await ApplyStockMovementCoreAsync(productId, enterpriseId, quantityDelta, type, referenceId);
+                return await ApplyStockMovementCoreAsync(productId, enterpriseId, quantityDelta, type, referenceId, allowNegative);
 
             return await _productRepository.ExecuteInTransactionAsync(
-                () => ApplyStockMovementCoreAsync(productId, enterpriseId, quantityDelta, type, referenceId));
+                () => ApplyStockMovementCoreAsync(productId, enterpriseId, quantityDelta, type, referenceId, allowNegative));
         }
 
         /// <summary>
@@ -210,7 +212,8 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             Guid enterpriseId,
             decimal quantityDelta,
             EnumStockMovementType type,
-            Guid? referenceId)
+            Guid? referenceId,
+            bool allowNegative)
         {
             var now = DateTime.UtcNow;
 
@@ -219,8 +222,15 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             // stock and both succeed. "StorageQuantity + delta >= 0" is the same guard the sale
             // path always had (delta < 0 makes it StorageQuantity >= quantity), written so a
             // return or a receipt can share the one statement instead of forking the flow.
-            var affectedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"UPDATE Product SET StorageQuantity = StorageQuantity + {quantityDelta}, UpdatedAt = {now} WHERE Id = {productId} AND EnterpriseId = {enterpriseId} AND IsActive = 1 AND StorageQuantity + {quantityDelta} >= 0");
+            // allowNegative drops only the "would not go below zero" clause. Everything else that
+            // makes the statement safe — the tenant check, the active check, and reading the
+            // current value inside the same statement that writes it — still applies, so a PDV
+            // sync can still never touch another tenant's product or resurrect a deleted one.
+            var affectedRows = allowNegative
+                ? await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE Product SET StorageQuantity = StorageQuantity + {quantityDelta}, UpdatedAt = {now} WHERE Id = {productId} AND EnterpriseId = {enterpriseId} AND IsActive = 1")
+                : await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE Product SET StorageQuantity = StorageQuantity + {quantityDelta}, UpdatedAt = {now} WHERE Id = {productId} AND EnterpriseId = {enterpriseId} AND IsActive = 1 AND StorageQuantity + {quantityDelta} >= 0");
 
             // Zero rows means the product is gone, inactive, owned by another enterprise, or the
             // quantity would go negative; the statement cannot say which. For a decrement the
@@ -228,7 +238,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             // prefix to a user-facing message — an increment cannot be short of stock, so it says
             // what it actually means instead.
             if (affectedRows <= 0)
-                throw new InsertDatabaseException(quantityDelta < 0
+                throw new InsertDatabaseException(quantityDelta < 0 && !allowNegative
                     ? $"Insufficient stock for product [{productId}]."
                     : $"Product [{productId}] was not found.");
 

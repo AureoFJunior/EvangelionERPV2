@@ -1,0 +1,41 @@
+using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
+
+namespace EvangelionERPV2.PdvModule.Application.Interface
+{
+    /// <summary>
+    /// Everything a till asks of the ERP.
+    /// </summary>
+    /// <remarks>
+    /// No repository interface sits under this. The module owns no entity of its own that needs a
+    /// custom query language — it composes <c>OrderService</c>, <c>ProductService</c> and the
+    /// generic <c>IRepository&lt;T&gt;</c> — so a per-entity repository contract here would be an
+    /// interface with one implementation and no callers but this file.
+    /// </remarks>
+    public interface IPdvService
+    {
+        /// <summary>Opens a till session, or returns the one already open for that client id.</summary>
+        Task<CashSession> OpenSessionAsync(OpenCashSessionRequestDTO request, Guid enterpriseId, Guid userId);
+
+        /// <summary>Closes it against a count the operator committed to before seeing the expected figure.</summary>
+        Task<CashSessionSummaryDTO> CloseSessionAsync(CloseCashSessionRequestDTO request, Guid enterpriseId, Guid userId);
+
+        /// <summary>Records a sangria or a suprimento.</summary>
+        Task<CashMovement> RegisterMovementAsync(CashMovementRequestDTO request, Guid enterpriseId, Guid userId);
+
+        /// <summary>
+        /// Turns a till sale into an <see cref="Order"/>. Safe to call more than once with the same
+        /// <see cref="PdvSaleSyncRequestDTO.ClientSaleId"/>.
+        /// </summary>
+        Task<PdvSaleSyncResultDTO> SyncSaleAsync(PdvSaleSyncRequestDTO request, Guid enterpriseId, Guid userId);
+
+        Task<CashSessionSummaryDTO> GetSessionSummaryAsync(Guid clientSessionId, Guid enterpriseId, bool includeExpectedCash);
+
+        /// <summary>Products changed since the terminal last asked, for its local mirror.</summary>
+        Task<PdvCatalogPageDTO> GetCatalogAsync(DateTime? since, Guid enterpriseId, int pageSize);
+
+        /// <summary>The session currently open on a terminal, if any.</summary>
+        Task<CashSession?> GetOpenSessionAsync(string terminalId, Guid enterpriseId);
+    }
+}

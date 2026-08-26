@@ -66,7 +66,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// queued path — which has no user behind it — always enforces; the controller sets it only
         /// for a caller holding customers.credit.override.
         /// </param>
-        public async Task<Order> CreateAsync(Order order, bool allowCreditOverride = false)
+        /// <param name="allowNegativeStock">
+        /// Threaded to the stock path. Only the PDV offline sync sets it, and only because that
+        /// sale is already history: the customer has the goods and refusing the movement would
+        /// lose the revenue without restoring the stock. Defaulted so no existing caller changes,
+        /// exactly like <paramref name="allowCreditOverride"/>.
+        /// </param>
+        public async Task<Order> CreateAsync(Order order, bool allowCreditOverride = false, bool allowNegativeStock = false)
         {
             try
             {
@@ -96,7 +102,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     await _orderedProductRepository.CreateRangeAsync(order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>());
 
                     // Update product quantity and needed fields for this flow
-                    await _productService.UpdateForOrder(order);
+                    await _productService.UpdateForOrder(order, allowNegativeStock);
 
                     await _orderRepository.CommitAsync();
                     await _orderedProductRepository.CommitAsync();

@@ -13,6 +13,13 @@ namespace EvangelionERPV2.Web.Security
 
             RbacPermissions.Orders.Read,
             RbacPermissions.Orders.Create,
+
+            // The floor operator. Opens and closes their own till and rings sales, which is the
+            // whole job — but cannot open the drawer for a sangria or void a completed sale.
+            RbacPermissions.Pdv.Operate,
+            RbacPermissions.Pdv.OpenSession,
+            RbacPermissions.Pdv.CloseSession,
+            RbacPermissions.Pdv.ApplyDiscount,
         ];
 
         private static readonly string[] SupervisorPermissions =
@@ -50,6 +57,13 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Products.DeletePicture,
 
             // Quoting is selling: same tier as creating the order it becomes.
+            // Supervisor tier: cash leaving the drawer, a discount past the operator's ceiling,
+            // voiding a sale that already happened, and the readings that show the day's takings.
+            RbacPermissions.Pdv.CashMovement,
+            RbacPermissions.Pdv.OverrideDiscount,
+            RbacPermissions.Pdv.CancelSale,
+            RbacPermissions.Pdv.ReadReports,
+
             RbacPermissions.Quotes.Read,
             RbacPermissions.Quotes.Create,
             RbacPermissions.Quotes.Update,

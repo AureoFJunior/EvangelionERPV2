@@ -298,6 +298,127 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("BillNumberSequence");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.CashMovement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("CashSessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClientMovementId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("ReferenceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CashSessionId", "CreatedAt");
+
+                    b.HasIndex("EnterpriseId", "ClientMovementId")
+                        .IsUnique();
+
+                    b.ToTable("CashMovement");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.CashSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClientSessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal?>("CountedAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal?>("Difference")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("ExpectedAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("OpenedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("OpeningFloat")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TerminalId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("EnterpriseId", "ClientSessionId")
+                        .IsUnique();
+
+                    b.HasIndex("EnterpriseId", "TerminalId")
+                        .IsUnique()
+                        .HasFilter("[Status] = 1");
+
+                    b.HasIndex("EnterpriseId", "TerminalId", "Status");
+
+                    b.ToTable("CashSession");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Customer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1904,6 +2025,120 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("PayrollBillDetail");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PdvSale", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CashSessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClientSaleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("OrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RejectReason")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateTime>("SoldAtLocal")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("SurchargeAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("SyncedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("TerminalId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CashSessionId");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("EnterpriseId", "ClientSaleId")
+                        .IsUnique();
+
+                    b.ToTable("PdvSale");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PdvSalePayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("AuthorizationCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<decimal>("ChangeGiven")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("Installments")
+                        .HasColumnType("int");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Method")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("PdvSaleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PdvSaleId");
+
+                    b.ToTable("PdvSalePayment");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1999,6 +2234,10 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<string>("PictureAdress")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("Sku")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
                     b.Property<decimal>("StorageQuantity")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,4)");
@@ -2016,7 +2255,9 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("EnterpriseId");
+                    b.HasIndex("EnterpriseId", "Cean");
+
+                    b.HasIndex("EnterpriseId", "Sku");
 
                     b.ToTable("Product");
                 });
@@ -2466,6 +2707,28 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("Enterprise");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.CashMovement", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.CashSession", "CashSession")
+                        .WithMany("Movements")
+                        .HasForeignKey("CashSessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CashSession");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.CashSession", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Customer", b =>
                 {
                     b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
@@ -2769,6 +3032,35 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("PayableBill");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PdvSale", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.CashSession", "CashSession")
+                        .WithMany()
+                        .HasForeignKey("CashSessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Order", "Order")
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CashSession");
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PdvSalePayment", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.PdvSale", "PdvSale")
+                        .WithMany("Payments")
+                        .HasForeignKey("PdvSaleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PdvSale");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
                 {
                     b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
@@ -2873,6 +3165,11 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("Enterprise");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.CashSession", b =>
+                {
+                    b.Navigation("Movements");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Customer", b =>
                 {
                     b.Navigation("Order");
@@ -2906,6 +3203,11 @@ namespace EvangelionERPV2.Shared.Migrations
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PayableBill", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PdvSale", b =>
+                {
+                    b.Navigation("Payments");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>

@@ -1126,15 +1126,15 @@ namespace EvangelionERPV2.BillsModule.Test
             service
                 .Setup(x => x.ApplyStockMovementAsync(
                     It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
-                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>()))
-                .ReturnsAsync((Guid productId, Guid enterpriseId, decimal delta, EnumStockMovementType type, Guid? referenceId) =>
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid enterpriseId, decimal delta, EnumStockMovementType type, Guid? referenceId, bool allowNegative) =>
                 {
                     var product = products.FirstOrDefault(x =>
                         x.Id == productId && x.EnterpriseId == enterpriseId && x.IsActive == true);
 
                     // Mirrors the real compare-and-swap: no row, or a delta that would take the
                     // balance below zero, and nothing moves.
-                    if (product == null || product.StorageQuantity + delta < 0)
+                    if (product == null || (product.StorageQuantity + delta < 0 && !allowNegative))
                         throw new InsertDatabaseException(delta < 0
                             ? $"Insufficient stock for product [{productId}]."
                             : $"Product [{productId}] was not found.");

@@ -25,8 +25,8 @@ namespace EvangelionERPV2.Test.Security
 
             orderService
                 .Setup(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
-                .Callback<Order, bool>((order, _) => capturedOrder = order)
-                .ReturnsAsync((Order order, bool _) => order);
+                .Callback<Order, bool, bool>((order, _, _) => capturedOrder = order)
+                .ReturnsAsync((Order order, bool _, bool _) => order);
 
             var controller = CreateController(
                 orderService.Object,

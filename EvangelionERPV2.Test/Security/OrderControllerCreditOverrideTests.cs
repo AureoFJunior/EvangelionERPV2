@@ -36,8 +36,8 @@ namespace EvangelionERPV2.Test.Security
             var orderService = new Mock<IOrderService<Order>>();
             orderService
                 .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
-                .Callback<Order, bool>((_, allowOverride) => overrideSeen = allowOverride)
-                .ReturnsAsync((Order order, bool _) => order);
+                .Callback<Order, bool, bool>((_, allowOverride, _) => overrideSeen = allowOverride)
+                .ReturnsAsync((Order order, bool _, bool _) => order);
 
             var controller = CreateController(orderService.Object, enterpriseId, userId, authorized);
 
@@ -64,8 +64,8 @@ namespace EvangelionERPV2.Test.Security
             var orderService = new Mock<IOrderService<Order>>();
             orderService
                 .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
-                .Callback<Order, bool>((_, allowOverride) => overrideSeen = allowOverride)
-                .ReturnsAsync((Order order, bool _) => order);
+                .Callback<Order, bool, bool>((_, allowOverride, _) => overrideSeen = allowOverride)
+                .ReturnsAsync((Order order, bool _, bool _) => order);
 
             var controller = CreateController(orderService.Object, enterpriseId, userId, authorized: true);
 

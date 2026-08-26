@@ -1,10 +1,19 @@
 using EvangelionERPV2.Shared.Enums;
+using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Shared.Entities
 {
+    // Two lookup indexes for the till. A checkout scan resolves a product from a barcode on every
+    // single item, so without these it is a table scan per beep. Both lead with EnterpriseId
+    // because every query is already tenant-scoped by the global filter, and neither is unique:
+    // GTIN collisions across tenants are none of our business, and within a tenant a shop that
+    // reuses a code on two products has a data problem the till should surface, not a write the
+    // database should refuse mid-import.
+    [Index(nameof(EnterpriseId), nameof(Cean))]
+    [Index(nameof(EnterpriseId), nameof(Sku))]
     public class Product : BaseEntity
     {
         public Product() { }
@@ -40,6 +49,18 @@ namespace EvangelionERPV2.Shared.Entities
         public bool IsExternal { get; set; } = false;
         public bool IsService { get; set; } = false;
         public string? PictureAdress { get; set; }
+
+        /// <summary>
+        /// The shop's own code for the item, as printed on a shelf label or an internal barcode.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately separate from <see cref="Cean"/>, which is a GTIN the manufacturer owns and
+        /// a loose product (bulk rice, a tailored garment) will never have. The till resolves a
+        /// scan against both, so a store can label its own goods without inventing fake GTINs —
+        /// which is what happens otherwise, and those fake codes then get emitted to SEFAZ.
+        /// </remarks>
+        [MaxLength(40)]
+        public string? Sku { get; set; }
 
         #region Fiscal (NFe/NFCe)
 

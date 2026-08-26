@@ -832,7 +832,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                     enterpriseId,
                     4m,
                     EnumStockMovementType.Refund,
-                    orderId),
+                    orderId,
+                    false),
                 Times.Once);
             _mockIOrderedProductRepository.Verify(r => r.UpdateRange(It.IsAny<IEnumerable<OrderedProduct>>()), Times.Once);
             _mockIOrderRepository.Verify(r => r.Update(It.IsAny<Order>()), Times.Once);

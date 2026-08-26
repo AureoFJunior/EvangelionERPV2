@@ -102,7 +102,7 @@ namespace EvangelionERPV2.OrderModule.Test
             Order? created = null;
             orderService
                 .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
-                .ReturnsAsync((Order order, bool _) =>
+                .ReturnsAsync((Order order, bool _, bool _) =>
                 {
                     order.Id = Guid.NewGuid();
                     created = order;
@@ -179,7 +179,7 @@ namespace EvangelionERPV2.OrderModule.Test
             bool? seen = null;
             orderService
                 .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
-                .ReturnsAsync((Order order, bool allowOverride) =>
+                .ReturnsAsync((Order order, bool allowOverride, bool _) =>
                 {
                     order.Id = Guid.NewGuid();
                     seen = allowOverride;

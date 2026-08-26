@@ -10,6 +10,7 @@ using EvangelionERPV2.EnterpriseModule.Application.DI;
 using EvangelionERPV2.NFeModule.Application.DI;
 using EvangelionERPV2.OpportunityRadarModule.Application.DI;
 using EvangelionERPV2.OrderModule.Application.DI;
+using EvangelionERPV2.PdvModule.Application.DI;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.ReportsModule.Application.DI;
 using EvangelionERPV2.SupplierModule.Application.DI;
@@ -325,6 +326,7 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     EmailIoC.Configure(builder.Services, builder.Configuration);
     OpportunityRadarIoC.Configure(builder.Services, builder.Configuration);
     ReportsIoC.Configure(builder.Services, builder.Configuration);
+    PdvIoC.Configure(builder.Services, builder.Configuration);
     SharedIoC.Configure(builder.Services, builder.Configuration);
 
     // reCAPTCHA verification (short timeout, fail-closed for auth endpoints).

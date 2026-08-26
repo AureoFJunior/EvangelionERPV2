@@ -1,5 +1,6 @@
 using EvangelionERPV2.Shared.Auditing;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -62,6 +63,10 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<OrderedProduct> OrderedProduct { get; set; }
         public DbSet<Product> Product { get; set; }
         public DbSet<StockMovement> StockMovement { get; set; }
+        public DbSet<CashSession> CashSession { get; set; }
+        public DbSet<CashMovement> CashMovement { get; set; }
+        public DbSet<PdvSale> PdvSale { get; set; }
+        public DbSet<PdvSalePayment> PdvSalePayment { get; set; }
         public DbSet<Quote> Quote { get; set; }
         public DbSet<QuoteItem> QuoteItem { get; set; }
         public DbSet<QuoteNumberSequence> QuoteNumberSequence { get; set; }
@@ -508,6 +513,52 @@ namespace EvangelionERPV2.Shared.Context
                 .WithMany()
                 .HasForeignKey(audit => audit.UserId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            // One open session per till, not one session per till for all time: a closed session
+            // drops out of the index so tomorrow's shift can open a new one. Filtered on Status
+            // rather than IsActive for the reason spelled out on the Bill index above — IsActive is
+            // nullable, and SQL Server excludes NULL from an "[IsActive] = 1" filter, which would
+            // quietly stop guarding exactly the rows nobody looked at.
+            modelBuilder.Entity<CashSession>()
+                .HasIndex(session => new { session.EnterpriseId, session.TerminalId })
+                .HasFilter($"[Status] = {(int)EnumCashSessionStatus.Open}")
+                .IsUnique();
+
+            // Restrict, not Cascade: a session is the evidence of who was accountable for a
+            // drawer, and deleting the operator's user row must not take the shift's cash history
+            // with it. Also avoids a second cascade path into Enterprise via User.
+            modelBuilder.Entity<CashSession>()
+                .HasOne(session => session.User)
+                .WithMany()
+                .HasForeignKey(session => session.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashMovement>()
+                .HasOne(movement => movement.CashSession)
+                .WithMany(session => session.Movements)
+                .HasForeignKey(movement => movement.CashSessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict on both sides. A PdvSale is the idempotency key for an order that was
+            // already rung up and paid for; if it could be cascaded away, the terminal's retry of
+            // that sale would find nothing in the unique index and sell the basket a second time.
+            modelBuilder.Entity<PdvSale>()
+                .HasOne(sale => sale.Order)
+                .WithMany()
+                .HasForeignKey(sale => sale.OrderId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PdvSale>()
+                .HasOne(sale => sale.CashSession)
+                .WithMany()
+                .HasForeignKey(sale => sale.CashSessionId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PdvSalePayment>()
+                .HasOne(payment => payment.PdvSale)
+                .WithMany(sale => sale.Payments)
+                .HasForeignKey(payment => payment.PdvSaleId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             ApplyTenantQueryFilters(modelBuilder);
         }
