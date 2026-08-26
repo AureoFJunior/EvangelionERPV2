@@ -2139,6 +2139,48 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("PdvSalePayment");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.PdvTerminal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CredentialVerifier")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsRevoked")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastSeenAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("TerminalId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId", "TerminalId")
+                        .IsUnique();
+
+                    b.ToTable("PdvTerminal");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
                 {
                     b.Property<Guid>("Id")

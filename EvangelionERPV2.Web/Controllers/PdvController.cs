@@ -1,11 +1,14 @@
 using EvangelionERPV2.PdvModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
 using System.Security.Claims;
+using System.Security.Cryptography;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -23,6 +26,10 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxSaleRequestBodySizeInBytes = 256 * 1024;
         private const int MaxBatchRequestBodySizeInBytes = 2 * 1024 * 1024;
 
+        // A terminal id and nothing else. Anything larger is a bug or an attack.
+        private const int MaxEnrollRequestBodySizeInBytes = 4 * 1024;
+        private const int MaxTerminalIdLength = 64;
+
         private const int DefaultCatalogPageSize = 500;
         private const int MaxCatalogPageSize = 1000;
 
@@ -31,10 +38,64 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxSalesPerBatch = 200;
 
         private readonly IPdvService _pdvService;
+        private readonly IRepository<PdvTerminal> _terminalRepository;
 
-        public PdvController(IPdvService pdvService)
+        public PdvController(IPdvService pdvService, IRepository<PdvTerminal> terminalRepository)
         {
             _pdvService = pdvService;
+            _terminalRepository = terminalRepository;
+        }
+
+        /// <summary>
+        /// Enrolls a till and returns its credential, once.
+        /// </summary>
+        /// <remarks>
+        /// Supervisor tier, not operator: adding a terminal that can reach the login endpoint is a
+        /// management action. The credential is generated here and never stored in the clear, so
+        /// this response is the only time anyone sees it.
+        /// </remarks>
+        [HttpPost]
+        [RequestSizeLimit(MaxEnrollRequestBodySizeInBytes)]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.CashMovement)]
+        [ProducesResponseType(typeof(EnrollTerminalResponseDTO), 200)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        [ProducesResponseType(409)]
+        public async Task<IActionResult> EnrollTerminal([FromBody] EnrollTerminalRequestDTO request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var terminalId = (request?.TerminalId ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(terminalId) || terminalId.Length > MaxTerminalIdLength)
+                return BadRequest("terminalId is required.");
+
+            var existing = await _terminalRepository.GetAllAsync(
+                x => x.EnterpriseId == enterpriseId && x.TerminalId == terminalId);
+
+            // Re-enrolling silently would mint a second credential for a till that already has one
+            // and leave the first working. Rotation should be an explicit act, not a side effect.
+            if (existing.Any())
+                return Conflict($"Terminal [{terminalId}] is already enrolled.");
+
+            var credential = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+            var terminal = PdvTerminal.Enroll(enterpriseId, terminalId, credential);
+
+            await _terminalRepository.CreateAsync(terminal);
+            await _terminalRepository.CommitAsync();
+
+            Log.Logger.Information(
+                "PDV terminal enrolled. TerminalId={TerminalId}", terminalId);
+
+            return Ok(new EnrollTerminalResponseDTO
+            {
+                TerminalId = terminal.TerminalId,
+                Credential = credential
+            });
         }
 
         [HttpPost]

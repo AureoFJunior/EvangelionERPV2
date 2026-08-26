@@ -109,4 +109,10 @@ namespace EvangelionERPV2.Shared.DTOs
     {
         public IEnumerable<PdvSaleSyncRequestDTO> Sales { get; set; } = [];
     }
+
+    /// <summary>Enrolls one till and mints its credential.</summary>
+    public sealed class EnrollTerminalRequestDTO
+    {
+        public string TerminalId { get; set; } = string.Empty;
+    }
 }

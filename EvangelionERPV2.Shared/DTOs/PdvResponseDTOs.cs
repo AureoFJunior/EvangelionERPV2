@@ -136,4 +136,18 @@ namespace EvangelionERPV2.Shared.DTOs
         public DateTime? NextCursor { get; set; }
         public bool HasMore { get; set; }
     }
+
+    /// <summary>
+    /// The credential for a newly enrolled till.
+    /// </summary>
+    /// <remarks>
+    /// Returned exactly once. Only a PBKDF2 verifier is stored, so nothing can retrieve this value
+    /// afterwards — a lost credential means re-enrolling the terminal, which is the correct cost of
+    /// storing it properly.
+    /// </remarks>
+    public sealed class EnrollTerminalResponseDTO
+    {
+        public string TerminalId { get; set; } = string.Empty;
+        public string Credential { get; set; } = string.Empty;
+    }
 }

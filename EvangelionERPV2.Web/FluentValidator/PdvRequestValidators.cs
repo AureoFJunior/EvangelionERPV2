@@ -152,4 +152,14 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleForEach(x => x.Sales).SetValidator(new PdvSaleSyncRequestValidator());
         }
     }
+
+    public sealed class EnrollTerminalRequestValidator : AbstractValidator<EnrollTerminalRequestDTO>
+    {
+        public EnrollTerminalRequestValidator()
+        {
+            RuleFor(x => x.TerminalId)
+                .NotEmpty().WithMessage("TerminalId is required.")
+                .MaximumLength(64).WithMessage("TerminalId is too long.");
+        }
+    }
 }
