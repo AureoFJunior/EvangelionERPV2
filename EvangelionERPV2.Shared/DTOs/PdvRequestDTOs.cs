@@ -115,4 +115,18 @@ namespace EvangelionERPV2.Shared.DTOs
     {
         public string TerminalId { get; set; } = string.Empty;
     }
+
+    /// <summary>
+    /// An operator logging in at a till.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately carries no reCAPTCHA field: a desktop terminal has no browser and cannot solve
+    /// one. The enrolled terminal credential in the <c>X-Pdv-Terminal</c> header is what replaces
+    /// the human-presence check, which is why that header is not optional.
+    /// </remarks>
+    public sealed class PdvLoginRequestDTO
+    {
+        public string UserName { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
 }

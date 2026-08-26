@@ -2,6 +2,7 @@ using EvangelionERPV2.PdvModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.UserModule.Application.Token;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
@@ -30,6 +31,16 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxEnrollRequestBodySizeInBytes = 4 * 1024;
         private const int MaxTerminalIdLength = 64;
 
+        // A username, a password and nothing else.
+        private const int MaxLoginRequestBodySizeInBytes = 4 * 1024;
+
+        /// <summary>Header a till identifies itself with: <c>terminalId:credential</c>.</summary>
+        private const string TerminalHeaderName = "X-Pdv-Terminal";
+
+        // Terminal ids are unique per enterprise, not globally, so one id can name a till in more
+        // than one tenant. The cap stops a crafted id from pulling an unbounded page into memory.
+        private const int MaxTerminalLoginCandidates = 20;
+
         private const int DefaultCatalogPageSize = 500;
         private const int MaxCatalogPageSize = 1000;
 
@@ -39,11 +50,19 @@ namespace EvangelionERPV2.Web.Controllers
 
         private readonly IPdvService _pdvService;
         private readonly IRepository<PdvTerminal> _terminalRepository;
+        private readonly PasswordLoginService _passwordLogin;
+        private readonly TokenService _tokenService;
 
-        public PdvController(IPdvService pdvService, IRepository<PdvTerminal> terminalRepository)
+        public PdvController(
+            IPdvService pdvService,
+            IRepository<PdvTerminal> terminalRepository,
+            PasswordLoginService passwordLogin,
+            TokenService tokenService)
         {
             _pdvService = pdvService;
             _terminalRepository = terminalRepository;
+            _passwordLogin = passwordLogin;
+            _tokenService = tokenService;
         }
 
         /// <summary>
@@ -96,6 +115,126 @@ namespace EvangelionERPV2.Web.Controllers
                 TerminalId = terminal.TerminalId,
                 Credential = credential
             });
+        }
+
+        /// <summary>
+        /// Logs an operator in at an enrolled till.
+        /// </summary>
+        /// <remarks>
+        /// Separate from <c>UserController.LogInto</c> because a terminal has no browser and cannot
+        /// solve a reCAPTCHA. The enrolled terminal credential replaces that human-presence check;
+        /// it authorises nothing on its own, every permission still comes from the operator's role.
+        ///
+        /// The token issued here is stamped <see cref="PdvTokenScope"/>, so a credential lifted off
+        /// a shop-floor machine reaches the till and only the till.
+        ///
+        /// Every rejection returns the same bare 401. Telling "no such terminal" apart from "wrong
+        /// password" would turn this into an oracle for enumerating terminal ids and usernames.
+        /// </remarks>
+        [HttpPost]
+        [AllowAnonymous]
+        [RequestSizeLimit(MaxLoginRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(PdvLoginResponseDTO), 200)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(401)]
+        public async Task<IActionResult> Login([FromBody] PdvLoginRequestDTO request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.UserName) ||
+                string.IsNullOrWhiteSpace(request.Password))
+                return BadRequest("userName and password are required.");
+
+            var terminal = await ResolveTerminalAsync();
+            if (terminal == null)
+                return Unauthorized();
+
+            var login = await _passwordLogin.AuthenticateAsync(request.UserName, request.Password);
+            if (login.User == null)
+                return Unauthorized();
+
+            // The terminal says only "this caller is a till we enrolled". An operator from another
+            // company logging in here would read this company's catalog.
+            if (login.User.EnterpriseId != terminal.EnterpriseId)
+                return Unauthorized();
+
+            var permissions = PdvTokenScope.PermissionsFor(login.User.AccessLevel);
+            if (permissions.Count == 0)
+                return Unauthorized();
+
+            terminal.LastSeenAt = DateTime.UtcNow;
+            _terminalRepository.Update(terminal);
+            await _terminalRepository.CommitAsync();
+
+            var token = _tokenService.GenerateToken(BuildPdvClaims(login.User, terminal.EnterpriseId));
+            var refreshToken = _tokenService.GenerateRefreshToken();
+            await _tokenService.SaveRefreshTokenAsync(login.User.Id, refreshToken);
+
+            return Ok(new PdvLoginResponseDTO
+            {
+                Token = token,
+                RefreshToken = refreshToken,
+                UserId = login.User.Id,
+                EnterpriseId = terminal.EnterpriseId,
+                Permissions = permissions
+            });
+        }
+
+        /// <summary>
+        /// Reads the <c>X-Pdv-Terminal</c> header and returns the terminal it authenticates, or
+        /// null. Logs every use of a terminal credential, accepted or not.
+        /// </summary>
+        private async Task<PdvTerminal?> ResolveTerminalAsync()
+        {
+            // Header form is "terminalId:credential". A credential is base64 and may contain '+'
+            // and '/' but never ':', so the first colon is the separator.
+            var header = Request.Headers[TerminalHeaderName].ToString();
+            var separator = header.IndexOf(':');
+            if (separator <= 0 || separator == header.Length - 1)
+                return null;
+
+            var terminalId = header[..separator];
+            var credential = header[(separator + 1)..];
+
+            if (terminalId.Length > MaxTerminalIdLength)
+                return null;
+
+            // The credential is what picks the tenant: the login carries no discriminator, and the
+            // same terminal id can name a till in more than one enterprise.
+            var candidates = (await _terminalRepository.GetAllAsync(
+                1, MaxTerminalLoginCandidates, x => x.TerminalId == terminalId)).ToList();
+
+            var terminal = candidates.FirstOrDefault(x => x.Verify(credential));
+
+            Log.Logger.Information(
+                "PDV terminal credential used. TerminalId={TerminalId} Accepted={Accepted}",
+                terminalId, terminal != null);
+
+            return terminal;
+        }
+
+        /// <summary>
+        /// The claim list <c>TokenService.GenerateToken(User, bool)</c> builds, plus the till scope.
+        /// The types must match that method or every existing authorization handler fails on these
+        /// tokens.
+        /// </summary>
+        private static IEnumerable<Claim> BuildPdvClaims(Shared.Entities.User user, Guid enterpriseId)
+        {
+            var userId = user.Id.ToString();
+
+            return
+            [
+                new Claim(ClaimTypes.Name, userId),
+                new Claim(ClaimTypes.GivenName, user.FirstName),
+                new Claim(ClaimTypes.Surname, user.LastName),
+                new Claim(ClaimTypes.NameIdentifier, userId),
+                new Claim(ClaimTypes.Sid, userId),
+                new Claim("uid", userId),
+                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
+                new Claim(PdvTokenScope.ClaimType, PdvTokenScope.ClaimValue)
+            ];
         }
 
         [HttpPost]

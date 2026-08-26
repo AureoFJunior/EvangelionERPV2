@@ -150,4 +150,21 @@ namespace EvangelionERPV2.Shared.DTOs
         public string TerminalId { get; set; } = string.Empty;
         public string Credential { get; set; } = string.Empty;
     }
+
+    /// <summary>
+    /// What a till gets back from a successful login.
+    /// </summary>
+    /// <remarks>
+    /// <c>Permissions</c> is the operator's <c>pdv.*</c> grants and nothing else — the till caches
+    /// them so it can grey out a button while offline. They are a mirror of the server's decision,
+    /// never the decision itself: every call is still authorised server-side.
+    /// </remarks>
+    public sealed class PdvLoginResponseDTO
+    {
+        public string Token { get; set; } = string.Empty;
+        public string RefreshToken { get; set; } = string.Empty;
+        public Guid UserId { get; set; }
+        public Guid EnterpriseId { get; set; }
+        public IReadOnlyList<string> Permissions { get; set; } = [];
+    }
 }

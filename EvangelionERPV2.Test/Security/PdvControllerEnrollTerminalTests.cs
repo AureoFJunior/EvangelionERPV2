@@ -3,7 +3,9 @@ using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.UserModule.Application.Token;
 using EvangelionERPV2.Web.Security;
+using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
@@ -100,7 +102,12 @@ namespace EvangelionERPV2.Test.Security
 
         private static PdvController CreateController(Mock<IRepository<PdvTerminal>> repository, Claim[] claims)
         {
-            return new PdvController(new Mock<IPdvService>(MockBehavior.Strict).Object, repository.Object)
+            return new PdvController(
+                new Mock<IPdvService>(MockBehavior.Strict).Object,
+                repository.Object,
+                new PasswordLoginService(new Mock<IRepository<User>>(MockBehavior.Strict).Object),
+                new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object,
+                    new ConfigurationBuilder().AddInMemoryCollection().Build()))
             {
                 ControllerContext = new ControllerContext
                 {

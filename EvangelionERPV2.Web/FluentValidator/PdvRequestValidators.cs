@@ -162,4 +162,18 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .MaximumLength(64).WithMessage("TerminalId is too long.");
         }
     }
+
+    public sealed class PdvLoginRequestValidator : AbstractValidator<PdvLoginRequestDTO>
+    {
+        public PdvLoginRequestValidator()
+        {
+            RuleFor(x => x.UserName)
+                .NotEmpty().WithMessage("UserName is required.")
+                .MaximumLength(256).WithMessage("UserName is too long.");
+
+            RuleFor(x => x.Password)
+                .NotEmpty().WithMessage("Password is required.")
+                .MaximumLength(256).WithMessage("Password is too long.");
+        }
+    }
 }
