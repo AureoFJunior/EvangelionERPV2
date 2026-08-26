@@ -217,6 +217,10 @@ namespace EvangelionERPV2.Shared.DTOs
     {
         public Guid UserId { get; set; }
         public Guid EnterpriseId { get; set; }
+
+        /// <summary>What the operator types at the till. The terminal's offline cache keys on it.</summary>
+        public string UserName { get; set; } = string.Empty;
+
         public string DisplayName { get; set; } = string.Empty;
         public IReadOnlyList<string> Permissions { get; set; } = [];
 

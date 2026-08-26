@@ -119,6 +119,19 @@ namespace EvangelionERPV2.Test.Security
             Assert.IsType<UnauthorizedResult>(await controller.GetSyncState());
         }
 
+        [Fact]
+        public async Task GetSyncState_CarriesTheUserNameTheTillLogsInWith()
+        {
+            var supervisor = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
+            var controller = CreateController(supervisor);
+
+            var dto = await Read(controller);
+
+            // The till matches an offline login by username; without it the snapshot refreshes
+            // permissions onto rows nobody can log in against.
+            Assert.Equal(supervisor.UserName, Assert.Single(dto.Operators).UserName);
+        }
+
         private static async Task<PdvSyncStateDTO> Read(PdvController controller)
         {
             var ok = Assert.IsType<OkObjectResult>(await controller.GetSyncState());

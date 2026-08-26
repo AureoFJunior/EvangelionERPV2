@@ -494,6 +494,7 @@ namespace EvangelionERPV2.Web.Controllers
                 {
                     UserId = user.Id,
                     EnterpriseId = enterpriseId,
+                    UserName = user.UserName,
                     DisplayName = $"{user.FirstName} {user.LastName}".Trim(),
                     Permissions = PdvTokenScope.PermissionsFor(user.AccessLevel),
 
