@@ -167,4 +167,21 @@ namespace EvangelionERPV2.Shared.DTOs
         public Guid EnterpriseId { get; set; }
         public IReadOnlyList<string> Permissions { get; set; } = [];
     }
+
+    /// <summary>
+    /// One supervisor a till may ask to authorise an override, and the verifier it checks the PIN
+    /// against.
+    /// </summary>
+    /// <remarks>
+    /// The verifier travels to the terminal on purpose: an override has to work with the network
+    /// down, which is the case it exists for. A verifier is not a PIN — 210,000 PBKDF2 iterations
+    /// is what stands between a stolen terminal database and six digits.
+    /// </remarks>
+    public sealed class SupervisorVerifierDTO
+    {
+        public Guid UserId { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public string PinVerifier { get; set; } = string.Empty;
+        public IReadOnlyList<string> Permissions { get; set; } = [];
+    }
 }

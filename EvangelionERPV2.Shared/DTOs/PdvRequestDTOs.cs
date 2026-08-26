@@ -129,4 +129,17 @@ namespace EvangelionERPV2.Shared.DTOs
         public string UserName { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
     }
+
+    /// <summary>
+    /// A user setting the PIN that authorises overrides at a till.
+    /// </summary>
+    /// <remarks>
+    /// Self-service: the PIN is the user's own, and only its verifier is ever stored. Six digits is
+    /// the floor because the verifier is handed to terminals, where a shorter one is guessable
+    /// offline no matter how many PBKDF2 iterations sit behind it.
+    /// </remarks>
+    public sealed class SetPdvPinRequestDTO
+    {
+        public string Pin { get; set; } = string.Empty;
+    }
 }

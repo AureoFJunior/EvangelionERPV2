@@ -176,4 +176,14 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .MaximumLength(256).WithMessage("Password is too long.");
         }
     }
+
+    public sealed class SetPdvPinRequestValidator : AbstractValidator<SetPdvPinRequestDTO>
+    {
+        public SetPdvPinRequestValidator()
+        {
+            RuleFor(x => x.Pin)
+                .NotEmpty().WithMessage("Pin is required.")
+                .Matches("^[0-9]{6,12}$").WithMessage("Pin must be 6 to 12 digits.");
+        }
+    }
 }

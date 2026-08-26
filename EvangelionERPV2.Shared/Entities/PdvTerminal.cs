@@ -1,7 +1,7 @@
+using EvangelionERPV2.Shared.Security;
 using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using System.Security.Cryptography;
 
 namespace EvangelionERPV2.Shared.Entities
 {
@@ -22,10 +22,6 @@ namespace EvangelionERPV2.Shared.Entities
     [Table("PdvTerminal")]
     public class PdvTerminal : BaseEntity
     {
-        private const int SaltBytes = 16;
-        private const int HashBytes = 32;
-        private const int Iterations = 210_000;
-
         public Guid EnterpriseId { get; set; }
 
         [MaxLength(64)]
@@ -46,48 +42,17 @@ namespace EvangelionERPV2.Shared.Entities
 
         public static PdvTerminal Enroll(Guid enterpriseId, string terminalId, string credential)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(credential);
-
-            var salt = RandomNumberGenerator.GetBytes(SaltBytes);
-            var hash = Rfc2898DeriveBytes.Pbkdf2(credential, salt, Iterations, HashAlgorithmName.SHA256, HashBytes);
-
             return new PdvTerminal
             {
                 Id = Guid.NewGuid(),
                 EnterpriseId = enterpriseId,
                 TerminalId = terminalId,
-                CredentialVerifier = $"{Iterations}.{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}"
+                CredentialVerifier = Pbkdf2Verifier.Create(credential)
             };
         }
 
-        public bool Verify(string? credential)
-        {
-            if (IsRevoked || string.IsNullOrEmpty(credential) || string.IsNullOrEmpty(CredentialVerifier))
-                return false;
+        public bool Verify(string? credential) =>
+            !IsRevoked && Pbkdf2Verifier.Verify(credential, CredentialVerifier);
 
-            var parts = CredentialVerifier.Split('.');
-            if (parts.Length != 3 || !int.TryParse(parts[0], out var iterations) || iterations <= 0)
-                return false;
-
-            byte[] salt;
-            byte[] expected;
-            try
-            {
-                salt = Convert.FromBase64String(parts[1]);
-                expected = Convert.FromBase64String(parts[2]);
-            }
-            catch (FormatException)
-            {
-                // A verifier that will not parse is a corrupt row, not a match.
-                return false;
-            }
-
-            if (expected.Length == 0)
-                return false;
-
-            var actual = Rfc2898DeriveBytes.Pbkdf2(credential, salt, iterations, HashAlgorithmName.SHA256, expected.Length);
-
-            return CryptographicOperations.FixedTimeEquals(actual, expected);
-        }
     }
 }

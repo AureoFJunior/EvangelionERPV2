@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
@@ -46,6 +47,17 @@ namespace EvangelionERPV2.Shared.Entities
         [JsonIgnore]
         public virtual Enterprise? Enterprise { get; set; }
         public short AccessLevel { get; set; }
+
+        /// <summary>
+        /// PBKDF2 verifier for this user's till override PIN. Null means they cannot authorise an
+        /// override at a terminal, which is the correct default for everyone who never sets one.
+        /// </summary>
+        /// <remarks>
+        /// The verifier — never the PIN — is handed to enrolled terminals so an override works with
+        /// the network down. See <see cref="Security.Pbkdf2Verifier"/> for why that is safe.
+        /// </remarks>
+        [MaxLength(256)]
+        public string? PdvPinVerifier { get; set; }
 
         /// <summary>
         /// Share of what this seller's orders bring in, as a fraction — 0.05 is 5%. Null means no

@@ -98,6 +98,7 @@ namespace EvangelionERPV2.Test.Security
             var controller = new PdvController(
                 new Mock<IPdvService>(MockBehavior.Strict).Object,
                 terminalRepository.Object,
+                userRepository.Object,
                 new PasswordLoginService(userRepository.Object),
                 new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration))
             {
