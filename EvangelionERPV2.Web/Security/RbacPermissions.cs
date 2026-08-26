@@ -110,6 +110,7 @@ namespace EvangelionERPV2.Web.Security
             Pdv.ApplyDiscount,
             Pdv.OverrideDiscount,
             Pdv.CancelSale,
+            Pdv.VoidItem,
             Pdv.ReadReports,
 
             Reports.Read,
@@ -381,6 +382,14 @@ namespace EvangelionERPV2.Web.Security
             public const string OverrideDiscount = "pdv.discount.override";
 
             public const string CancelSale = "pdv.sale.cancel";
+
+            /// <summary>
+            /// Void a line from the sale being rung. Supervisor tier, and separate from
+            /// <see cref="CancelSale"/>: cancelling a recorded sale leaves a reversal anyone can
+            /// audit, whereas removing a line before payment leaves nothing behind at all — which
+            /// is exactly why it is the commonest shrinkage route at a till.
+            /// </summary>
+            public const string VoidItem = "pdv.item.void";
 
             /// <summary>The X and Z readings, which show the day's takings.</summary>
             public const string ReadReports = "pdv.reports.read";

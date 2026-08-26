@@ -62,6 +62,7 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Pdv.CashMovement,
             RbacPermissions.Pdv.OverrideDiscount,
             RbacPermissions.Pdv.CancelSale,
+            RbacPermissions.Pdv.VoidItem,
             RbacPermissions.Pdv.ReadReports,
 
             RbacPermissions.Quotes.Read,
