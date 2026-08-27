@@ -534,46 +534,77 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                     throw new InvalidOperationException("AWS bucket name is not configured.");
 
                 var s3Client = await GetS3ClientAsync();
-                var thumbnailKey = ThumbnailKeyFor(pictureAddress);
-
-                // The cached thumbnail, if a previous request already made it.
-                var cached = await s3Client.GetItemBase64Async(bucketName, thumbnailKey);
-                if (!string.IsNullOrWhiteSpace(cached))
-                    return (cached, HashOf(cached));
-
-                var originalBase64 = await s3Client.GetItemBase64Async(bucketName, pictureAddress);
-                if (string.IsNullOrWhiteSpace(originalBase64))
-                    return (string.Empty, null);
-
-                var thumbnail = ResizeToThumbnail(Convert.FromBase64String(originalBase64), ThumbnailLongEdge);
-                if (thumbnail.Length == 0)
-                    return (string.Empty, null);
-
-                // Written back before returning, so the next till pays nothing. A failed write is
-                // not fatal: the caller still gets its thumbnail, the next request just remakes it.
-                try
-                {
-                    using var upload = new MemoryStream(thumbnail);
-                    await s3Client.CreateItemAsync(bucketName, thumbnailKey, upload);
-                }
-                catch (Exception ex)
-                {
-                    Log.Logger.Warning("Could not cache product thumbnail. ErrorType={ErrorType}", ex.GetType().Name);
-                }
-
-                var encoded = Convert.ToBase64String(thumbnail);
-                return (encoded, HashOf(encoded));
-            }
-            catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
-            {
-                Log.Logger.Warning("Product image not found in S3.");
-                return (string.Empty, null);
+                return await BuildThumbnailAsync(s3Client, bucketName, pictureAddress);
             }
             catch (Exception ex)
             {
                 Log.Logger.Warning("Unable to build product thumbnail. ErrorType={ErrorType}", ex.GetType().Name);
                 return (string.Empty, null);
             }
+        }
+
+        /// <summary>
+        /// The read-through cache: serves a cached thumbnail if one exists, otherwise fetches the
+        /// original, resizes it and writes the result back.
+        /// </summary>
+        /// <remarks>
+        /// Static and taking <see cref="IAmazonS3"/> directly, same as <see cref="TryDeleteOldPictureAsync"/>,
+        /// so it can be tested against a mocked client without going through KMS credentials.
+        ///
+        /// The cache probe has its own try/catch: a missing <c>thumb/</c> key is the expected,
+        /// common case on the first request for a picture, not an error, so it must fall through
+        /// to generate one rather than being swallowed by an outer catch that returns empty.
+        /// </remarks>
+        public static async Task<(string Base64, string? Hash)> BuildThumbnailAsync(IAmazonS3 s3Client, string bucketName, string pictureAddress)
+        {
+            var thumbnailKey = ThumbnailKeyFor(pictureAddress);
+
+            // The cached thumbnail, if a previous request already made it. Not found here just
+            // means nobody has generated one yet.
+            var cached = string.Empty;
+            try
+            {
+                cached = await s3Client.GetItemBase64Async(bucketName, thumbnailKey);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
+            {
+            }
+
+            if (!string.IsNullOrWhiteSpace(cached))
+                return (cached, HashOf(cached));
+
+            string originalBase64;
+            try
+            {
+                originalBase64 = await s3Client.GetItemBase64Async(bucketName, pictureAddress);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
+            {
+                Log.Logger.Warning("Product image not found in S3.");
+                return (string.Empty, null);
+            }
+
+            if (string.IsNullOrWhiteSpace(originalBase64))
+                return (string.Empty, null);
+
+            var thumbnail = ResizeToThumbnail(Convert.FromBase64String(originalBase64), ThumbnailLongEdge);
+            if (thumbnail.Length == 0)
+                return (string.Empty, null);
+
+            // Written back before returning, so the next till pays nothing. A failed write is
+            // not fatal: the caller still gets its thumbnail, the next request just remakes it.
+            try
+            {
+                using var upload = new MemoryStream(thumbnail);
+                await s3Client.CreateItemAsync(bucketName, thumbnailKey, upload);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning("Could not cache product thumbnail. ErrorType={ErrorType}", ex.GetType().Name);
+            }
+
+            var encoded = Convert.ToBase64String(thumbnail);
+            return (encoded, HashOf(encoded));
         }
 
         /// <summary>Where the thumbnail for an original lives. Same bucket, <c>thumb/</c> prefix.</summary>
