@@ -583,7 +583,7 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             {
                 Items = items,
                 ServerTimeUtc = serverTime,
-                NextCursor = items.Count > 0 ? items[^1].ChangedAt : since,
+                NextCursor = hasMore && items.Count > 0 ? items[^1].ChangedAt : null,
                 HasMore = hasMore
             };
         }

@@ -144,6 +144,23 @@ public class ProductImageTests : IDisposable
 
         Assert.Equal(50, page.Items.Count());
         Assert.True(page.HasMore);
+
+        // Mirrors GetCatalogAsync: on a capped page the cursor is the last returned row's own
+        // timestamp, so a resumed sync starts exactly where this page left off.
+        Assert.Equal(page.Items.Last().ChangedAt, page.NextCursor);
+    }
+
+    [Fact]
+    public async Task AFinalPagesCursorIsNull()
+    {
+        var page = await ImagesFor(productsWithPictures: 0, productsWithout: 3);
+
+        Assert.False(page.HasMore);
+        Assert.NotEmpty(page.Items);
+
+        // Mirrors GetCatalogAsync: nothing left to page through, so there is no cursor to resume
+        // from. The till falls back to ServerTimeUtc for its next call.
+        Assert.Null(page.NextCursor);
     }
 
     [Fact]
