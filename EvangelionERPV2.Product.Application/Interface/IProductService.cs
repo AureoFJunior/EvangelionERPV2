@@ -40,6 +40,16 @@ namespace EvangelionERPV2.ProductModule.Application.Interface
         Task<Product> UpdatePictureAsync(ProductPicture productPicture);
         Task<string> GetProductsBodyAsync(Enterprise? enterprise);
         Task<string> GetPictureBase64Async(string? pictureAddress);
+
+        /// <summary>
+        /// A 200 px thumbnail of the product picture, base64-encoded, with a hash of its bytes.
+        /// </summary>
+        /// <remarks>
+        /// Generated on first request and cached in the bucket, so this costs one resize per image
+        /// for its lifetime rather than one per till per sync. Empty string and null hash when the
+        /// product has no picture or the object is unreadable.
+        /// </remarks>
+        Task<(string Base64, string? Hash)> GetThumbnailBase64Async(string? pictureAddress);
         #endregion
     }
 }

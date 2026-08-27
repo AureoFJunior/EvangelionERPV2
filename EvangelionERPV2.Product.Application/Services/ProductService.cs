@@ -1,5 +1,6 @@
 using Amazon.S3;
 using Amazon.Runtime;
+using SkiaSharp;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.ProductModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
@@ -475,6 +476,117 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                     ex.GetType().Name);
                 return string.Empty;
             }
+        }
+
+        /// <summary>The long edge of a stored thumbnail, in pixels.</summary>
+        public const int ThumbnailLongEdge = 200;
+
+        /// <summary>
+        /// Shrinks an encoded image so its long edge is at most <paramref name="longEdge"/>.
+        /// </summary>
+        /// <remarks>
+        /// Static and pure so it can be tested without AWS. Returns an empty array rather than
+        /// throwing: a corrupt object in the bucket must degrade to "no picture", never to a failed
+        /// catalog page for every other product on it.
+        ///
+        /// JPEG at quality 80 rather than PNG — these are photographs, and PNG of a photograph is
+        /// several times the size for no visible gain at 56 px.
+        /// </remarks>
+        public static byte[] ResizeToThumbnail(byte[] original, int longEdge)
+        {
+            try
+            {
+                using var source = SKBitmap.Decode(original);
+                if (source == null)
+                    return [];
+
+                var scale = (double)longEdge / Math.Max(source.Width, source.Height);
+                if (scale >= 1.0)
+                    return original;
+
+                var width = Math.Max(1, (int)Math.Round(source.Width * scale));
+                var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+
+                using var resized = source.Resize(new SKImageInfo(width, height), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+                if (resized == null)
+                    return [];
+
+                using var image = SKImage.FromBitmap(resized);
+                using var data = image.Encode(SKEncodedImageFormat.Jpeg, 80);
+
+                return data.ToArray();
+            }
+            catch (Exception)
+            {
+                return [];
+            }
+        }
+
+        public async Task<(string Base64, string? Hash)> GetThumbnailBase64Async(string? pictureAddress)
+        {
+            if (string.IsNullOrWhiteSpace(pictureAddress))
+                return (string.Empty, null);
+
+            try
+            {
+                var bucketName = SharedFunctions.GetProductBucketName(_configuration);
+                if (string.IsNullOrWhiteSpace(bucketName))
+                    throw new InvalidOperationException("AWS bucket name is not configured.");
+
+                var s3Client = await GetS3ClientAsync();
+                var thumbnailKey = ThumbnailKeyFor(pictureAddress);
+
+                // The cached thumbnail, if a previous request already made it.
+                var cached = await s3Client.GetItemBase64Async(bucketName, thumbnailKey);
+                if (!string.IsNullOrWhiteSpace(cached))
+                    return (cached, HashOf(cached));
+
+                var originalBase64 = await s3Client.GetItemBase64Async(bucketName, pictureAddress);
+                if (string.IsNullOrWhiteSpace(originalBase64))
+                    return (string.Empty, null);
+
+                var thumbnail = ResizeToThumbnail(Convert.FromBase64String(originalBase64), ThumbnailLongEdge);
+                if (thumbnail.Length == 0)
+                    return (string.Empty, null);
+
+                // Written back before returning, so the next till pays nothing. A failed write is
+                // not fatal: the caller still gets its thumbnail, the next request just remakes it.
+                try
+                {
+                    using var upload = new MemoryStream(thumbnail);
+                    await s3Client.CreateItemAsync(bucketName, thumbnailKey, upload);
+                }
+                catch (Exception ex)
+                {
+                    Log.Logger.Warning("Could not cache product thumbnail. ErrorType={ErrorType}", ex.GetType().Name);
+                }
+
+                var encoded = Convert.ToBase64String(thumbnail);
+                return (encoded, HashOf(encoded));
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
+            {
+                Log.Logger.Warning("Product image not found in S3.");
+                return (string.Empty, null);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning("Unable to build product thumbnail. ErrorType={ErrorType}", ex.GetType().Name);
+                return (string.Empty, null);
+            }
+        }
+
+        /// <summary>Where the thumbnail for an original lives. Same bucket, <c>thumb/</c> prefix.</summary>
+        private static string ThumbnailKeyFor(string pictureAddress) => $"thumb/{pictureAddress}";
+
+        /// <summary>
+        /// Identifies the bytes a till already holds, so an unchanged image is never sent twice.
+        /// </summary>
+        private static string HashOf(string base64)
+        {
+            var digest = System.Security.Cryptography.SHA256.HashData(Convert.FromBase64String(base64));
+
+            return "sha256:" + Convert.ToHexStringLower(digest);
         }
 
         private async Task<IAmazonS3> GetS3ClientAsync()
