@@ -138,6 +138,31 @@ namespace EvangelionERPV2.Shared.DTOs
     }
 
     /// <summary>
+    /// One product's thumbnail, and the hash that lets a till skip it next time.
+    /// </summary>
+    /// <remarks>
+    /// A product with no usable picture is returned with an empty <see cref="ThumbnailBase64"/> and
+    /// a null <see cref="Hash"/> rather than being left out of the page. The till records "there is
+    /// no picture here" and stops asking; omitting it would make every sync try again forever.
+    /// </remarks>
+    public sealed class PdvProductImageDTO
+    {
+        public Guid ProductId { get; set; }
+        public string? Hash { get; set; }
+        public string ThumbnailBase64 { get; set; } = string.Empty;
+        public DateTime ChangedAt { get; set; }
+    }
+
+    /// <summary>A page of thumbnails plus the cursor to resume from. Mirrors <see cref="PdvCatalogPageDTO"/>.</summary>
+    public sealed class PdvProductImagePageDTO
+    {
+        public IEnumerable<PdvProductImageDTO> Items { get; set; } = [];
+        public DateTime ServerTimeUtc { get; set; }
+        public DateTime? NextCursor { get; set; }
+        public bool HasMore { get; set; }
+    }
+
+    /// <summary>
     /// The credential for a newly enrolled till.
     /// </summary>
     /// <remarks>

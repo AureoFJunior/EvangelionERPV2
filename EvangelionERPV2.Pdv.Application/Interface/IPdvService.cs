@@ -35,6 +35,9 @@ namespace EvangelionERPV2.PdvModule.Application.Interface
         /// <summary>Products changed since the terminal last asked, for its local mirror.</summary>
         Task<PdvCatalogPageDTO> GetCatalogAsync(DateTime? since, Guid enterpriseId, int pageSize);
 
+        /// <summary>A page of product thumbnails, oldest change first, for a till filling its image cache.</summary>
+        Task<PdvProductImagePageDTO> GetProductImagesAsync(DateTime? since, Guid enterpriseId, int pageSize);
+
         /// <summary>The session currently open on a terminal, if any.</summary>
         Task<CashSession?> GetOpenSessionAsync(string terminalId, Guid enterpriseId);
     }

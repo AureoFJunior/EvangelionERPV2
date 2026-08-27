@@ -1,5 +1,6 @@
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.PdvModule.Application.Services;
+using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
@@ -51,13 +52,23 @@ namespace EvangelionERPV2.PdvModule.Test
             return mock;
         }
 
+        /// <summary>No test in this file exercises thumbnails; a stub that never returns one is enough.</summary>
+        private static Mock<IProductService<Product>> ProductServiceStub()
+        {
+            var mock = new Mock<IProductService<Product>>();
+            mock.Setup(service => service.GetThumbnailBase64Async(It.IsAny<string?>()))
+                .ReturnsAsync((string.Empty, (string?)null));
+            return mock;
+        }
+
         private PdvService CreateService(AppDbContext context, Mock<IOrderService<Order>>? orderService = null) =>
             new(context,
                 new Repository<CashSession>(context),
                 new Repository<CashMovement>(context),
                 new Repository<PdvSale>(context),
                 new Repository<PdvSalePayment>(context),
-                (orderService ?? OrderServiceStub(context)).Object);
+                (orderService ?? OrderServiceStub(context)).Object,
+                ProductServiceStub().Object);
 
         private async Task<CashSession> OpenSessionAsync(PdvService service, Guid clientSessionId, decimal openingFloat = 200m)
         {

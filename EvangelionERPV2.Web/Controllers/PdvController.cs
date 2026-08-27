@@ -64,6 +64,9 @@ namespace EvangelionERPV2.Web.Controllers
         private const int DefaultCatalogPageSize = 500;
         private const int MaxCatalogPageSize = 1000;
 
+        /// <summary>Matches <c>ProductController.MaxPageSizeWithPictures</c>. Base64 inflates by a third.</summary>
+        private const int MaxImagePageSize = 50;
+
         // A terminal that has been off for a week sends its backlog in one call; more than this and
         // it takes two, which keeps one bad batch from occupying a request thread indefinitely.
         private const int MaxSalesPerBatch = 200;
@@ -787,6 +790,30 @@ namespace EvangelionERPV2.Web.Controllers
 
             var size = Math.Clamp(pageSize ?? DefaultCatalogPageSize, 1, MaxCatalogPageSize);
             return Ok(await _pdvService.GetCatalogAsync(since, enterpriseId, size));
+        }
+
+        /// <summary>
+        /// Product thumbnails, for a till building its picture cache.
+        /// </summary>
+        /// <remarks>
+        /// Separate from <c>GetCatalog</c> deliberately. Prices and stock must reach a till in
+        /// seconds; pictures may take hours, and putting them in one response would hold the first
+        /// hostage to the second.
+        /// </remarks>
+        [HttpGet]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
+        [ProducesResponseType(typeof(PdvProductImagePageDTO), 200)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        [ProducesResponseType(500)]
+        public async Task<IActionResult> GetProductImages([FromQuery] DateTime? since, [FromQuery] int? pageSize)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var size = Math.Clamp(pageSize ?? MaxImagePageSize, 1, MaxImagePageSize);
+            return Ok(await _pdvService.GetProductImagesAsync(since, enterpriseId, size));
         }
 
         private static CashSessionDTO ToDto(Shared.Entities.CashSession session) => new()

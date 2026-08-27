@@ -1,5 +1,6 @@
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.PdvModule.Application.Interface;
+using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
@@ -19,6 +20,7 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         private readonly IRepository<PdvSale> _saleRepository;
         private readonly IRepository<PdvSalePayment> _paymentRepository;
         private readonly IOrderService<Order> _orderService;
+        private readonly IProductService<Product> _productService;
 
         public PdvService(
             AppDbContext appDbContext,
@@ -26,7 +28,8 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             IRepository<CashMovement> movementRepository,
             IRepository<PdvSale> saleRepository,
             IRepository<PdvSalePayment> paymentRepository,
-            IOrderService<Order> orderService)
+            IOrderService<Order> orderService,
+            IProductService<Product> productService)
         {
             _appDbContext = appDbContext;
             _sessionRepository = sessionRepository;
@@ -34,6 +37,7 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             _saleRepository = saleRepository;
             _paymentRepository = paymentRepository;
             _orderService = orderService;
+            _productService = productService;
         }
 
         #region Sessions
@@ -520,6 +524,66 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 // The cursor is the last row's own timestamp, not the server clock: advancing past
                 // rows that were written while this page was being read would skip them forever.
                 NextCursor = hasMore && page.Count > 0 ? page[^1].ChangedAt : null,
+                HasMore = hasMore
+            };
+        }
+
+        /// <summary>
+        /// A page of product thumbnails, oldest change first, for a till filling its image cache.
+        /// </summary>
+        /// <remarks>
+        /// Thumbnails are fetched one product at a time rather than in parallel: this runs in the
+        /// background on a till that is selling, and the ERP serving twenty shops has better uses
+        /// for its S3 connections than filling one terminal's cache faster.
+        /// </remarks>
+        public async Task<PdvProductImagePageDTO> GetProductImagesAsync(DateTime? since, Guid enterpriseId, int pageSize)
+        {
+            AssertTenant(enterpriseId);
+
+            var serverTime = DateTime.UtcNow;
+            var size = Math.Clamp(pageSize, 1, 50);
+
+            var query = _appDbContext.Product
+                .AsNoTracking()
+                .Where(product => product.EnterpriseId == enterpriseId);
+
+            if (since is { } cursor)
+                query = query.Where(product => (product.UpdatedAt ?? product.CreatedAt) > cursor);
+
+            var page = await query
+                .OrderBy(product => product.UpdatedAt ?? product.CreatedAt)
+                .ThenBy(product => product.Id)
+                .Take(size + 1)
+                .Select(product => new
+                {
+                    product.Id,
+                    product.PictureAdress,
+                    ChangedAt = product.UpdatedAt ?? product.CreatedAt
+                })
+                .ToListAsync();
+
+            var hasMore = page.Count > size;
+            if (hasMore)
+                page.RemoveAt(page.Count - 1);
+
+            var items = new List<PdvProductImageDTO>(page.Count);
+            foreach (var row in page)
+            {
+                var (base64, hash) = await _productService.GetThumbnailBase64Async(row.PictureAdress);
+                items.Add(new PdvProductImageDTO
+                {
+                    ProductId = row.Id,
+                    Hash = hash,
+                    ThumbnailBase64 = base64,
+                    ChangedAt = row.ChangedAt
+                });
+            }
+
+            return new PdvProductImagePageDTO
+            {
+                Items = items,
+                ServerTimeUtc = serverTime,
+                NextCursor = items.Count > 0 ? items[^1].ChangedAt : since,
                 HasMore = hasMore
             };
         }
