@@ -24,6 +24,27 @@ namespace EvangelionERPV2.Web.HealthChecks
             _context = context;
         }
 
+        /// <summary>
+        /// Nothing in the app calls <c>Database.Migrate()</c> - by decision - and until this check
+        /// nothing said so either. A committed migration that nobody applied turns every request
+        /// touching the new tables into a 500 with <c>Invalid column name</c>, and diagnosing that
+        /// from the call site has cost two separate days here.
+        /// <para>
+        /// Deliberately <see cref="HealthStatus.Degraded"/> rather than Unhealthy: production has
+        /// never had these migrations applied, so failing the probe would refuse to bring the API
+        /// up at all. Degraded still answers 200, and names the ids in the body.
+        /// </para>
+        /// </summary>
+        public static HealthCheckResult DescribePendingMigrations(IReadOnlyCollection<string> pendingMigrations)
+        {
+            if (pendingMigrations.Count == 0)
+                return HealthCheckResult.Healthy("Database reachable, schema up to date.");
+
+            return HealthCheckResult.Degraded(
+                $"Database reachable, but {pendingMigrations.Count} migration(s) have not been applied: " +
+                string.Join(", ", pendingMigrations));
+        }
+
         public async Task<HealthCheckResult> CheckHealthAsync(
             HealthCheckContext context,
             CancellationToken cancellationToken = default)
@@ -33,9 +54,11 @@ namespace EvangelionERPV2.Web.HealthChecks
 
             try
             {
-                return await _context.Database.CanConnectAsync(timeout.Token)
-                    ? HealthCheckResult.Healthy("Database reachable.")
-                    : HealthCheckResult.Unhealthy("Database is not reachable.");
+                if (!await _context.Database.CanConnectAsync(timeout.Token))
+                    return HealthCheckResult.Unhealthy("Database is not reachable.");
+
+                var pending = (await _context.Database.GetPendingMigrationsAsync(timeout.Token)).ToList();
+                return DescribePendingMigrations(pending);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {

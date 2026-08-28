@@ -14,6 +14,7 @@ using EvangelionERPV2.PdvModule.Application.DI;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.ReportsModule.Application.DI;
 using EvangelionERPV2.SupplierModule.Application.DI;
+using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using Prometheus;
@@ -26,6 +27,7 @@ using EvangelionERPV2.Web.HealthChecks;
 using EvangelionERPV2.Web.Security;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Connections;
@@ -142,6 +144,8 @@ try
     app.MapHealthChecks("/health").AllowAnonymous();
 
     SharedFunctions.Initialize(app.Services);
+
+    await LogPendingMigrationsAsync(app);
 
     Log.Logger.Information("Starting App Run");
     app.Run();
@@ -303,6 +307,39 @@ static void SetupRequestLimits(WebApplicationBuilder builder)
     {
         options.MaxRequestBodySize = maxRequestBodySizeBytes;
     });
+}
+
+/// <summary>
+/// Nothing in the app calls <c>Database.Migrate()</c>, by decision - so a committed migration has
+/// not run anywhere until somebody applies it, and nothing used to say which ones were waiting.
+/// Twice the first symptom was every request to the new tables answering 500 with
+/// <c>Invalid column name</c>; this turns that into one line at boot.
+/// Startup never fails on it: refusing to boot would strand an environment that is behind, which is
+/// exactly the environment that needs to serve while somebody applies them.
+/// </summary>
+static async Task LogPendingMigrationsAsync(WebApplication app)
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var pending = (await context.Database.GetPendingMigrationsAsync()).ToList();
+
+        if (pending.Count == 0)
+            Log.Logger.Information("Database schema is up to date, no pending migrations");
+        else
+            Log.Logger.Fatal(
+                "{Count} migration(s) have NOT been applied to this database: {PendingMigrations}. " +
+                "Requests touching the new tables will fail with 'Invalid column name' until they are",
+                pending.Count,
+                string.Join(", ", pending));
+    }
+    catch (Exception exception)
+    {
+        // A database that cannot be reached at boot is DatabaseHealthCheck's job to report, not
+        // a reason to take the process down here.
+        Log.Logger.Error("Could not read pending migrations at startup. ErrorType={ErrorType}", exception.GetType().Name);
+    }
 }
 
 static void SetupHealthCheck(WebApplicationBuilder builder)
