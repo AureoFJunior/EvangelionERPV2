@@ -4,6 +4,7 @@ using Serilog;
 using EvangelionERPV2.Shared.Configs;
 using Amazon.SecretsManager;
 using EvangelionERPV2.Shared.Utils;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 
 
 namespace EvangelionERPV2.OrderModule.Application.DI
@@ -25,6 +26,19 @@ namespace EvangelionERPV2.OrderModule.Application.DI
 
                 // Singleton so every hosted service in this host shares one Redis connection.
                 services.AddSingleton<IDistributedLease, RedisLease>();
+
+                #region Redis
+                // The one registration for the whole host. Product, Order and Reports each carried
+                // an identical copy of this; only the last one to run survived resolution, so the
+                // other two read like configuration while doing nothing.
+                services.AddStackExchangeRedisCache(_ => { });
+                services.AddOptions<RedisCacheOptions>()
+                    .Configure<AWSKMSKeyProvider>((options, kmsProvider) =>
+                    {
+                        options.InstanceName = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["InstanceName"] ?? string.Empty);
+                        options.Configuration = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["ConnectionString"] ?? string.Empty);
+                    });
+                #endregion
 
                 services.AddLogging();
 

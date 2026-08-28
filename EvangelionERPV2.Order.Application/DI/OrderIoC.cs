@@ -90,13 +90,6 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 services.AddScoped(typeof(OrderHub), typeof(OrderHub));
                 #endregion
 
-                #region Redis
-                services.AddStackExchangeRedisCache(o =>
-                {
-                    o.InstanceName = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["InstanceName"] ?? string.Empty);
-                    o.Configuration = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["ConnectionString"] ?? string.Empty);
-                });
-                #endregion
             }
             catch (Exception ex)
             {
