@@ -8,6 +8,7 @@ using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Prometheus;
 using Serilog;
 using System.Globalization;
 using System.Net;
@@ -18,6 +19,15 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 {
     public class BillsService : IBillsService<BillEntity>, IDisposable
     {
+        /// <summary>
+        /// Counted, not just logged: a bill that goes out without its PDF is invisible in every
+        /// other signal - the mail sends, the request answers 200, nothing retries.
+        /// </summary>
+        private static readonly Counter MissingBillPdfCounter = Metrics.CreateCounter(
+            "evangelion_bill_email_missing_pdf_total",
+            "Bill emails sent with no PDF attached, by reason",
+            new CounterConfiguration { LabelNames = ["reason"] });
+
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<BillEntity> _billRepository;
         private readonly IBillsRepository<BillEntity> _billRepositoryCustom;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Order> _orderRepository;
@@ -279,6 +289,22 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return summary + NormalizeEmbeddedImageMimeTypes(bill.HtmlContent ?? string.Empty);
         }
 
+        /// <summary>
+        /// The one place a bill goes out without its PDF. Deliberately <c>Error</c> and counted:
+        /// this is the only silent data-loss path left in the system - the customer receives a mail
+        /// that is missing the document it is about, and nothing else would ever say so.
+        /// </summary>
+        private static void ReportMissingPdf(BillEntity bill, string reason, string errorType)
+        {
+            MissingBillPdfCounter.WithLabels(reason).Inc();
+
+            Log.Logger.Error(
+                "Bill email is going out with no PDF attached. BillId={BillId} Reason={Reason} ErrorType={ErrorType}",
+                bill.Id,
+                reason,
+                errorType);
+        }
+
         private async Task<IEnumerable<EmailAttachment>> BuildBillAttachmentsAsync(BillEntity bill)
         {
             if (!_settings.AttachPdfToBillEmail || string.IsNullOrWhiteSpace(bill.HtmlContent))
@@ -291,16 +317,21 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
             catch (Exception ex)
             {
-                // No headless browser available: still send the mail, just without the PDF.
-                Log.Logger.Warning(
-                    "Couldn't render the bill PDF for email. BillId={BillId} ErrorType={ErrorType}",
-                    bill.Id,
-                    ex.GetType().Name);
+                // No headless browser available: still send the mail, just without the PDF. Sending
+                // it is the right call - the digitable line in the body is payable on its own - but
+                // it used to happen at Warning with nothing counting it, so a renderer that was
+                // broken for a week looked exactly like a renderer that worked.
+                ReportMissingPdf(bill, "render_failed", ex.GetType().Name);
                 return [];
             }
 
             if (pdf.Length == 0)
+            {
+                // A renderer that returns nothing without throwing is the same outage wearing a
+                // different hat, and this branch used to be entirely silent.
+                ReportMissingPdf(bill, "empty_pdf", "None");
                 return [];
+            }
 
             return
             [
