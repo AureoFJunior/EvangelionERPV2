@@ -1,14 +1,16 @@
 # Roadmap status — where the work stopped
 
 Written 2026-08-19, rewritten 2026-08-24 after M14–M22 landed, extended 2026-08-25 with M24–M28,
-on `feature/33-Boleto-and-NFE-emission`. **Read this first when resuming.**
+extended 2026-08-28 with M29 (the till). **Read this first when resuming.**
 
-Three roadmaps, all built out to their gates:
+Four streams, all built out to their gates:
 
 - **M0–M13, the system of record** — the Artifact **"Completing Evangelion ERP"**:
   <https://claude.ai/code/artifact/2edfd7e3-3715-4a0a-965c-299164b28e4a>
 - **M14–M23, the daily-routine layer** — `~/.claude/plans/let-s-plan-more-needed-scalable-hare.md`
 - **M24–M28, the selling layer** — `~/.claude/plans/i-want-some-new-cheerful-boole.md`
+- **M29, the till** — plans live in the *other repo*,
+  `~/CodeProjects/EvangelionERPV2.PDV/docs/superpowers/plans/`, one per slice
 
 None is in the repo, and each lists what deliberately must **not** be built (warehouses, double-entry
 accounting, CRM pipeline, `PurchaseOrder`, NFCe, PIX, Quartz/Hangfire, multi-currency, a v2 API,
@@ -17,14 +19,17 @@ any of them is re-litigating a settled decision.
 
 ## State of the tree
 
+Measured 2026-08-28, not remembered.
+
 | | |
 |---|---|
-| Branch | `feature/33-Boleto-and-NFE-emission`, **not pushed** (no upstream) |
-| Head | `6a9b6cd` — the customer map. FrontV2 `7f3c3dc` |
-| Build | 0 errors (20 pre-existing `NU1510` warnings) |
-| Tests | **1386 passing / 0 failing** across 14 assemblies (1346 at M23) |
-| FrontV2 | `npx tsc --noEmit` clean, `npx jest` **96 passing**. Cypress **not re-run since M23** — five new screens are unexercised |
-| Migrations | chain ends `20260825120000_AddCustomerCoordinates`. The three M24–M28 migrations are **NOT applied anywhere** — the local container was down on 2026-08-25. Run `./scripts/local-db-update.sh` before touching the new screens or every one of them answers 500 with `Invalid column name` |
+| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **254 commits ahead of `origin/main`** |
+| Head | `6f3d06d` — the till's image feed. FrontV2 `7f3c3dc`, with `Dashboard.tsx` and `useLoginController.ts` modified and uncommitted |
+| Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
+| Tests | **1497 passing / 0 failing** across 15 assemblies (1386 at M28). New: `PdvModule.Test` 32, `Web` 590 |
+| FrontV2 | `npx tsc --noEmit` clean and `npx jest` 96 passing **as of M28**; neither re-run since. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
+| PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `b20c820`. **That repo has no git remote at all** — it exists on this machine only |
+| Migrations | chain ends `20260826174529_AddPdvOverrideAudit`. **All applied to the local container**, verified 2026-08-28 against `__EFMigrationsHistory`. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -49,12 +54,18 @@ any of them is re-litigating a settled decision.
 | M20b | DFe distribuição + manifestação | **Gated** — same certificate gate as M7 | |
 | M21 | Limite de crédito + override | **Done** | `0e24765` |
 | M22 | Contas fixas | **Done** | `61f6131` |
-| M23 | Orçamento → pedido | **Done 2026-08-24** — backend, screen and conversion; no PDF yet | `875a854`, FrontV2 `5d6f19b` |
+| M23 | Orçamento → pedido | **Done 2026-08-24**; PDF added 2026-08-28 (U3) | `875a854`, FrontV2 `5d6f19b` |
 | M24 | Custo e margem real | **Done 2026-08-25** | `68986a8`, FrontV2 `8df4213` |
 | M25 | Metas + comissão de vendedores | **Done 2026-08-25** | `760eeba`, FrontV2 `a82ac5d` |
 | M26 | Ficha do cliente (Customer 360) | **Done 2026-08-25** | `be4a34a`, FrontV2 `005de5d` |
 | M27 | Busca global (Ctrl+K) + WhatsApp | **Done 2026-08-25** — FrontV2 only | FrontV2 `198186e` |
 | M28 | Mapa de clientes | **Done 2026-08-25** | `6a9b6cd`, FrontV2 `7f3c3dc` |
+| M29a | PDV backend — sessions, cash movements, sale sync | **Done 2026-08-26** | `153235b` |
+| M29b | Terminal credential, till login, PIN override, sync state | **Done 2026-08-26** | `a1dda32` … `0a13c93` |
+| M29c | Product thumbnails for the till | **Done 2026-08-27/28** | `ff525df` … `6f3d06d` |
+| M29d | Receipt printer, drawer, scale, display | **Planned, not started** — plan written 2026-08-28, PDV repo only | |
+| M29e | Card authorization code + PIX manual; Stripe Connect PIX | **Planned; the Stripe half is gated** on an invite-only Stripe BR PIX account | |
+| M29f | Backoffice screens for any of M29 | **Not started** — see below | |
 
 ## What M24–M28 added, and what they left open
 
@@ -67,8 +78,9 @@ them are the roadmap's own cut list turned into its recommended "honest 5%".
   the whole order unknown rather than reporting a margin that is far too good. Cost is gated behind
   the new `products.cost.read` (Manager+) and withheld in one funnel per controller;
   `OrderedProduct.UnitCost` is `[JsonIgnore]`d so it cannot leak through the order lines.
-  **Open:** nothing backfills cost — every existing product is uncosted until somebody types it, so
-  the margin columns read "—" until then. Quotes carry no margin.
+  **Open:** ~~nothing backfills cost~~ — since 2026-08-28 a supplier NF-e import costs any matched
+  product that has none (U2), so a shop that imports its notas costs itself. A product that has
+  never arrived on a nota is still uncosted, and quotes still carry no margin.
 - **M25 metas + comissão.** `User.CommissionRate` (decimal(5,4) — the money precision would round
   0.035 to 0.04) and a `SalesGoal` table. **Commission is paid on what was *received***, resolved
   through the new `ReceivableResolver.ResolveReceivedAmount`, not on what was sold.
@@ -88,17 +100,62 @@ them are the roadmap's own cut list turned into its recommended "honest 5%".
   `leaflet`**, web-only and `require`d lazily so native never loads it; native shows the ranked list.
   Nothing has verified the OSM tile host is reachable from the production network.
 
+## What M29 added, and what it left open
+
+The till is a **second repository** — `~/CodeProjects/EvangelionERPV2.PDV`, Avalonia, offline-first,
+its own SQLite and outbox. This repo holds only the server half. Read that repo's `README.md` for the
+three-step enrolment; nothing here duplicates it.
+
+- **M29a, the module.** `EvangelionERPV2.Pdv.Application` — `CashSession`, `CashMovement`, `PdvSale`,
+  `PdvSalePayment`, and a `PdvService` that composes `OrderService` and `ProductService`. It owns no
+  repository interface of its own, deliberately: an interface with one implementation and no caller
+  but its own service is the thing this codebase keeps deleting. **A till sale becomes an ordinary
+  `Order`**, so margin, commission, stock and the daily panel all see it with no extra work.
+  `SyncSale` is idempotent on `ClientSaleId`, and `SyncSaleBatch` drains a whole outbox in one call.
+- **M29b, the credential chain.** Four separate secrets, none of them reusable as another:
+  a per-terminal enrollment credential (shown once, stored only as a PBKDF2 verifier, revocable);
+  a till login that takes an operator's ordinary ERP password with no browser
+  (`PasswordLoginService`, now shared with `UserController` so one password check serves both);
+  a `PdvTokenScope` that narrows what a token minted at a till may do, consulted by both
+  `PermissionAuthorizationHandler` and `SelfOrPermissionAuthorizationHandler`; and a supervisor
+  override PIN. `FailedAttemptLimiter` stops the login endpoint answering the question
+  "does this user exist" faster than it answers "is this password right".
+- **The override PIN verifier leaves the server on purpose.** `GetSupervisorVerifiers` hands the till
+  a PBKDF2 verifier per supervisor, because an override is needed *exactly* when the network is down.
+  A verifier is not a PIN, the iteration count (210 000) is what makes six digits expensive offline,
+  and only users holding a `pdv.*` grant the operator lacks are listed — sending every employee's
+  verifier would put the whole staff's PINs on every shop floor.
+  **Open, and a deliberate ceiling:** a stolen till database is an offline brute-force target against
+  a six-digit PIN. The iteration count is stored *in* the verifier string, so raising it later does
+  not invalidate existing rows. Longer PINs, or a lockout the till itself enforces, are the upgrade.
+- **M29b also closed the audit hole.** `PdvOverrideAudit` records **every** override attempt, refused
+  ones included — a refusal is the interesting row — idempotent on `ClientOverrideId` so a flaky
+  connection cannot double-count one. `GetSyncState` re-sends each operator's permissions on every
+  sync, so revoking a grant reaches the shop floor without a redeploy.
+- **M29c, thumbnails.** `ProductService` renders a product thumbnail once and keeps it; the till
+  fills its picture cache from a cursor feed that matches the catalog feed's cursor exactly, so one
+  `since` value walks both without skipping a write that landed between them.
+
+**Open across all of M29, in the order it will bite:**
+
+1. **A till sale produces no fiscal document.** See the fiscal note below — this is a decision, not a
+   bug, but it is the one that stops a real shop using this.
+2. **No backoffice screen exists for any of it** (M29f). The API can enrol a terminal, list open
+   sessions, produce the X/Z reading and show the override audit; FrontV2 shows none of it, so today
+   all of that happens in Swagger.
+3. **No peripherals** (M29d): no receipt, no drawer, no scale, no customer display. Planned.
+4. **Card and PIX tenders are recorded, not proven** (M29e): the enum carries them, nothing checks
+   that money arrived.
+5. **The till repo has no remote.** A disk failure loses it.
+
 ## What still needs doing
 
 Nothing here is half-built: every milestone is either finished or waiting on something outside the
 code. In rough order of what unlocks the most.
 
-**M23 landed without its answer.** You said to continue the roadmap, so it was built rather than
-left pending: `Quote` + `QuoteItem` + `QuoteNumberSequence`, a screen, and conversion into an
-ordinary order. If the business turns out not to send quotes, nothing else depends on it — the
-tables are isolated and no financial read touches them. What it does **not** have yet is a PDF: a
-quote you cannot send is half a feature, and the renderer is the one path `M-B8` still shadows in
-production. That is the obvious next slice.
+**M29's till has no fiscal document and no backoffice screen** — the two that are half a feature
+rather than half-built. M23's quote PDF was the third and landed 2026-08-28 (U3); the renderer
+behind it is still the one path `M-B8` shadows in production.
 
 ### A. Waiting on you — nothing moves until these are answered
 
@@ -111,15 +168,19 @@ production. That is the obvious next slice.
 | A5 | **A bank** (`M-B1`: platform account or per-tenant?) | M9's CNAB remessa/retorno cannot start without the layout and the beneficiary decision | L |
 | A6 | **Does the pilot sell services?** | NFS-e is per-municipality webservices, hundreds of incompatible ones. Changes the cut list | L if yes |
 | A7 | **Confirm the pilot only issues plain sales** (§M14) | `natOp` and `tPag` are single constants because `Order` records neither. Wrong the moment devolução or a real payment breakdown matters | S — two fields on `Order` |
+| A8 | **What fiscal document does the till issue?** NFC-e, SAT-CF-e (SP only), or nothing because the shop is not selling to consumers over a counter | **NFC-e was cut from the M0–M13 roadmap when there was no till. There is now a till**, and a counter sale to a consumer generally needs one. Nothing about the M29 code is wrong; it simply issues no fiscal document. This is a re-decision, not a re-litigation — see `docs/fiscal/TODO-manual.md` §P1 | L. Reuses the certificate, the numbering table and `NFeXmlBuilder`; adds modelo 65, CSC/QR-code and a shorter cancellation window |
+| A9 | **Does the shop hold a Stripe BR PIX account?** (invite-only) | Gates the proven-PIX half of M29e. The manual-PIX and card-authorization halves need no PSP and can ship first | S without it, L with |
 
 ### B. Operational, before any of this is real
 
 | # | What |
 |---|---|
 | B1 | ~~Apply the migrations.~~ **Done 2026-08-24** on the local container. Production is still untouched — nothing calls `Database.Migrate()` |
-| B2 | **Push the branch.** `feature/33-Boleto-and-NFE-emission` has no upstream and carries M14–M28 plus the bug pass |
-| B6 | **Apply the three M24–M28 migrations** (`20260825100000`, `110000`, `120000`). The container was down on 2026-08-25, so they exist only as files. `./scripts/local-db-update.sh` |
+| B2 | **Push the branch.** `feature/33-pdv-terminal-login` has no upstream and is **254 commits ahead of `origin/main`** — M14–M29 and the whole bug pass live on one unpushed branch on one machine |
+| B6 | ~~Apply the M24–M28 migrations.~~ **Done.** Verified 2026-08-28: `__EFMigrationsHistory` ends at `20260826174529_AddPdvOverrideAudit`, so the four M29 migrations are applied locally too |
 | B7 | **Re-run Cypress.** Five screens landed since the last pass — margin fields, the performance screen, the ficha, the command palette and the map — and none has been through a browser. That suite is the only gate that catches a hook called inside a branch |
+| B10 | **Give `EvangelionERPV2.PDV` a remote and push it.** `git remote -v` is empty in that repo. Every line of the till exists on one disk |
+| B11 | **Commit or drop the two dirty FrontV2 files** — `Dashboard.tsx` and `useLoginController.ts` have been modified and uncommitted since before M29 |
 | B3 | **Confirm Chromium in the *production* image** (`M-B8`). Partly answered 2026-08-24: in the **local** container `/Bills/Pdf` returns 200 with a real PDF, so PuppeteerSharp works there. Production is a different image and a different network, and `BuildBillAttachmentsAsync` still swallows a renderer failure and mails the bill with no PDF |
 | B4 | ~~Run Cypress once.~~ **Done 2026-08-24 — and it earned its keep.** 16/30 on the first run, **27/30** now. It found four app bugs (see below). One test remains flaky: the two Products specs share a single seeded product, so whichever runs second finds it already deactivated and `GetProductsByFilter` answers 204. A fixture problem in the spec, not the app. **Run `./scripts/e2e-cleanup.sh --apply` after a session** — the suite can only soft-delete through the API, so every run leaves its seeds in the tables (204 rows after four runs, cleared 2026-08-24) |
 | B5 | **Decide on FrontV2 `abb1b46`** — it carries a `Co-Authored-By` trailer and is already pushed to `origin/master`. Removing it means force-pushing a shared branch |
@@ -204,6 +265,14 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   same for a tenant with no customers, and the credit guard turned a missing customer into a generic
   create failure. **Use `GetPagedAsync` for these two entities** — the un-overridden path, no
   `Include`, no throw. Their test doubles now throw on empty too, so the next one fails a test.
+- **`dotnet test EvangelionERPV2.sln` says "Passed!" for a solution that does not build.** It runs
+  the assemblies that compiled and never names the one that did not. `2f8064c` gave `UserController`
+  a required `PasswordLoginService` parameter and missed one call site in
+  `EvangelionERPV2.UserModule.Test`; that project stopped compiling and the next two days of test
+  runs all reported success over 13 assemblies instead of 14. **Read the build's `N Error(s)` line,
+  not just the test summary** — `dotnet build` first, and treat any error as a red suite. CI would
+  have caught it (`runTests.yml` builds as its own step) but CI only runs on a PR to `develop` or
+  `release`, and this branch has never been pushed.
 - **A defaulted bool on a service method is how a capability gets added without touching callers.**
   `CreateAsync(order, allowCreditOverride = false)` and `CreateAsync(bill, useAmbientTransaction,
   keepProvidedAmount)` both use it — and both broke every Moq setup of the old arity, which is a
@@ -261,6 +330,45 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
 - **Users**: `DeleteUser` is a **hard** delete, the only one in the system.
 - **M6**: `NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only; `natOp` and `tPag` are
   single constants because `Order` records neither.
+
+## What we could build next — candidates, not commitments
+
+Nothing here is scheduled and nothing here contradicts a cut list; where a cut *would* be reopened it
+says so and why the facts changed. Ordered by value per hour, not by size.
+
+### Robustness — small, and each one closes a failure that has already happened here
+
+| | What | Why now | Size |
+|---|---|---|---|
+| R1 | ~~A pending-migration check at startup.~~ **Done 2026-08-28.** `LogPendingMigrationsAsync` in `Program.cs` names every pending id at `Fatal` at boot; `DatabaseHealthCheck` now answers **Degraded** (not Unhealthy — an environment that is behind must still serve while somebody applies them, and `MapHealthChecks` returns 200 for Degraded) and lists the ids in the body. Neither path can fail startup | Nothing calls `Database.Migrate()`, by decision, and nothing *told you* either. It bit twice — nine migrations behind on 2026-08-20, three on 2026-08-25 — and both times the symptom was every request to the new tables answering 500 with `Invalid column name` | Done |
+| R2 | ~~Health-check Redis and RabbitMQ.~~ **Done 2026-08-28.** `RedisHealthCheck` reads a probe key (a read, so it leaves nothing in a shared cache) and `RabbitMqHealthCheck` reports the broker connection through a new `IRabbitMQManagerBase.IsConnected`. Both bounded at 5s like the database probe, and neither echoes the exception message — `/health` is anonymous and those messages carry the host and the password | Both are load-bearing — the read caches, and the `RedisLease` that keeps `DailySweepWorker` to one runner. The Redis probe also forces the secret resolution that used to happen lazily inside the cache options callback | Done |
+| R3 | ~~Make the swallowed PDF failure loud.~~ **Done 2026-08-28.** `BuildBillAttachmentsAsync` still sends the mail — the digitable line is payable on its own — but now at `Error` with an `evangelion_bill_email_missing_pdf_total{reason}` counter. **The `pdf.Length == 0` branch was entirely silent** and is counted too: a renderer that returns nothing without throwing is the same outage wearing a different hat | It was the only silent data-loss path left in the system, and M23's quote PDF would have inherited it | Done |
+| R4 | ~~Delete the two dead `IDistributedCache` registrations.~~ **Done 2026-08-28.** All three module copies (Order, Product, Reports) removed; `SharedIoC` — which already ran last, so resolution is unchanged — now owns the single registration and reads its secrets through `Configure<AWSKMSKeyProvider>` instead of a captured instance. `SharedIoCCacheRegistrationTests` fails if a module grows its own copy again | Two of the three were dead weight that read like configuration | Done |
+| R5 | **Drop the three duplicated `.claude/worktrees/` copies of the tree** | Six stale worktrees shadow every `grep` over the repo — every search in this session had to filter them out | XS |
+
+### Useful — each finishes something already paid for
+
+| | What | Why now | Size |
+|---|---|---|---|
+| U1 | **M29f: the backoffice half of the till.** Terminal enrol/revoke, open sessions, the X/Z reading, the override-audit list | Every endpoint exists and is permission-gated. Without a screen, enrolling a terminal and reading the day's takings both happen in Swagger. Pure FrontV2 | M |
+| U2 | ~~Backfill `Product.CostPrice` from the supplier NF-e.~~ **Done 2026-08-28.** `TryBackfillCost` writes **only where `CostPrice` is still null** — a backfill, not a repricing, because the line might be a return, a sample or another pack size, and overwriting would silently replace a figure a human chose. A line at vUnCom 0 (bonificação, amostra) is skipped: a product costed at zero does not read as unknown, it reads as 100% margin. Past orders are untouched either way — `OrderedProduct.UnitCost` is a snapshot. Reported as `CostedProductCount`. **Ceiling, marked `ponytail:`** — it takes vUnCom at face value, and the nota's commercial unit is not necessarily the selling unit (a box of twelve costed as one) | M24 shipped margin and commission and every product was uncosted until somebody typed a number, so every margin column read "—" | Done |
+| U3 | ~~The quote PDF~~ **Done 2026-08-28.** `QuoteDocumentBuilder` builds the document — styles inlined, because `HtmlPdfRenderer` blocks every outbound request the page makes, so a CDN stylesheet would silently not arrive — and `QuoteController.GetQuotePdf` serves it under the same `quotes.read` policy as the quote itself. **A renderer failure is deliberately not swallowed here**, unlike the bill mailer: there the digitable line in the body is payable without the attachment, here the PDF is the whole response, and a 200 with nothing is a quote the salesperson believes was sent. An expired quote still renders but says so on its face | M23 shipped without it, and a quote you cannot send is half a feature | Done |
+| U4 | **Let a seller see their own row** in M25's performance screen, via the existing `SelfOrPermission` handler | The screen that decides someone's commission is Manager-only. The pattern for exactly this already exists | S |
+| U5 | **Make Ctrl+K open the record**, not just switch module | M27's own open item; the fan-out already returns ids | S |
+| U6 | **Card authorization code + PIX manual at the till** (the no-PSP half of M29e) | Ships real value with no Stripe account, no invite and no PSP outage to survive. A card tender that cannot be taken without an authorization code is enforced at the till | S |
+
+### Re-decisions, because the facts changed — not re-litigation
+
+| | What | What changed |
+|---|---|---|
+| D1 | **NFC-e (modelo 65)** — cut from M0–M13 | That cut was made when the system had no counter. M29 put a till on a shop floor, and a consumer sale over a counter generally needs a fiscal document. Tracked as §A8 above and §P1 in `docs/fiscal/TODO-manual.md`. It reuses the certificate, the numbering table and most of `NFeXmlBuilder` |
+| D2 | **PIX** — cut from M0–M13 | Same reason: cut as a *receivable* channel for boletos, before there was a till taking payments across a counter. The M29e plan splits it into a manual QR the operator confirms (no PSP, ships now) and a proven one (gated on an invite-only Stripe BR account) |
+
+### Still deliberately not built
+
+Warehouses, double-entry accounting, a CRM pipeline, `PurchaseOrder`, Quartz/Hangfire, multi-currency,
+a v2 API, employee self-service, a global-search backend, price lists, a `Notification` table, XLSX.
+Nothing in M29 changed the facts behind any of these.
 
 ## The gate every milestone runs
 
