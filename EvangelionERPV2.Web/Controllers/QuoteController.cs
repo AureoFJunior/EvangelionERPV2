@@ -64,6 +64,28 @@ namespace EvangelionERPV2.Web.Controllers
             return quote == null ? NoContent() : Ok(ToDto(quote));
         }
 
+        /// <summary>
+        /// The quote as a PDF, ready to send. Gated by the same read permission as the quote
+        /// itself: the document states nothing the caller could not already see.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Quotes.Read)]
+        [HttpGet("{id}")]
+        [ProducesResponseType(typeof(FileResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetQuotePdf(Guid id)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var document = await _quoteService.GetPdfAsync(id, enterpriseId, HttpContext.RequestAborted);
+            if (document == null)
+                return NoContent();
+
+            return File(document.Value.Pdf, "application/pdf", $"orcamento-{document.Value.Number}.pdf");
+        }
+
         [Authorize(Policy = "rbac:" + RbacPermissions.Quotes.Create)]
         [HttpPost]
         [RequestSizeLimit(MaxQuoteRequestBodySizeInBytes)]

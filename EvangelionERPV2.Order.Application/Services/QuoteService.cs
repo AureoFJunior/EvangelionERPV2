@@ -5,6 +5,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Shared.Utils;
 using Serilog;
 
 namespace EvangelionERPV2.OrderModule.Application.Services
@@ -60,6 +61,25 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             return enterpriseId == Guid.Empty || id == Guid.Empty
                 ? Task.FromResult<Quote?>(null)
                 : _quoteRepository.GetWithItemsAsync(id, enterpriseId, cancellation);
+        }
+
+        /// <summary>
+        /// The quote as a PDF, or <c>null</c> when there is no such quote for this enterprise.
+        /// </summary>
+        /// <remarks>
+        /// A renderer failure is deliberately <em>not</em> swallowed. The bill mailer swallows one
+        /// because the digitable line in the body is payable without the attachment; here the PDF
+        /// is the entire response, and answering 200 with nothing would be a quote the salesperson
+        /// believes was sent.
+        /// </remarks>
+        public async Task<(byte[] Pdf, long Number)?> GetPdfAsync(Guid id, Guid enterpriseId, CancellationToken cancellation = default)
+        {
+            var quote = await GetByIdAsync(id, enterpriseId, cancellation);
+            if (quote == null)
+                return null;
+
+            var pdf = await HtmlPdfRenderer.RenderPdfAsync(QuoteDocumentBuilder.BuildHtml(quote, DateTime.UtcNow));
+            return (pdf, quote.Number);
         }
 
         public async Task<Quote> CreateAsync(Guid enterpriseId, UpsertQuoteRequestDTO request, CancellationToken cancellation = default)

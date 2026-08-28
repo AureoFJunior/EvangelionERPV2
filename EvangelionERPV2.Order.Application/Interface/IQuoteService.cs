@@ -8,6 +8,13 @@ namespace EvangelionERPV2.OrderModule.Application.Interface
     {
         Task<IReadOnlyList<Quote>> GetByEnterpriseAsync(Guid enterpriseId, int? status, CancellationToken cancellation = default);
         Task<Quote?> GetByIdAsync(Guid id, Guid enterpriseId, CancellationToken cancellation = default);
+
+        /// <summary>
+        /// The quote as a PDF and the number to file it under, or <c>null</c> when no such quote
+        /// exists for this enterprise. The number rides along so the download is not named after a
+        /// GUID the customer has never seen.
+        /// </summary>
+        Task<(byte[] Pdf, long Number)?> GetPdfAsync(Guid id, Guid enterpriseId, CancellationToken cancellation = default);
         Task<Quote> CreateAsync(Guid enterpriseId, UpsertQuoteRequestDTO request, CancellationToken cancellation = default);
         Task<Quote> UpdateAsync(Guid id, Guid enterpriseId, UpsertQuoteRequestDTO request, CancellationToken cancellation = default);
         Task<Quote> SetStatusAsync(Guid id, Guid enterpriseId, EnumQuoteStatus status, CancellationToken cancellation = default);

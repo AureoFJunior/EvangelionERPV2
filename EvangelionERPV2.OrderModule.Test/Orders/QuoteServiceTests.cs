@@ -217,6 +217,18 @@ namespace EvangelionERPV2.OrderModule.Test
             Assert.Equal(EnumQuoteStatus.Rejected, quote.StatusAsOf(new DateTime(2026, 4, 1)));
         }
 
+        [Fact]
+        public async Task GetPdf_OfAQuoteThatIsNotThisEnterprises_AnswersNothing()
+        {
+            // No renderer is reached: the scoping check has to happen before anything is built,
+            // or a wrong id would launch a browser to draw another tenant's quote.
+            var quote = BuildStoredQuote(EnumQuoteStatus.Sent, BuildProduct("Plugsuit", 100m));
+            var (service, _, _, _) = BuildSut(stored: quote);
+
+            Assert.Null(await service.GetPdfAsync(quote.Id, Guid.NewGuid()));
+            Assert.Null(await service.GetPdfAsync(Guid.NewGuid(), EnterpriseId));
+        }
+
         private static UpsertQuoteRequestDTO NewRequest(Product product) => new()
         {
             Items = [new QuoteItemRequestDTO { ProductId = product.Id, Quantity = 1, UnitValue = 10m }]

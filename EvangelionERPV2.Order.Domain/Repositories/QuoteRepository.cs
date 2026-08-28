@@ -79,6 +79,9 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
                 .Include(quote => quote.Items!)
                     .ThenInclude(item => item.Product)
                 .Include(quote => quote.Customer)
+                // The PDF prints the issuer's header from here. Cheaper than a second repository
+                // on QuoteService, whose constructor every test double already mirrors.
+                .Include(quote => quote.Enterprise)
                 .AsSplitQuery()
                 .FirstOrDefaultAsync(
                     quote => quote.Id == id
