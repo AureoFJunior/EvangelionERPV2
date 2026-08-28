@@ -54,6 +54,9 @@ namespace EvangelionERPV2.Shared.Utils
             
         }
 
+        /// <inheritdoc />
+        public bool IsConnected => _connection.IsOpen;
+
         private static int ResolveRabbitMqPort(string? rawPort)
         {
             var port = SharedFunctions.SafeConvertToNumber<int>(rawPort ?? string.Empty);

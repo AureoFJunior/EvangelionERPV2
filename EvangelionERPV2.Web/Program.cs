@@ -345,7 +345,9 @@ static async Task LogPendingMigrationsAsync(WebApplication app)
 static void SetupHealthCheck(WebApplicationBuilder builder)
 {
     builder.Services.AddHealthChecks()
-        .AddCheck<DatabaseHealthCheck>("sqlserver");
+        .AddCheck<DatabaseHealthCheck>("sqlserver")
+        .AddCheck<RedisHealthCheck>("redis")
+        .AddCheck<RabbitMqHealthCheck>("rabbitmq");
 }
 
 static void ConfigureIoC(WebApplicationBuilder builder)
