@@ -107,7 +107,8 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             }
 
             var (supplierRecord, supplierCreated) = await ResolveSupplierAsync(enterpriseId, nota);
-            var (items, unmatched) = await MatchItemsAsync(enterpriseId, nota);
+            var (items, unmatched, costed) = await MatchItemsAsync(enterpriseId, nota);
+            await PersistBackfilledCostsAsync(costed);
 
             var created = new List<PayableBill>(existing);
 
@@ -145,8 +146,8 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             created = created.OrderBy(x => x.DueDate).ToList();
 
             Log.Logger.Information(
-                "Supplier NF-e imported. Instalments={Instalments} MatchedItems={MatchedItems} UnmatchedItems={UnmatchedItems}",
-                created.Count, items.Count, unmatched.Count);
+                "Supplier NF-e imported. Instalments={Instalments} MatchedItems={MatchedItems} UnmatchedItems={UnmatchedItems} CostedProducts={CostedProducts}",
+                created.Count, items.Count, unmatched.Count, costed.Count);
 
             return new SupplierNFeImportResultDTO
             {
@@ -161,6 +162,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 SupplierName = supplierRecord.Name,
                 SupplierCreated = supplierCreated,
                 MatchedItemCount = items.Count,
+                CostedProductCount = costed.Count,
                 UnmatchedItems = unmatched
             };
         }
@@ -207,12 +209,13 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// Never auto-creates a product. A line nobody can map is reported so a human maps it once
         /// and every future nota from that supplier lands whole.
         /// </remarks>
-        private async Task<(List<PayableBillProduct> Items, List<SupplierNFeUnmatchedItemDTO> Unmatched)>
+        private async Task<(List<PayableBillProduct> Items, List<SupplierNFeUnmatchedItemDTO> Unmatched, List<Product> Costed)>
             MatchItemsAsync(Guid enterpriseId, SupplierNFeDocument nota)
         {
             var unmatched = new List<SupplierNFeUnmatchedItemDTO>();
+            var costed = new List<Product>();
             if (nota.Items.Count == 0)
-                return ([], unmatched);
+                return ([], unmatched, costed);
 
             var products = (await _productRepository.GetPagedAsync(
                     x => x.EnterpriseId == enterpriseId && x.IsActive == true))
@@ -249,6 +252,9 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     continue;
                 }
 
+                if (TryBackfillCost(product, line))
+                    costed.Add(product);
+
                 if (itemsByProduct.TryGetValue(product.Id, out var merged))
                 {
                     merged.Quantity += line.Quantity;
@@ -263,7 +269,73 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 };
             }
 
-            return (itemsByProduct.Values.ToList(), unmatched);
+            return (itemsByProduct.Values.ToList(), unmatched, costed);
+        }
+
+        /// <summary>
+        /// Gives an uncosted product the unit value the supplier just charged for it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A backfill, not a repricing: it writes <em>only</em> where <see cref="Product.CostPrice"/>
+        /// is still null. M24 shipped margin and commission and nothing fills cost, so every product
+        /// is uncosted until somebody types a number and every margin column reads "—" — while the
+        /// one number nobody should have to type is already arriving in the notas. Overwriting on
+        /// every import would silently replace a figure a human chose, and would do it from a line
+        /// that might be a return, a sample or a different pack size.
+        /// </para>
+        /// <para>
+        /// Past orders are unaffected either way: <c>OrderedProduct.UnitCost</c> is a snapshot taken
+        /// at line creation, so a cost written now never rewrites a margin already reported.
+        /// </para>
+        /// <para>
+        /// A line worth nothing is skipped. Bonificação and amostra lines carry vUnCom 0, and a
+        /// product costed at zero does not read as unknown — it reads as 100% margin.
+        /// </para>
+        /// </remarks>
+        private static bool TryBackfillCost(Product product, SupplierNFeItem line)
+        {
+            if (product.CostPrice.HasValue || line.UnitValue <= 0)
+                return false;
+
+            // ponytail: takes vUnCom at face value. The nota's commercial unit is not necessarily
+            // the unit the product is sold in - a box of twelve costed as one - and the two
+            // vocabularies do not line up (EnumUnitOfMeasure says "Box", a nota says "CX"). Map
+            // line.UnitOfMeasure to product.UnitOfMeasure and divide if a pilot gets this wrong;
+            // until then a visible, editable number beats a permanent "—".
+            product.CostPrice = line.UnitValue;
+            return true;
+        }
+
+        /// <summary>
+        /// Saves the costs the match filled in.
+        /// </summary>
+        /// <remarks>
+        /// Its own commit, before the payables: a cost is not the obligation, so an import that
+        /// dies on the third instalment should still leave the products costed rather than making
+        /// the operator re-upload to get a number that was already correct. A failure here is
+        /// logged and swallowed for the same reason in reverse - the payable is the thing that
+        /// must not be lost.
+        /// </remarks>
+        private async Task PersistBackfilledCostsAsync(List<Product> costed)
+        {
+            if (costed.Count == 0)
+                return;
+
+            try
+            {
+                foreach (var product in costed)
+                    _productRepository.Update(product);
+
+                await _productRepository.CommitAsync();
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error(
+                    "Couldn't save costs backfilled from a supplier NF-e. Products={Products} ErrorType={ErrorType}",
+                    costed.Count,
+                    ex.GetType().Name);
+            }
         }
 
         private static Product? ResolveProduct(

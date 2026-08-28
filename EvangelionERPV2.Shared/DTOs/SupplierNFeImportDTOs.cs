@@ -52,6 +52,12 @@ namespace EvangelionERPV2.Shared.DTOs
         public bool SupplierCreated { get; set; }
 
         public int MatchedItemCount { get; set; }
+
+        /// <summary>
+        /// Matched products that were uncosted and took this nota's unit value as their cost.
+        /// Never a repricing: a product that already had a cost is left alone.
+        /// </summary>
+        public int CostedProductCount { get; set; }
         public List<SupplierNFeUnmatchedItemDTO> UnmatchedItems { get; set; } = [];
     }
 }

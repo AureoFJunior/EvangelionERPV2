@@ -412,6 +412,55 @@ namespace EvangelionERPV2.NFeModule.Test
             Assert.Empty(result.UnmatchedItems);
         }
 
+        [Fact]
+        public async Task Import_CostsAMatchedProductThatHadNoCost()
+        {
+            // M24 shipped margin and nothing fills cost, so every product reads "-" until somebody
+            // types a number. The supplier's own unit value is that number, already in the file.
+            var product = BuildProduct("Plugsuit", ean: "7891234567895");
+            Assert.Null(product.CostPrice);
+
+            var (service, _, _, _) = BuildSut(products: [product]);
+
+            var result = await service.ImportAsync(EnterpriseId, BuildNota());
+
+            Assert.Equal(60m, product.CostPrice);
+            Assert.Equal(1, result.CostedProductCount);
+        }
+
+        [Fact]
+        public async Task Import_LeavesAProductThatAlreadyHasACostAlone()
+        {
+            // A backfill, not a repricing: this line might be a return, a sample or another pack
+            // size, and overwriting would silently replace a figure a human chose.
+            var product = BuildProduct("Plugsuit", ean: "7891234567895");
+            product.CostPrice = 42m;
+
+            var (service, _, _, _) = BuildSut(products: [product]);
+
+            var result = await service.ImportAsync(EnterpriseId, BuildNota());
+
+            Assert.Equal(42m, product.CostPrice);
+            Assert.Equal(0, result.CostedProductCount);
+        }
+
+        [Fact]
+        public async Task Import_DoesNotCostAProductFromALineWorthNothing()
+        {
+            // Bonificacao and amostra lines carry vUnCom 0, and a product costed at zero does not
+            // read as unknown - it reads as 100% margin on every order it ever appears in.
+            var product = BuildProduct("Plugsuit", ean: "7891234567895");
+            var free = Encoding.UTF8.GetString(BuildNota())
+                .Replace("<vUnCom>60.0000000000</vUnCom>", "<vUnCom>0.0000000000</vUnCom>");
+
+            var (service, _, _, _) = BuildSut(products: [product]);
+
+            var result = await service.ImportAsync(EnterpriseId, Encoding.UTF8.GetBytes(free));
+
+            Assert.Null(product.CostPrice);
+            Assert.Equal(0, result.CostedProductCount);
+        }
+
         #endregion
 
         private static Product BuildProduct(string name, string? ean) => new()
