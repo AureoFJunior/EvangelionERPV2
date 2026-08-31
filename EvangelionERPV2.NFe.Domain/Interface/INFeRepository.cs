@@ -8,6 +8,17 @@ namespace EvangelionERPV2.NFeModule.Domain.Interface
 
         Task<NFeDocument?> GetByAccessKeyAsync(string accessKey);
 
+        /// <summary>
+        /// Off-line contingency notes that still owe SEFAZ a transmission, oldest first.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately unbounded by attempt count, unlike the reconciler's stale query. A note the
+        /// customer is already holding does not stop needing to be transmitted because we tried a
+        /// few times — it is a fiscal obligation, so it is retried until it succeeds or a human
+        /// intervenes.
+        /// </remarks>
+        Task<IReadOnlyList<NFeDocument>> GetUntransmittedContingencyAsync(int take = 50);
+
         /// <summary>Tenant-scoped lookup, so the caller cannot forget the enterprise predicate.</summary>
         Task<NFeDocument?> GetByAccessKeyAsync(string accessKey, Guid enterpriseId);
 

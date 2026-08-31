@@ -82,6 +82,24 @@ namespace EvangelionERPV2.NFeModule.Domain.Repositories
                 .ToListAsync();
         }
 
+        public async Task<IReadOnlyList<NFeDocument>> GetUntransmittedContingencyAsync(int take = 50)
+        {
+            // tpEmis 9 and no protocol yet. Authorized and Cancelled are terminal; anything else
+            // with a contingency stamp is a note the shop printed and SEFAZ has not acknowledged.
+            return await ActiveDocuments()
+                .Where(x => x.TipoEmissao == 9
+                            && x.ContingencyEnteredAt != null
+                            && x.Status != NFeStatus.Authorized
+                            && x.Status != NFeStatus.Cancelled
+
+                            // Provably never transmitted. Anything else may already exist at SEFAZ
+                            // and is the reconciler's to consult, never this sweeper's to resend.
+                            && x.TransmittedAtUtc == null)
+                .OrderBy(x => x.ContingencyEnteredAt)
+                .Take(take)
+                .ToListAsync();
+        }
+
         public async Task<int?> AllocateNextNumberAsync(
             Guid enterpriseId,
             short model,

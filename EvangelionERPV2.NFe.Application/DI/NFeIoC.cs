@@ -119,6 +119,12 @@ namespace EvangelionERPV2.NFeModule.Application.DI
                 // is the module that has to clear it.
                 services.AddScoped<NFeReconciliationService>();
                 services.AddHostedService<NFeReconciliationWorker>();
+
+                // Separate sweeper from the reconciler on purpose: they resolve opposite states.
+                // The reconciler consults notes whose outcome is unknown and must never retransmit;
+                // this one transmits notes that provably never reached SEFAZ.
+                services.AddScoped<NFeContingencyService>();
+                services.AddHostedService<NFeContingencyWorker>();
                 #endregion
 
                 // A swallowed DI failure in this module means silent non-issuance, so the fiscal

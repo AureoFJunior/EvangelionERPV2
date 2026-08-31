@@ -45,6 +45,25 @@ namespace EvangelionERPV2.NFeModule.Application.Providers
         /// returns the honest answer — still unknown — which leaves the document Pending for a human
         /// instead of inventing an authorization for a note that was never sent anywhere.
         /// </remarks>
+        /// <remarks>
+        /// Same honesty as <see cref="ConsultAsync"/>: the stub transmits nothing, so it reports
+        /// that nothing was transmitted. Claiming success would mark a contingency note as settled
+        /// with SEFAZ while it still owed one.
+        /// </remarks>
+        public Task<NFeProviderResult> TransmitSignedAsync(
+            string accessKey,
+            string signedXml,
+            EnterpriseFiscalSettings fiscalSettings,
+            NFeDocumentType type,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new NFeProviderResult
+            {
+                AccessKey = accessKey,
+                Status = NFeStatus.Error,
+                XMotivo = "The stub provider transmits nothing.",
+                NeverTransmitted = true
+            });
+
         public Task<NFeProviderResult> ConsultAsync(
             string accessKey, EnterpriseFiscalSettings fiscalSettings, CancellationToken cancellationToken = default) =>
             Task.FromResult(new NFeProviderResult

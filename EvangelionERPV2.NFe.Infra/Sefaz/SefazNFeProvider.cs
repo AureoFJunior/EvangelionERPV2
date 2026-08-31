@@ -13,6 +13,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Xml;
 
 using Unimake.Business.DFe.Servicos;
+using Unimake.Business.DFe.Utility;
 using Unimake.Business.DFe.Xml.NFe;
 using Unimake.Exceptions;
 
@@ -158,6 +159,12 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                 return PreTransmissionFailure(context.AccessKey, exception, "build");
             }
 
+            // Signing happens while the service is constructed, so by here the note exists as a
+            // signed document whether or not SEFAZ is ever reached. For an off-line note that is
+            // the whole point: it is printed at the counter now and transmitted later, and if this
+            // XML were not kept there would be nothing to print and nothing to send.
+            var signedXml = Xml(service.ConteudoXMLAssinado);
+
             try
             {
                 await Task.Run(service.Executar, cancellationToken);
@@ -168,16 +175,144 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                 // is unknown and the caller must consult rather than resend.
                 Log.Logger.Error(exception, "NFe transmission failed for chave {AccessKey}.", Redact(context.AccessKey));
 
-                return new NFeProviderResult
+                var unknown = new NFeProviderResult
                 {
                     AccessKey = context.AccessKey,
                     Status = NFeStatus.Pending,
                     XMotivo = "The transmission failed with an unknown outcome; SEFAZ must be consulted.",
-                    IsTransient = true
+                    IsTransient = true,
+
+                    // Kept even though the outcome is unknown: it is the only copy of what was
+                    // signed, and a later consult that finds the note authorised has nothing else
+                    // to pair the protocol with.
+                    XmlContent = signedXml ?? string.Empty
+                };
+
+                ReadConsumerQr(unknown);
+                return unknown;
+            }
+
+            var result = ReadAuthorization(context, service);
+
+            // A rejected or unanswered note still has a signed body worth keeping — for an off-line
+            // one it is what the customer is holding.
+            if (string.IsNullOrWhiteSpace(result.XmlContent) && !string.IsNullOrWhiteSpace(signedXml))
+            {
+                result.XmlContent = signedXml;
+                ReadConsumerQr(result);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc />
+        public async Task<NFeProviderResult> TransmitSignedAsync(
+            string accessKey,
+            string signedXml,
+            EnterpriseFiscalSettings fiscalSettings,
+            NFeDocumentType type,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(fiscalSettings);
+
+            if (string.IsNullOrWhiteSpace(signedXml))
+            {
+                return new NFeProviderResult
+                {
+                    AccessKey = accessKey,
+                    Status = NFeStatus.Error,
+                    XMotivo = "There is no stored document to transmit.",
+                    NeverTransmitted = true
                 };
             }
 
-            return ReadAuthorization(context, service);
+            NFeAutorizacao service;
+            try
+            {
+                var certificate = await _certificates.GetAsync(fiscalSettings.EnterpriseId, cancellationToken);
+
+                var csc = type == NFeDocumentType.NFCe && _cscProvider != null
+                    ? await _cscProvider.GetAsync(fiscalSettings.EnterpriseId, cancellationToken)
+                    : null;
+
+                // tpEmis comes from the stored ide, not from an argument: this transmits what was
+                // signed, and nothing here may change what the document says about itself.
+                var configuracao = UnimakeConfiguracaoFactory.Create(
+                    fiscalSettings, type, certificate, csc, TipoEmissaoOf(signedXml));
+
+                var document = new XmlDocument { XmlResolver = null };
+                document.LoadXml(signedXml);
+
+                service = new NFeAutorizacao(XMLUtility.Deserializar<EnviNFe>(document), configuracao);
+            }
+            catch (Exception exception) when (IsPreTransmissionFailure(exception))
+            {
+                return PreTransmissionFailure(accessKey, exception, "contingency transmit");
+            }
+
+            try
+            {
+                await Task.Run(service.Executar, cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                Log.Logger.Error(exception,
+                    "Contingency transmission failed for chave {AccessKey}.", Redact(accessKey));
+
+                return new NFeProviderResult
+                {
+                    AccessKey = accessKey,
+                    Status = NFeStatus.Pending,
+                    XMotivo = "The contingency transmission failed with an unknown outcome; SEFAZ must be consulted.",
+                    IsTransient = true,
+                    XmlContent = signedXml
+                };
+            }
+
+            var envelope = service.Result;
+            var protocol = envelope?.ProtNFe?.InfProt;
+            var cStat = protocol?.CStat ?? envelope?.CStat ?? 0;
+            var verdict = SefazCStatMap.ForAuthorization(cStat);
+
+            var result = new NFeProviderResult
+            {
+                AccessKey = accessKey,
+                Status = verdict.Status,
+                Cstat = Cstat(cStat),
+                XMotivo = protocol?.XMotivo ?? envelope?.XMotivo ?? string.Empty,
+                Protocol = protocol?.NProt ?? string.Empty,
+                IsTransient = verdict.IsTransient,
+                NeverTransmitted = false,
+                IssuedAt = protocol is null ? null : ToUtc(protocol.DhRecbto),
+                XmlContent = Xml(service.NfeProcResult) ?? signedXml
+            };
+
+            ReadConsumerQr(result);
+            return result;
+        }
+
+        /// <summary>
+        /// Reads tpEmis back off the stored document, so the configuration agrees with what was
+        /// signed instead of with what a caller assumed.
+        /// </summary>
+        private static byte TipoEmissaoOf(string signedXml)
+        {
+            try
+            {
+                var document = new XmlDocument { XmlResolver = null };
+                document.LoadXml(signedXml);
+
+                var nodes = document.GetElementsByTagName("tpEmis");
+                if (nodes.Count > 0 && byte.TryParse(nodes[0]!.InnerText, out var parsed))
+                    return parsed;
+            }
+            catch (XmlException)
+            {
+                // Fall through: a document we cannot parse is rejected by the library moments later
+                // with a far better message than anything invented here.
+            }
+
+            return 1;
         }
 
         public async Task<NFeProviderResult> ConsultAsync(
