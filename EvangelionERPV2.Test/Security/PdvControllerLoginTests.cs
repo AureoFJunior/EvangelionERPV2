@@ -1,3 +1,4 @@
+using EvangelionERPV2.NFeModule.Application.Interface;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
 using EvangelionERPV2.PdvModule.Application.Interface;
@@ -244,6 +245,7 @@ namespace EvangelionERPV2.Test.Security
                 userRepository.Object,
                 new Mock<IRepository<PdvOverrideAudit>>().Object,
                 new Mock<IRepository<Enterprise>>().Object,
+                new Mock<INFeService<NFeDocument>>().Object,
                 new PasswordLoginService(userRepository.Object),
                 new TokenService(refreshTokenRepository.Object, configuration))
             {

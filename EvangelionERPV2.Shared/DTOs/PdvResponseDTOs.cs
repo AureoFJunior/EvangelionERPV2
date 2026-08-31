@@ -45,6 +45,36 @@ namespace EvangelionERPV2.Shared.DTOs
         public DateTime OccurredAt { get; set; }
     }
 
+    /// <summary>
+    /// The fiscal document for one till sale, as the terminal needs it to print.
+    /// </summary>
+    /// <remarks>
+    /// This is the one place <c>QrCode</c> and <c>UrlChave</c> deliberately leave the server: they
+    /// are printed on the customer's own receipt, which is the entire point of an NFC-e. They stay
+    /// absent from <c>NFeDocumentDTO</c>, where the same values would only leak an access key —
+    /// and with it a CNPJ and a note number — to a back-office caller with no use for them.
+    /// </remarks>
+    public sealed class PdvFiscalDocumentDTO
+    {
+        public string AccessKey { get; set; } = string.Empty;
+        public string Number { get; set; } = string.Empty;
+        public string Series { get; set; } = string.Empty;
+
+        /// <summary><see cref="Entities.NFeStatus"/>.</summary>
+        public int Status { get; set; }
+
+        /// <summary>The consumer QR payload. Empty until the note is authorised.</summary>
+        public string QrCode { get; set; } = string.Empty;
+
+        public string UrlChave { get; set; } = string.Empty;
+
+        /// <summary>True when this was issued off-line (tpEmis 9) and still owes SEFAZ a transmission.</summary>
+        public bool IsContingency { get; set; }
+
+        /// <summary>xMotivo, so an operator sees why rather than a status number.</summary>
+        public string XMotivo { get; set; } = string.Empty;
+    }
+
     public sealed class CashMovementDTO
     {
         public Guid Id { get; set; }

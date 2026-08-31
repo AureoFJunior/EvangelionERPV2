@@ -1,3 +1,4 @@
+using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.PdvModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
@@ -125,6 +126,7 @@ namespace EvangelionERPV2.Test.Security
                 userRepository,
                 overrideAuditRepository.Object,
                 new Mock<IRepository<Enterprise>>().Object,
+                new Mock<INFeService<NFeDocument>>().Object,
                 new PasswordLoginService(userRepository),
                 new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration))
             {

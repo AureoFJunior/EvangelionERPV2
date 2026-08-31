@@ -41,6 +41,9 @@ namespace EvangelionERPV2.PdvModule.Application.Interface
         /// <summary>The session currently open on a terminal, if any.</summary>
         Task<CashSession?> GetOpenSessionAsync(string terminalId, Guid enterpriseId);
 
+        /// <summary>One synced sale, by the id the terminal minted for it.</summary>
+        Task<PdvSale?> GetSaleAsync(Guid clientSaleId, Guid enterpriseId);
+
         /// <summary>Every till enrolled for this shop, revoked ones included. Never the credential.</summary>
         Task<IReadOnlyList<PdvTerminalDTO>> GetTerminalsAsync(Guid enterpriseId);
 

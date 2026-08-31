@@ -1,3 +1,4 @@
+using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.PdvModule.Application.Interface;
 using EvangelionERPV2.PdvModule.Application.Services;
 using EvangelionERPV2.Shared.DTOs;
@@ -95,6 +96,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IRepository<Shared.Entities.User> _userRepository;
         private readonly IRepository<PdvOverrideAudit> _overrideAuditRepository;
         private readonly IRepository<Enterprise> _enterpriseRepository;
+        private readonly INFeService<NFeDocument> _nfeService;
         private readonly PasswordLoginService _passwordLogin;
         private readonly TokenService _tokenService;
 
@@ -104,6 +106,7 @@ namespace EvangelionERPV2.Web.Controllers
             IRepository<Shared.Entities.User> userRepository,
             IRepository<PdvOverrideAudit> overrideAuditRepository,
             IRepository<Enterprise> enterpriseRepository,
+            INFeService<NFeDocument> nfeService,
             PasswordLoginService passwordLogin,
             TokenService tokenService)
         {
@@ -112,6 +115,7 @@ namespace EvangelionERPV2.Web.Controllers
             _userRepository = userRepository;
             _overrideAuditRepository = overrideAuditRepository;
             _enterpriseRepository = enterpriseRepository;
+            _nfeService = nfeService;
             _passwordLogin = passwordLogin;
             _tokenService = tokenService;
         }
@@ -839,6 +843,77 @@ namespace EvangelionERPV2.Web.Controllers
                 return Unauthorized();
 
             return Ok(await _pdvService.GetOverrideAuditAsync(enterpriseId, since, onlyRefused, take));
+        }
+
+        /// <summary>
+        /// Issues the NFC-e for a sale the till already synced, and answers what it must print.
+        /// </summary>
+        /// <remarks>
+        /// A separate call, never part of <c>SyncSale</c>. `RejectAsync` is terminal — the till
+        /// stops resending a rejected sale — so putting issuance on that path would let one SEFAZ
+        /// timeout permanently reject a sale the customer already paid for. Here a fiscal failure
+        /// costs a fiscal failure and nothing else; the sale stays Synced either way.
+        ///
+        /// **The contingency fallback is deliberately narrow.** It runs only when the first attempt
+        /// can be *proved* never to have been transmitted. A note whose outcome is merely unknown
+        /// may already exist at SEFAZ, and re-issuing it off-line would emit the same sale twice —
+        /// so that case is left Pending for the reconciler, which is the only component allowed to
+        /// resolve it.
+        /// </remarks>
+        [HttpPost("{clientSaleId}")]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
+        [ProducesResponseType(typeof(PdvFiscalDocumentDTO), 200)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        [ProducesResponseType(404)]
+        public async Task<IActionResult> IssueFiscalDocument(Guid clientSaleId, [FromQuery] string? contingencyReason = null)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var sale = await _pdvService.GetSaleAsync(clientSaleId, enterpriseId);
+            if (sale == null)
+                return NotFound();
+
+            // Only a sale that actually became an order has anything to issue against.
+            if (sale.Status != (int)EnumPdvSaleStatus.Synced || sale.OrderId == null)
+                return BadRequest(new { message = "That sale has not been synced into an order yet." });
+
+            var document = await _nfeService.IssueAsync(sale.OrderId.Value, enterpriseId, NFeDocumentType.NFCe);
+
+            if (document == null)
+                return BadRequest(new { message = "NFC-e issuance is not enabled for this enterprise." });
+
+            // Provably nothing left this process — a certificate that would not load, SEFAZ
+            // unreachable before the socket opened. Only then is issuing the same sale off-line
+            // safe, and only then does the customer get a document to leave with.
+            var neverTransmitted = document.Status == NFeStatus.Error && document.TransmittedAtUtc == null;
+
+            if (neverTransmitted && !string.IsNullOrWhiteSpace(contingencyReason))
+            {
+                document = await _nfeService.IssueAsync(
+                    sale.OrderId.Value,
+                    enterpriseId,
+                    NFeDocumentType.NFCe,
+                    new NFeContingency
+                    {
+                        EnteredAt = DateTime.UtcNow,
+                        Justification = contingencyReason.Trim()
+                    }) ?? document;
+            }
+
+            return Ok(new PdvFiscalDocumentDTO
+            {
+                AccessKey = document.AccessKey,
+                Number = document.Number,
+                Series = document.Series,
+                Status = (int)document.Status,
+                QrCode = document.QrCode,
+                UrlChave = document.UrlChave,
+                IsContingency = document.TipoEmissao == 9,
+                XMotivo = document.XMotivo
+            });
         }
 
         [HttpGet("{terminalId}")]

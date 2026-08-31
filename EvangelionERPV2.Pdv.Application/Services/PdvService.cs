@@ -324,6 +324,16 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 .ToListAsync();
         }
 
+        /// <inheritdoc />
+        public async Task<PdvSale?> GetSaleAsync(Guid clientSaleId, Guid enterpriseId)
+        {
+            AssertTenant(enterpriseId);
+
+            return await _appDbContext.PdvSale
+                .AsNoTracking()
+                .FirstOrDefaultAsync(sale => sale.EnterpriseId == enterpriseId && sale.ClientSaleId == clientSaleId);
+        }
+
         public async Task<CashSession?> GetOpenSessionAsync(string terminalId, Guid enterpriseId)
         {
             AssertTenant(enterpriseId);
