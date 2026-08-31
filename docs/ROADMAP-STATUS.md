@@ -19,15 +19,15 @@ any of them is re-litigating a settled decision.
 
 ## State of the tree
 
-Measured 2026-08-28, not remembered.
+Measured 2026-08-31, not remembered.
 
 | | |
 |---|---|
-| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **254 commits ahead of `origin/main`** |
-| Head | `6f3d06d` — the till's image feed. FrontV2 `7f3c3dc`, with `Dashboard.tsx` and `useLoginController.ts` modified and uncommitted |
+| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **263 commits ahead of `origin/main`** |
+| Head | `13aac5c` — a seller's own commission row. FrontV2 `ade0fcd`, working tree clean in both repos |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1497 passing / 0 failing** across 15 assemblies (1386 at M28). New: `PdvModule.Test` 32, `Web` 590 |
-| FrontV2 | `npx tsc --noEmit` clean and `npx jest` 96 passing **as of M28**; neither re-run since. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
+| Tests | **1503 passing / 0 failing** across 15 assemblies (1497 on 2026-08-28). `Web` 593, `OrderModule` 76 |
+| FrontV2 | `npx tsc --noEmit` clean and `npx jest` **99 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
 | PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `b20c820`. **That repo has no git remote at all** — it exists on this machine only |
 | Migrations | chain ends `20260826174529_AddPdvOverrideAudit`. **All applied to the local container**, verified 2026-08-28 against `__EFMigrationsHistory`. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
@@ -84,8 +84,11 @@ them are the roadmap's own cut list turned into its recommended "honest 5%".
 - **M25 metas + comissão.** `User.CommissionRate` (decimal(5,4) — the money precision would round
   0.035 to 0.04) and a `SalesGoal` table. **Commission is paid on what was *received***, resolved
   through the new `ReceivableResolver.ResolveReceivedAmount`, not on what was sold.
-  **Open:** a seller cannot see their own row — the whole screen is Manager+. The enterprise row is
-  deliberately not the sum of the seller rows (a queued order has no seller).
+  **Open:** ~~a seller cannot see their own row~~ — since 2026-08-31 `sales.performance.read.self`
+  starts at the Employee tier and `GetSellerPerformance/{id}` answers one row through the existing
+  `SelfOrPermission` handler; the whole table stays Manager+, and the self response carries no
+  enterprise row. The enterprise row is deliberately not the sum of the seller rows (a queued order
+  has no seller).
 - **M26 ficha do cliente.** One endpoint, `Customer/GetCustomerSummary`, composed entirely of reads
   that already existed. The financial block is nulled for a caller without `bills.read`.
   **Open:** it reuses `GetAgingAsync`, which scans the tenant's whole open carteira to read one
@@ -353,7 +356,7 @@ says so and why the facts changed. Ordered by value per hour, not by size.
 | U1 | **M29f: the backoffice half of the till.** Terminal enrol/revoke, open sessions, the X/Z reading, the override-audit list | Every endpoint exists and is permission-gated. Without a screen, enrolling a terminal and reading the day's takings both happen in Swagger. Pure FrontV2 | M |
 | U2 | ~~Backfill `Product.CostPrice` from the supplier NF-e.~~ **Done 2026-08-28.** `TryBackfillCost` writes **only where `CostPrice` is still null** — a backfill, not a repricing, because the line might be a return, a sample or another pack size, and overwriting would silently replace a figure a human chose. A line at vUnCom 0 (bonificação, amostra) is skipped: a product costed at zero does not read as unknown, it reads as 100% margin. Past orders are untouched either way — `OrderedProduct.UnitCost` is a snapshot. Reported as `CostedProductCount`. **Ceiling, marked `ponytail:`** — it takes vUnCom at face value, and the nota's commercial unit is not necessarily the selling unit (a box of twelve costed as one) | M24 shipped margin and commission and every product was uncosted until somebody typed a number, so every margin column read "—" | Done |
 | U3 | ~~The quote PDF~~ **Done 2026-08-28.** `QuoteDocumentBuilder` builds the document — styles inlined, because `HtmlPdfRenderer` blocks every outbound request the page makes, so a CDN stylesheet would silently not arrive — and `QuoteController.GetQuotePdf` serves it under the same `quotes.read` policy as the quote itself. **A renderer failure is deliberately not swallowed here**, unlike the bill mailer: there the digitable line in the body is payable without the attachment, here the PDF is the whole response, and a 200 with nothing is a quote the salesperson believes was sent. An expired quote still renders but says so on its face | M23 shipped without it, and a quote you cannot send is half a feature | Done |
-| U4 | **Let a seller see their own row** in M25's performance screen, via the existing `SelfOrPermission` handler | The screen that decides someone's commission is Manager-only. The pattern for exactly this already exists | S |
+| U4 | ~~Let a seller see their own row.~~ **Done 2026-08-31.** A new `sales.performance.read.self` permission starts at the Employee tier and gates `GetSellerPerformance/{id}` through the existing `SelfOrPermission` handler, so a seller reaches only the row whose id is their own while `sales.performance.read` still reaches any. **The response deliberately omits the enterprise row** — that is the company's whole month, and the point was the person being measured seeing the measurement, not the company total arriving at the base role tier. The service computes the whole month and takes one row, marked `ponytail:`, precisely so the seller's screen and their manager's cannot disagree to the cent. FrontV2 turns the old "restricted to managers" banner into a one-row *My sales* view; setting a target stays `sales.goals.manage` | Done |
 | U5 | **Make Ctrl+K open the record**, not just switch module | M27's own open item; the fan-out already returns ids | S |
 | U6 | **Card authorization code + PIX manual at the till** (the no-PSP half of M29e) | Ships real value with no Stripe account, no invite and no PSP outage to survive. A card tender that cannot be taken without an authorization code is enforced at the till | S |
 
