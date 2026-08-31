@@ -23,11 +23,11 @@ Measured 2026-08-31, not remembered.
 
 | | |
 |---|---|
-| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **273 commits ahead of `origin/main`** |
-| Head | `fa67d97` — the PIX webhook. FrontV2 `10206f3`, PDV `0415e4e`; working tree clean in all three |
+| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **275 commits ahead of `origin/main`** |
+| Head | `8e3164c` — the backoffice reads. FrontV2 `57fd4e6`, PDV `0415e4e`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1540 passing / 0 failing** across 15 assemblies (1497 on 2026-08-28). `Web` 639, `PdvModule` 73 |
-| FrontV2 | `npx tsc --noEmit` clean and `npx jest` **101 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
+| Tests | **1546 passing / 0 failing** across 15 assemblies (1497 on 2026-08-28). `Web` 596, `PdvModule` 73. A whole-solution run *while another session was rebuilding* reported one spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
 | PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `0415e4e` (50 commits). `dotnet test EvangelionERPV2.PDV.slnx` **362 passing / 0 failing** (356 unit + 6 integration), build 0 warnings, measured 2026-08-31. **That repo has no git remote at all** — it exists on this machine only |
 | Migrations | chain ends `20260831125849_AddPdvCharge`. **The last two are committed and applied NOWHERE** — `AddPdvSalePaymentVerification` and `AddPdvCharge`. `./scripts/local-db-update.sh` failed on 2026-08-31 with `container … is not running`, so start the compose `localdb` profile and re-run it before anything touches `PdvSalePayment` or `PdvCharge`. Everything before them was applied to the local container on 2026-08-28. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
@@ -65,7 +65,7 @@ Measured 2026-08-31, not remembered.
 | M29c | Product thumbnails for the till | **Done 2026-08-27/28** | `ff525df` … `6f3d06d` |
 | M29d | Receipt printer, drawer, scale, display | **Done 2026-08-28/29** — ESC/POS printer, drawer kick, scale, customer display, all optional so a till with nothing plugged in still sells | PDV `d59cfcb` … `98d13c1` |
 | M29e | Card authorization code + PIX manual; Stripe Connect PIX | **Code complete 2026-08-31, plan tasks 1–9.** No-PSP half (1–4), then `PdvCharge` + the charge endpoints + the signature-verified webhook (5–7), then the till's `IPaymentGateway` and PIX screen (8–9). **Task 10 — wiring it up and proving it against a running ERP — is not done, and is gated** on a real Stripe BR PIX account | `30aac13` … `fa67d97`; PDV `c686f9e` … `0415e4e` |
-| M29f | Backoffice screens for any of M29 | **Not started** — see below | |
+| M29f | Backoffice screens for any of M29 | **Done 2026-08-31** — four new Supervisor-tier read endpoints plus the FrontV2 *Tills* screen | `8e3164c`, FrontV2 `57fd4e6` |
 
 ## What M24–M28 added, and what they left open
 
@@ -144,9 +144,10 @@ three-step enrolment; nothing here duplicates it.
 
 1. **A till sale produces no fiscal document.** See the fiscal note below — this is a decision, not a
    bug, but it is the one that stops a real shop using this.
-2. **No backoffice screen exists for any of it** (M29f). The API can enrol a terminal, list open
-   sessions, produce the X/Z reading and show the override audit; FrontV2 shows none of it, so today
-   all of that happens in Swagger.
+2. ~~**No backoffice screen exists for any of it** (M29f)~~ — done 2026-08-31. The claim that the API
+   already had every endpoint was **false**: listing terminals, revoking one, listing open sessions
+   and reading the override log all had to be written. They exist now, and the FrontV2 *Tills* screen
+   uses them.
 3. ~~**No peripherals** (M29d)~~ — done 2026-08-28/29. Receipt, drawer, scale and customer display,
    each optional: a till with nothing plugged in still sells.
 4. ~~**Card and PIX tenders are recorded, not proven**~~ — closed in code 2026-08-31. A card tender
@@ -359,7 +360,7 @@ says so and why the facts changed. Ordered by value per hour, not by size.
 
 | | What | Why now | Size |
 |---|---|---|---|
-| U1 | **M29f: the backoffice half of the till.** Terminal enrol/revoke, open sessions, the X/Z reading, the override-audit list | Every endpoint exists and is permission-gated. Without a screen, enrolling a terminal and reading the day's takings both happen in Swagger. Pure FrontV2 | M |
+| U1 | ~~M29f: the backoffice half of the till.~~ **Done 2026-08-31.** **This entry was wrong about the premise** — it said "every endpoint exists", and four of them did not: only `EnrollTerminal`, `GetSessionSummary` and `GetOpenSession/{terminalId}` were there, so it was never pure FrontV2. Added `GetTerminals`, `RevokeTerminal`, `GetOpenSessions` and `GetOverrideAudit`, all Supervisor tier. **The terminal list is a projection, never the entity**: `PdvTerminal` carries a PBKDF2 verifier, and a test fails the day anyone returns the row instead. Revoke is idempotent and answers 204 for another tenant's id, so it is not an enumeration oracle. FrontV2 gained a *Tills* screen: enrol (credential shown once), revoke, the sessions open now, their X/Z reading, and the override log with a refused-only filter | Done |
 | U2 | ~~Backfill `Product.CostPrice` from the supplier NF-e.~~ **Done 2026-08-28.** `TryBackfillCost` writes **only where `CostPrice` is still null** — a backfill, not a repricing, because the line might be a return, a sample or another pack size, and overwriting would silently replace a figure a human chose. A line at vUnCom 0 (bonificação, amostra) is skipped: a product costed at zero does not read as unknown, it reads as 100% margin. Past orders are untouched either way — `OrderedProduct.UnitCost` is a snapshot. Reported as `CostedProductCount`. **Ceiling, marked `ponytail:`** — it takes vUnCom at face value, and the nota's commercial unit is not necessarily the selling unit (a box of twelve costed as one) | M24 shipped margin and commission and every product was uncosted until somebody typed a number, so every margin column read "—" | Done |
 | U3 | ~~The quote PDF~~ **Done 2026-08-28.** `QuoteDocumentBuilder` builds the document — styles inlined, because `HtmlPdfRenderer` blocks every outbound request the page makes, so a CDN stylesheet would silently not arrive — and `QuoteController.GetQuotePdf` serves it under the same `quotes.read` policy as the quote itself. **A renderer failure is deliberately not swallowed here**, unlike the bill mailer: there the digitable line in the body is payable without the attachment, here the PDF is the whole response, and a 200 with nothing is a quote the salesperson believes was sent. An expired quote still renders but says so on its face | M23 shipped without it, and a quote you cannot send is half a feature | Done |
 | U4 | ~~Let a seller see their own row.~~ **Done 2026-08-31.** A new `sales.performance.read.self` permission starts at the Employee tier and gates `GetSellerPerformance/{id}` through the existing `SelfOrPermission` handler, so a seller reaches only the row whose id is their own while `sales.performance.read` still reaches any. **The response deliberately omits the enterprise row** — that is the company's whole month, and the point was the person being measured seeing the measurement, not the company total arriving at the base role tier. The service computes the whole month and takes one row, marked `ponytail:`, precisely so the seller's screen and their manager's cannot disagree to the cent. FrontV2 turns the old "restricted to managers" banner into a one-row *My sales* view; setting a target stays `sales.goals.manage` | Done |
