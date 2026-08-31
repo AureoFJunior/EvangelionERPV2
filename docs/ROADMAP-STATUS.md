@@ -183,7 +183,7 @@ behind it is still the one path `M-B8` shadows in production.
 | # | What |
 |---|---|
 | B1 | ~~Apply the migrations.~~ **Done 2026-08-24** on the local container. Production is still untouched — nothing calls `Database.Migrate()` |
-| B2 | **Push the branch.** `feature/33-pdv-terminal-login` has no upstream and is **254 commits ahead of `origin/main`** — M14–M29 and the whole bug pass live on one unpushed branch on one machine |
+| B2 | **Push the branch.** `feature/33-pdv-terminal-login` has no upstream and is **267 commits ahead of `origin/main`** — M14–M29 and the whole bug pass live on one unpushed branch on one machine |
 | B6 | ~~Apply the M24–M28 migrations.~~ **Done.** Verified 2026-08-28: `__EFMigrationsHistory` ends at `20260826174529_AddPdvOverrideAudit`, so the four M29 migrations are applied locally too |
 | B7 | **Re-run Cypress.** Five screens landed since the last pass — margin fields, the performance screen, the ficha, the command palette and the map — and none has been through a browser. That suite is the only gate that catches a hook called inside a branch |
 | B10 | **Give `EvangelionERPV2.PDV` a remote and push it.** `git remote -v` is empty in that repo. Every line of the till exists on one disk |
