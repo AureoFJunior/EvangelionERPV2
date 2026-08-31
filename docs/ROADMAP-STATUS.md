@@ -142,8 +142,9 @@ three-step enrolment; nothing here duplicates it.
 
 **Open across all of M29, in the order it will bite:**
 
-1. **A till sale produces no fiscal document.** See the fiscal note below — this is a decision, not a
-   bug, but it is the one that stops a real shop using this.
+1. **A till sale produces no fiscal document.** **Decided 2026-08-31: it will issue NFC-e** — see
+   `docs/fiscal/PLAN-nfce.md`. Still the item that stops a real shop using this, and still blocked on
+   the A1 certificate and a CSC, neither of which the shop holds.
 2. ~~**No backoffice screen exists for any of it** (M29f)~~ — done 2026-08-31. The claim that the API
    already had every endpoint was **false**: listing terminals, revoking one, listing open sessions
    and reading the override log all had to be written. They exist now, and the FrontV2 *Tills* screen
@@ -178,7 +179,7 @@ behind it is still the one path `M-B8` shadows in production.
 | A5 | **A bank** (`M-B1`: platform account or per-tenant?) | M9's CNAB remessa/retorno cannot start without the layout and the beneficiary decision | L |
 | A6 | **Does the pilot sell services?** | NFS-e is per-municipality webservices, hundreds of incompatible ones. Changes the cut list | L if yes |
 | A7 | **Confirm the pilot only issues plain sales** (§M14) | `natOp` and `tPag` are single constants because `Order` records neither. Wrong the moment devolução or a real payment breakdown matters | S — two fields on `Order` |
-| A8 | **What fiscal document does the till issue?** NFC-e, SAT-CF-e (SP only), or nothing because the shop is not selling to consumers over a counter | **NFC-e was cut from the M0–M13 roadmap when there was no till. There is now a till**, and a counter sale to a consumer generally needs one. Nothing about the M29 code is wrong; it simply issues no fiscal document. This is a re-decision, not a re-litigation — see `docs/fiscal/TODO-manual.md` §P1 | L. Reuses the certificate, the numbering table and `NFeXmlBuilder`; adds modelo 65, CSC/QR-code and a shorter cancellation window |
+| A8 | ~~What fiscal document does the till issue?~~ **Answered 2026-08-31: NFC-e.** SAT-CF-e rejected (SP-only, certified hardware). Plan: **`docs/fiscal/PLAN-nfce.md`**, which supersedes `SPEC-remaining-code.md` §2.3 — that sketch predates M29 and assumed NFC-e was a back-office concern. **Scope is not yet confirmed**: five blockers in §0, of which **Q5 (offline contingency) is new and changes the shape of the work**. Smaller than "L" looked: `NFeDocumentType.NFCe`, model 65 in the numbering table, and the `TpImp`/`IndPres` branches already exist | M once §0 is answered; L if contingency is needed |
 | A9 | **Does the shop hold a Stripe BR PIX account?** (invite-only) | The proven-PIX code all landed 2026-08-31 (plan tasks 5–9) and **has never been run against Stripe**. Task 10 is the round trip, and it cannot happen without the account. Until it does, treat every `SefazCStatMap`-style assumption in `StripePixProvider` as a guess | S once the account exists |
 
 ### B. Operational, before any of this is real
@@ -371,7 +372,7 @@ says so and why the facts changed. Ordered by value per hour, not by size.
 
 | | What | What changed |
 |---|---|---|
-| D1 | **NFC-e (modelo 65)** — cut from M0–M13 | That cut was made when the system had no counter. M29 put a till on a shop floor, and a consumer sale over a counter generally needs a fiscal document. Tracked as §A8 above and §P1 in `docs/fiscal/TODO-manual.md`. It reuses the certificate, the numbering table and most of `NFeXmlBuilder` |
+| D1 | ~~**NFC-e (modelo 65)** — cut from M0–M13~~ **Reopened and accepted 2026-08-31.** The cut was correct when there was no counter; M29 changed the fact. Now tracked in `docs/fiscal/PLAN-nfce.md`, not here |
 | D2 | **PIX** — cut from M0–M13 | Same reason: cut as a *receivable* channel for boletos, before there was a till taking payments across a counter. The M29e plan splits it into a manual QR the operator confirms (no PSP, ships now) and a proven one (gated on an invite-only Stripe BR account) |
 
 ### Still deliberately not built
@@ -379,6 +380,10 @@ says so and why the facts changed. Ordered by value per hour, not by size.
 Warehouses, double-entry accounting, a CRM pipeline, `PurchaseOrder`, Quartz/Hangfire, multi-currency,
 a v2 API, employee self-service, a global-search backend, price lists, a `Notification` table, XLSX.
 Nothing in M29 changed the facts behind any of these.
+
+**NFC-e has left this list** — accepted 2026-08-31 (§A8/§D1). SAT-CF-e and NFS-e have not: SAT is
+SP-only and needs certified hardware, and NFS-e is hundreds of incompatible municipal webservices
+(§A6, still unanswered).
 
 ## The gate every milestone runs
 
