@@ -869,6 +869,51 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             return ToDto(charge);
         }
 
+        /// <summary>
+        /// Moves a charge to what the provider says it now is. Returns false when nothing changed.
+        /// </summary>
+        /// <remarks>
+        /// Idempotent twice over: an event id already recorded on the row is a no-op, and a charge
+        /// already in a terminal status is never moved again. Between them, a replay and a late
+        /// delivery both cost one indexed read — and expiry racing settlement cannot un-pay a
+        /// customer, because the terminal status that got there first wins.
+        ///
+        /// A charge we have no row for returns false and is not an error. Our endpoint may be
+        /// receiving events for another integration on the same account, and answering 500 to those
+        /// buys an endlessly retried queue.
+        ///
+        /// No tenant argument by design: the row carries the EnterpriseId, and nothing the caller
+        /// says can change which shop this concerns.
+        /// </remarks>
+        public async Task<bool> ApplyChargeEventAsync(string eventId, string providerIntentId, int status,
+            string? endToEndId, decimal? feeAmount, DateTime? paidAt)
+        {
+            if (string.IsNullOrWhiteSpace(providerIntentId))
+                return false;
+
+            var charge = await _appDbContext.PdvCharge
+                .FirstOrDefaultAsync(row => row.ProviderIntentId == providerIntentId);
+
+            if (charge == null
+                || charge.ProviderEventId == eventId
+                || charge.Status != (int)EnumPdvChargeStatus.Pending)
+            {
+                return false;
+            }
+
+            charge.Status = status;
+            charge.EndToEndId = endToEndId ?? charge.EndToEndId;
+            charge.FeeAmount = feeAmount ?? charge.FeeAmount;
+            charge.PaidAt = paidAt ?? charge.PaidAt;
+            charge.ProviderEventId = eventId;
+            charge.UpdatedAt = DateTime.UtcNow;
+
+            _chargeRepository.Update(charge);
+            await _chargeRepository.CommitAsync();
+
+            return true;
+        }
+
         private static PdvChargeDTO ToDto(PdvCharge charge) => new()
         {
             ChargeId = charge.Id,

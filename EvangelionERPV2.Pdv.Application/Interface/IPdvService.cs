@@ -49,5 +49,16 @@ namespace EvangelionERPV2.PdvModule.Application.Interface
 
         /// <summary>Abandons a charge nobody paid. A charge that already settled is left alone.</summary>
         Task<PdvChargeDTO> CancelPixChargeAsync(Guid chargeId, Guid enterpriseId);
+
+        /// <summary>
+        /// Moves a charge to what the provider says it now is. False when nothing changed.
+        /// </summary>
+        /// <remarks>
+        /// No enterprise id: the tenant comes from the charge row the intent id matches, never from
+        /// the caller. A webhook that could be told which tenant it concerned would be a webhook
+        /// that could move another shop's charges.
+        /// </remarks>
+        Task<bool> ApplyChargeEventAsync(string eventId, string providerIntentId, int status,
+            string? endToEndId, decimal? feeAmount, DateTime? paidAt);
     }
 }

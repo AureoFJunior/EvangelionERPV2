@@ -49,6 +49,7 @@ namespace EvangelionERPV2.PdvModule.Application.DI
 
                 // Scoped, not singleton: it resolves the Stripe key per call and holds none.
                 services.AddScoped<StripePixProvider>();
+                services.AddScoped<StripeWebhookHandler>();
                 #endregion
 
                 services.AddScoped(typeof(IUnitOfWork<AppDbContext>), typeof(UnitOfWork<AppDbContext>));

@@ -1,4 +1,5 @@
 using EvangelionERPV2.PdvModule.Application.Interface;
+using EvangelionERPV2.PdvModule.Application.Services;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
@@ -51,6 +52,9 @@ namespace EvangelionERPV2.Web.Controllers
 
         // A basket id and an amount. Anything larger is a bug or an attack.
         private const int MaxChargeRequestBodySizeInBytes = 4 * 1024;
+
+        // One provider event. Stripe's are a few KB; the cap is slack, not a promise.
+        private const int MaxWebhookRequestBodySizeInBytes = 64 * 1024;
 
         // How far back the failed-override feed reaches, and how many rows of it travel. The till
         // only needs enough to run a lockout window, not the year's audit trail.
@@ -907,6 +911,42 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 return BadRequest(new { message = ex.Message });
             }
+        }
+
+        /// <summary>
+        /// Where the provider tells us a charge settled.
+        /// </summary>
+        /// <remarks>
+        /// Anonymous because Stripe holds no token of ours and cannot be given one; the signature is
+        /// the authentication. It is checked against the raw body before anything is parsed, because
+        /// a body that has been through a model binder is not the body that was signed — which is
+        /// also why this action binds no parameter and reads the stream itself.
+        ///
+        /// The tenant is never taken from the request. The event names an intent; the row it matches
+        /// carries the EnterpriseId. A webhook that could be told which shop it concerned would be a
+        /// webhook that could move another shop's charges.
+        ///
+        /// Always 200 once the signature holds, including for events we ignore: a non-2xx tells the
+        /// provider to retry, and retrying something we deliberately dropped never empties.
+        ///
+        /// The handler is resolved per action rather than through the constructor — every other
+        /// endpoint here is authenticated and has no use for it.
+        /// </remarks>
+        [HttpPost]
+        [AllowAnonymous]
+        [RequestSizeLimit(MaxWebhookRequestBodySizeInBytes)]
+        [ProducesResponseType(200)]
+        [ProducesResponseType(400)]
+        public async Task<IActionResult> StripeWebhook([FromServices] StripeWebhookHandler handler)
+        {
+            using var reader = new StreamReader(Request.Body);
+            var json = await reader.ReadToEndAsync();
+
+            var accepted = await handler.TryHandleAsync(json, Request.Headers["Stripe-Signature"]);
+
+            // No message on refusal. A verification error that explains itself is an oracle for
+            // whoever is probing it.
+            return accepted ? Ok() : BadRequest();
         }
 
         private static CashSessionDTO ToDto(Shared.Entities.CashSession session) => new()
