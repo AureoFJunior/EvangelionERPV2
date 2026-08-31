@@ -277,6 +277,20 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     $"Payments total {tendered:0.00} but the sale is worth {expectedTotal:0.00}.");
             }
 
+            // Card only, and rejected rather than thrown: this is a payload the server will never
+            // accept however many times the terminal resends it, which is exactly what Rejected
+            // means. The till refuses it first (TenderSheet.Take); this is the assertion that makes
+            // the rule true of anything that reaches the database, including a hand-built request.
+            var uncodedCard = payments.FirstOrDefault(payment =>
+                (payment.Method == (int)EnumPaymentMethod.Debit || payment.Method == (int)EnumPaymentMethod.Credit)
+                && string.IsNullOrWhiteSpace(payment.AuthorizationCode));
+
+            if (uncodedCard != null)
+            {
+                return await RejectAsync(claimed.Sale,
+                    "Um pagamento em cartão precisa do código de autorização.");
+            }
+
             try
             {
                 var order = await _orderService.CreateAsync(

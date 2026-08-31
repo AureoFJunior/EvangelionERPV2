@@ -82,7 +82,8 @@ namespace EvangelionERPV2.PdvModule.Test
         }
 
         private static PdvSaleSyncRequestDTO SaleFor(Guid clientSaleId, Guid clientSessionId,
-            decimal unitPrice = 10m, decimal quantity = 1m, int method = (int)EnumPaymentMethod.Cash)
+            decimal unitPrice = 10m, decimal quantity = 1m, int method = (int)EnumPaymentMethod.Cash,
+            string? authorizationCode = null)
         {
             var total = decimal.Round(unitPrice * quantity, 2, MidpointRounding.AwayFromZero);
 
@@ -93,7 +94,7 @@ namespace EvangelionERPV2.PdvModule.Test
                 TerminalId = "CAIXA-01",
                 SoldAtLocal = DateTime.UtcNow,
                 Items = [new PdvSaleItemRequestDTO { ProductId = Guid.NewGuid(), Quantity = quantity, Value = unitPrice }],
-                Payments = [new PdvSalePaymentRequestDTO { Method = method, Amount = total }]
+                Payments = [new PdvSalePaymentRequestDTO { Method = method, Amount = total, AuthorizationCode = authorizationCode }]
             };
         }
 
@@ -224,7 +225,7 @@ namespace EvangelionERPV2.PdvModule.Test
             var request = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 100m);
             request.Payments =
             [
-                new PdvSalePaymentRequestDTO { Method = (int)EnumPaymentMethod.Credit, Amount = 60m },
+                new PdvSalePaymentRequestDTO { Method = (int)EnumPaymentMethod.Credit, Amount = 60m, AuthorizationCode = "004417" },
                 new PdvSalePaymentRequestDTO { Method = (int)EnumPaymentMethod.Cash, Amount = 40m, ChangeGiven = 10m }
             ];
 
@@ -343,6 +344,76 @@ namespace EvangelionERPV2.PdvModule.Test
 
             await Assert.ThrowsAsync<NotFoundDatabaseException>(
                 () => service.GetSessionSummaryAsync(sessionId, Guid.NewGuid(), includeExpectedCash: true));
+        }
+
+        [Fact]
+        public async Task ACardPaymentWithNoAuthorizationCodeIsRejected()
+        {
+            // The acquirer statement is the only thing a card sale can be checked against, and the
+            // authorization code is the only handle on it. A sale without one is unauditable.
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var result = await service.SyncSaleAsync(
+                SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Credit),
+                _enterpriseId, _userId);
+
+            Assert.Equal((int)EnumPdvSaleStatus.Rejected, result.Status);
+            Assert.Contains("autoriza", result.RejectReason!, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task AWhitespaceAuthorizationCodeIsNoCodeAtAll()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var result = await service.SyncSaleAsync(
+                SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Debit,
+                    authorizationCode: "   "),
+                _enterpriseId, _userId);
+
+            Assert.Equal((int)EnumPdvSaleStatus.Rejected, result.Status);
+        }
+
+        [Fact]
+        public async Task ACardPaymentWithACodeIsRecorded()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var result = await service.SyncSaleAsync(
+                SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Credit,
+                    authorizationCode: "004417"),
+                _enterpriseId, _userId);
+
+            Assert.Equal((int)EnumPdvSaleStatus.Synced, result.Status);
+        }
+
+        [Fact]
+        public async Task ACashSaleStillNeedsNothing()
+        {
+            // Cash and PIX keep selling regardless. This rule is about cards only.
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var result = await service.SyncSaleAsync(
+                SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Cash),
+                _enterpriseId, _userId);
+
+            Assert.Equal((int)EnumPdvSaleStatus.Synced, result.Status);
         }
 
         [Fact]
