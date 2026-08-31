@@ -69,6 +69,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<PdvSalePayment> PdvSalePayment { get; set; }
         public DbSet<PdvTerminal> PdvTerminal { get; set; }
         public DbSet<PdvOverrideAudit> PdvOverrideAudit { get; set; }
+        public DbSet<PdvCharge> PdvCharge { get; set; }
         public DbSet<Quote> Quote { get; set; }
         public DbSet<QuoteItem> QuoteItem { get; set; }
         public DbSet<QuoteNumberSequence> QuoteNumberSequence { get; set; }

@@ -124,6 +124,7 @@ namespace EvangelionERPV2.Test.Security
                 new Mock<IRepository<PdvTerminal>>(MockBehavior.Strict).Object,
                 userRepository,
                 overrideAuditRepository.Object,
+                new Mock<IRepository<Enterprise>>().Object,
                 new PasswordLoginService(userRepository),
                 new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration))
             {

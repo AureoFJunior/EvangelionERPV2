@@ -233,6 +233,16 @@ namespace EvangelionERPV2.Shared.DTOs
 
         /// <summary>Users the till must purge. Absence from <c>Operators</c> is not enough: a till syncing a partial page would read it as "not mentioned" rather than "revoked".</summary>
         public IReadOnlyList<Guid> RevokedUserIds { get; set; } = [];
+
+        /// <summary>
+        /// Whether confirmed PIX is available at this shop's tills right now.
+        /// </summary>
+        /// <remarks>
+        /// Carried on the snapshot the till already pulls every sync rather than on a new endpoint:
+        /// the terminal must be able to grey the button out and say why *before* an operator presses
+        /// it, and asking a server at press time cannot answer when the reason is "no connection".
+        /// </remarks>
+        public bool PixEnabled { get; set; }
     }
 
     /// <summary>

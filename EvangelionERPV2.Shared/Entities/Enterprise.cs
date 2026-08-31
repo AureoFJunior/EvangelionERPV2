@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
 
@@ -50,6 +51,31 @@ namespace EvangelionERPV2.Shared.Entities
         /// lock is about writing documents into a closed period, not about refusing money.
         /// </remarks>
         public DateTime? ClosedThroughUtc { get; set; } = null;
+
+        /// <summary>
+        /// The shop's Stripe connected account, or null if it has none.
+        /// </summary>
+        /// <remarks>
+        /// One per Enterprise, which is why this is a column and not a table. Charges are created
+        /// with <c>on_behalf_of</c> this account so the shop is the merchant of record — not a
+        /// preference: NFC-e requires the CNPJ on the fiscal document and the CNPJ receiving the
+        /// money to be the same, and a destination charge with the platform as MoR breaks that.
+        ///
+        /// Not a secret. The platform's Stripe key is never stored here or anywhere in this
+        /// database; it is resolved per request from AWS Secrets Manager.
+        /// </remarks>
+        [MaxLength(64)]
+        public string? StripeConnectedAccountId { get; set; }
+
+        /// <summary>
+        /// Whether that account may actually take PIX.
+        /// </summary>
+        /// <remarks>
+        /// Stripe PIX on a BR account is invite-only, so having a connected account is not the same
+        /// as being able to charge with it. Off by default: a shop discovers this feature by being
+        /// enabled for it, never by a till offering a payment method that then fails at the counter.
+        /// </remarks>
+        public bool PixPaymentsEnabled { get; set; }
 
         [JsonIgnore]
         public virtual IEnumerable<Customer>? Customer { get; set; } = null;

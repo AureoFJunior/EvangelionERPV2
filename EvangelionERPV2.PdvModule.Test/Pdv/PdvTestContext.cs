@@ -34,7 +34,8 @@ namespace EvangelionERPV2.PdvModule.Test
             foreach (var type in new[]
             {
                 typeof(Enterprise), typeof(Product), typeof(Order), typeof(OrderedProduct),
-                typeof(CashSession), typeof(CashMovement), typeof(PdvSale), typeof(PdvSalePayment)
+                typeof(CashSession), typeof(CashMovement), typeof(PdvSale), typeof(PdvSalePayment),
+                typeof(PdvCharge)
             })
             {
                 CreateTable(schema, type);

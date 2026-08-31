@@ -29,12 +29,52 @@ namespace EvangelionERPV2.Test.Security
         private readonly Guid _callerEnterpriseId = Guid.NewGuid();
         private readonly List<PdvOverrideAudit> _failedOverrides = [];
 
+        /// <summary>The calling tenant, as GetSyncState reads it back for the PIX flag.</summary>
+        private Enterprise _enterprise = new() { Id = Guid.NewGuid(), Name = "Mercado Evangelion" };
+
         [Fact]
         public void GetSyncState_RequiresATillGrant()
         {
             ControllerPolicyTestHelper.AssertActionPolicy<PdvController>(
                 nameof(PdvController.GetSyncState),
                 "rbac:" + RbacPermissions.Pdv.Operate);
+        }
+
+        [Fact]
+        public async Task GetSyncState_SaysPixIsOff_WhenTheShopHasNoStripeAccount()
+        {
+            // The day-one state for every shop. The till greys the confirmed-PIX button out and
+            // says why, rather than offering a method that fails in front of a customer.
+            _enterprise.PixPaymentsEnabled = true;
+            _enterprise.StripeConnectedAccountId = null;
+
+            var dto = await Read(CreateController());
+
+            Assert.False(dto.PixEnabled);
+        }
+
+        [Fact]
+        public async Task GetSyncState_SaysPixIsOff_WhenTheAccountIsNotThroughTheInvite()
+        {
+            // Holding a connected account is not the same as Stripe having let the shop through
+            // the invite-only PIX programme. Both halves, or the button stays off.
+            _enterprise.StripeConnectedAccountId = "acct_123";
+            _enterprise.PixPaymentsEnabled = false;
+
+            var dto = await Read(CreateController());
+
+            Assert.False(dto.PixEnabled);
+        }
+
+        [Fact]
+        public async Task GetSyncState_SaysPixIsOn_WhenTheShopHasBoth()
+        {
+            _enterprise.StripeConnectedAccountId = "acct_123";
+            _enterprise.PixPaymentsEnabled = true;
+
+            var dto = await Read(CreateController());
+
+            Assert.True(dto.PixEnabled);
         }
 
         [Fact]
@@ -171,6 +211,11 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync((int? _, int? __, Expression<Func<PdvOverrideAudit, bool>> predicate) =>
                     _failedOverrides.Where(predicate.Compile()));
 
+            var enterpriseRepository = new Mock<IRepository<Enterprise>>();
+            enterpriseRepository
+                .Setup(x => x.GetByIdAsync(It.IsAny<Guid>()))
+                .ReturnsAsync(() => _enterprise);
+
             var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
 
             return new PdvController(
@@ -178,6 +223,7 @@ namespace EvangelionERPV2.Test.Security
                 new Mock<IRepository<PdvTerminal>>(MockBehavior.Strict).Object,
                 userRepository.Object,
                 overrideAuditRepository.Object,
+                enterpriseRepository.Object,
                 new PasswordLoginService(userRepository.Object),
                 new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration))
             {

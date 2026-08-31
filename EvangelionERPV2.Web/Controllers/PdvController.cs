@@ -87,6 +87,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IRepository<PdvTerminal> _terminalRepository;
         private readonly IRepository<Shared.Entities.User> _userRepository;
         private readonly IRepository<PdvOverrideAudit> _overrideAuditRepository;
+        private readonly IRepository<Enterprise> _enterpriseRepository;
         private readonly PasswordLoginService _passwordLogin;
         private readonly TokenService _tokenService;
 
@@ -95,6 +96,7 @@ namespace EvangelionERPV2.Web.Controllers
             IRepository<PdvTerminal> terminalRepository,
             IRepository<Shared.Entities.User> userRepository,
             IRepository<PdvOverrideAudit> overrideAuditRepository,
+            IRepository<Enterprise> enterpriseRepository,
             PasswordLoginService passwordLogin,
             TokenService tokenService)
         {
@@ -102,6 +104,7 @@ namespace EvangelionERPV2.Web.Controllers
             _terminalRepository = terminalRepository;
             _userRepository = userRepository;
             _overrideAuditRepository = overrideAuditRepository;
+            _enterpriseRepository = enterpriseRepository;
             _passwordLogin = passwordLogin;
             _tokenService = tokenService;
         }
@@ -525,12 +528,18 @@ namespace EvangelionERPV2.Web.Controllers
                 })
                 .ToList();
 
+            // Both halves, because a connected account is not the same as one Stripe has let
+            // through the PIX invite. Either missing means the till shows the button greyed out.
+            var enterprise = await _enterpriseRepository.GetByIdAsync(enterpriseId);
+
             return Ok(new PdvSyncStateDTO
             {
                 ServerTimeUtc = DateTime.UtcNow,
                 Operators = operators,
                 RevokedUserIds = revokedUserIds,
-                FailedOverrides = failedOverrides
+                FailedOverrides = failedOverrides,
+                PixEnabled = enterprise?.PixPaymentsEnabled == true
+                             && !string.IsNullOrWhiteSpace(enterprise.StripeConnectedAccountId)
             });
         }
 
