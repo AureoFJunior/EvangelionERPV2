@@ -87,6 +87,20 @@ namespace EvangelionERPV2.NFeModule.Application.DI
                         serviceProvider.GetRequiredService<IMemoryCache>(),
                         certificateSecretPrefix);
                 });
+
+                // Singleton for the same reason as the certificate provider: it owns a cache that
+                // must be shared, and holds no per-request state.
+                services.AddSingleton<IEnterpriseCscProvider>(serviceProvider =>
+                {
+                    var cscSecretPrefix =
+                        configuration.GetValue<string>("NFeSettings:CscSecretPrefix")
+                        ?? new NFeSettings().CscSecretPrefix;
+
+                    return new EnterpriseCscProvider(
+                        serviceProvider.GetRequiredService<AWSKMSKeyProvider>(),
+                        serviceProvider.GetRequiredService<IMemoryCache>(),
+                        cscSecretPrefix);
+                });
                 #endregion
 
                 #region Services

@@ -59,8 +59,10 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         public void Create_ForNFCe_SetsBothEnumsWithoutCrossWiringThem()
         {
             using var certificate = SelfSigned();
+            var settings = Settings();
+            settings.CscId = 7;
 
-            var configuracao = UnimakeConfiguracaoFactory.Create(Settings(), NFeDocumentType.NFCe, certificate);
+            var configuracao = UnimakeConfiguracaoFactory.Create(settings, NFeDocumentType.NFCe, certificate, "the-csc");
 
             Assert.Equal(TipoDFe.NFCe, configuracao.TipoDFe);
             Assert.Equal(1, (int)configuracao.TipoDFe);
@@ -153,9 +155,57 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var settings = Settings();
             settings.CscId = 7;
 
-            var configuracao = UnimakeConfiguracaoFactory.Create(settings, NFeDocumentType.NFCe, certificate);
+            var configuracao = UnimakeConfiguracaoFactory.Create(settings, NFeDocumentType.NFCe, certificate, "the-csc");
 
             Assert.Equal(7, configuracao.CSCIDToken);
+            Assert.Equal("the-csc", configuracao.CSC);
+        }
+
+        /// <summary>
+        /// The consumer QR is an HMAC over the access key keyed by the CSC. Without one the note
+        /// carries a QR nobody can verify, so this is refused before a number is consumed rather
+        /// than discovered by a customer holding a phone.
+        /// </summary>
+        [Fact]
+        public void Create_ForNFCe_WithNoCsc_IsRefused()
+        {
+            using var certificate = SelfSigned();
+            var settings = Settings();
+            settings.CscId = 7;
+
+            var withoutSecret = Assert.Throws<InvalidOperationException>(
+                () => UnimakeConfiguracaoFactory.Create(settings, NFeDocumentType.NFCe, certificate));
+            Assert.Contains("CSC secret", withoutSecret.Message);
+
+            var blank = Assert.Throws<InvalidOperationException>(
+                () => UnimakeConfiguracaoFactory.Create(settings, NFeDocumentType.NFCe, certificate, "   "));
+            Assert.Contains("CSC secret", blank.Message);
+        }
+
+        [Fact]
+        public void Create_ForNFCe_WithNoCscId_IsRefused()
+        {
+            using var certificate = SelfSigned();
+            var settings = Settings();
+            settings.CscId = null;
+
+            var exception = Assert.Throws<InvalidOperationException>(
+                () => UnimakeConfiguracaoFactory.Create(settings, NFeDocumentType.NFCe, certificate, "the-csc"));
+
+            Assert.Contains("CSC id", exception.Message);
+        }
+
+        /// <summary>
+        /// Modelo 55 has no consumer QR. A caller passing a CSC believes it is issuing an NFCe and
+        /// is not — refused rather than silently dropping a signing key on the floor.
+        /// </summary>
+        [Fact]
+        public void Create_ForNFe_WithACsc_IsRefused()
+        {
+            using var certificate = SelfSigned();
+
+            Assert.Throws<InvalidOperationException>(
+                () => UnimakeConfiguracaoFactory.Create(Settings(), NFeDocumentType.NFe, certificate, "the-csc"));
         }
 
         [Fact]

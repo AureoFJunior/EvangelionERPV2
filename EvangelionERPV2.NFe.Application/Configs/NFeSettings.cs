@@ -39,5 +39,11 @@ namespace EvangelionERPV2.NFeModule.Application.Configs
         /// environment, because a base64 PFX in configuration is a leaked signing identity.
         /// </summary>
         public string CertificateSecretPrefix { get; set; } = "evangelion/dev/nfe/cert/";
+
+        /// <summary>
+        /// Where each tenant's CSC lives. Same posture as the certificate prefix: the value behind
+        /// it signs consumer QR codes, so EnterpriseCscProvider rejects a "plain:" prefix outright.
+        /// </summary>
+        public string CscSecretPrefix { get; set; } = "evangelion/dev/nfe/csc/";
     }
 }

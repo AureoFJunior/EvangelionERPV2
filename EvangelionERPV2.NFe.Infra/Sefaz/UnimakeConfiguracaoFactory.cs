@@ -31,10 +31,15 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
         /// </summary>
         private const int WebServiceTimeoutMilliseconds = 60_000;
 
+        /// <param name="csc">
+        /// The tenant's Código de Segurança do Contribuinte, resolved from Secrets Manager by the
+        /// caller. Required for NFCe and ignored for modelo 55.
+        /// </param>
         public static Configuracao Create(
             EnterpriseFiscalSettings settings,
             NFeDocumentType type,
-            X509Certificate2 certificate)
+            X509Certificate2 certificate,
+            string? csc = null)
         {
             ArgumentNullException.ThrowIfNull(settings);
             ArgumentNullException.ThrowIfNull(certificate);
@@ -88,13 +93,29 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                 TimeOutWebServiceConnect = WebServiceTimeoutMilliseconds
             };
 
-            if (isNFCe && settings.CscId.HasValue)
+            if (isNFCe)
             {
-                // ponytail: idToken only. The CSC secret it pairs with lives in Secrets Manager at
-                // evangelion/{env}/nfe/csc/{enterpriseId} and is wired in phase 6 along with the
-                // QR code; until then an NFCe built from this configuration cannot be signed for
-                // the consumer QR. Set Configuracao.CSC from the resolved secret there.
+                // The consumer QR is an HMAC-SHA1 over the access key keyed by the CSC, so an NFCe
+                // without one is not a document a customer can check. Refused here — before a
+                // number is consumed and before anything reaches SEFAZ — rather than producing a
+                // note whose QR nobody can verify.
+                if (!settings.CscId.HasValue)
+                    throw new InvalidOperationException("NFCe requires a CSC id on the enterprise fiscal settings; none is set.");
+
+                if (string.IsNullOrWhiteSpace(csc))
+                {
+                    throw new InvalidOperationException(
+                        "NFCe requires the CSC secret. It lives in Secrets Manager at evangelion/{env}/nfe/csc/{enterpriseId} and must be resolved by the caller.");
+                }
+
                 configuracao.CSCIDToken = settings.CscId.Value;
+                configuracao.CSC = csc;
+            }
+            else if (!string.IsNullOrWhiteSpace(csc))
+            {
+                // Modelo 55 has no consumer QR. Passing a CSC here means a caller believes it is
+                // issuing an NFCe and is not — fail rather than silently drop a signing key.
+                throw new InvalidOperationException("A CSC was supplied for modelo 55, which has no consumer QR code.");
             }
 
             // Deliberately NOT set: WebEnderecoProducao, WebEnderecoHomologacao, RequestURI* and

@@ -53,17 +53,23 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
         private const int MaximumJustificationLength = 255;
 
         private readonly IEnterpriseCertificateProvider _certificates;
+        private readonly IEnterpriseCscProvider? _cscProvider;
         private readonly NFeRespTecSettings _respTecSettings;
         private readonly AWSKMSKeyProvider? _kmsKeyProvider;
 
         public SefazNFeProvider(
             IEnterpriseCertificateProvider certificates,
             IOptions<NFeRespTecSettings>? respTecSettings = null,
-            AWSKMSKeyProvider? kmsKeyProvider = null)
+            AWSKMSKeyProvider? kmsKeyProvider = null,
+            IEnterpriseCscProvider? cscProvider = null)
         {
             _certificates = certificates;
             _respTecSettings = respTecSettings?.Value ?? new NFeRespTecSettings();
             _kmsKeyProvider = kmsKeyProvider;
+
+            // Optional so the modelo-55 unit-test path needs no CSC at all. An NFCe issued without
+            // one fails in UnimakeConfiguracaoFactory, before a number is consumed.
+            _cscProvider = cscProvider;
         }
 
         /// <summary>
@@ -130,7 +136,14 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             try
             {
                 var certificate = await _certificates.GetAsync(settings.EnterpriseId, cancellationToken);
-                var configuracao = UnimakeConfiguracaoFactory.Create(settings, context.Type, certificate);
+
+                // Only for 65: modelo 55 has no consumer QR, and the factory refuses a CSC it was
+                // not asked for rather than silently ignoring a signing key.
+                var csc = context.Type == NFeDocumentType.NFCe && _cscProvider != null
+                    ? await _cscProvider.GetAsync(settings.EnterpriseId, cancellationToken)
+                    : null;
+
+                var configuracao = UnimakeConfiguracaoFactory.Create(settings, context.Type, certificate, csc);
                 var enviNFe = NFeXmlBuilder.Build(context, await ResolveResponsibleTechnicianAsync(cancellationToken));
 
                 // Schema validation happens inside this constructor and throws ValidarXMLException
