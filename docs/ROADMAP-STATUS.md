@@ -23,12 +23,12 @@ Measured 2026-08-31, not remembered.
 
 | | |
 |---|---|
-| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **285 commits ahead of `origin/main`** |
-| Head | `011287b` — the contingency sweeper. FrontV2 `57fd4e6`, PDV `0415e4e`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
+| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **294 commits ahead of `origin/main`** |
+| Head | `6264ab5` — the tenant's NFC-e switch, enforced. FrontV2 `57fd4e6`, PDV `2545dcc`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1588 passing / 0 failing** across 15 assemblies (1497 on 2026-08-28). `Web` 596, `NFeModule` 320. A whole-solution run *while another session was rebuilding* reported one spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| Tests | **1592 passing / 0 failing** across 15 assemblies (1497 on 2026-08-28). `Web` 606, `NFeModule` 335. A whole-solution run *while another session was rebuilding* reported one spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
-| PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `0415e4e` (50 commits). `dotnet test EvangelionERPV2.PDV.slnx` **362 passing / 0 failing** (356 unit + 6 integration), build 0 warnings, measured 2026-08-31. **That repo has no git remote at all** — it exists on this machine only |
+| PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `2545dcc` (57 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-08-31. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
 | Migrations | chain ends `20260831171026_AddNFCeContingencySeries`. **All applied to the local container**, verified 2026-08-31 against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1` and `NFCeContingencySeries` to `N'9'`, which are the hand-corrected backfills — EF had generated `0` and `""`. Both tables are **empty locally**, so the backfill was verified as a constraint, not observed on rows. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
@@ -341,6 +341,12 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
 - **Users**: `DeleteUser` is a **hard** delete, the only one in the system.
 - **M6**: `NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only; `natOp` and `tPag` are
   single constants because `Order` records neither.
+- **NFC-e**: `EnterpriseFiscalSettings.Enabled` and `.NFCeEnabled` were stored, editable and
+  **enforced nowhere**. `6264ab5` gates the till's `IssueFiscalDocument` on both and publishes them
+  on the sync snapshot, but **modelo 55 issuance still reads only the global `NFeSettings.Enabled`** —
+  so `NFeCertificateService` setting `settings.Enabled = false` when a certificate is removed stops
+  nothing. Widening it would refuse issuance for every tenant that never configured a profile, which
+  is correct and is a release-note change rather than a drive-by.
 
 ## What we could build next — candidates, not commitments
 

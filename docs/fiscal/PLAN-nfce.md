@@ -159,8 +159,9 @@ Tasks 1–4 plus the offline-contingency spine. Whole suite green at **1570 pass
 | `61efcb2` | **`UpdateCsc` (task 5).** `NFeFiscalSettings/UpdateCsc`, same tier as the certificate (`NFe.CertificateManage`) — no new permission, so nothing had to be added in four places. **Write-only**: the secret goes to Secrets Manager, the id to the profile, and the endpoint answers 204 with no body because echoing a CSC is how a signing key reaches a browser history. Secret written *before* the id, so a failure leaves the profile pointing at the CSC it already had. Added to `RequestLoggingMiddleware`'s body-suppression list, and a test enumerates every DTO in the assembly to prove none but the request shape carries a `Csc` property |
 | `fe225d9` | **Offline numbering.** `NFCeContingencySeries` (default `"9"`), its own `NFeNumberSequence` row, tpEmis baked into the chave, and `dhCont`/`xJust` committed **before** transmission |
 
-Two migrations, `AddNFeContingency` and `AddNFCeContingencySeries`. **Neither is applied** — the local
-SQL container was torn down mid-session. Both carry a hand-corrected backfill; see §8.
+Two migrations, `AddNFeContingency` and `AddNFCeContingencySeries`. **Both applied** — verified
+2026-08-31 against `__EFMigrationsHistory` and `sys.columns` on the local container. Both tables are
+empty locally, so their hand-corrected backfills exist as defaults nobody has yet observed on a row.
 
 ## 7. The constraint the contingency answer collided with
 
@@ -183,10 +184,10 @@ If the ERP runs on-prem beside the till, mode 2 may never occur and this is alre
 
 ## 8. Still open
 
-- **Apply the two migrations.** `AddNFeContingency` backfills `TipoEmissao = 1`, not EF's generated
-  `0` — tpEmis has no zero, and every historical note was issued normally.
+- ~~Apply the two migrations.~~ **Done 2026-08-31.** `AddNFeContingency` backfills `TipoEmissao = 1`,
+  not EF's generated `0` — tpEmis has no zero, and every historical note was issued normally.
   `AddNFCeContingencySeries` backfills `"9"`, not `""`, which would have failed `int.TryParse` the
-  first time a shop needed contingency.
+  first time a shop needed contingency. Local only; production is still untouched.
 - **The transmission window.** A contingency note owes SEFAZ a transmission; nothing yet sweeps for
   ones that never made it. `ContingencyEnteredAt` is the column to read. Needs §Q3's window.
 - **§Q3 and §Q4 values.** The threshold is live as configuration defaulting to R$ 10.000 and the
@@ -198,6 +199,18 @@ If the ERP runs on-prem beside the till, mode 2 may never occur and this is alre
   how loudly the sweep reports: warn at 1h, error at 4h, `Fatal` past the bound. **Nothing ever
   gives up and nothing is ever discarded** — past the deadline a note is not expired, it still owes
   SEFAZ a copy and may then be rejected, which is a human problem rather than a retry problem.
-- **The till's own half.** The ERP now answers with the QR; the PDV repo still has to call it and
-  print. That work belongs in `EvangelionERPV2.PDV`, not here.
+- ~~The till's own half.~~ **Done 2026-08-31**, in `EvangelionERPV2.PDV` — plan
+  `docs/superpowers/plans/2026-08-31-pdv-nfce.md`, five commits, suite 385 green. The till asks for
+  the note the moment the sync turns its sale into an order, keeps it in SQLite schema 5, and prints
+  a DANFE NFC-e with the QR instead of the non-fiscal coupon. **It waits, bounded, rather than
+  printing twice**: one sale must not produce a coupon and then a DANFE. **Only an authorised note
+  is stored** — a refusal has no QR and no chave to consult.
+  It needed one change here, `6264ab5`: `EnterpriseFiscalSettings.NFCeEnabled` was stored, editable
+  and enforced nowhere. It now gates `IssueFiscalDocument` together with `Enabled`, and travels on
+  the sync snapshot so a till knows before the sale what paper it is about to print.
+- **The tenant's `Enabled` switch is still unenforced on the modelo 55 path.** `NFeService.IssueAsync`
+  reads only the global `NFeSettings.Enabled`, so `NFeCertificateService` setting
+  `settings.Enabled = false` when a certificate is removed stops nothing. Fixed for the till's
+  endpoint only — widening it would refuse issuance for every tenant that never configured a
+  profile, which is correct and is a release-note change rather than a drive-by.
 - **One real NFC-e in homologação** — still the only evidence that counts, still gated on Q1 + Q2.
