@@ -32,6 +32,32 @@ namespace EvangelionERPV2.NFeModule.Infra.Providers
         public byte Environment => FiscalSettings.Environment;
 
         /// <summary>
+        /// tpEmis. 1 = normal, 9 = contingência off-line NFC-e. An input, like the chave: the
+        /// service decided it and baked it into the access key before this call.
+        /// </summary>
+        public byte TipoEmissao { get; init; } = 1;
+
+        /// <summary>dhCont. Required on the wire when <see cref="TipoEmissao"/> is a contingency mode.</summary>
+        public DateTime? ContingencyEnteredAt { get; init; }
+
+        /// <summary>xJust. Required on the wire when <see cref="TipoEmissao"/> is a contingency mode.</summary>
+        public string? ContingencyJustification { get; init; }
+
+        /// <summary>Offline NFC-e, tpEmis 9 — issued and printed at the counter, transmitted later.</summary>
+        public bool IsOfflineContingency => TipoEmissao == 9;
+
+        /// <summary>
+        /// The value at or above which an NFCe must identify its consumer. R$ 10.000 is the national
+        /// reference.
+        /// </summary>
+        /// <remarks>
+        /// Configuration rather than a constant, deliberately: the figure is **unverified per UF**
+        /// (docs/fiscal/TODO-manual.md §M11), so a wrong answer must cost an edit rather than a
+        /// release. Below it the dest group is omitted entirely, which is the ordinary counter sale.
+        /// </remarks>
+        public decimal ConsumerIdentificationThreshold { get; init; } = 10_000m;
+
+        /// <summary>
         /// verProc. Capped at 20 characters by the 4.00 schema — a longer string is rejected by the
         /// XSD, which cost a phase-0 gate run to discover.
         /// </summary>

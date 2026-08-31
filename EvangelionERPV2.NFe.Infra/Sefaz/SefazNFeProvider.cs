@@ -143,7 +143,8 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                     ? await _cscProvider.GetAsync(settings.EnterpriseId, cancellationToken)
                     : null;
 
-                var configuracao = UnimakeConfiguracaoFactory.Create(settings, context.Type, certificate, csc);
+                var configuracao = UnimakeConfiguracaoFactory.Create(
+                    settings, context.Type, certificate, csc, context.TipoEmissao);
                 var enviNFe = NFeXmlBuilder.Build(context, await ResolveResponsibleTechnicianAsync(cancellationToken));
 
                 // Schema validation happens inside this constructor and throws ValidarXMLException

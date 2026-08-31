@@ -82,7 +82,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 Versao = settings.SchemaVersion,
                 Ide = BuildIde(context, model, emission),
                 Emit = BuildEmit(settings),
-                Dest = BuildDest(context),
+                Dest = BuildDest(context),   // null for an anonymous NFCe below the threshold
                 Det = [],
                 Transp = new Transp { ModFrete = ModalidadeFrete.SemOcorrenciaTransporte }
             };
@@ -126,7 +126,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             var settings = context.FiscalSettings;
             var accessKey = context.AccessKey;
 
-            return new Ide
+            var ide = new Ide
             {
                 CUF = ToUf(settings.Uf, nameof(EnterpriseFiscalSettings.Uf)),
                 CNF = accessKey.Substring(CodigoNumericoOffset, CodigoNumericoLength),
@@ -139,7 +139,11 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 IdDest = IsInterstate(context) ? DestinoOperacao.OperacaoInterestadual : DestinoOperacao.OperacaoInterna,
                 CMunFG = ParseIbgeMunicipality(settings.CodigoMunicipioIbge),
                 TpImp = model == ModeloDFe.NFCe ? FormatoImpressaoDANFE.NFCe : FormatoImpressaoDANFE.NormalRetrato,
-                TpEmis = TipoEmissao.Normal,
+
+                // Must match the tpEmis already baked into the chave's 35th digit. The service
+                // decided it; disagreeing here produces a note whose key describes a different
+                // document, which SEFAZ rejects with a motivo that points at neither.
+                TpEmis = context.IsOfflineContingency ? TipoEmissao.ContingenciaOffLine : TipoEmissao.Normal,
                 TpAmb = context.Environment == HomologationEnvironment ? TipoAmbiente.Homologacao : TipoAmbiente.Producao,
                 FinNFe = FinalidadeNFe.Normal,
                 IndFinal = HasStateRegistration(context.Customer) ? SimNao.Nao : SimNao.Sim,
@@ -151,6 +155,45 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 ProcEmi = ProcessoEmissao.AplicativoContribuinte,
                 VerProc = context.ProcessVersion
             };
+
+            // Both mandatory whenever tpEmis is a contingency mode, and both meaningless otherwise
+            // — an ordinary note carrying dhCont is rejected. Assigned after construction because
+            // DhCont is a non-nullable value type the library omits when it is left at default.
+            if (context.IsOfflineContingency)
+            {
+                ide.DhCont = ToOffset(context.ContingencyEnteredAt);
+                ide.XJust = ContingencyJustification(context);
+            }
+
+            return ide;
+        }
+
+        /// <summary>
+        /// xJust, bounded by the schema at 15..256. Refused here rather than at SEFAZ: a note
+        /// rejected for its justification was printed and handed over at a counter minutes ago.
+        /// </summary>
+        private static string ContingencyJustification(NFeIssueContext context)
+        {
+            var justification = (context.ContingencyJustification ?? string.Empty).Trim();
+
+            if (justification.Length is < 15 or > 256)
+            {
+                throw new InvalidOperationException(
+                    $"A contingency note needs an xJust of 15 to 256 characters; got {justification.Length}.");
+            }
+
+            return justification;
+        }
+
+        private static DateTimeOffset ToOffset(DateTime? value)
+        {
+            if (value is null)
+                throw new InvalidOperationException("A contingency note needs dhCont — when the shop entered contingency.");
+
+            // Same single national offset EmissionInstant uses, and for the same reason: no DST
+            // since 2019 and a v1 allowlist that is entirely UTC-3.
+            return new DateTimeOffset(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc))
+                .ToOffset(TimeSpan.FromHours(-3));
         }
 
         // ponytail: one nature of operation, because v1 issues exactly one — a sale against an Order.
@@ -195,10 +238,30 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         /// the customer record as stored; nothing is parsed out of the free-text
         /// <see cref="Customer.Adress"/>, because a guessed address is a false declaration.
         /// </remarks>
-        private static Dest BuildDest(NFeIssueContext context)
+        private static Dest? BuildDest(NFeIssueContext context)
         {
-            var customer = context.Customer
-                ?? throw new InvalidOperationException($"Order {context.Order.Id} has no customer; an NFe needs an identified destinatário.");
+            var customer = context.Customer;
+
+            if (customer is null)
+            {
+                // A counter sale is anonymous by default: on an NFCe the whole dest group is simply
+                // omitted, which is the ordinary case at a till and not a missing field. Modelo 55
+                // has no such notion and still demands one.
+                if (context.Type != NFeDocumentType.NFCe)
+                    throw new InvalidOperationException($"Order {context.Order.Id} has no customer; an NFe needs an identified destinatário.");
+
+                if (context.Order.TotalValue >= context.ConsumerIdentificationThreshold)
+                {
+                    // Above the threshold the consumer must be identified. Refused while the note is
+                    // still being built — the operator can still ask for a CPF; once it is printed
+                    // and handed over, nobody can.
+                    throw new InvalidOperationException(
+                        $"An NFCe of {context.Order.TotalValue:0.00} is at or above the consumer-identification threshold of " +
+                        $"{context.ConsumerIdentificationThreshold:0.00}; the consumer's CPF or CNPJ is required.");
+                }
+
+                return null;
+            }
 
             var document = DocumentValidationHelper.NormalizeDocument(customer.Document ?? string.Empty);
             var dest = new Dest

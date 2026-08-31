@@ -94,6 +94,30 @@ namespace EvangelionERPV2.Shared.Entities
         /// </remarks>
         public Guid EnterpriseId { get; set; }
 
+        /// <summary>
+        /// tpEmis. 1 = emissão normal, 9 = contingência off-line NFC-e.
+        /// </summary>
+        /// <remarks>
+        /// Stored because it is baked into the access key's 35th digit: the same note re-keyed with
+        /// a different tpEmis is a different chave. It also decides whether this document still owes
+        /// SEFAZ a transmission — see <see cref="ContingencyEnteredAt"/>.
+        /// </remarks>
+        public byte TipoEmissao { get; set; } = 1;
+
+        /// <summary>
+        /// dhCont — when the shop entered contingency. Null for a normally issued note.
+        /// </summary>
+        /// <remarks>
+        /// The regulated transmission window is measured from here, not from the emission time, and
+        /// a contingency note that is never transmitted is a sale the shop cannot account for. This
+        /// is the column a sweeper reads to find them.
+        /// </remarks>
+        public DateTime? ContingencyEnteredAt { get; set; }
+
+        /// <summary>xJust — why. Mandatory on the wire whenever tpEmis is a contingency mode.</summary>
+        [MaxLength(256)]
+        public string? ContingencyJustification { get; set; }
+
         /// <summary>55 = NFe, 65 = NFCe. <see cref="Type"/> stays as the API-facing enum.</summary>
         public short Model { get; set; }
 

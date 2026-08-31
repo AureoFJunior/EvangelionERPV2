@@ -39,7 +39,8 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             EnterpriseFiscalSettings settings,
             NFeDocumentType type,
             X509Certificate2 certificate,
-            string? csc = null)
+            string? csc = null,
+            byte tipoEmissao = 1)
         {
             ArgumentNullException.ThrowIfNull(settings);
             ArgumentNullException.ThrowIfNull(certificate);
@@ -64,6 +65,14 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
 
             var isNFCe = type == NFeDocumentType.NFCe;
 
+            if (tipoEmissao is not (1 or 9))
+                throw new InvalidOperationException($"tpEmis {tipoEmissao} is not supported; only 1 (normal) and 9 (contingência off-line NFC-e) are.");
+
+            // 9 is the NFC-e offline mode by definition. Modelo 55 has its own contingency modes
+            // (FS-DA, EPEC, SVC) and none of them is this one.
+            if (tipoEmissao == 9 && !isNFCe)
+                throw new InvalidOperationException("tpEmis 9 is contingência off-line NFC-e and cannot be used for modelo 55.");
+
             var configuracao = new Configuracao
             {
                 // Two different enums, both required, and cross-wiring them compiles silently:
@@ -75,11 +84,11 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                 CodigoUF = settings.CodigoUfIbge,
                 TipoAmbiente = (TipoAmbiente)settings.Environment,
 
-                // v1 has no contingency. EnterpriseFiscalSettings.ContingencyEnabled is an inert
-                // placeholder that nothing reads (see the entity's own remark) — deliberately not
-                // consulted here, so enabling contingency stays a code change rather than a config
-                // change that silently alters tpEmis on live issuance.
-                TipoEmissao = TipoEmissao.Normal,
+                // Offline NFC-e only. Still not read from EnterpriseFiscalSettings.ContingencyEnabled,
+                // which remains inert: entering contingency is a decision the issuing path makes and
+                // records on the document, never a config flag that could silently alter tpEmis on
+                // every note a tenant emits.
+                TipoEmissao = tipoEmissao == 9 ? TipoEmissao.ContingenciaOffLine : TipoEmissao.Normal,
 
                 SchemaVersao = settings.SchemaVersion,
 

@@ -1187,6 +1187,13 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime?>("CancelledAtUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("ContingencyEnteredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ContingencyJustification")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -1243,6 +1250,9 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
+
+                    b.Property<byte>("TipoEmissao")
+                        .HasColumnType("tinyint");
 
                     b.Property<decimal>("TotalValue")
                         .HasPrecision(18, 2)
