@@ -17,8 +17,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
     {
         private const int IssuanceLockPoolSize = 256;
 
-        /// <summary>tpEmis 1 — emissão normal. Contingency modes are out of scope for v1.</summary>
+        /// <summary>tpEmis 1 — emissão normal.</summary>
         private const int NormalEmission = 1;
+
+        /// <summary>tpEmis 9 — contingência off-line NFC-e. The only contingency mode supported.</summary>
+        private const int OfflineNFCeEmission = 9;
 
         private const byte ProductionEnvironment = 1;
 
@@ -67,7 +70,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             return await _nfeRepositoryCustom.GetByOrderIdAsync(orderId, type);
         }
 
-        public async Task<NFeDocument?> IssueAsync(Guid orderId, Guid enterpriseId, NFeDocumentType type = NFeDocumentType.NFe)
+        public async Task<NFeDocument?> IssueAsync(
+            Guid orderId,
+            Guid enterpriseId,
+            NFeDocumentType type = NFeDocumentType.NFe,
+            NFeContingency? contingency = null)
         {
             if (!_settings.Enabled)
             {
@@ -163,7 +170,18 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     // Steps 2-5 of the transmit-safe ordering (docs/nfe/HANDOFF.md §4). Both commit
                     // before the provider is called, and both are inside this try so that a failure
                     // here — where nothing can have been transmitted — still lands as Error.
-                    await AssignNumberAndAccessKeyAsync(pendingDocument, enterpriseId, type);
+                    var tipoEmissao = contingency is null ? NormalEmission : OfflineNFCeEmission;
+
+                    if (contingency is not null && type != NFeDocumentType.NFCe)
+                        throw new InsertDatabaseException("Off-line contingency (tpEmis 9) exists only for NFC-e.");
+
+                    await AssignNumberAndAccessKeyAsync(pendingDocument, enterpriseId, type, tipoEmissao);
+
+                    // Recorded before transmission like every other identity field: a contingency
+                    // note that is printed and handed over still owes SEFAZ a transmission, and this
+                    // is what a later sweep reads to find the ones that never made it.
+                    pendingDocument.ContingencyEnteredAt = contingency?.EnteredAt;
+                    pendingDocument.ContingencyJustification = contingency?.Justification;
                     await MarkTransmittedAsync(pendingDocument);
 
                     var result = await _provider.IssueAsync(new NFeIssueContext
@@ -176,7 +194,10 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                         Type = type,
                         AccessKey = pendingDocument.AccessKey,
                         Number = pendingDocument.Number,
-                        Series = pendingDocument.Series
+                        Series = pendingDocument.Series,
+                        TipoEmissao = pendingDocument.TipoEmissao,
+                        ContingencyEnteredAt = pendingDocument.ContingencyEnteredAt,
+                        ContingencyJustification = pendingDocument.ContingencyJustification
                     });
 
                     // The identity fields are NOT adopted from the result. The chave, number and
@@ -424,7 +445,8 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// can fail without consuming a number is done before the allocation — a burnt number is
         /// legal but permanent, and the remedy (inutilização) is out of scope for v1.
         /// </remarks>
-        private async Task AssignNumberAndAccessKeyAsync(NFeDocument document, Guid enterpriseId, NFeDocumentType type)
+        private async Task AssignNumberAndAccessKeyAsync(
+            NFeDocument document, Guid enterpriseId, NFeDocumentType type, int tipoEmissao = NormalEmission)
         {
             var emission = EmitterNow();
 
@@ -450,7 +472,14 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 throw new InsertDatabaseException("Fiscal settings are not configured for this enterprise.");
 
             var model = NFeDocument.ModelFor(type);
-            var series = type == NFeDocumentType.NFCe ? fiscalSettings.NFCeSeries : fiscalSettings.NFeSeries;
+
+            // Contingency has its own series so its numbering cannot collide with the online one.
+            var series = type switch
+            {
+                NFeDocumentType.NFCe when tipoEmissao == OfflineNFCeEmission => fiscalSettings.NFCeContingencySeries,
+                NFeDocumentType.NFCe => fiscalSettings.NFCeSeries,
+                _ => fiscalSettings.NFeSeries
+            };
             if (!int.TryParse(series, NumberStyles.None, CultureInfo.InvariantCulture, out var seriesNumber))
                 throw new InsertDatabaseException($"Fiscal series '{series}' is not numeric.");
 
@@ -474,8 +503,10 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 model,
                 seriesNumber,
                 number,
-                NormalEmission,
+                tipoEmissao,
                 NFeAccessKeyBuilder.GenerateCodigoNumerico(number));
+
+            document.TipoEmissao = (byte)tipoEmissao;
 
             document.UpdatedAt = DateTime.UtcNow;
 

@@ -252,7 +252,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         /// A tenant configured well enough to issue, with an in-memory stand-in for the document
         /// row so the assertions can read what was committed and when.
         /// </summary>
-        private sealed class IssuanceContext
+        internal sealed class IssuanceContext
         {
             public Guid OrderId { get; } = Guid.NewGuid();
             public Guid EnterpriseId { get; } = Guid.NewGuid();
@@ -295,14 +295,16 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                 // The claim is read back on the existing-document branch, so it has to become
                 // visible the moment it is created, exactly as a committed row would.
                 NFeRepositoryCustom
-                    .Setup(x => x.GetByOrderIdAsync(OrderId, NFeDocumentType.NFe))
+                    .Setup(x => x.GetByOrderIdAsync(OrderId, It.IsAny<NFeDocumentType>()))
                     .ReturnsAsync(() => Persisted);
 
+                // Model and series left open so the same harness serves modelo 55, NFC-e and the
+                // contingency series. Tests that care assert the arguments explicitly.
                 NFeRepositoryCustom
                     .Setup(x => x.AllocateNextNumberAsync(
                         EnterpriseId,
-                        NFeModel,
-                        "1",
+                        It.IsAny<short>(),
+                        It.IsAny<string>(),
                         HomologationEnvironment,
                         It.IsAny<CancellationToken>()))
                     .ReturnsAsync(AllocatedNumber);
@@ -330,7 +332,8 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                         CodigoUfIbge = 43,
                         Environment = HomologationEnvironment,
                         NFeSeries = "1",
-                        NFCeSeries = "1"
+                        NFCeSeries = "1",
+                        NFCeContingencySeries = "9"
                     });
 
                 Service = new NFeService(

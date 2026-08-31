@@ -989,6 +989,11 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<int>("NFCeCancellationWindowMinutes")
                         .HasColumnType("int");
 
+                    b.Property<string>("NFCeContingencySeries")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
                     b.Property<decimal>("NFCeCustomerIdentificationThreshold")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");

@@ -106,6 +106,19 @@ namespace EvangelionERPV2.Shared.Entities
         public string NFCeSeries { get; set; } = "1";
 
         /// <summary>
+        /// The series offline NFC-e is issued under. Distinct from <see cref="NFCeSeries"/> on
+        /// purpose.
+        /// </summary>
+        /// <remarks>
+        /// A contingency note is numbered while SEFAZ cannot be asked anything. Sharing the online
+        /// series would let the counter and a later online note claim the same nNF, and the loser is
+        /// a rejected duplicate for a sale that already happened. Its own series makes the two
+        /// sequences independent — NFeNumberSequence is already keyed per series.
+        /// </remarks>
+        [MaxLength(3)]
+        public string NFCeContingencySeries { get; set; } = "9";
+
+        /// <summary>
         /// idToken of the NFCe CSC. Not a secret on its own — the CSC token it pairs with is,
         /// and lives in Secrets Manager. Null until the tenant configures NFCe.
         /// </summary>
