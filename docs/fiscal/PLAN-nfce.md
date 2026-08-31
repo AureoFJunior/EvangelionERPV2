@@ -4,7 +4,8 @@ Written 2026-08-31, after the decision in ROADMAP-STATUS §A8 / §D1: **the till
 Supersedes the two-line sketch in `SPEC-remaining-code.md` §2.3 (Phase 6), which was written before
 M29 existed and assumed NFC-e was a back-office concern.
 
-**Scope is not confirmed yet.** §0 lists what has to be answered before task 1 starts.
+**Q5 answered 2026-08-31: offline contingency is needed.** Tasks 1–4 and the contingency spine are
+built; see §6 for what landed and §7 for the one constraint that answer collided with.
 
 ## Goal
 
@@ -41,7 +42,7 @@ finishing a seam the code already marks.
 | Q2 | **The CSC and its id**, issued per UF through the SEFAZ portal | The consumer QR is an HMAC over the access key **with the CSC as the key**. Without it there is no QR, and an NFC-e without a QR is not a valid consumer document | §M6 |
 | Q3 | **Cancellation window** — national reference is 30 min; RS and PR have practised shorter | Hard-codes a refusal the operator sees at the counter. Wrong value = either an illegal cancellation accepted or a legal one refused | §M10 |
 | Q4 | **Consumer-identification threshold** — R$ 10.000 reference, unverified per UF | Above it, `dest` (CPF/CNPJ) is mandatory; below it, optional. Wrong value = rejected notes at the counter | §M11 |
-| Q5 | **Contingency: does the pilot need offline NFC-e?** See §4 R1 — this is the biggest design fork | Decides whether this is ~5 tasks or ~12 | new |
+| ~~Q5~~ | ~~Contingency: does the pilot need offline NFC-e?~~ **Answered: yes.** Built — see §6. But it collides with a standing security constraint; see §7 | — | new |
 
 Q1 and Q2 are procurement. Q3, Q4 and Q5 are decisions. **Q5 is the one that changes the shape of
 the work**, and it is not in the existing manual list because it only became a question when the
@@ -142,3 +143,50 @@ logged or cached on the terminal.
 
 `docs/adr/` — the cancellation window and threshold as configuration rather than constants (R4), and
 the contingency answer (R1), which precludes or requires a whole body of work.
+
+
+## 6. What landed 2026-08-31
+
+Tasks 1–4 plus the offline-contingency spine. Whole suite green at **1570 passing / 0 failing**.
+
+| Commit | What |
+|---|---|
+| `8e7b594` | **CSC into the configuration.** `EnterpriseCscProvider` resolves it from Secrets Manager at `evangelion/{env}/nfe/csc/{enterpriseId}`, mirroring the certificate provider — cached 15 min, `plain:` refused outright. `UnimakeConfiguracaoFactory` now sets `Configuracao.CSC`, closing the `ponytail:` that marked this exact seam. An NFCe with no CSC, or a modelo 55 handed one, is refused **before a number is consumed** |
+| `b040eca` | **The consumer QR is kept.** `infNFeSupl/qrCode` and `urlChave` are lifted off the signed XML onto the document. They were columns nothing ever wrote. Read back rather than recomputed: the library builds the QR with the CSC during signing, and a second implementation here would be a second chance to disagree with what was transmitted. Best-effort — a note that authorised is authorised, and a QR we failed to parse is logged, never a failure |
+| `33c6242` | **tpEmis 9 in the XML.** `TpEmis`, `dhCont` and `xJust` on the ide, with xJust bounded 15..256 and refused at build time. Plus **task 4**: an anonymous counter sale now omits the `dest` group entirely, and at or above the threshold the CPF is demanded while the note can still be changed |
+| `fe225d9` | **Offline numbering.** `NFCeContingencySeries` (default `"9"`), its own `NFeNumberSequence` row, tpEmis baked into the chave, and `dhCont`/`xJust` committed **before** transmission |
+
+Two migrations, `AddNFeContingency` and `AddNFCeContingencySeries`. **Neither is applied** — the local
+SQL container was torn down mid-session. Both carry a hand-corrected backfill; see §8.
+
+## 7. The constraint the contingency answer collided with
+
+**The till holds no certificate, and offline NFC-e needs one at the moment of issue.** Verified:
+`grep` for any certificate handling across `EvangelionERPV2.PDV.Core` and `.Desktop` returns nothing.
+That is deliberate — the same posture that keeps the Stripe key off the shop floor.
+
+This splits "offline" into two failure modes that are not the same problem:
+
+1. **SEFAZ unreachable, till↔ERP fine.** The ERP signs contingency notes with its own certificate,
+   prints, transmits later. **This is what was built.** No certificate leaves the server.
+2. **The shop's link is down, the till is isolated from the ERP.** Nothing above helps: the till
+   cannot reach the certificate any more than it can reach SEFAZ. Covering this means an A1
+   certificate on a shop-floor machine — a credential that can issue notes for the company, on a
+   box we do not administer, with a SQLite file anyone can copy.
+
+Mode 1 is the common outage and is done. **Mode 2 is a decision, not a task**, and it is worth being
+explicit that it is strictly worse than the Stripe key the whole M29 design refuses to place there.
+If the ERP runs on-prem beside the till, mode 2 may never occur and this is already finished.
+
+## 8. Still open
+
+- **Apply the two migrations.** `AddNFeContingency` backfills `TipoEmissao = 1`, not EF's generated
+  `0` — tpEmis has no zero, and every historical note was issued normally.
+  `AddNFCeContingencySeries` backfills `"9"`, not `""`, which would have failed `int.TryParse` the
+  first time a shop needed contingency.
+- **The transmission window.** A contingency note owes SEFAZ a transmission; nothing yet sweeps for
+  ones that never made it. `ContingencyEnteredAt` is the column to read. Needs §Q3's window.
+- **§Q3 and §Q4 values.** The threshold is live as configuration defaulting to R$ 10.000 and the
+  cancellation window is untouched.
+- **The till wiring** (task 7) and the `UpdateCsc` endpoint (task 5).
+- **One real NFC-e in homologação** — still the only evidence that counts, still gated on Q1 + Q2.
