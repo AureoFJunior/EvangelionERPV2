@@ -16,6 +16,27 @@ namespace EvangelionERPV2.Web.FluentValidator
         }
     }
 
+    /// <summary>
+    /// The NFC-e CSC. Bounded here as well as at the provider, because this is the boundary where
+    /// an operator's paste lands.
+    /// </summary>
+    public sealed class UpdateNFCeCscRequestValidator : AbstractValidator<UpdateNFCeCscRequestDTO>
+    {
+        public UpdateNFCeCscRequestValidator()
+        {
+            // The portal issues small positive ids. Zero reaches the library as CSCIDToken 0, which
+            // SEFAZ rejects with a motivo that points at neither field.
+            RuleFor(x => x.CscId)
+                .GreaterThan(0).WithMessage("A CSC id is required.");
+
+            // No format rule beyond a length bound: the CSC is an opaque string the UF issues, and
+            // inventing a pattern here would reject a legitimate one the portal handed out.
+            RuleFor(x => x.Csc)
+                .NotEmpty().WithMessage("A CSC is required.")
+                .MaximumLength(64).WithMessage("A CSC must be 64 characters or shorter.");
+        }
+    }
+
     public sealed class UploadNFeCertificateRequestValidator : AbstractValidator<UploadNFeCertificateRequestDTO>
     {
         private const long MaxCertificateSizeInBytes = 512 * 1024;

@@ -1,5 +1,7 @@
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
+using Newtonsoft.Json.Linq;
+using Serilog;
 using EvangelionERPV2.Shared.Utils;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -30,18 +32,56 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
         /// </summary>
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(15);
 
+        private readonly IAmazonSecretsManager _secretsManager;
         private readonly AWSKMSKeyProvider _kmsKeyProvider;
         private readonly IMemoryCache _cache;
         private readonly string _secretPrefix;
 
         public EnterpriseCscProvider(
+            IAmazonSecretsManager secretsManager,
             AWSKMSKeyProvider kmsKeyProvider,
             IMemoryCache cache,
             string secretPrefix)
         {
+            _secretsManager = secretsManager;
             _kmsKeyProvider = kmsKeyProvider;
             _cache = cache;
             _secretPrefix = secretPrefix;
+        }
+
+        /// <inheritdoc />
+        public async Task StoreAsync(Guid enterpriseId, string csc, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(csc))
+                throw new InvalidOperationException("A CSC cannot be empty.");
+
+            var secretId = $"{_secretPrefix}{enterpriseId}";
+            if (secretId.StartsWith("plain:", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("A CSC must never be written to a plain: secret; it is a signing key.");
+
+            var payload = new JObject { [CscKey] = csc.Trim() }.ToString(Newtonsoft.Json.Formatting.None);
+
+            try
+            {
+                await _secretsManager.PutSecretValueAsync(
+                    new PutSecretValueRequest { SecretId = secretId, SecretString = payload }, cancellationToken);
+            }
+            catch (ResourceNotFoundException)
+            {
+                // First CSC for this tenant — the secret does not exist yet.
+                await _secretsManager.CreateSecretAsync(new CreateSecretRequest
+                {
+                    Name = secretId,
+                    SecretString = payload,
+                    Description = "NFCe CSC (managed by EvangelionERPV2)."
+                }, cancellationToken);
+            }
+
+            Invalidate(enterpriseId);
+
+            // The id, never the value. A CSC in a log is a CSC anyone with log access can mint QR
+            // codes with.
+            Log.Logger.Information("NFCe CSC stored. EnterpriseId={EnterpriseId}", enterpriseId);
         }
 
         public async Task<string> GetAsync(Guid enterpriseId, CancellationToken cancellationToken = default)

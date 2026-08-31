@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using AutoMapper;
 using EvangelionERPV2.NFeModule.Application.Interface;
+using EvangelionERPV2.NFeModule.Infra.Certificates;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
@@ -28,16 +29,70 @@ namespace EvangelionERPV2.Web.Controllers
 
         private readonly INFeFiscalSettingsService _fiscalSettingsService;
         private readonly INFeCertificateService _certificateService;
+        private readonly IEnterpriseCscProvider _cscProvider;
         private readonly IMapper _mapper;
 
         public NFeFiscalSettingsController(
             INFeFiscalSettingsService fiscalSettingsService,
             INFeCertificateService certificateService,
+            IEnterpriseCscProvider cscProvider,
             IMapper mapper)
         {
             _fiscalSettingsService = fiscalSettingsService;
             _certificateService = certificateService;
+            _cscProvider = cscProvider;
             _mapper = mapper;
+        }
+
+        /// <summary>
+        /// Sets the NFC-e CSC and its id. Write-only.
+        /// </summary>
+        /// <remarks>
+        /// Same tier as the certificate, and for the same reason: the CSC signs the consumer QR, so
+        /// anyone holding it can mint QR codes that verify as this shop's. The id is a column on the
+        /// fiscal profile; the CSC itself goes to Secrets Manager and is never returned by any
+        /// endpoint. Losing it means asking the UF's portal for a new one, which is the correct cost.
+        /// </remarks>
+        [Authorize(Policy = RbacPolicies.NFe.CertificateManage)]
+        [HttpPut]
+        [RequestSizeLimit(MaxFiscalSettingsRequestBodySizeInBytes)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> UpdateCsc([FromBody] UpdateNFCeCscRequestDTO request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.Csc))
+                return BadRequest("A CSC is required.");
+
+            // The portal issues small positive ids. A non-positive one reaches the library as
+            // CSCIDToken 0, which SEFAZ rejects with a motivo that points at neither field.
+            if (request.CscId <= 0)
+                return BadRequest("A CSC id is required.");
+
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                // Secret first: if it fails, the profile keeps the id it already had rather than
+                // pointing at a CSC that was never stored.
+                await _cscProvider.StoreAsync(enterpriseId, request.Csc, HttpContext.RequestAborted);
+
+                var settings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
+                settings.CscId = request.CscId;
+                await _fiscalSettingsService.UpsertSettingsAsync(enterpriseId, settings);
+
+                // No body. There is nothing safe to return: echoing the CSC back is how a signing
+                // key ends up in a browser history and a proxy log.
+                return NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                // These messages are static and carry no secret material by construction.
+                Log.Logger.Error("NFCe CSC update rejected. EnterpriseId={EnterpriseId}", enterpriseId);
+                return BadRequest(ex.Message);
+            }
         }
 
         [Authorize(Policy = RbacPolicies.NFe.SettingsRead)]

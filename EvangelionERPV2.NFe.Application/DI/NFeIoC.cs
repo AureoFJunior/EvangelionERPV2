@@ -97,6 +97,7 @@ namespace EvangelionERPV2.NFeModule.Application.DI
                         ?? new NFeSettings().CscSecretPrefix;
 
                     return new EnterpriseCscProvider(
+                        serviceProvider.GetRequiredService<IAmazonSecretsManager>(),
                         serviceProvider.GetRequiredService<AWSKMSKeyProvider>(),
                         serviceProvider.GetRequiredService<IMemoryCache>(),
                         cscSecretPrefix);
