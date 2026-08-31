@@ -427,6 +427,11 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     ChangeGiven = payment.ChangeGiven,
                     AuthorizationCode = payment.AuthorizationCode,
                     Installments = payment.Installments,
+                    PdvChargeId = payment.ChargeId,
+
+                    // Not the raw flag: a tender that claims proof but names no charge is an
+                    // assertion, and a payload is not evidence.
+                    IsVerified = payment.IsVerified && payment.ChargeId != null,
                     CreatedAt = DateTime.UtcNow,
                     IsActive = true
                 }));

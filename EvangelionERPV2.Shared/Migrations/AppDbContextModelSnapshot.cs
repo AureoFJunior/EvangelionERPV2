@@ -2177,8 +2177,14 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<bool?>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("IsVerified")
+                        .HasColumnType("bit");
+
                     b.Property<int>("Method")
                         .HasColumnType("int");
+
+                    b.Property<Guid?>("PdvChargeId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("PdvSaleId")
                         .HasColumnType("uniqueidentifier");

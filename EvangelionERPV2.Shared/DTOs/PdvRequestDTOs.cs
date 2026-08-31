@@ -72,6 +72,15 @@ namespace EvangelionERPV2.Shared.DTOs
 
         public string? AuthorizationCode { get; set; }
         public int? Installments { get; set; }
+
+        /// <summary>The charge the till believes settled this tender. Null for every unproven tender.</summary>
+        public Guid? ChargeId { get; set; }
+
+        /// <summary>
+        /// What the till claims. Advisory only — see <c>PdvService.CompleteAsync</c>, which will not
+        /// call a tender proven unless it names a charge.
+        /// </summary>
+        public bool IsVerified { get; set; }
     }
 
     /// <summary>

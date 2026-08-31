@@ -51,5 +51,26 @@ namespace EvangelionERPV2.Shared.Entities
 
         /// <summary>Credit installments. Null or 1 means a single charge.</summary>
         public int? Installments { get; set; }
+
+        /// <summary>
+        /// The <c>PdvCharge</c> this tender was settled by, when there was one.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately a bare Guid rather than a navigation property. A charge is created by one
+        /// request and moved to Paid by a webhook from a third party; the sale that references it
+        /// arrives from a terminal that may have been offline for a week. Tying the sale's write to
+        /// the charge row's existence would make a network hiccup at the PSP into a rejected sale.
+        /// </remarks>
+        public Guid? PdvChargeId { get; set; }
+
+        /// <summary>
+        /// True when money can be proved to have arrived; false when this is the operator's word.
+        /// </summary>
+        /// <remarks>
+        /// False is the honest default and the historical truth: every row written before this
+        /// column existed was an assertion. True is set only where the ERP itself saw a settled
+        /// charge — never from a flag a terminal chose for itself.
+        /// </remarks>
+        public bool IsVerified { get; set; }
     }
 }

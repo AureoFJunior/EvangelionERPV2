@@ -417,6 +417,96 @@ namespace EvangelionERPV2.PdvModule.Test
         }
 
         [Fact]
+        public async Task AManualPixTenderIsRecordedAsUnproven()
+        {
+            // The shop's own static QR. The customer paid, the operator looked at their phone, and
+            // that is the whole of the evidence. Collapsing this into a confirmed PIX row would
+            // launder unverified money into revenue reporting.
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            await service.SyncSaleAsync(
+                SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix),
+                _enterpriseId, _userId);
+
+            var payment = await context.PdvSalePayment.SingleAsync();
+            Assert.False(payment.IsVerified);
+            Assert.Null(payment.PdvChargeId);
+        }
+
+        [Fact]
+        public async Task AConfirmedPixTenderKeepsItsChargeAndItsProof()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var chargeId = Guid.NewGuid();
+            var request = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
+            var pix = request.Payments!.Single();
+            pix.ChargeId = chargeId;
+            pix.IsVerified = true;
+
+            await service.SyncSaleAsync(request, _enterpriseId, _userId);
+
+            var payment = await context.PdvSalePayment.SingleAsync();
+            Assert.True(payment.IsVerified);
+            Assert.Equal(chargeId, payment.PdvChargeId);
+        }
+
+        [Fact]
+        public async Task ATenderThatClaimsProofWithoutNamingACharge_IsStillTheOperatorsWord()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var request = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
+            request.Payments!.Single().IsVerified = true;
+
+            await service.SyncSaleAsync(request, _enterpriseId, _userId);
+
+            var payment = await context.PdvSalePayment.SingleAsync();
+            Assert.False(payment.IsVerified);
+        }
+
+        [Fact]
+        public async Task TheCloseCanSeparateProvenPixFromClaimedPix()
+        {
+            // The point of the whole column. Without it the close has no way to say what was
+            // banked and what was merely asserted.
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var proven = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
+            var provenPix = proven.Payments!.Single();
+            provenPix.ChargeId = Guid.NewGuid();
+            provenPix.IsVerified = true;
+
+            await service.SyncSaleAsync(proven, _enterpriseId, _userId);
+            await service.SyncSaleAsync(
+                SaleFor(Guid.NewGuid(), sessionId, unitPrice: 40m, method: (int)EnumPaymentMethod.Pix),
+                _enterpriseId, _userId);
+
+            var byProof = await context.PdvSalePayment.GroupBy(payment => payment.IsVerified)
+                .Select(group => new { group.Key, Total = group.Sum(payment => payment.Amount) })
+                .ToListAsync();
+
+            Assert.Equal(60m, byProof.Single(x => x.Key).Total);
+            Assert.Equal(40m, byProof.Single(x => !x.Key).Total);
+        }
+
+        [Fact]
         public async Task ASaleWithNoEnterpriseIsRefused()
         {
             var context = _database.CreateContext();
