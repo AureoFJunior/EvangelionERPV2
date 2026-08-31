@@ -144,7 +144,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                 Times.Never);
         }
 
-        private static NFeDocument TransmittedDocument(string accessKey = AccessKey) => new()
+        internal static NFeDocument TransmittedDocument(string accessKey = AccessKey) => new()
         {
             Id = Guid.NewGuid(),
             Status = NFeStatus.Pending,
@@ -154,7 +154,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             TransmittedAtUtc = DateTime.UtcNow.AddHours(-1)
         };
 
-        private sealed class ReconciliationContext
+        internal sealed class ReconciliationContext
         {
             public Mock<IRepository<NFeDocument>> NFeRepository { get; } = new();
             public Mock<INFeRepository<NFeDocument>> NFeRepositoryCustom { get; } = new();

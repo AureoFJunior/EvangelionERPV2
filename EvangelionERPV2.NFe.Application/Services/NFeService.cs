@@ -386,6 +386,15 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (!string.IsNullOrWhiteSpace(result.XmlContent))
                 document.XmlContent = result.XmlContent;
 
+            // NFCe only, and only ever set — never cleared here. A note that authorised once carries
+            // a QR the customer may check for years; a later consult that answers without one must
+            // not erase it.
+            if (!string.IsNullOrWhiteSpace(result.QrCode))
+                document.QrCode = result.QrCode;
+
+            if (!string.IsNullOrWhiteSpace(result.UrlChave))
+                document.UrlChave = result.UrlChave;
+
             if (result.IssuedAt.HasValue)
             {
                 document.IssuedAt = result.IssuedAt;

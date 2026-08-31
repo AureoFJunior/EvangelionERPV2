@@ -373,6 +373,10 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                 XmlContent = Xml(service.NfeProcResult) ?? Xml(service.ConteudoXMLAssinado) ?? string.Empty
             };
 
+            // NFCe only, and taken from the document that was actually signed. Absent on modelo 55,
+            // which has no infNFeSupl at all.
+            ReadConsumerQr(result);
+
             if (protocol is not null && !string.IsNullOrWhiteSpace(protocol.ChNFe)
                 && !string.Equals(protocol.ChNFe, context.AccessKey, StringComparison.Ordinal))
             {
@@ -393,6 +397,44 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Lifts <c>infNFeSupl/qrCode</c> and <c>urlChave</c> off the signed XML onto the result.
+        /// </summary>
+        /// <remarks>
+        /// Best-effort by design: a note that authorised is authorised, and a QR we failed to parse
+        /// must never turn that into a failure. It is logged instead, because an NFCe stored without
+        /// its QR is a document no customer can check and somebody has to find out.
+        /// </remarks>
+        private static void ReadConsumerQr(NFeProviderResult result)
+        {
+            if (string.IsNullOrWhiteSpace(result.XmlContent))
+                return;
+
+            try
+            {
+                var document = new XmlDocument { XmlResolver = null };
+                document.LoadXml(result.XmlContent);
+
+                var supl = document.GetElementsByTagName("infNFeSupl");
+                if (supl.Count == 0)
+                    return;
+
+                foreach (XmlNode child in supl[0]!.ChildNodes)
+                {
+                    if (child.LocalName == "qrCode")
+                        result.QrCode = child.InnerText?.Trim() ?? string.Empty;
+                    else if (child.LocalName == "urlChave")
+                        result.UrlChave = child.InnerText?.Trim() ?? string.Empty;
+                }
+            }
+            catch (XmlException exception)
+            {
+                Log.Logger.Error(exception,
+                    "Could not read infNFeSupl off an authorised note for chave {AccessKey}; it will be stored with no consumer QR.",
+                    Redact(result.AccessKey));
+            }
         }
 
         private static NFeProviderResult ReadConsult(string accessKey, RetConsSitNFe? result)

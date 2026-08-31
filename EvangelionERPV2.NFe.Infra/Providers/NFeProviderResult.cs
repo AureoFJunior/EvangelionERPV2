@@ -36,6 +36,19 @@ namespace EvangelionERPV2.NFeModule.Infra.Providers
         public bool IsTransient { get; set; }
 
         /// <summary>
+        /// The consumer QR payload from <c>infNFeSupl/qrCode</c>. NFCe only — modelo 55 has none.
+        /// </summary>
+        /// <remarks>
+        /// Read back off the signed XML rather than recomputed: the library builds it with the CSC
+        /// during signing, and a second implementation here would be a second chance to disagree
+        /// with what was actually transmitted.
+        /// </remarks>
+        public string QrCode { get; set; } = "";
+
+        /// <summary>The UF's consulta-by-chave URL from <c>infNFeSupl/urlChave</c>. NFCe only.</summary>
+        public string UrlChave { get; set; } = "";
+
+        /// <summary>
         /// True only when the transport can prove nothing left this process — a certificate that
         /// would not load, a request rejected before the socket opened. It is the difference
         /// between "safe to send the same number again" and "must be consulted", so a transport
