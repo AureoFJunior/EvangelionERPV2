@@ -23,13 +23,13 @@ Measured 2026-08-31, not remembered.
 
 | | |
 |---|---|
-| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **267 commits ahead of `origin/main`** |
-| Head | `f18e16f` — proven vs claimed PDV payments. FrontV2 `10206f3`, PDV `638f060`; working tree clean in all three |
+| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **273 commits ahead of `origin/main`** |
+| Head | `fa67d97` — the PIX webhook. FrontV2 `10206f3`, PDV `0415e4e`; working tree clean in all three |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1511 passing / 0 failing** across 15 assemblies (1503 earlier on 2026-08-31). `Web` 593, `PdvModule` 44 |
+| Tests | **1540 passing / 0 failing** across 15 assemblies (1497 on 2026-08-28). `Web` 639, `PdvModule` 73 |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **101 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
-| PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `638f060` (48 commits). `dotnet test EvangelionERPV2.PDV.slnx` **340 passing / 0 failing** (334 unit + 6 integration), build 0 warnings, measured 2026-08-31. **That repo has no git remote at all** — it exists on this machine only |
-| Migrations | chain ends `20260831123301_AddPdvSalePaymentVerification`. **That last one is committed and NOT applied anywhere** — `./scripts/local-db-update.sh` failed on 2026-08-31 with `container … is not running`, so start the compose `localdb` profile and re-run it before touching `PdvSalePayment`. Everything before it was applied to the local container on 2026-08-28. Production is still untouched |
+| PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `0415e4e` (50 commits). `dotnet test EvangelionERPV2.PDV.slnx` **362 passing / 0 failing** (356 unit + 6 integration), build 0 warnings, measured 2026-08-31. **That repo has no git remote at all** — it exists on this machine only |
+| Migrations | chain ends `20260831125849_AddPdvCharge`. **The last two are committed and applied NOWHERE** — `AddPdvSalePaymentVerification` and `AddPdvCharge`. `./scripts/local-db-update.sh` failed on 2026-08-31 with `container … is not running`, so start the compose `localdb` profile and re-run it before anything touches `PdvSalePayment` or `PdvCharge`. Everything before them was applied to the local container on 2026-08-28. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -64,7 +64,7 @@ Measured 2026-08-31, not remembered.
 | M29b | Terminal credential, till login, PIN override, sync state | **Done 2026-08-26** | `a1dda32` … `0a13c93` |
 | M29c | Product thumbnails for the till | **Done 2026-08-27/28** | `ff525df` … `6f3d06d` |
 | M29d | Receipt printer, drawer, scale, display | **Done 2026-08-28/29** — ESC/POS printer, drawer kick, scale, customer display, all optional so a till with nothing plugged in still sells | PDV `d59cfcb` … `98d13c1` |
-| M29e | Card authorization code + PIX manual; Stripe Connect PIX | **No-PSP half done 2026-08-31** (plan tasks 1–4). **The Stripe half is still gated** on an invite-only Stripe BR PIX account (plan tasks 5–10) | `30aac13`, `b37fe45`; PDV `c686f9e`, `638f060` |
+| M29e | Card authorization code + PIX manual; Stripe Connect PIX | **Code complete 2026-08-31, plan tasks 1–9.** No-PSP half (1–4), then `PdvCharge` + the charge endpoints + the signature-verified webhook (5–7), then the till's `IPaymentGateway` and PIX screen (8–9). **Task 10 — wiring it up and proving it against a running ERP — is not done, and is gated** on a real Stripe BR PIX account | `30aac13` … `fa67d97`; PDV `c686f9e` … `0415e4e` |
 | M29f | Backoffice screens for any of M29 | **Not started** — see below | |
 
 ## What M24–M28 added, and what they left open
@@ -149,10 +149,12 @@ three-step enrolment; nothing here duplicates it.
    all of that happens in Swagger.
 3. ~~**No peripherals** (M29d)~~ — done 2026-08-28/29. Receipt, drawer, scale and customer display,
    each optional: a till with nothing plugged in still sells.
-4. ~~**Card and PIX tenders are recorded, not proven**~~ — half closed 2026-08-31. A card tender now
-   cannot be taken without its authorization code, at the till and again at the server, and a PIX
-   tender records whether anyone can prove the money arrived. **Proving it still needs the PSP half**
-   (plan tasks 5–10), so today every PIX row is `IsVerified = false` — honest, not proven.
+4. ~~**Card and PIX tenders are recorded, not proven**~~ — closed in code 2026-08-31. A card tender
+   cannot be taken without its authorization code, at the till and again at the server; a PIX tender
+   records whether anyone can prove the money arrived, and `IsVerified` is now **re-derived server-side
+   from a charge row the webhook moved to Paid** — never from a flag the terminal sent. **Nothing has
+   run against a real Stripe account yet** (plan task 10), so no PIX row anywhere is verified in
+   practice.
 5. **The till repo has no remote.** A disk failure loses it.
 
 ## What still needs doing
@@ -176,7 +178,7 @@ behind it is still the one path `M-B8` shadows in production.
 | A6 | **Does the pilot sell services?** | NFS-e is per-municipality webservices, hundreds of incompatible ones. Changes the cut list | L if yes |
 | A7 | **Confirm the pilot only issues plain sales** (§M14) | `natOp` and `tPag` are single constants because `Order` records neither. Wrong the moment devolução or a real payment breakdown matters | S — two fields on `Order` |
 | A8 | **What fiscal document does the till issue?** NFC-e, SAT-CF-e (SP only), or nothing because the shop is not selling to consumers over a counter | **NFC-e was cut from the M0–M13 roadmap when there was no till. There is now a till**, and a counter sale to a consumer generally needs one. Nothing about the M29 code is wrong; it simply issues no fiscal document. This is a re-decision, not a re-litigation — see `docs/fiscal/TODO-manual.md` §P1 | L. Reuses the certificate, the numbering table and `NFeXmlBuilder`; adds modelo 65, CSC/QR-code and a shorter cancellation window |
-| A9 | **Does the shop hold a Stripe BR PIX account?** (invite-only) | Gates the proven-PIX half of M29e — plan tasks 5–10, the only part left. The manual-PIX and card-authorization halves shipped 2026-08-31 without it | L |
+| A9 | **Does the shop hold a Stripe BR PIX account?** (invite-only) | The proven-PIX code all landed 2026-08-31 (plan tasks 5–9) and **has never been run against Stripe**. Task 10 is the round trip, and it cannot happen without the account. Until it does, treat every `SefazCStatMap`-style assumption in `StripePixProvider` as a guess | S once the account exists |
 
 ### B. Operational, before any of this is real
 
