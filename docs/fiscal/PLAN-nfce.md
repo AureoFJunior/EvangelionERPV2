@@ -154,6 +154,7 @@ Tasks 1–4 plus the offline-contingency spine. Whole suite green at **1570 pass
 | `8e7b594` | **CSC into the configuration.** `EnterpriseCscProvider` resolves it from Secrets Manager at `evangelion/{env}/nfe/csc/{enterpriseId}`, mirroring the certificate provider — cached 15 min, `plain:` refused outright. `UnimakeConfiguracaoFactory` now sets `Configuracao.CSC`, closing the `ponytail:` that marked this exact seam. An NFCe with no CSC, or a modelo 55 handed one, is refused **before a number is consumed** |
 | `b040eca` | **The consumer QR is kept.** `infNFeSupl/qrCode` and `urlChave` are lifted off the signed XML onto the document. They were columns nothing ever wrote. Read back rather than recomputed: the library builds the QR with the CSC during signing, and a second implementation here would be a second chance to disagree with what was transmitted. Best-effort — a note that authorised is authorised, and a QR we failed to parse is logged, never a failure |
 | `33c6242` | **tpEmis 9 in the XML.** `TpEmis`, `dhCont` and `xJust` on the ide, with xJust bounded 15..256 and refused at build time. Plus **task 4**: an anonymous counter sale now omits the `dest` group entirely, and at or above the threshold the CPF is demanded while the note can still be changed |
+| `61efcb2` | **`UpdateCsc` (task 5).** `NFeFiscalSettings/UpdateCsc`, same tier as the certificate (`NFe.CertificateManage`) — no new permission, so nothing had to be added in four places. **Write-only**: the secret goes to Secrets Manager, the id to the profile, and the endpoint answers 204 with no body because echoing a CSC is how a signing key reaches a browser history. Secret written *before* the id, so a failure leaves the profile pointing at the CSC it already had. Added to `RequestLoggingMiddleware`'s body-suppression list, and a test enumerates every DTO in the assembly to prove none but the request shape carries a `Csc` property |
 | `fe225d9` | **Offline numbering.** `NFCeContingencySeries` (default `"9"`), its own `NFeNumberSequence` row, tpEmis baked into the chave, and `dhCont`/`xJust` committed **before** transmission |
 
 Two migrations, `AddNFeContingency` and `AddNFCeContingencySeries`. **Neither is applied** — the local
@@ -188,5 +189,6 @@ If the ERP runs on-prem beside the till, mode 2 may never occur and this is alre
   ones that never made it. `ContingencyEnteredAt` is the column to read. Needs §Q3's window.
 - **§Q3 and §Q4 values.** The threshold is live as configuration defaulting to R$ 10.000 and the
   cancellation window is untouched.
-- **The till wiring** (task 7) and the `UpdateCsc` endpoint (task 5).
+- **The till wiring** (task 7) — the last piece that makes this the till's document rather than a
+  button somebody remembers to press.
 - **One real NFC-e in homologação** — still the only evidence that counts, still gated on Q1 + Q2.
