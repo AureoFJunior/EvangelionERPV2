@@ -768,6 +768,79 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        /// <summary>Every till enrolled for this shop, revoked ones included.</summary>
+        /// <remarks>
+        /// The credential is not here and cannot be — it is stored as a PBKDF2 verifier and was
+        /// shown once at enrollment. A till whose credential was lost is re-enrolled, not recovered.
+        /// </remarks>
+        [HttpGet]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.ReadReports)]
+        [ProducesResponseType(typeof(IEnumerable<PdvTerminalDTO>), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        public async Task<IActionResult> GetTerminals()
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            return Ok(await _pdvService.GetTerminalsAsync(enterpriseId));
+        }
+
+        /// <summary>Retires a till, so its credential stops opening the login endpoint.</summary>
+        /// <remarks>
+        /// Same tier as enrolling one: adding and removing a terminal are the same management
+        /// action. Answers 204 when there was nothing to revoke, so a double click is not an error
+        /// and another tenant's terminal is indistinguishable from one that never existed.
+        /// </remarks>
+        [HttpPost("{terminalId}")]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.CashMovement)]
+        [ProducesResponseType(200)]
+        [ProducesResponseType(204)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        public async Task<IActionResult> RevokeTerminal(Guid terminalId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            return await _pdvService.RevokeTerminalAsync(terminalId, enterpriseId)
+                ? Ok()
+                : NoContent();
+        }
+
+        /// <summary>Every till currently open, so a supervisor can see the shop in one call.</summary>
+        [HttpGet]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.ReadReports)]
+        [ProducesResponseType(typeof(IEnumerable<CashSessionDTO>), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        public async Task<IActionResult> GetOpenSessions()
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            return Ok(await _pdvService.GetOpenSessionsAsync(enterpriseId));
+        }
+
+        /// <summary>Recent override attempts, newest first.</summary>
+        /// <remarks>
+        /// The refused ones are the point: a run of them against one supervisor is somebody
+        /// guessing a PIN. No PIN, verifier or password is in this table or this response.
+        /// </remarks>
+        [HttpGet]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.ReadReports)]
+        [ProducesResponseType(typeof(IEnumerable<PdvOverrideAuditDTO>), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        public async Task<IActionResult> GetOverrideAudit(
+            [FromQuery] DateTime? since, [FromQuery] bool? onlyRefused, [FromQuery] int take = 50)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            return Ok(await _pdvService.GetOverrideAuditAsync(enterpriseId, since, onlyRefused, take));
+        }
+
         [HttpGet("{terminalId}")]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
         [ProducesResponseType(typeof(CashSessionDTO), 200)]

@@ -40,7 +40,7 @@ namespace EvangelionERPV2.PdvModule.Test
             {
                 typeof(Enterprise), typeof(Product), typeof(Order), typeof(OrderedProduct),
                 typeof(CashSession), typeof(CashMovement), typeof(PdvSale), typeof(PdvSalePayment),
-                typeof(PdvCharge)
+                typeof(PdvCharge), typeof(PdvTerminal), typeof(PdvOverrideAudit)
             })
             {
                 CreateTable(schema, type);

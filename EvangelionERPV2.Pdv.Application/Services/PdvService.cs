@@ -24,6 +24,9 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         private readonly IRepository<PdvCharge> _chargeRepository;
         private readonly StripePixProvider _pixProvider;
 
+        /// <summary>A backoffice list, not an export. Enough to see a run of refusals, not the year.</summary>
+        private const int MaxOverrideAuditPageSize = 200;
+
         public PdvService(
             AppDbContext appDbContext,
             IRepository<CashSession> sessionRepository,
@@ -214,6 +217,111 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 ?? throw new NotFoundDatabaseException("Cash session was not found.");
 
             return await BuildSummaryAsync(session, includeExpectedCash);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PdvTerminalDTO>> GetTerminalsAsync(Guid enterpriseId)
+        {
+            AssertTenant(enterpriseId);
+
+            // Projected, never the entity: PdvTerminal carries the PBKDF2 verifier, and a backoffice
+            // screen that renders the whole row would put it in a browser and in every log between.
+            return await _appDbContext.PdvTerminal
+                .AsNoTracking()
+                .Where(terminal => terminal.EnterpriseId == enterpriseId)
+                .OrderBy(terminal => terminal.TerminalId)
+                .Select(terminal => new PdvTerminalDTO
+                {
+                    Id = terminal.Id,
+                    TerminalId = terminal.TerminalId,
+                    IsRevoked = terminal.IsRevoked,
+                    LastSeenAt = terminal.LastSeenAt,
+                    EnrolledAt = terminal.CreatedAt
+                })
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> RevokeTerminalAsync(Guid terminalId, Guid enterpriseId)
+        {
+            AssertTenant(enterpriseId);
+
+            var terminal = await _appDbContext.PdvTerminal
+                .FirstOrDefaultAsync(row => row.Id == terminalId && row.EnterpriseId == enterpriseId);
+
+            // Idempotent, and a terminal belonging to another tenant is indistinguishable from one
+            // that never existed.
+            if (terminal == null || terminal.IsRevoked)
+                return false;
+
+            terminal.IsRevoked = true;
+            terminal.UpdatedAt = DateTime.UtcNow;
+
+            // The entity is tracked by this context, which every repository here wraps; saving it
+            // directly is the same write without a ninth constructor argument.
+            await _appDbContext.SaveChangesAsync();
+
+            return true;
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<CashSessionDTO>> GetOpenSessionsAsync(Guid enterpriseId)
+        {
+            AssertTenant(enterpriseId);
+
+            return await _appDbContext.CashSession
+                .AsNoTracking()
+                .Where(session => session.EnterpriseId == enterpriseId
+                    && session.Status == (int)EnumCashSessionStatus.Open)
+                .OrderBy(session => session.TerminalId)
+                .Select(session => new CashSessionDTO
+                {
+                    Id = session.ClientSessionId,
+                    TerminalId = session.TerminalId,
+                    UserId = session.UserId,
+                    OpenedAt = session.OpenedAt,
+                    ClosedAt = session.ClosedAt,
+                    OpeningFloat = session.OpeningFloat,
+                    CountedAmount = session.CountedAmount,
+                    ExpectedAmount = session.ExpectedAmount,
+                    Difference = session.Difference,
+                    Status = session.Status
+                })
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PdvOverrideAuditDTO>> GetOverrideAuditAsync(
+            Guid enterpriseId, DateTime? since, bool? onlyRefused, int take)
+        {
+            AssertTenant(enterpriseId);
+
+            var query = _appDbContext.PdvOverrideAudit
+                .AsNoTracking()
+                .Where(audit => audit.EnterpriseId == enterpriseId);
+
+            if (since != null)
+                query = query.Where(audit => audit.OccurredAt >= since);
+
+            // The refused ones are the reason this table exists: a run of them against one
+            // supervisor is somebody guessing a PIN.
+            if (onlyRefused == true)
+                query = query.Where(audit => !audit.Succeeded);
+
+            return await query
+                .OrderByDescending(audit => audit.OccurredAt)
+                .Take(Math.Clamp(take, 1, MaxOverrideAuditPageSize))
+                .Select(audit => new PdvOverrideAuditDTO
+                {
+                    Id = audit.Id,
+                    TerminalId = audit.TerminalId,
+                    SupervisorUserId = audit.SupervisorUserId,
+                    OperatorUserId = audit.OperatorUserId,
+                    Permission = audit.Permission,
+                    Succeeded = audit.Succeeded,
+                    OccurredAt = audit.OccurredAt
+                })
+                .ToListAsync();
         }
 
         public async Task<CashSession?> GetOpenSessionAsync(string terminalId, Guid enterpriseId)

@@ -41,6 +41,22 @@ namespace EvangelionERPV2.PdvModule.Application.Interface
         /// <summary>The session currently open on a terminal, if any.</summary>
         Task<CashSession?> GetOpenSessionAsync(string terminalId, Guid enterpriseId);
 
+        /// <summary>Every till enrolled for this shop, revoked ones included. Never the credential.</summary>
+        Task<IReadOnlyList<PdvTerminalDTO>> GetTerminalsAsync(Guid enterpriseId);
+
+        /// <summary>
+        /// Retires one till. Answers false when there was nothing to revoke — already revoked, or
+        /// not this tenant's.
+        /// </summary>
+        Task<bool> RevokeTerminalAsync(Guid terminalId, Guid enterpriseId);
+
+        /// <summary>Every till currently open, so a supervisor can see the shop without asking each one.</summary>
+        Task<IReadOnlyList<CashSessionDTO>> GetOpenSessionsAsync(Guid enterpriseId);
+
+        /// <summary>Recent override attempts, newest first. <paramref name="onlyRefused"/> is the interesting case.</summary>
+        Task<IReadOnlyList<PdvOverrideAuditDTO>> GetOverrideAuditAsync(
+            Guid enterpriseId, DateTime? since, bool? onlyRefused, int take);
+
         /// <summary>Raises a PIX charge for a basket, or returns the one already raised for it.</summary>
         Task<PdvChargeDTO> StartPixChargeAsync(StartPixChargeRequestDTO request, Guid enterpriseId);
 

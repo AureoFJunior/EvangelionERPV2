@@ -14,6 +14,37 @@ namespace EvangelionERPV2.Shared.DTOs
         public int Status { get; set; }
     }
 
+    /// <summary>
+    /// An enrolled till, as a backoffice screen may see it.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not the entity. <c>PdvTerminal.CredentialVerifier</c> is a PBKDF2 verifier and
+    /// has no business leaving the server, so this carries identity and status and nothing else.
+    /// </remarks>
+    public sealed class PdvTerminalDTO
+    {
+        public Guid Id { get; set; }
+        public string TerminalId { get; set; } = string.Empty;
+        public bool IsRevoked { get; set; }
+
+        /// <summary>Last successful terminal authentication. Null means it has never logged in.</summary>
+        public DateTime? LastSeenAt { get; set; }
+
+        public DateTime EnrolledAt { get; set; }
+    }
+
+    /// <summary>One supervisor override attempted at a till, successful or refused.</summary>
+    public sealed class PdvOverrideAuditDTO
+    {
+        public Guid Id { get; set; }
+        public string TerminalId { get; set; } = string.Empty;
+        public Guid SupervisorUserId { get; set; }
+        public Guid OperatorUserId { get; set; }
+        public string Permission { get; set; } = string.Empty;
+        public bool Succeeded { get; set; }
+        public DateTime OccurredAt { get; set; }
+    }
+
     public sealed class CashMovementDTO
     {
         public Guid Id { get; set; }
