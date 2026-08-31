@@ -23,8 +23,8 @@ Measured 2026-08-31, not remembered.
 
 | | |
 |---|---|
-| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **265 commits ahead of `origin/main`** |
-| Head | `b37fe45` — proven vs claimed PDV payments. FrontV2 `10206f3`, PDV `638f060`; working tree clean in all three |
+| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **267 commits ahead of `origin/main`** |
+| Head | `f18e16f` — proven vs claimed PDV payments. FrontV2 `10206f3`, PDV `638f060`; working tree clean in all three |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
 | Tests | **1511 passing / 0 failing** across 15 assemblies (1503 earlier on 2026-08-31). `Web` 593, `PdvModule` 44 |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **101 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
