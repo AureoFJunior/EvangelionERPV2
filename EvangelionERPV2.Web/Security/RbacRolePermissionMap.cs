@@ -14,6 +14,10 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Orders.Read,
             RbacPermissions.Orders.Create,
 
+            // Their own sales row and nothing else. The screen that decides someone's commission
+            // is Manager-only, which left the person being measured unable to see the measurement.
+            RbacPermissions.SalesPerformance.ReadSelf,
+
             // The floor operator. Opens and closes their own till and rings sales, which is the
             // whole job — but cannot open the drawer for a sangria or void a completed sale.
             RbacPermissions.Pdv.Operate,

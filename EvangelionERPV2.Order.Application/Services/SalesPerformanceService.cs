@@ -42,6 +42,28 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             _salesGoalRepository = salesGoalRepository;
         }
 
+        /// <inheritdoc />
+        /// <remarks>
+        /// ponytail: computes the whole month and then takes one row. It is one pass over one
+        /// enterprise-month, and sharing the calculation is what guarantees the seller's own screen
+        /// and their manager's agree to the cent. Give it its own query if a tenant's month gets
+        /// big enough to feel it.
+        /// </remarks>
+        public async Task<SalesPerformanceRowDTO?> GetSellerPerformanceAsync(
+            Guid enterpriseId,
+            Guid userId,
+            int year,
+            int month,
+            CancellationToken cancellation = default)
+        {
+            if (userId == Guid.Empty)
+                return null;
+
+            var performance = await GetPerformanceAsync(enterpriseId, year, month, cancellation);
+
+            return performance.Sellers.FirstOrDefault(row => row.UserId == userId);
+        }
+
         public async Task<SalesPerformanceDTO> GetPerformanceAsync(Guid enterpriseId, int year, int month, CancellationToken cancellation = default)
         {
             AssertCompetencia(year, month);

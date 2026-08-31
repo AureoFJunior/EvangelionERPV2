@@ -13,9 +13,11 @@ namespace EvangelionERPV2.Web.Controllers
     /// Metas e comissão de vendedores: how the month is going, per seller.
     /// </summary>
     /// <remarks>
-    /// Manager tier throughout. A performance table puts every seller's numbers — and what each is
-    /// owed — on one screen, which is the same class of company data as the payables and the bank
-    /// statement, not something a Supervisor sees because they can read orders.
+    /// Manager tier, with one exception. A performance table puts every seller's numbers — and what
+    /// each is owed — on one screen, which is the same class of company data as the payables and the
+    /// bank statement, not something a Supervisor sees because they can read orders. The exception is
+    /// <see cref="GetSellerPerformance"/>: a seller reaching their own single row, which carries
+    /// nobody else's numbers and not the enterprise's.
     /// </remarks>
     [Authorize]
     [Route("api/v{version:apiVersion}/[controller]/[action]")]
@@ -48,6 +50,40 @@ namespace EvangelionERPV2.Web.Controllers
                     enterpriseId, year, month, HttpContext.RequestAborted);
 
                 return Ok(performance);
+            }
+            catch (InsertDatabaseException ex)
+            {
+                return BadRequest(GetSafeErrorMessage(ex));
+            }
+        }
+
+        /// <summary>
+        /// One seller's row. A seller reaches their own through <c>sales.performance.read.self</c>;
+        /// anyone holding <c>sales.performance.read</c> reaches any of them.
+        /// </summary>
+        /// <remarks>
+        /// The enterprise row is deliberately absent from this response — it is the company's whole
+        /// month, and the point of this endpoint is the person being measured seeing the
+        /// measurement, not the company's total arriving at the base role tier.
+        /// </remarks>
+        [Authorize(Policy = RbacPolicies.SalesPerformance.ReadSelfOrRead)]
+        [HttpGet("{id}")]
+        [ProducesResponseType(typeof(SalesPerformanceRowDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetSellerPerformance(Guid id, int year, int month)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                var row = await _salesPerformanceService.GetSellerPerformanceAsync(
+                    enterpriseId, id, year, month, HttpContext.RequestAborted);
+
+                return row == null ? NoContent() : Ok(row);
             }
             catch (InsertDatabaseException ex)
             {

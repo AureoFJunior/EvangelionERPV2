@@ -40,6 +40,44 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
                     : Array.Empty<SalesGoal>());
         }
 
+        [Fact]
+        public async Task GetSellerPerformance_AnswersTheSellersOwnRowAndNothingElse()
+        {
+            Given([Sale(1000m, payday: new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc))], [], commissionRate: 0.05m, target: 800m);
+
+            var row = await BuildService().GetSellerPerformanceAsync(EnterpriseId, SellerId, 2026, 8);
+
+            Assert.NotNull(row);
+            Assert.Equal(SellerId, row!.UserId);
+            Assert.Equal(1000m, row.SoldAmount);
+        }
+
+        [Fact]
+        public async Task GetSellerPerformance_OfSomeoneWhoSoldNothing_AnswersNothing()
+        {
+            Given([], [], commissionRate: 0.05m, target: null);
+
+            Assert.Null(await BuildService().GetSellerPerformanceAsync(EnterpriseId, SellerId, 2026, 8));
+            Assert.Null(await BuildService().GetSellerPerformanceAsync(EnterpriseId, Guid.Empty, 2026, 8));
+        }
+
+        [Fact]
+        public async Task GetSellerPerformance_AgreesWithTheManagersTable()
+        {
+            // The two screens are read by two people looking at the same commission. They share the
+            // calculation precisely so they cannot disagree.
+            Given([Sale(1000m, payday: new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc))], [], commissionRate: 0.05m, target: 800m);
+
+            var service = BuildService();
+            var table = await service.GetPerformanceAsync(EnterpriseId, 2026, 8);
+            var row = await service.GetSellerPerformanceAsync(EnterpriseId, SellerId, 2026, 8);
+
+            var managerRow = table.Sellers.Single(x => x.UserId == SellerId);
+            Assert.Equal(managerRow.SoldAmount, row!.SoldAmount);
+            Assert.Equal(managerRow.ReceivedAmount, row.ReceivedAmount);
+            Assert.Equal(managerRow.CommissionAmount, row.CommissionAmount);
+        }
+
         private static Order Sale(decimal amount, DateTime? payday = null, bool refunded = false) => new()
         {
             Id = Guid.NewGuid(),

@@ -151,6 +151,17 @@ namespace EvangelionERPV2.Web.Security
                     "id"));
             });
 
+            // Same shape as users.self-or-read: the elevated permission sees anyone's row, the
+            // self permission sees only the row whose id matches the caller's own.
+            options.AddPolicy(SalesPerformance.ReadSelfOrRead, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new SelfOrPermissionRequirement(
+                    RbacPermissions.SalesPerformance.ReadSelf,
+                    RbacPermissions.SalesPerformance.Read,
+                    "id"));
+            });
+
             options.AddPolicy(LegacyInternalMetricsAccess, policy =>
             {
                 policy.RequireAuthenticatedUser();
@@ -308,6 +319,8 @@ namespace EvangelionERPV2.Web.Security
         public static class SalesPerformance
         {
             public const string Read = "rbac:sales.performance.read";
+            public const string ReadSelf = "rbac:sales.performance.read.self";
+            public const string ReadSelfOrRead = "rbac:sales.performance.self-or-read";
             public const string ManageGoals = "rbac:sales.goals.manage";
         }
 

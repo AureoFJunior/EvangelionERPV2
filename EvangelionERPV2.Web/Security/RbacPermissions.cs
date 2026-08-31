@@ -93,6 +93,7 @@ namespace EvangelionERPV2.Web.Security
             Quotes.Delete,
 
             SalesPerformance.Read,
+            SalesPerformance.ReadSelf,
             SalesPerformance.ManageGoals,
 
             Products.Read,
@@ -340,6 +341,14 @@ namespace EvangelionERPV2.Web.Security
         public static class SalesPerformance
         {
             public const string Read = "sales.performance.read";
+
+            /// <summary>
+            /// A seller's own row, and only their own. Deliberately not <see cref="Read"/> with a
+            /// filter: that permission carries every other seller's numbers and the enterprise's
+            /// total, and the point here is a seller seeing what they are owed.
+            /// </summary>
+            public const string ReadSelf = "sales.performance.read.self";
+
             public const string ManageGoals = "sales.goals.manage";
         }
 
