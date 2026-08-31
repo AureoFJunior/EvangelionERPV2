@@ -23,8 +23,8 @@ Measured 2026-08-31, not remembered.
 
 | | |
 |---|---|
-| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **275 commits ahead of `origin/main`** |
-| Head | `8e3164c` — the backoffice reads. FrontV2 `57fd4e6`, PDV `0415e4e`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
+| Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **277 commits ahead of `origin/main`** |
+| Head | `8b7d347` — the worktree cleanup. FrontV2 `57fd4e6`, PDV `0415e4e`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
 | Tests | **1546 passing / 0 failing** across 15 assemblies (1497 on 2026-08-28). `Web` 596, `PdvModule` 73. A whole-solution run *while another session was rebuilding* reported one spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
@@ -186,7 +186,7 @@ behind it is still the one path `M-B8` shadows in production.
 | # | What |
 |---|---|
 | B1 | **Apply the two newest migrations.** `AddPdvSalePaymentVerification` and `AddPdvCharge` are committed and applied **nowhere** — `./scripts/local-db-update.sh` failed 2026-08-31 with `container … is not running`. Start the compose `localdb` profile and re-run it. Everything older was applied 2026-08-24. Production is still untouched — nothing calls `Database.Migrate()` |
-| B2 | **Push the branch.** `feature/33-pdv-terminal-login` has no upstream and is **275 commits ahead of `origin/main`** — M14–M29 and the whole bug pass live on one unpushed branch on one machine. Now the *only* copy: the six worktree duplicates were removed 2026-08-31 (R5) |
+| B2 | **Push the branch.** `feature/33-pdv-terminal-login` has no upstream and is **277 commits ahead of `origin/main`** — M14–M29 and the whole bug pass live on one unpushed branch on one machine. Now the *only* copy: the six worktree duplicates were removed 2026-08-31 (R5) |
 | B6 | ~~Apply the M24–M28 migrations.~~ **Done.** Verified 2026-08-28: `__EFMigrationsHistory` ends at `20260826174529_AddPdvOverrideAudit`, so the four M29 migrations are applied locally too |
 | B7 | **Re-run Cypress.** Seven screens now — margin fields, the performance screen (plus its seller self-view), the ficha, the command palette (which now opens records), the map and the new *Tills* backoffice — and none has been through a browser. **Blocked today**: the local SQL container is down, so there is nothing to run against. That suite is the only gate that catches a hook called inside a branch |
 | B10 | **Give `EvangelionERPV2.PDV` a remote and push it.** `git remote -v` is empty in that repo. Every line of the till exists on one disk |
