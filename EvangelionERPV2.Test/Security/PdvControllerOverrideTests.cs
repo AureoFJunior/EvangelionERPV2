@@ -127,6 +127,7 @@ namespace EvangelionERPV2.Test.Security
                 overrideAuditRepository.Object,
                 new Mock<IRepository<Enterprise>>().Object,
                 new Mock<INFeService<NFeDocument>>().Object,
+                FiscalSettings(),
                 new PasswordLoginService(userRepository),
                 new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration))
             {
@@ -143,5 +144,16 @@ namespace EvangelionERPV2.Test.Security
                 }
             };
         }
+
+        /// <summary>A tenant with NFC-e switched on. The gate is exercised in its own test.</summary>
+        private static INFeFiscalSettingsService FiscalSettings(bool enabled = true, bool nfce = true)
+        {
+            var settings = new Mock<INFeFiscalSettingsService>();
+            settings.Setup(x => x.GetSettingsAsync(It.IsAny<Guid>()))
+                .ReturnsAsync(new EnterpriseFiscalSettings { Enabled = enabled, NFCeEnabled = nfce });
+
+            return settings.Object;
+        }
+
     }
 }

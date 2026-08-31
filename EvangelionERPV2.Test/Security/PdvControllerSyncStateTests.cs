@@ -33,6 +33,9 @@ namespace EvangelionERPV2.Test.Security
         /// <summary>The calling tenant, as GetSyncState reads it back for the PIX flag.</summary>
         private Enterprise _enterprise = new() { Id = Guid.NewGuid(), Name = "Mercado Evangelion" };
 
+        /// <summary>The tenant's fiscal profile, as GetSyncState reads it for the NFC-e flag.</summary>
+        private EnterpriseFiscalSettings _fiscal = new() { Enabled = true, NFCeEnabled = true };
+
         [Fact]
         public void GetSyncState_RequiresATillGrant()
         {
@@ -198,6 +201,28 @@ namespace EvangelionERPV2.Test.Security
                 PdvPinVerifier = pin == null ? null : Pbkdf2Verifier.Create(pin)
             };
 
+        [Fact]
+        public async Task GetSyncState_SaysNFCeIsOn_WhenBothOfTheTenantsSwitchesAre()
+        {
+            _fiscal = new EnterpriseFiscalSettings { Enabled = true, NFCeEnabled = true };
+
+            var dto = await Read(CreateController());
+
+            Assert.True(dto.NFCeEnabled);
+        }
+
+        [Fact]
+        public async Task GetSyncState_SaysNFCeIsOff_WhenFiscalIssuanceIsOffAltogether()
+        {
+            // The half a shop forgets: NFC-e enabled on a profile whose issuance switch is off.
+            // The till would otherwise promise a customer a document the server will refuse.
+            _fiscal = new EnterpriseFiscalSettings { Enabled = false, NFCeEnabled = true };
+
+            var dto = await Read(CreateController());
+
+            Assert.False(dto.NFCeEnabled);
+        }
+
         private PdvController CreateController(params User[] users)
         {
             var userRepository = new Mock<IRepository<User>>();
@@ -226,6 +251,7 @@ namespace EvangelionERPV2.Test.Security
                 overrideAuditRepository.Object,
                 enterpriseRepository.Object,
                 new Mock<INFeService<NFeDocument>>().Object,
+                FiscalSettings(),
                 new PasswordLoginService(userRepository.Object),
                 new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration))
             {
@@ -239,5 +265,14 @@ namespace EvangelionERPV2.Test.Security
                 }
             };
         }
+
+        private INFeFiscalSettingsService FiscalSettings()
+        {
+            var settings = new Mock<INFeFiscalSettingsService>();
+            settings.Setup(x => x.GetSettingsAsync(It.IsAny<Guid>())).ReturnsAsync(() => _fiscal);
+
+            return settings.Object;
+        }
+
     }
 }

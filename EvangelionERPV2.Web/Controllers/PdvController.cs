@@ -97,6 +97,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IRepository<PdvOverrideAudit> _overrideAuditRepository;
         private readonly IRepository<Enterprise> _enterpriseRepository;
         private readonly INFeService<NFeDocument> _nfeService;
+        private readonly INFeFiscalSettingsService _fiscalSettingsService;
         private readonly PasswordLoginService _passwordLogin;
         private readonly TokenService _tokenService;
 
@@ -107,6 +108,7 @@ namespace EvangelionERPV2.Web.Controllers
             IRepository<PdvOverrideAudit> overrideAuditRepository,
             IRepository<Enterprise> enterpriseRepository,
             INFeService<NFeDocument> nfeService,
+            INFeFiscalSettingsService fiscalSettingsService,
             PasswordLoginService passwordLogin,
             TokenService tokenService)
         {
@@ -116,6 +118,7 @@ namespace EvangelionERPV2.Web.Controllers
             _overrideAuditRepository = overrideAuditRepository;
             _enterpriseRepository = enterpriseRepository;
             _nfeService = nfeService;
+            _fiscalSettingsService = fiscalSettingsService;
             _passwordLogin = passwordLogin;
             _tokenService = tokenService;
         }
@@ -543,6 +546,11 @@ namespace EvangelionERPV2.Web.Controllers
             // through the PIX invite. Either missing means the till shows the button greyed out.
             var enterprise = await _enterpriseRepository.GetByIdAsync(enterpriseId);
 
+            // Same reasoning as PIX: the till has to know before the sale whether the paper it
+            // prints is a DANFE NFC-e or a non-fiscal coupon, and the moment it needs that answer
+            // is often the moment it cannot ask.
+            var fiscal = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
+
             return Ok(new PdvSyncStateDTO
             {
                 ServerTimeUtc = DateTime.UtcNow,
@@ -550,7 +558,8 @@ namespace EvangelionERPV2.Web.Controllers
                 RevokedUserIds = revokedUserIds,
                 FailedOverrides = failedOverrides,
                 PixEnabled = enterprise?.PixPaymentsEnabled == true
-                             && !string.IsNullOrWhiteSpace(enterprise.StripeConnectedAccountId)
+                             && !string.IsNullOrWhiteSpace(enterprise.StripeConnectedAccountId),
+                NFCeEnabled = fiscal.Enabled && fiscal.NFCeEnabled
             });
         }
 
@@ -879,6 +888,13 @@ namespace EvangelionERPV2.Web.Controllers
             // Only a sale that actually became an order has anything to issue against.
             if (sale.Status != (int)EnumPdvSaleStatus.Synced || sale.OrderId == null)
                 return BadRequest(new { message = "That sale has not been synced into an order yet." });
+
+            // The tenant's own two switches, checked here rather than trusted from the terminal.
+            // GetSyncState publishes exactly this pair, so a till that skips the call, or one whose
+            // cached snapshot is stale, cannot issue a note the shop has not turned on.
+            var fiscal = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
+            if (!fiscal.Enabled || !fiscal.NFCeEnabled)
+                return BadRequest(new { message = "NFC-e issuance is not enabled for this enterprise." });
 
             var document = await _nfeService.IssueAsync(sale.OrderId.Value, enterpriseId, NFeDocumentType.NFCe);
 

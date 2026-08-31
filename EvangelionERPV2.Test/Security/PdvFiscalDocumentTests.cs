@@ -118,6 +118,34 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task AShopThatHasNotTurnedNFCeOn_IsRefusedEvenIfTheTillAsks()
+        {
+            // The till caches this flag off the sync snapshot, so a stale terminal will ask. The
+            // switch is the tenant's, so it is checked here rather than trusted from a shop floor.
+            var nfe = new Mock<INFeService<NFeDocument>>(MockBehavior.Strict);
+
+            var result = await Controller(SyncedSale(), nfe, enabled: true, nfceEnabled: false)
+                .IssueFiscalDocument(ClientSaleId);
+
+            Assert.IsType<BadRequestObjectResult>(result);
+
+            // Strict: nothing was issued, so no number was consumed for a note nobody may have.
+            nfe.Verify(x => x.IssueAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<NFeDocumentType>(),
+                It.IsAny<NFeContingency>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AShopWithFiscalIssuanceOffAltogether_IsRefused()
+        {
+            var nfe = new Mock<INFeService<NFeDocument>>(MockBehavior.Strict);
+
+            var result = await Controller(SyncedSale(), nfe, enabled: false, nfceEnabled: true)
+                .IssueFiscalDocument(ClientSaleId);
+
+            Assert.IsType<BadRequestObjectResult>(result);
+        }
+
+        [Fact]
         public async Task AnotherTenantsSale_IsIndistinguishableFromOneThatNeverExisted()
         {
             var nfe = new Mock<INFeService<NFeDocument>>(MockBehavior.Strict);
@@ -148,7 +176,8 @@ namespace EvangelionERPV2.Test.Security
                 TransmittedAtUtc = transmittedAt
             };
 
-        private static PdvController Controller(PdvSale? sale, Mock<INFeService<NFeDocument>> nfe)
+        private static PdvController Controller(
+            PdvSale? sale, Mock<INFeService<NFeDocument>> nfe, bool enabled = true, bool nfceEnabled = true)
         {
             var pdv = new Mock<IPdvService>();
             pdv.Setup(x => x.GetSaleAsync(ClientSaleId, EnterpriseId)).ReturnsAsync(sale);
@@ -163,6 +192,7 @@ namespace EvangelionERPV2.Test.Security
                 new Mock<IRepository<PdvOverrideAudit>>().Object,
                 new Mock<IRepository<Enterprise>>().Object,
                 nfe.Object,
+                FiscalSettings(enabled, nfceEnabled),
                 new PasswordLoginService(userRepository.Object),
                 new TokenService(new Mock<IRepository<RefreshToken>>().Object, configuration));
 
@@ -179,5 +209,18 @@ namespace EvangelionERPV2.Test.Security
 
             return controller;
         }
+
+        /// <summary>
+        /// The tenant's own switches, which the endpoint checks rather than trusting the terminal.
+        /// </summary>
+        private static INFeFiscalSettingsService FiscalSettings(bool enabled, bool nfceEnabled)
+        {
+            var settings = new Mock<INFeFiscalSettingsService>();
+            settings.Setup(x => x.GetSettingsAsync(It.IsAny<Guid>()))
+                .ReturnsAsync(new EnterpriseFiscalSettings { Enabled = enabled, NFCeEnabled = nfceEnabled });
+
+            return settings.Object;
+        }
+
     }
 }

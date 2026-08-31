@@ -304,6 +304,17 @@ namespace EvangelionERPV2.Shared.DTOs
         /// it, and asking a server at press time cannot answer when the reason is "no connection".
         /// </remarks>
         public bool PixEnabled { get; set; }
+
+        /// <summary>
+        /// Whether a sale rung at this shop's tills gets an NFC-e.
+        /// </summary>
+        /// <remarks>
+        /// Both of the tenant's switches AND-ed into one answer, because the till has only one
+        /// question: is the paper it hands the customer a DANFE NFC-e or a non-fiscal coupon? It
+        /// has to know that before the sale, and a terminal that cannot reach the ERP is exactly
+        /// the terminal that most needs the previous answer.
+        /// </remarks>
+        public bool NFCeEnabled { get; set; }
     }
 
     /// <summary>
