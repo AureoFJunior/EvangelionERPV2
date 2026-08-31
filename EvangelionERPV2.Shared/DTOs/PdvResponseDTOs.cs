@@ -288,4 +288,30 @@ namespace EvangelionERPV2.Shared.DTOs
         public Guid SupervisorUserId { get; set; }
         public DateTime OccurredAt { get; set; }
     }
+
+    /// <summary>
+    /// A charge as the terminal is allowed to see it.
+    /// </summary>
+    /// <remarks>
+    /// Everything here is safe on a shop floor: an opaque id, a status, an amount the customer is
+    /// looking at anyway, and the copia-e-cola string, which is printed on receipts. No key, no
+    /// connected account, no provider intent id — a terminal that knew those could talk to Stripe,
+    /// and a terminal that can talk to Stripe is a terminal holding something worth stealing.
+    /// </remarks>
+    public sealed class PdvChargeDTO
+    {
+        public Guid ChargeId { get; set; }
+
+        /// <summary><see cref="Enums.EnumPdvChargeStatus"/>.</summary>
+        public int Status { get; set; }
+
+        /// <summary>The copia-e-cola string, rendered as a QR at the till.</summary>
+        public string QrPayload { get; set; } = string.Empty;
+
+        public decimal Amount { get; set; }
+        public DateTime ExpiresAt { get; set; }
+
+        /// <summary>The bank's end-to-end id, once it has one. Null until the money lands.</summary>
+        public string? EndToEndId { get; set; }
+    }
 }

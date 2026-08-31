@@ -49,6 +49,9 @@ namespace EvangelionERPV2.Web.Controllers
         // One override attempt and nothing else.
         private const int MaxOverrideRequestBodySizeInBytes = 4 * 1024;
 
+        // A basket id and an amount. Anything larger is a bug or an attack.
+        private const int MaxChargeRequestBodySizeInBytes = 4 * 1024;
+
         // How far back the failed-override feed reaches, and how many rows of it travel. The till
         // only needs enough to run a lockout window, not the year's audit trail.
         private static readonly TimeSpan FailedOverrideFeedWindow = TimeSpan.FromHours(24);
@@ -823,6 +826,87 @@ namespace EvangelionERPV2.Web.Controllers
 
             var size = Math.Clamp(pageSize ?? MaxImagePageSize, 1, MaxImagePageSize);
             return Ok(await _pdvService.GetProductImagesAsync(since, enterpriseId, size));
+        }
+
+        /// <summary>
+        /// Raises a PIX charge for a basket, or returns the one already raised for it.
+        /// </summary>
+        /// <remarks>
+        /// The response carries an opaque charge id, a status and a copia-e-cola string — never a
+        /// key, an account or a provider intent id. A terminal that knew those could reach Stripe
+        /// directly, and under Connect that is a terminal holding something worth stealing.
+        /// </remarks>
+        [HttpPost]
+        [RequestSizeLimit(MaxChargeRequestBodySizeInBytes)]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
+        [ProducesResponseType(typeof(PdvChargeDTO), 200)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        [ProducesResponseType(500)]
+        public async Task<IActionResult> StartPixCharge([FromBody] StartPixChargeRequestDTO request)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                return Ok(await _pdvService.StartPixChargeAsync(request, enterpriseId));
+            }
+            catch (ArgumentException ex)
+            {
+                // A shop with no PIX, or an amount outside the provider's range. The operator needs
+                // the reason on screen; nothing here is worth a 500 or a stack trace in the log.
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// The charge as the ERP last recorded it.
+        /// </summary>
+        /// <remarks>
+        /// Reads our own row. The till polls this while a customer pays, and a poll that reached
+        /// Stripe would put its rate limit on the path of every sale — the webhook moves the row.
+        /// </remarks>
+        [HttpGet("{chargeId}")]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
+        [ProducesResponseType(typeof(PdvChargeDTO), 200)]
+        [ProducesResponseType(204)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        public async Task<IActionResult> GetChargeStatus(Guid chargeId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var charge = await _pdvService.GetChargeAsync(chargeId, enterpriseId);
+
+            // No content rather than 404: another tenant's charge and a charge that never existed
+            // must be indistinguishable from here.
+            return charge == null ? NoContent() : Ok(charge);
+        }
+
+        /// <summary>Abandons a charge nobody paid.</summary>
+        [HttpPost]
+        [RequestSizeLimit(MaxChargeRequestBodySizeInBytes)]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
+        [ProducesResponseType(typeof(PdvChargeDTO), 200)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(403)]
+        public async Task<IActionResult> CancelPixCharge([FromBody] CancelPixChargeRequestDTO request)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                return Ok(await _pdvService.CancelPixChargeAsync(request.ChargeId, enterpriseId));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         private static CashSessionDTO ToDto(Shared.Entities.CashSession session) => new()

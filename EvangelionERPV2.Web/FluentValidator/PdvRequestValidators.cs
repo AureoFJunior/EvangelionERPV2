@@ -203,4 +203,34 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .MaximumLength(64).WithMessage("Permission is too long.");
         }
     }
+
+    /// <summary>
+    /// The bounds are Stripe's, restated at the edge.
+    /// </summary>
+    /// <remarks>
+    /// <c>PdvService</c> asserts the same range, and that is the one that makes the rule true. This
+    /// copy turns a request that was never going to work into a 400 with a message, before a
+    /// connected account is looked up or a provider is called.
+    /// </remarks>
+    public sealed class StartPixChargeRequestValidator : AbstractValidator<StartPixChargeRequestDTO>
+    {
+        public StartPixChargeRequestValidator()
+        {
+            RuleFor(x => x.ClientSaleId)
+                .NotEmpty().WithMessage("ClientSaleId is required.");
+
+            RuleFor(x => x.Amount)
+                .InclusiveBetween(0.50m, 3000m)
+                .WithMessage("A PIX charge must be between 0.50 and 3000.00.");
+        }
+    }
+
+    public sealed class CancelPixChargeRequestValidator : AbstractValidator<CancelPixChargeRequestDTO>
+    {
+        public CancelPixChargeRequestValidator()
+        {
+            RuleFor(x => x.ChargeId)
+                .NotEmpty().WithMessage("ChargeId is required.");
+        }
+    }
 }

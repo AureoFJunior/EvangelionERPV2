@@ -40,5 +40,14 @@ namespace EvangelionERPV2.PdvModule.Application.Interface
 
         /// <summary>The session currently open on a terminal, if any.</summary>
         Task<CashSession?> GetOpenSessionAsync(string terminalId, Guid enterpriseId);
+
+        /// <summary>Raises a PIX charge for a basket, or returns the one already raised for it.</summary>
+        Task<PdvChargeDTO> StartPixChargeAsync(StartPixChargeRequestDTO request, Guid enterpriseId);
+
+        /// <summary>The charge as we last recorded it. Reads our own row; never calls the provider.</summary>
+        Task<PdvChargeDTO?> GetChargeAsync(Guid chargeId, Guid enterpriseId);
+
+        /// <summary>Abandons a charge nobody paid. A charge that already settled is left alone.</summary>
+        Task<PdvChargeDTO> CancelPixChargeAsync(Guid chargeId, Guid enterpriseId);
     }
 }

@@ -21,6 +21,8 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         private readonly IRepository<PdvSalePayment> _paymentRepository;
         private readonly IOrderService<Order> _orderService;
         private readonly IProductService<Product> _productService;
+        private readonly IRepository<PdvCharge> _chargeRepository;
+        private readonly StripePixProvider _pixProvider;
 
         public PdvService(
             AppDbContext appDbContext,
@@ -29,7 +31,9 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             IRepository<PdvSale> saleRepository,
             IRepository<PdvSalePayment> paymentRepository,
             IOrderService<Order> orderService,
-            IProductService<Product> productService)
+            IProductService<Product> productService,
+            IRepository<PdvCharge> chargeRepository,
+            StripePixProvider pixProvider)
         {
             _appDbContext = appDbContext;
             _sessionRepository = sessionRepository;
@@ -38,6 +42,8 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             _paymentRepository = paymentRepository;
             _orderService = orderService;
             _productService = productService;
+            _chargeRepository = chargeRepository;
+            _pixProvider = pixProvider;
         }
 
         #region Sessions
@@ -413,6 +419,23 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             sale.SyncedAt = DateTime.UtcNow;
             sale.UpdatedAt = DateTime.UtcNow;
 
+            // Which of the named charges we can actually prove were paid. Asked once, here, rather
+            // than per tender: a sale has a handful of payments and this is one round trip.
+            var namedCharges = payments
+                .Where(payment => payment.ChargeId != null)
+                .Select(payment => payment.ChargeId!.Value)
+                .Distinct()
+                .ToList();
+
+            var paidCharges = namedCharges.Count == 0
+                ? []
+                : await _appDbContext.PdvCharge
+                    .Where(charge => charge.EnterpriseId == enterpriseId
+                                     && namedCharges.Contains(charge.Id)
+                                     && charge.Status == (int)EnumPdvChargeStatus.Paid)
+                    .Select(charge => charge.Id)
+                    .ToListAsync();
+
             await _saleRepository.ExecuteInTransactionAsync(async () =>
             {
                 _saleRepository.Update(sale);
@@ -429,9 +452,10 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     Installments = payment.Installments,
                     PdvChargeId = payment.ChargeId,
 
-                    // Not the raw flag: a tender that claims proof but names no charge is an
-                    // assertion, and a payload is not evidence.
-                    IsVerified = payment.IsVerified && payment.ChargeId != null,
+                    // Never the raw flag. Proof is a charge that exists, belongs to this shop
+                    // and reached Paid — checked here against our own rows, because a terminal
+                    // that could mint proof by setting a bool would make the column worthless.
+                    IsVerified = payment.ChargeId != null && paidCharges.Contains(payment.ChargeId.Value),
                     CreatedAt = DateTime.UtcNow,
                     IsActive = true
                 }));
@@ -717,6 +741,145 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             Difference = session.Difference,
             Status = session.Status
         };
+
+        #region Charges
+
+        /// <summary>Stripe's PIX ceiling. Splitting a bigger basket across charges is not automated.</summary>
+        private const decimal MaxPixChargeAmount = 3000m;
+
+        /// <summary>Below this a PIX charge costs more in fees than it collects.</summary>
+        private const decimal MinPixChargeAmount = 0.50m;
+
+        /// <summary>
+        /// Raises a PIX charge for a basket, or hands back the one already raised for it.
+        /// </summary>
+        /// <remarks>
+        /// Every gate runs before the provider is touched. A shop that cannot take PIX must find
+        /// that out from a greyed-out button, not from a customer standing at the counter with a
+        /// bank app open — and the amount bounds are Stripe's, so sending a request we know it will
+        /// refuse only costs the customer time.
+        ///
+        /// The lookup on <c>ClientSaleId</c> is what makes a resend safe: a terminal that lost the
+        /// response to its first call must find that intent rather than open a second one against
+        /// the same basket. A customer who pays twice is the failure this method exists to prevent,
+        /// and the unique index on <c>(EnterpriseId, ProviderIntentId)</c> is the backstop.
+        /// </remarks>
+        public async Task<PdvChargeDTO> StartPixChargeAsync(StartPixChargeRequestDTO request, Guid enterpriseId)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            AssertTenant(enterpriseId);
+
+            if (request.ClientSaleId == Guid.Empty)
+                throw new ArgumentException("A client sale id is required.");
+
+            if (request.Amount < MinPixChargeAmount || request.Amount > MaxPixChargeAmount)
+            {
+                throw new ArgumentException(
+                    $"A PIX charge must be between {MinPixChargeAmount:0.00} and {MaxPixChargeAmount:0.00}.");
+            }
+
+            var existing = await _appDbContext.PdvCharge
+                .FirstOrDefaultAsync(charge => charge.EnterpriseId == enterpriseId
+                                               && charge.ClientSaleId == request.ClientSaleId);
+
+            if (existing != null)
+                return ToDto(existing);
+
+            var enterprise = await _appDbContext.Enterprise
+                .FirstOrDefaultAsync(shop => shop.Id == enterpriseId);
+
+            // Both halves. A connected account is not the same as Stripe having let this shop
+            // through the invite-only PIX programme, and neither is worth a failed payment.
+            if (enterprise?.PixPaymentsEnabled != true
+                || string.IsNullOrWhiteSpace(enterprise.StripeConnectedAccountId))
+            {
+                throw new ArgumentException("This shop is not set up to take PIX.");
+            }
+
+            var intent = await _pixProvider.CreateAsync(
+                request.Amount, request.ClientSaleId, enterprise.StripeConnectedAccountId);
+
+            var created = new PdvCharge
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                ClientSaleId = request.ClientSaleId,
+                Provider = "stripe",
+                ProviderIntentId = intent.IntentId,
+                Amount = request.Amount,
+                Status = (int)EnumPdvChargeStatus.Pending,
+                QrPayload = intent.QrPayload,
+                ExpiresAt = intent.ExpiresAt,
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true
+            };
+
+            await _chargeRepository.CreateAsync(created);
+            await _chargeRepository.CommitAsync();
+
+            return ToDto(created);
+        }
+
+        /// <summary>
+        /// The charge as we last recorded it.
+        /// </summary>
+        /// <remarks>
+        /// Reads our own row and never the provider. The till polls this every second or so while a
+        /// customer pays, and a poll that reached Stripe would put its rate limit on the path of
+        /// every sale — the webhook is what moves the row, and this only reports it.
+        /// </remarks>
+        public async Task<PdvChargeDTO?> GetChargeAsync(Guid chargeId, Guid enterpriseId)
+        {
+            AssertTenant(enterpriseId);
+
+            var charge = await _appDbContext.PdvCharge
+                .FirstOrDefaultAsync(row => row.Id == chargeId && row.EnterpriseId == enterpriseId);
+
+            return charge == null ? null : ToDto(charge);
+        }
+
+        /// <summary>
+        /// Abandons a charge nobody paid.
+        /// </summary>
+        /// <remarks>
+        /// A charge that already reached a terminal status is returned untouched. The race is real
+        /// and it is one-sided: a customer whose payment landed a second before the operator pressed
+        /// Esc must not have it marked cancelled, so anything already settled wins over the cancel.
+        /// </remarks>
+        public async Task<PdvChargeDTO> CancelPixChargeAsync(Guid chargeId, Guid enterpriseId)
+        {
+            AssertTenant(enterpriseId);
+
+            var charge = await _appDbContext.PdvCharge
+                .FirstOrDefaultAsync(row => row.Id == chargeId && row.EnterpriseId == enterpriseId)
+                ?? throw new ArgumentException("No such charge.");
+
+            if (charge.Status != (int)EnumPdvChargeStatus.Pending)
+                return ToDto(charge);
+
+            // Stripe first: if it refuses because the intent already succeeded, our row must not
+            // claim otherwise, and the exception carries that to the operator.
+            await _pixProvider.CancelAsync(charge.ProviderIntentId);
+
+            charge.Status = (int)EnumPdvChargeStatus.Cancelled;
+            charge.UpdatedAt = DateTime.UtcNow;
+            _chargeRepository.Update(charge);
+            await _chargeRepository.CommitAsync();
+
+            return ToDto(charge);
+        }
+
+        private static PdvChargeDTO ToDto(PdvCharge charge) => new()
+        {
+            ChargeId = charge.Id,
+            Status = charge.Status,
+            QrPayload = charge.QrPayload ?? string.Empty,
+            Amount = charge.Amount,
+            ExpiresAt = charge.ExpiresAt,
+            EndToEndId = charge.EndToEndId
+        };
+
+        #endregion
 
         private static void AssertTenant(Guid enterpriseId)
         {

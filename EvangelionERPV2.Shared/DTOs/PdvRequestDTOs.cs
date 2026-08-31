@@ -178,4 +178,24 @@ namespace EvangelionERPV2.Shared.DTOs
         /// <summary>When it happened, per the terminal clock, in UTC.</summary>
         public DateTime OccurredAt { get; set; }
     }
+
+    /// <summary>Asks the ERP to raise a PIX charge for a basket the till is holding.</summary>
+    /// <remarks>
+    /// Carries no key, no account id and no provider name. The terminal says what it is selling and
+    /// for how much; which provider answers, and on whose account, is the server's business — that
+    /// is the whole reason a till can sit unattended in a shop we do not administer.
+    /// </remarks>
+    public sealed class StartPixChargeRequestDTO
+    {
+        /// <summary>The basket, as the terminal minted it. A resend finds the same charge.</summary>
+        public Guid ClientSaleId { get; set; }
+
+        public decimal Amount { get; set; }
+    }
+
+    /// <summary>Abandons a charge nobody paid.</summary>
+    public sealed class CancelPixChargeRequestDTO
+    {
+        public Guid ChargeId { get; set; }
+    }
 }

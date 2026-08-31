@@ -68,7 +68,9 @@ namespace EvangelionERPV2.PdvModule.Test
                 new Repository<PdvSale>(context),
                 new Repository<PdvSalePayment>(context),
                 (orderService ?? OrderServiceStub(context)).Object,
-                ProductServiceStub().Object);
+                ProductServiceStub().Object,
+                new Repository<PdvCharge>(context),
+                PixProviderStubs.Object());
 
         private async Task<CashSession> OpenSessionAsync(PdvService service, Guid clientSessionId, decimal openingFloat = 200m)
         {
@@ -446,7 +448,8 @@ namespace EvangelionERPV2.PdvModule.Test
             var sessionId = Guid.NewGuid();
             await OpenSessionAsync(service, sessionId);
 
-            var chargeId = Guid.NewGuid();
+            // A real charge, settled. Proof is checked against this row, not against the payload.
+            var chargeId = await GivePaidChargeAsync(context);
             var request = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
             var pix = request.Payments!.Single();
             pix.ChargeId = chargeId;
@@ -457,6 +460,72 @@ namespace EvangelionERPV2.PdvModule.Test
             var payment = await context.PdvSalePayment.SingleAsync();
             Assert.True(payment.IsVerified);
             Assert.Equal(chargeId, payment.PdvChargeId);
+        }
+
+        [Fact]
+        public async Task ATenderNamingAChargeThatNeverSettled_IsNotProof()
+        {
+            // The till may believe it. Belief is not a receipt: until the webhook moves the charge
+            // to Paid, this tender is the operator's word like any other.
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var chargeId = await GivePaidChargeAsync(context, status: EnumPdvChargeStatus.Pending);
+            var request = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
+            var pix = request.Payments!.Single();
+            pix.ChargeId = chargeId;
+            pix.IsVerified = true;
+
+            await service.SyncSaleAsync(request, _enterpriseId, _userId);
+
+            Assert.False((await context.PdvSalePayment.SingleAsync()).IsVerified);
+        }
+
+        [Fact]
+        public async Task ATenderNamingAnotherTenantsPaidCharge_IsNotProof()
+        {
+            // Otherwise one shop's settled charge would prove another shop's tender, and the id is
+            // guessable in exactly the way a Guid is not — but tenancy is not a guessing game.
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var chargeId = await GivePaidChargeAsync(context, enterpriseId: Guid.NewGuid());
+            var request = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
+            var pix = request.Payments!.Single();
+            pix.ChargeId = chargeId;
+            pix.IsVerified = true;
+
+            await service.SyncSaleAsync(request, _enterpriseId, _userId);
+
+            Assert.False((await context.PdvSalePayment.SingleAsync()).IsVerified);
+        }
+
+        /// <summary>A charge row the proof check can find, in whatever state the test needs.</summary>
+        private async Task<Guid> GivePaidChargeAsync(AppDbContext context,
+            EnumPdvChargeStatus status = EnumPdvChargeStatus.Paid, Guid? enterpriseId = null)
+        {
+            var charge = new PdvCharge
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId ?? _enterpriseId,
+                ClientSaleId = Guid.NewGuid(),
+                Provider = "stripe",
+                ProviderIntentId = $"pi_{Guid.NewGuid():N}",
+                Amount = 60m,
+                Status = (int)status,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(30)
+            };
+
+            context.PdvCharge.Add(charge);
+            await context.SaveChangesAsync();
+
+            return charge.Id;
         }
 
         [Fact]
@@ -490,7 +559,7 @@ namespace EvangelionERPV2.PdvModule.Test
 
             var proven = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
             var provenPix = proven.Payments!.Single();
-            provenPix.ChargeId = Guid.NewGuid();
+            provenPix.ChargeId = await GivePaidChargeAsync(context);
             provenPix.IsVerified = true;
 
             await service.SyncSaleAsync(proven, _enterpriseId, _userId);

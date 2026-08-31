@@ -46,7 +46,9 @@ public class ProductImageTests : IDisposable
             new Repository<PdvSale>(context),
             new Repository<PdvSalePayment>(context),
             new Mock<IOrderService<Order>>().Object,
-            ProductServiceStub().Object);
+            ProductServiceStub().Object,
+            new Repository<PdvCharge>(context),
+            PixProviderStubs.Object());
 
     /// <summary>
     /// Seeds products with strictly increasing <c>ChangedAt</c> values. <see cref="BaseEntity"/>
