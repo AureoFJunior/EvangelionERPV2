@@ -59,6 +59,61 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal(UrlChave, document.UrlChave);
         }
 
+        /// <summary>
+        /// The QR has to survive the path that issues the note, not only the one that reconciles
+        /// it. An authorised document is terminal, so the reconciler never looks at it again: a QR
+        /// dropped here is a QR the customer never gets.
+        /// </summary>
+        [Fact]
+        public async Task AnNFCeAuthorisedAtTheCounter_KeepsItsQr()
+        {
+            var context = new NFeIssuanceWriteAheadTests.IssuanceContext();
+            context.Provider
+                .Setup(x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new NFeProviderResult
+                {
+                    Status = NFeStatus.Authorized,
+                    Cstat = "100",
+                    Protocol = "PROT-1",
+                    XmlContent = "<xml />",
+                    IssuedAt = DateTime.UtcNow,
+                    QrCode = Qr,
+                    UrlChave = UrlChave
+                });
+
+            var result = await context.Service.IssueAsync(
+                context.OrderId, context.EnterpriseId, NFeDocumentType.NFCe);
+
+            Assert.Equal(Qr, result!.QrCode);
+            Assert.Equal(UrlChave, result.UrlChave);
+        }
+
+        /// <summary>
+        /// A failure that provably never reached the wire must retract the write-ahead marker, or
+        /// the next attempt burns the allocated number and the till cannot tell that falling back
+        /// to contingency is safe.
+        /// </summary>
+        [Fact]
+        public async Task AnIssueThatNeverLeftTheProcess_RetractsTheWriteAheadMarker()
+        {
+            var context = new NFeIssuanceWriteAheadTests.IssuanceContext();
+            context.Provider
+                .Setup(x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new NFeProviderResult
+                {
+                    Status = NFeStatus.Error,
+                    XMotivo = "No CSC is configured for this enterprise.",
+                    NeverTransmitted = true
+                });
+
+            var result = await context.Service.IssueAsync(
+                context.OrderId, context.EnterpriseId, NFeDocumentType.NFCe);
+
+            Assert.Equal(NFeStatus.Error, result!.Status);
+            Assert.Null(result.TransmittedAtUtc);
+            Assert.False(result.IsOutcomeUnknown);
+        }
+
         [Fact]
         public async Task AModelo55Outcome_CarriesNoQrAtAll()
         {

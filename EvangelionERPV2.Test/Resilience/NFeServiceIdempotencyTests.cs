@@ -36,7 +36,11 @@ namespace EvangelionERPV2.Test.Resilience
                     CodigoUfIbge = 43,
                     Environment = HomologationEnvironment,
                     NFeSeries = "1",
-                    NFCeSeries = "1"
+                    NFCeSeries = "1",
+
+                    // The tenant's own switch, enforced before a document is claimed.
+                    Enabled = true,
+                    NFCeEnabled = true
                 });
 
             return mock;

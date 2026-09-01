@@ -119,9 +119,13 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         {
             var context = new IssuanceContext();
             context.SetupAuthorizingProvider();
+
+            // A profile that is switched on but has never been filled in: the emitter's CNPJ and
+            // cUF are what the chave is built from, so this fails after the claim and before any
+            // allocation.
             context.FiscalSettings
                 .Setup(x => x.GetSettingsAsync(context.EnterpriseId))
-                .ReturnsAsync(new EnterpriseFiscalSettings { EnterpriseId = context.EnterpriseId });
+                .ReturnsAsync(new EnterpriseFiscalSettings { EnterpriseId = context.EnterpriseId, Enabled = true });
 
             await Assert.ThrowsAsync<InsertDatabaseException>(
                 () => context.Service.IssueAsync(context.OrderId, context.EnterpriseId));
@@ -132,6 +136,59 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             context.Provider.Verify(
                 x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()),
                 Times.Never);
+        }
+
+        [Fact]
+        public async Task IssueAsync_WhenTheTenantsSwitchIsOff_CreatesNoDocumentAtAll()
+        {
+            // NFeCertificateService sets Enabled = false when a certificate is removed. Until this
+            // was enforced here, that stopped nothing: modelo 55 read only the global switch, and a
+            // tenant with no certificate went on claiming numbers it could not sign.
+            var context = new IssuanceContext();
+            context.SetupAuthorizingProvider();
+            context.FiscalSettings
+                .Setup(x => x.GetSettingsAsync(context.EnterpriseId))
+                .ReturnsAsync(new EnterpriseFiscalSettings
+                {
+                    EnterpriseId = context.EnterpriseId,
+                    Cnpj = "11222333000181",
+                    CodigoUfIbge = 43,
+                    Enabled = false
+                });
+
+            var result = await context.Service.IssueAsync(context.OrderId, context.EnterpriseId);
+
+            Assert.Null(result);
+            Assert.Null(context.Persisted);
+            context.VerifyAllocations(Times.Never());
+            Assert.Equal(0, context.CommitCalls);
+        }
+
+        [Fact]
+        public async Task IssueAsync_WhenNFCeIsOffButNFeIsOn_RefusesOnlyTheNFCe()
+        {
+            // Two switches, two documents. A shop may issue modelo 55 from the back office while
+            // its counter has never been turned on.
+            var context = new IssuanceContext();
+            context.SetupAuthorizingProvider();
+            context.FiscalSettings
+                .Setup(x => x.GetSettingsAsync(context.EnterpriseId))
+                .ReturnsAsync(new EnterpriseFiscalSettings
+                {
+                    EnterpriseId = context.EnterpriseId,
+                    Cnpj = "11222333000181",
+                    CodigoUfIbge = 43,
+                    Environment = HomologationEnvironment,
+                    NFeSeries = "1",
+                    NFCeSeries = "1",
+                    Enabled = true,
+                    NFCeEnabled = false
+                });
+
+            Assert.Null(await context.Service.IssueAsync(
+                context.OrderId, context.EnterpriseId, NFeDocumentType.NFCe));
+
+            Assert.NotNull(await context.Service.IssueAsync(context.OrderId, context.EnterpriseId));
         }
 
         [Fact]
@@ -333,7 +390,11 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                         Environment = HomologationEnvironment,
                         NFeSeries = "1",
                         NFCeSeries = "1",
-                        NFCeContingencySeries = "9"
+                        NFCeContingencySeries = "9",
+
+                        // Both tenant switches, because both are enforced before a claim is made.
+                        Enabled = true,
+                        NFCeEnabled = true
                     });
 
                 Service = new NFeService(

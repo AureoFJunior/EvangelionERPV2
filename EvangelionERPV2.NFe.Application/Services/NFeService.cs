@@ -89,6 +89,24 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (order == null)
                 throw new NotFoundDatabaseException($"{nameof(Order)} was not found.");
 
+            var fiscalSettings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
+
+            // The tenant's own switches, AND-ed with the global one above. Read before the claim so
+            // a shop that has issuance turned off never leaves a Pending document behind, and
+            // checked here rather than only at the till's endpoint: NFeCertificateService sets
+            // Enabled = false when a certificate is removed, and until this existed that stopped
+            // nothing. A tenant that never configured a profile is refused here too — it was
+            // already refused a few lines further on, for having no CNPJ.
+            if (!fiscalSettings.Enabled || (type == NFeDocumentType.NFCe && !fiscalSettings.NFCeEnabled))
+            {
+                Log.Logger.Information(
+                    "NFe/NFCe issuance skipped: {Type} is not enabled for enterprise {EnterpriseId}.",
+                    type,
+                    enterpriseId);
+
+                return null;
+            }
+
             var issuanceLock = GetIssuanceLock(orderId, type);
             await issuanceLock.WaitAsync();
             try
@@ -175,7 +193,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     if (contingency is not null && type != NFeDocumentType.NFCe)
                         throw new InsertDatabaseException("Off-line contingency (tpEmis 9) exists only for NFC-e.");
 
-                    await AssignNumberAndAccessKeyAsync(pendingDocument, enterpriseId, type, tipoEmissao);
+                    await AssignNumberAndAccessKeyAsync(pendingDocument, fiscalSettings, type, tipoEmissao);
 
                     // Recorded before transmission like every other identity field: a contingency
                     // note that is printed and handed over still owes SEFAZ a transmission, and this
@@ -188,7 +206,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     {
                         Order = order,
                         Items = order.OrderedProduct?.ToList() ?? [],
-                        FiscalSettings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId),
+                        FiscalSettings = fiscalSettings,
                         Enterprise = enterprise,
                         Customer = customer,
                         Type = type,
@@ -204,15 +222,21 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     // series were allocated and committed before transmission precisely so that a
                     // timed-out request can be reconciled against them; taking the provider's word
                     // for them afterwards would put the recovery key back under SEFAZ's control.
-                    pendingDocument.Status = result.Status;
-                    pendingDocument.Cstat = result.Cstat;
-                    pendingDocument.XMotivo = result.XMotivo;
+                    //
+                    // Everything else goes through the one adoption path the reconciler and the
+                    // contingency sweeper use. A hand-copied version stood here and had already
+                    // drifted from it in two ways that mattered: it dropped the consumer QR, so an
+                    // NFC-e authorised at a counter had nothing for the customer to scan, and it
+                    // ignored NeverTransmitted, so a failure that provably never reached the wire
+                    // kept its write-ahead marker — burning the allocated number on the next
+                    // attempt and hiding the one state the till reads to fall back to contingency.
+                    ApplyOutcome(pendingDocument, result);
+
                     pendingDocument.ReceiptNumber = result.ReceiptNumber;
-                    pendingDocument.Protocol = result.Protocol;
-                    pendingDocument.IssuedAt = result.IssuedAt ?? DateTime.UtcNow;
                     pendingDocument.TotalValue = result.TotalValue;
-                    pendingDocument.XmlContent = result.XmlContent;
-                    pendingDocument.UpdatedAt = DateTime.UtcNow;
+
+                    // Issuance always stamps an attempt time; a later consult may answer without one.
+                    pendingDocument.IssuedAt ??= DateTime.UtcNow;
 
                     _nfeRepository.Update(pendingDocument);
                     try
@@ -446,14 +470,17 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// legal but permanent, and the remedy (inutilização) is out of scope for v1.
         /// </remarks>
         private async Task AssignNumberAndAccessKeyAsync(
-            NFeDocument document, Guid enterpriseId, NFeDocumentType type, int tipoEmissao = NormalEmission)
+            NFeDocument document,
+            EnterpriseFiscalSettings fiscalSettings,
+            NFeDocumentType type,
+            int tipoEmissao = NormalEmission)
         {
             var emission = EmitterNow();
 
             // A retry of a document that was claimed but provably never transmitted keeps the number
             // it already allocated. Skipping it instead would need inutilização paperwork for a
             // number nobody ever used — see NFeReconciliationService.
-            if (CanReuseAllocation(document, emission))
+            if (CanReuseAllocation(document, emission, tipoEmissao))
             {
                 Log.Logger.Information(
                     "NFe document {DocumentId} reuses its allocated number {Number}; it was never transmitted.",
@@ -462,7 +489,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 return;
             }
 
-            var fiscalSettings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
+            var enterpriseId = fiscalSettings.EnterpriseId;
 
             // GetSettingsAsync returns a transient default for a tenant that never configured
             // anything, so an unconfigured tenant would otherwise reach NFeAccessKeyBuilder with an
@@ -518,13 +545,19 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// True when the document already carries an allocation that is still safe to transmit.
         /// </summary>
         /// <remarks>
-        /// Three conditions, all load-bearing: the write-ahead marker must be NULL (otherwise the
+        /// Four conditions, all load-bearing: the write-ahead marker must be NULL (otherwise the
         /// note may already exist at SEFAZ and reusing the key double-emits), the chave must still
-        /// describe this document's number, and its AAMM must be the current month — an old chave
-        /// re-transmitted in a new month is rejected. Anything else falls through to a fresh
-        /// allocation, which burns a number but is never wrong.
+        /// describe this document's number, its AAMM must be the current month — an old chave
+        /// re-transmitted in a new month is rejected — and its tpEmis must be the one being issued
+        /// now. Anything else falls through to a fresh allocation, which burns a number but is
+        /// never wrong.
+        ///
+        /// The tpEmis condition is what makes the till's contingency fallback work at all: the
+        /// retry that follows a failed online attempt asks for tpEmis 9, and reusing the online
+        /// allocation would keep the online series and a chave that says tpEmis 1 while the XML
+        /// says 9 — a note that contradicts the key printed on the customer's receipt.
         /// </remarks>
-        private static bool CanReuseAllocation(NFeDocument document, DateTime emission)
+        private static bool CanReuseAllocation(NFeDocument document, DateTime emission, int tipoEmissao)
         {
             if (document.TransmittedAtUtc != null || string.IsNullOrWhiteSpace(document.Number))
                 return false;
@@ -536,7 +569,10 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 == emission.ToString("yyMM", CultureInfo.InvariantCulture);
             var sameNumber = document.AccessKey.Substring(25, 9) == document.Number.PadLeft(9, '0');
 
-            return sameMonth && sameNumber;
+            // Digit 35 of the chave (index 34) is tpEmis.
+            var sameEmissionType = document.AccessKey[34] == (char)('0' + tipoEmissao);
+
+            return sameMonth && sameNumber && sameEmissionType;
         }
 
         /// <summary>
