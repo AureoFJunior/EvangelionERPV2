@@ -369,8 +369,13 @@ namespace EvangelionERPV2.Web.Controllers
             if (!userId.HasValue || !TryGetEnterpriseId(out var enterpriseId))
                 return Unauthorized();
 
+            // IsActive too, and not only because every sibling lookup checks it: a delete
+            // deactivates the row instead of removing it, so a dismissed user's row is still here
+            // and still carries their tenant. With no rbac policy on this action there is no
+            // PermissionAuthorizationHandler behind it to notice, and their unexpired backoffice
+            // token would otherwise write a PIN they chose onto a supervisor row.
             var user = await _userRepository.GetByIdAsync(userId.Value);
-            if (user == null || user.EnterpriseId != enterpriseId)
+            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
                 return Unauthorized();
 
             user.PdvPinVerifier = Pbkdf2Verifier.Create(pin);

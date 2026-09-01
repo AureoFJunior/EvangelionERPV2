@@ -96,6 +96,24 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task SetPdvPin_RefusesADeactivatedUser()
+        {
+            // Deleting a user deactivates the row rather than removing it, so "the row is here and
+            // the tenant matches" stopped being proof the caller still works here — and this is the
+            // one authenticated action with no rbac policy, so PermissionAuthorizationHandler's own
+            // IsActive check never runs for it. A dismissed supervisor holding an unexpired
+            // backoffice token could otherwise write a PIN of their choosing onto their row, ready
+            // for the day the account is switched back on.
+            var user = BuildUser(EnumAccessLevel.Supervisor);
+            user.IsActive = false;
+
+            var controller = CreateController([user], ClaimsFor(user));
+
+            Assert.IsType<UnauthorizedResult>(await controller.SetPdvPin(new SetPdvPinRequestDTO { Pin = "482913" }));
+            Assert.Null(user.PdvPinVerifier);
+        }
+
+        [Fact]
         public async Task GetSupervisorVerifiers_ListsSupervisors_ButNotOperators()
         {
             var supervisor = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
