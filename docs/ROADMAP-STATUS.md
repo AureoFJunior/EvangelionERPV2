@@ -24,10 +24,10 @@ Measured 2026-09-01, not remembered.
 | | |
 |---|---|
 | Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **294 commits ahead of `origin/main`** |
-| Head | `7955532` — a backfill can run on the database it was written for. FrontV2 `57fd4e6`, PDV `046e573`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
+| Head | `70361bd` — a blocked shift stays queued instead of being thrown away. FrontV2 `57fd4e6`, PDV `046e573`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1642 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 610, `NFeModule` 363, `PdvModule` 85, `BillsModule` 278. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
-| FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
+| Tests | **1643 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 611, `NFeModule` 363, `PdvModule` 85, `BillsModule` 278. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **re-run 2026-09-01**: 30 tests, 26 passing, 0 failing, 4 pending, against an API image rebuilt from today's commits. The M24–M29f screens remain unexercised because no spec covers them (see B7) |
 | PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `046e573` (58 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-09-01. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
 | Migrations | chain ends `20260901133552_AddPayrollDetailEnterprise` (after `…132721_AddAbonoDaysSettled`); both applied and verified in `sys.columns` 2026-09-01, and the whole chain replays clean onto an empty database since the `EXEC` fix in the traps list. **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
@@ -189,7 +189,7 @@ behind it is still the one path `M-B8` shadows in production.
 | B1 | ~~Apply the two newest migrations.~~ **Done 2026-08-31.** `./scripts/local-db-update.sh` backed the database up and applied `AddPdvSalePaymentVerification` and `AddPdvCharge`; verified against `sys.columns` — `PdvSalePayment.PdvChargeId` and `.IsVerified` exist and the `PdvCharge` table exists. `/health` answers Healthy. Production is still untouched — nothing calls `Database.Migrate()` |
 | B2 | **Push the branch.** `feature/33-pdv-terminal-login` has no upstream and is **285 commits ahead of `origin/main`** — M14–M29 and the whole bug pass live on one unpushed branch on one machine. Now the *only* copy: the six worktree duplicates were removed 2026-08-31 (R5) |
 | B6 | ~~Apply the M24–M28 migrations.~~ **Done.** Verified 2026-08-28: `__EFMigrationsHistory` ends at `20260826174529_AddPdvOverrideAudit`, so the four M29 migrations are applied locally too |
-| B7 | **Re-run Cypress.** Seven screens now — margin fields, the performance screen (plus its seller self-view), the ficha, the command palette (which now opens records), the map and the new *Tills* backoffice — and none has been through a browser. **The stack is up again as of 2026-08-31**, but `evangelionerpv2_web` is running an image built before today's commits, so rebuild it before testing anything added today. That suite is the only gate that catches a hook called inside a branch |
+| B7 | ~~**Re-run Cypress.**~~ **Ran 2026-09-01 against an image rebuilt from today's commits: 30 tests, 26 passing, 0 failing, 4 pending** (the recaptcha-gated credential specs and two others that skip themselves), in 1m57s. The Products flake did not reproduce — both product specs passed. **This entry was wrong about what the suite covers**: it says "seven screens now … none has been through a browser", but `cypress/e2e/frontend.cy.js` is the only spec file and it exercises the module shell, the dashboard, customers, products, orders, bills, payables, the forecast, employees, payroll and settings. **None of the M24–M29f screens has a spec at all** — margin, seller performance, the ficha, the command palette, the map and the *Tills* backoffice are unexercised because nothing was ever written for them, not because the suite was not run. Writing those specs is the open work; the run itself is done, and `./scripts/e2e-cleanup.sh --apply` cleared its 11 seeded rows afterwards |
 | B10 | **Give `EvangelionERPV2.PDV` a remote and push it.** `git remote -v` is empty in that repo. Every line of the till exists on one disk |
 | B11 | ~~Commit or drop the two dirty FrontV2 files.~~ **Done 2026-08-31.** `useLoginController.ts` was a real fix — Google web login now goes through PKCE, which the server already required a `code_verifier` for (FrontV2 `80dec33`) — and `Dashboard.tsx` was the revenue-by-product chart rebuilt as stacked bars (`2c25979`). Both committed separately |
 | B3 | **Confirm Chromium in the *production* image** (`M-B8`). Partly answered 2026-08-24: in the **local** container `/Bills/Pdf` returns 200 with a real PDF, so PuppeteerSharp works there. Production is a different image and a different network, and `BuildBillAttachmentsAsync` still swallows a renderer failure and mails the bill with no PDF |
@@ -481,6 +481,26 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
      written — and opening a shift on a terminal that already has one is named as a 400 the operator
      can act on, instead of the filtered unique index throwing a `DbUpdateException` the outbox
      retries forever without saying why.
+  **Reviewed again the same day, and one of its own claims was false.** The commit said the refused
+  second shift was "a 400 the till reports as a refusal, saying which shift is in the way". Neither
+  half held: `ExceptionHandlingMiddleware.GetSafeBadRequestDetail` replaces every 400 body with a
+  fixed string, so the message never leaves the server; and a 400 is *final* at the till —
+  `SyncEngine` marks it Rejected and discards the outbox entry, and `MarkSaleRejected` returns early
+  for a non-Sale kind, so nothing is recorded at all. The shift would then never open, even after a
+  human closed the stale one, and every sale behind it would jam. Corrected in `70361bd`: the
+  refusal is an `InsertDatabaseException` (a 500 the outbox keeps and retries, so it heals itself
+  once the stale shift closes) plus a `Warning` naming the terminal, the blocking session and the
+  one being refused — the log is the only channel that carries a reason, since the middleware
+  sanitises 4xx bodies and logs 5xx by type alone.
+  **A second residual the review named, and it is inherent:** the double-sale window is narrowed,
+  not closed. If `OrderService.CreateAsync` commits and the `OrderId` commit that follows it fails,
+  the retry still finds a bare `Pending` claim and rings the basket up again. Nothing on `Order`
+  carries the `ClientSaleId`, so there is nothing for the retry to recognise; closing it needs an
+  `Order.Id` derived from the client id, which is a redesign rather than a fix.
+  **Not a defect, worth knowing:** `NFeService.GetTillTendersAsync` matches a `PdvSale` by `OrderId`
+  with no status filter, and `Pending`-with-`OrderId` is a state that did not exist before. It
+  degrades correctly — no tender rows, a warning, and tPag 99 rather than an invented payment — and
+  the till's own issue path is gated on `Status == Synced`.
   **Left open, deliberately:** a stale open shift still blocks its terminal until somebody closes it,
   and the backoffice can only *list* open sessions. Forcing a close is a Z reading nobody counted, so
   it is a decision rather than a fix.
