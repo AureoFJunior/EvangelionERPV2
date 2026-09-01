@@ -24,12 +24,12 @@ Measured 2026-09-01, not remembered.
 | | |
 |---|---|
 | Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **294 commits ahead of `origin/main`** |
-| Head | `70361bd` — a blocked shift stays queued instead of being thrown away. FrontV2 `57fd4e6`, PDV `046e573`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
+| Head | `05b8d62` — an abono no bill could pay is refused at the source. FrontV2 `57fd4e6`, PDV `046e573`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1643 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 611, `NFeModule` 363, `PdvModule` 85, `BillsModule` 278. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| Tests | **1661 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 611, `NFeModule` 377, `PdvModule` 85, `BillsModule` 278, `OrderModule` 78, `EmployeeModule` 86. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **re-run 2026-09-01**: 30 tests, 26 passing, 0 failing, 4 pending, against an API image rebuilt from today's commits. The M24–M29f screens remain unexercised because no spec covers them (see B7) |
 | PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `046e573` (58 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-09-01. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
-| Migrations | chain ends `20260901133552_AddPayrollDetailEnterprise` (after `…132721_AddAbonoDaysSettled`); both applied and verified in `sys.columns` 2026-09-01, and the whole chain replays clean onto an empty database since the `EXEC` fix in the traps list. **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
+| Migrations | chain ends `20260901192637_AddIcmsReductionAndSimplesCredit` (after `…133552_AddPayrollDetailEnterprise` and `…132721_AddAbonoDaysSettled`); both applied and verified in `sys.columns` 2026-09-01, and the whole chain replays clean onto an empty database since the `EXEC` fix in the traps list. **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -206,9 +206,19 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   marked `ponytail:`**: days sold after *every* scheduled stretch is billed still have no bill to
   ride — that needs a férias bill with no stretch, which has no due-date rule of its own.
 - ~~**M20 orphan supplier**~~ — closed 2026-09-01; the emitter and its first bill are one unit of work.
-- **M21 credit-limit race** — two simultaneous orders that each fit but together do not both pass.
-  **Re-read 2026-09-01 and left alone**: the limit is a policy, not a ledger invariant, and the only
-  fix is serialising every order behind the customer's row.
+- ~~**M21 credit-limit race**~~ — closed 2026-09-01 (`898ac1c`). **The "only fix is serialising every
+  order" line was wrong**: the contention is one row, not the table. `AssertWithinCreditLimitAsync`
+  now takes `UPDLOCK, HOLDLOCK` on that customer's row — through a new
+  `IRepository.LockForUpdateAsync`, table name from EF's own metadata and the id as a parameter —
+  after the limit lookup and before the carteira read, inside the transaction `CreateAsync` already
+  opened. The second order for that customer queues and reads the carteira with the first one in it;
+  orders for anyone else take a different row's lock and never wait. A customer with no limit set
+  locks nothing, and an `allowCreditOverride` order still bypasses it, which is what an override is.
+  No-op off SQL Server, so the SQLite test harnesses are unaffected. **A true two-thread race is not
+  reproducible against mocked repositories**, so the test asserts the mechanism instead — the
+  recorded step order is `transaction, lock, carteira`, with that customer's id and no other — and
+  says so in its own comment. Still unguarded, as it always was: `UpdateAsync` has no credit check
+  at all, so raising an existing order's total past the limit is unchecked.
 - ~~**Users `DeleteUser`** is a hard delete~~ — closed 2026-09-01. It deactivates now, like every
   other delete here. It was also the one that could not work: the till's `CashSession.UserId` is
   `Restrict`, so removing an operator with a shift on record threw at the database. Login, Google
@@ -364,7 +374,14 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
 - **M11 P5**: ~~abono settles with the first bill an accrual produces; days sold afterwards go
   unbilled~~ — closed 2026-09-01 by `PayableBill.AbonoDaysSettled`; what is still owed is now
   `SoldDays` minus what the standing bills recorded, and a bill older than the column is still
-  inferred from its amount. Days sold once every stretch is billed remain unbillable (`ponytail:`).
+  inferred from its amount. ~~Days sold once every stretch is billed remain unbillable~~ — closed
+  2026-09-01 (`05b8d62`) by refusing the sale rather than inventing the bill: `SellDaysAsync` will
+  not record an abono once every scheduled stretch is billed *and* the sale would leave no days to
+  schedule another. Both clauses are load-bearing — the first alone breaks the ordinary "bill one
+  stretch, sell days, schedule the rest" flow. The rejected alternative was a stretchless férias
+  bill, which has no art. 145 due date of its own (that rule measures from a leave start there is
+  none of) and would be a permanent orphan in the read model, since `DueDate == start - 2` is the
+  only stretch↔bill link `GenerateAsync` and `GetAsync` have.
   **A review pass caught one real defect in that change the same day** (`0349f84`): a bill issued
   before the column existed whose stretch was later cancelled has no recorded value *and* no stretch
   to price the inference against, and reading it as "settled nothing" put the whole abono back on
@@ -372,7 +389,12 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   read the old way: the abono rode the first bill this accrual produced. Under-billing an orphan
   that never carried it leaves the days visible on the accrual; over-billing one that did sends the
   money twice.
-  A férias bill whose stretch is cancelled after issue is reported as an orphan.
+  A férias bill whose stretch is cancelled after issue is reported as an orphan — **re-read
+  2026-09-01 and left as it stands**: `Orphan(...)` is terse, not wrong. It reports the bill rather
+  than hiding a committed liability, recovers `StartDate` by inverting the due-date rule, and zeroes
+  `Days` and the split because pricing the stretch needs the stretch. Hiding it would lose the
+  liability; synthesising an `EndDate` would fabricate a leave that was cancelled. Nothing sums the
+  DTO, so the zeroes mislead no computation.
   ~~`PayableBillDetail` has no `EnterpriseId`.~~ **Closed 2026-09-01** — the table is
   `PayrollBillDetail`, and it now carries the column (migration `…133552`, backfilled from the
   payable bill and then from the employee; verified locally: 6 rows, none left at `Guid.Empty`). It
@@ -400,7 +422,21 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
 - ~~**Users**: `DeleteUser` is a **hard** delete, the only one in the system.~~ Closed 2026-09-01 —
   it deactivates, and the row it used to remove is referenced by orders, cash sessions and audit
   trails.
-- **M6**: `NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only. **`natOp` is no longer a
+- **M6**: `NFeXmlBuilder` covers **ICMS CST 00, 20, 40, 41, 50 and 60 and CSOSN 101, 102, 103, 300,
+  400 and 500** since 2026-09-01 (`1870656`) — 00 and 20 carry arithmetic, 101 carries the credit
+  the buyer may take, and the rest declare an exemption or ICMS already collected under ST upstream.
+  Two nullable fiscal fields came with it (migration `…192637`): `Product.ReducaoBaseIcms` (pRedBC,
+  a fraction, per product because the reduction follows the goods) and
+  `EnterpriseFiscalSettings.AliquotaCreditoSn` (pCredSN, company-level because it is this company's
+  effective Simples rate). **Both refuse rather than default**: a missing pRedBC read as zero
+  declares the full base and overstates the tax, and a missing pCredSN read as zero silently denies
+  the buyer a credit they are entitled to. Exposed through the product create/update DTOs and the
+  fiscal-settings payload with exclusive 0..1 validation; **no FrontV2 field, because the whole
+  per-product fiscal block is API-only today** — the frontend never had `ncm` either. Still refused:
+  CST 51, 70 and 90 and CSOSN 201/202/203/900, which need a deferment percentage or an ST base and
+  margin that live nowhere here. `ICMS40` carries no `vICMSDeson` (the motive code is not recorded)
+  and `ICMS60`/`ICMSSN500` carry no retained-ST figures (`ponytail:`, optional in the schema; a UF
+  that demands them on resale needs those columns on `Product` first). **`natOp` is no longer a
   constant**: since 2026-09-01 it is `EnterpriseFiscalSettings.DefaultNatOp` (default
   `VENDA DE MERCADORIA`, blank falls back to it, over 60 characters is cut rather than refused
   because a truncated description misstates nothing that is computed from it). It is still one
