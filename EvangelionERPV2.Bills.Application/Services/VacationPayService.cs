@@ -258,15 +258,24 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// <summary>
         /// The same question for a bill whose stretch has to be found first — the due date is
         /// start - 2 days by construction, so it identifies it. A bill with no scheduled stretch
-        /// left (a cancelled one) settled whatever it recorded, and nothing if it recorded nothing.
+        /// left (a cancelled one) settled whatever it recorded.
         /// </summary>
+        /// <remarks>
+        /// A bill that records nothing is a bill issued before the column existed, and the amount
+        /// inference cannot run on it: pricing the stretch it was issued for needs the stretch, and
+        /// the stretch is gone. Read as "settled nothing" it would put the whole abono back on the
+        /// next bill — paying days that are already standing, unrefunded, on this one. So the old
+        /// rule stands for exactly those rows: the abono rode the first bill this accrual produced.
+        /// Under-billing an orphan that never carried it leaves the days visible on the accrual;
+        /// over-billing one that did sends the money twice.
+        /// </remarks>
         private static int SettledAbonoDaysOn(PayableBill bill, EmployeeVacationAccrual accrual,
             Employee employee, IReadOnlyList<EmployeeAbsence> stretches)
         {
             var stretch = stretches.FirstOrDefault(x => VacationPay.DueDateFor(x.StartDate) == bill.DueDate.Date);
 
             return stretch == null
-                ? Math.Min(bill.AbonoDaysSettled ?? 0, accrual.SoldDays)
+                ? Math.Min(bill.AbonoDaysSettled ?? accrual.SoldDays, accrual.SoldDays)
                 : SoldDaysOn(bill, accrual, employee, stretch);
         }
 

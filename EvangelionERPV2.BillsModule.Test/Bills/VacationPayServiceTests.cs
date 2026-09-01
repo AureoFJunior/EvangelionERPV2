@@ -156,6 +156,45 @@ namespace EvangelionERPV2.BillsModule.Test
         }
 
         [Fact]
+        public async Task GenerateAsync_WithALegacyBillWhoseStretchWasCancelled_DoesNotPayTheAbonoTwice()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3100m);
+            accrual.SoldDays = 10;
+
+            // The stretch this bill was issued for was cancelled and rescheduled, so no scheduled
+            // absence carries its due date any more. It predates AbonoDaysSettled, so nothing on the
+            // row says how many days it settled — and it is worth more than its stretch alone was,
+            // which is the only evidence there is that it carried the abono.
+            var cancelledStretchBill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                BillType = (int)EnumPayableBillType.Vacation,
+                EmployeeVacationAccrualId = accrual.Id,
+                DueDate = FeriasStart.AddMonths(-1).AddDays(-2),
+                Amount = 4000m,
+                GrossAmount = 4000m,
+                AbonoDaysSettled = null,
+                IsActive = true
+            };
+
+            var rescheduled = BuildStretch(employee, FeriasStart, days: 20);
+
+            var (sut, stores) = BuildSut(
+                accrual, employee, [rescheduled], payableBills: [cancelledStretchBill]);
+
+            await sut.GenerateAsync(enterpriseId, accrual.Id);
+
+            // The abono is one conversion of days into cash for the whole periodo, and the bill that
+            // carried it is still standing and unrefunded. Billing it again pays the same ten days
+            // a second time.
+            var created = Assert.Single(stores.createdBills);
+            Assert.Equal(0, created.AbonoDaysSettled);
+            Assert.Equal(2000m + 666.67m, created.Amount);
+        }
+
+        [Fact]
         public async Task GenerateAsync_WithEveryDaySettledByAnEarlierBill_BillsNoAbonoAgain()
         {
             var enterpriseId = Guid.NewGuid();
