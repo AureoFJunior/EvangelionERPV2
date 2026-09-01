@@ -222,6 +222,20 @@ namespace EvangelionERPV2.Shared.Entities
         [MaxLength(6)]
         public string DefaultUnidadeTributavel { get; set; } = "UN";
 
+        /// <summary>
+        /// pCredSN — the ICMS credit a Simples Nacional emitter passes to its buyer, as a fraction
+        /// of the item value (0.0254 is 2,54%).
+        /// </summary>
+        /// <remarks>
+        /// Company-level, not per product: it is this company's effective Simples ICMS rate for the
+        /// period, which its accountant recalculates as the faixa moves. Only CSOSN 101 uses it,
+        /// and null means nobody has told this system the figure — that CSOSN then refuses to build
+        /// rather than declaring a credit of zero, which would silently deny the buyer a credit
+        /// they are entitled to take.
+        /// </remarks>
+        [Column(TypeName = "decimal(5,4)")]
+        public decimal? AliquotaCreditoSn { get; set; }
+
         #endregion
 
         #region Contingency

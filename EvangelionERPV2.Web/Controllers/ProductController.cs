@@ -432,6 +432,7 @@ namespace EvangelionERPV2.Web.Controllers
                 Cst = request.Cst,
                 Csosn = request.Csosn,
                 AliquotaIcms = request.AliquotaIcms,
+                ReducaoBaseIcms = request.ReducaoBaseIcms,
                 CstPis = request.CstPis,
                 AliquotaPis = request.AliquotaPis,
                 CstCofins = request.CstCofins,
@@ -460,6 +461,7 @@ namespace EvangelionERPV2.Web.Controllers
             product.Cst = Trimmed(request.Cst);
             product.Csosn = Trimmed(request.Csosn);
             product.AliquotaIcms = request.AliquotaIcms;
+            product.ReducaoBaseIcms = request.ReducaoBaseIcms;
             product.CstPis = Trimmed(request.CstPis);
             product.AliquotaPis = request.AliquotaPis;
             product.CstCofins = Trimmed(request.CstCofins);

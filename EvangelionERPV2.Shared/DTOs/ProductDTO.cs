@@ -30,6 +30,9 @@ namespace EvangelionERPV2.Shared.DTOs
         public string? Cst { get; set; }
         public string? Csosn { get; set; }
         public decimal? AliquotaIcms { get; set; }
+
+        /// <summary>pRedBC as a fraction; only ICMS CST 20 uses it.</summary>
+        public decimal? ReducaoBaseIcms { get; set; }
         public string? CstPis { get; set; }
         public decimal? AliquotaPis { get; set; }
         public string? CstCofins { get; set; }

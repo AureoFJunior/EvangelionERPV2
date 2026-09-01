@@ -20,6 +20,7 @@ namespace EvangelionERPV2.Shared.DTOs
         string? Cst { get; }
         string? Csosn { get; }
         decimal? AliquotaIcms { get; }
+        decimal? ReducaoBaseIcms { get; }
         string? CstPis { get; }
         decimal? AliquotaPis { get; }
         string? CstCofins { get; }

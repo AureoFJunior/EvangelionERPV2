@@ -84,6 +84,9 @@ namespace EvangelionERPV2.Shared.DTOs
         public string? DefaultCsosn { get; set; }
         public byte DefaultOrigem { get; set; }
         public decimal DefaultAliquotaIcms { get; set; }
+
+        /// <summary>pCredSN as a fraction; only CSOSN 101 uses it. Null means nobody has set it.</summary>
+        public decimal? AliquotaCreditoSn { get; set; }
         public string DefaultCstPis { get; set; } = "07";
         public decimal DefaultAliquotaPis { get; set; }
         public string DefaultCstCofins { get; set; } = "07";

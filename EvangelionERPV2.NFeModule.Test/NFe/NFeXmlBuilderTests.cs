@@ -138,6 +138,18 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
         private static InfNFe Build(NFeIssueContext context) => NFeXmlBuilder.Build(context).NFe[0].InfNFe[0];
 
+        /// <summary>The default line — 2 x 125,00 — around a product the test configured itself.</summary>
+        private static OrderedProduct Line(Product product) => new()
+        {
+            Id = Guid.NewGuid(),
+            OrderId = OrderId,
+            ProductId = product.Id,
+            Product = product,
+            Quantity = 2m,
+            Value = 125m,
+            UnitOfMeasure = "UN"
+        };
+
         #region natOp
 
         [Fact]
@@ -465,6 +477,145 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         }
 
         [Fact]
+        public void Build_WithCst20_ReducesTheBaseBeforeTheRateAndTotalsTheReducedBase()
+        {
+            var settings = Settings();
+            settings.DefaultCst = "20";
+
+            var product = Widget();
+            product.ReducaoBaseIcms = 0.2667m;
+
+            var infNFe = Build(Context(settings, items: [Line(product)]));
+            var icms = infNFe.Det[0].Imposto.ICMS.ICMS20;
+
+            Assert.NotNull(icms);
+            Assert.Equal("20", icms.CST);
+            Assert.Equal(26.67d, icms.PRedBC);
+
+            // 250,00 less 26,67% is 183,33, and 18% of that is 33,00 — not 45,00, which is what
+            // the full base would have declared.
+            Assert.Equal(183.33d, icms.VBC);
+            Assert.Equal(18d, icms.PICMS);
+            Assert.Equal(33d, icms.VICMS);
+
+            // The note-level totals have to add up to what the items declare, or SEFAZ rejects them.
+            Assert.Equal(183.33d, infNFe.Total.ICMSTot.VBC);
+            Assert.Equal(33d, infNFe.Total.ICMSTot.VICMS);
+        }
+
+        [Fact]
+        public void Build_WithCst20AndNoReduction_RefusesRatherThanDeclaringTheFullBase()
+        {
+            var settings = Settings();
+            settings.DefaultCst = "20";
+
+            // Read as zero this would send vBC 250,00 and vICMS 45,00 — more tax than the item
+            // owes, on a note SEFAZ would authorize without complaint.
+            var refusal = Assert.Throws<InvalidOperationException>(
+                () => Build(Context(settings, items: [Line(Widget())])));
+
+            Assert.Contains("ReducaoBaseIcms", refusal.Message);
+        }
+
+        [Theory]
+        [InlineData("40")]
+        [InlineData("41")]
+        [InlineData("50")]
+        public void Build_WithAnExemptCst_DeclaresTheExemptionAndNoTax(string cst)
+        {
+            var settings = Settings();
+            settings.DefaultCst = cst;
+
+            var infNFe = Build(Context(settings, items: [Line(Widget())]));
+            var icms = infNFe.Det[0].Imposto.ICMS;
+
+            Assert.NotNull(icms.ICMS40);
+            Assert.Equal(cst, icms.ICMS40.CST);
+            Assert.Null(icms.ICMS00);
+
+            Assert.Equal(0d, infNFe.Total.ICMSTot.VBC);
+            Assert.Equal(0d, infNFe.Total.ICMSTot.VICMS);
+        }
+
+        [Fact]
+        public void Build_WithCst60_DeclaresTheTaxAlreadyCollectedUpstream()
+        {
+            var settings = Settings();
+            settings.DefaultCst = "60";
+
+            var infNFe = Build(Context(settings, items: [Line(Widget())]));
+            var icms = infNFe.Det[0].Imposto.ICMS;
+
+            Assert.NotNull(icms.ICMS60);
+            Assert.Equal("60", icms.ICMS60.CST);
+
+            // ST was collected further up the chain, so this note charges nothing of its own.
+            Assert.Equal(0d, infNFe.Total.ICMSTot.VICMS);
+        }
+
+        [Fact]
+        public void Build_WithCsosn101_PassesTheBuyerTheCreditWithoutClaimingTheTax()
+        {
+            var settings = Settings(crt: 1);
+            settings.DefaultCsosn = "101";
+            settings.AliquotaCreditoSn = 0.0254m;
+
+            var infNFe = Build(Context(settings, items: [Line(Widget())]));
+            var icms = infNFe.Det[0].Imposto.ICMS.ICMSSN101;
+
+            Assert.NotNull(icms);
+            Assert.Equal("101", icms.CSOSN);
+            Assert.Equal(2.54d, icms.PCredSN);
+            Assert.Equal(6.35d, icms.VCredICMSSN);
+
+            // A credit the buyer may take is not tax this note collected.
+            Assert.Equal(0d, infNFe.Total.ICMSTot.VICMS);
+        }
+
+        [Fact]
+        public void Build_WithCsosn101AndNoCreditRate_RefusesRatherThanDenyingTheBuyerTheCredit()
+        {
+            var settings = Settings(crt: 1);
+            settings.DefaultCsosn = "101";
+
+            var refusal = Assert.Throws<InvalidOperationException>(
+                () => Build(Context(settings, items: [Line(Widget())])));
+
+            Assert.Contains("AliquotaCreditoSn", refusal.Message);
+        }
+
+        [Fact]
+        public void Build_WithCsosn500_DeclaresTheTaxAlreadyCollectedUpstream()
+        {
+            var settings = Settings(crt: 1);
+            settings.DefaultCsosn = "500";
+
+            var icms = Build(Context(settings, items: [Line(Widget())])).Det[0].Imposto.ICMS;
+
+            Assert.NotNull(icms.ICMSSN500);
+            Assert.Equal("500", icms.ICMSSN500.CSOSN);
+        }
+
+        [Theory]
+        [InlineData(3, "51")]
+        [InlineData(3, "70")]
+        [InlineData(3, "90")]
+        [InlineData(1, "201")]
+        [InlineData(1, "900")]
+        public void Build_WithACodeWhoseFiguresAreNotStored_StillRefusesByName(byte crt, string code)
+        {
+            // Each of these needs a deferment percentage or an ST base and margin that live nowhere
+            // in this database. Widening the switch without the columns would send zeroes.
+            var settings = Settings(crt: crt);
+            if (crt == 3) settings.DefaultCst = code; else settings.DefaultCsosn = code;
+
+            var refusal = Assert.Throws<InvalidOperationException>(
+                () => Build(Context(settings, items: [Line(Widget())])));
+
+            Assert.Contains(code, refusal.Message);
+        }
+
+        [Fact]
         public void Build_UnderSimplesNacional_EmitsCsosnAndNoIcmsValue()
         {
             var infNFe = Build(Context(settings: Settings(crt: 1)));
@@ -583,7 +734,11 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         public void Build_RefusesAnIcmsCstItCannotPopulateHonestly()
         {
             var product = Widget();
-            product.Cst = "20";  // redução de base de cálculo — needs pRedBC, which nothing stores
+
+            // Diferimento: the deferred percentage lives nowhere in this database. CST 20 used to
+            // be the example here and is supported since 2026-09-01 — it needs a figure the product
+            // now carries, which is a different thing from needing one nobody records.
+            product.Cst = "51";
 
             var exception = Assert.Throws<InvalidOperationException>(() => NFeXmlBuilder.Build(Context(items:
             [

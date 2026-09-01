@@ -842,6 +842,10 @@ namespace EvangelionERPV2.Shared.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<decimal?>("AliquotaCreditoSn")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
+
                     b.Property<string>("Bairro")
                         .IsRequired()
                         .HasMaxLength(60)
@@ -2440,6 +2444,10 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.Property<string>("PictureAdress")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal?>("ReducaoBaseIcms")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(5,4)");
 
                     b.Property<string>("Sku")
                         .HasMaxLength(40)

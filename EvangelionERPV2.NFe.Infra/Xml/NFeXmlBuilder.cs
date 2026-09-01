@@ -388,14 +388,18 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         }
 
         /// <remarks>
-        /// Only the two regimes this system can populate honestly are modelled: CST 00 (ICMS
-        /// integrally taxed) under Regime Normal, and the Simples Nacional codes whose whole content
-        /// is origem + CSOSN. Every other CST/CSOSN needs data that lives nowhere in this database —
-        /// a reduction percentage, an ST margin, a presumed credit — and inventing a zero for it
-        /// under-declares tax.
+        /// Every code here is one this system can populate from data it actually holds. Two carry
+        /// arithmetic — CST 00 (integrally taxed) and CST 20 (reduced base) — one carries a credit
+        /// the buyer may take (CSOSN 101), and the rest are declarations with no value attached:
+        /// the item is exempt, untaxed, suspended, or its ICMS was already collected under
+        /// substituição tributária further up the chain.
+        ///
+        /// What is still refused is refused for the same reason as before: CST 51, 70 and 90 and
+        /// CSOSN 201/202/203/900 need a deferment percentage or an ST base and margin that live
+        /// nowhere in this database, and a zero for any of them under-declares tax. A code that
+        /// needs a figure this system does not hold throws by name — <see cref="Unsupported"/> —
+        /// rather than guessing one.
         /// </remarks>
-        // ponytail: two branches, because two are all the data supports. Adding ICMS20/40/60 or
-        // ICMSSN101 means adding the fields they need to Product first, not widening this switch.
         private static ICMS BuildIcms(ResolvedItemFiscal fiscal, EnterpriseFiscalSettings settings, decimal lineValue, RunningTotals totals)
         {
             var origem = (OrigemMercadoria)fiscal.Origem;
@@ -405,32 +409,124 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 return fiscal.Csosn switch
                 {
                     "102" or "103" or "300" or "400" => new ICMS { ICMSSN102 = new ICMSSN102 { Orig = origem, CSOSN = fiscal.Csosn } },
+                    "101" => new ICMS { ICMSSN101 = BuildCsosn101(fiscal, origem, lineValue) },
+
+                    // Already taxed by ST upstream, so this note declares no ICMS of its own.
+                    // ponytail: the retained-ST figures (vBCSTRet, vICMSSTRet) are optional in the
+                    // schema and are not stored anywhere here; a UF that demands them on resale
+                    // needs those columns on Product before this can send them.
+                    "500" => new ICMS { ICMSSN500 = new ICMSSN500 { Orig = origem, CSOSN = fiscal.Csosn } },
                     _ => throw Unsupported("CSOSN", fiscal.Csosn)
                 };
             }
 
-            if (fiscal.Cst != "00")
+            switch (fiscal.Cst)
             {
-                throw Unsupported("ICMS CST", fiscal.Cst ?? "(none)");
+                case "00":
+                    var tax = Math.Round(lineValue * fiscal.AliquotaIcms, 2, MidpointRounding.AwayFromZero);
+
+                    totals.IcmsBase += lineValue;
+                    totals.Icms += tax;
+
+                    return new ICMS
+                    {
+                        ICMS00 = new ICMS00
+                        {
+                            Orig = origem,
+                            CST = fiscal.Cst,
+                            ModBC = ModalidadeBaseCalculoICMS.ValorOperacao,
+                            VBC = (double)lineValue,
+                            PICMS = Percentage(fiscal.AliquotaIcms),
+                            VICMS = (double)tax
+                        }
+                    };
+
+                case "20":
+                    return new ICMS { ICMS20 = BuildIcms20(fiscal, origem, lineValue, totals) };
+
+                // Isenta, não tributada, suspensão. One group for all three, which is what the
+                // schema does: the whole content is origem and the CST. Desoneração is not modelled
+                // — vICMSDeson needs a motive code nobody has recorded — so an item that was
+                // actually desonerado still declares only the exemption, never a made-up relief.
+                case "40" or "41" or "50":
+                    return new ICMS { ICMS40 = new ICMS40 { Orig = origem, CST = fiscal.Cst } };
+
+                // Same shape and the same ceiling as CSOSN 500 above.
+                case "60":
+                    return new ICMS { ICMS60 = new ICMS60 { Orig = origem, CST = fiscal.Cst } };
+
+                default:
+                    throw Unsupported("ICMS CST", fiscal.Cst ?? "(none)");
+            }
+        }
+
+        /// <summary>CST 20 — the base is reduced before the rate is applied to it.</summary>
+        /// <remarks>
+        /// The reduction is refused rather than defaulted. A missing pRedBC read as zero is a full
+        /// base, so the note would declare more tax than the item owes; a reduction of 100% or more
+        /// is not a reduction but an exemption, which is a different CST and a different decision.
+        /// </remarks>
+        private static ICMS20 BuildIcms20(ResolvedItemFiscal fiscal, OrigemMercadoria origem, decimal lineValue, RunningTotals totals)
+        {
+            var reduction = fiscal.ReducaoBaseIcms
+                ?? throw new InvalidOperationException(
+                    "ICMS CST 20 reduces the calculation base, and the product carries no ReducaoBaseIcms. " +
+                    "Fill it on the product — a reduction of zero would declare the full base and overstate the tax.");
+
+            if (reduction <= 0m || reduction >= 1m)
+            {
+                throw new InvalidOperationException(
+                    $"ReducaoBaseIcms is {reduction}, which is not a base reduction. It is a fraction between 0 and 1 " +
+                    "(0.2667 is 26,67%); zero means CST 00 and one means the item is exempt, which is another CST.");
             }
 
-            var rate = Percentage(fiscal.AliquotaIcms);
-            var tax = Math.Round(lineValue * fiscal.AliquotaIcms, 2, MidpointRounding.AwayFromZero);
+            var reducedBase = Math.Round(lineValue * (1m - reduction), 2, MidpointRounding.AwayFromZero);
+            var tax = Math.Round(reducedBase * fiscal.AliquotaIcms, 2, MidpointRounding.AwayFromZero);
 
-            totals.IcmsBase += lineValue;
+            // The reduced base, not the line value: vBC and vICMS at the note level have to add up
+            // to what the items actually declare, or SEFAZ rejects the totals.
+            totals.IcmsBase += reducedBase;
             totals.Icms += tax;
 
-            return new ICMS
+            return new ICMS20
             {
-                ICMS00 = new ICMS00
-                {
-                    Orig = origem,
-                    CST = fiscal.Cst,
-                    ModBC = ModalidadeBaseCalculoICMS.ValorOperacao,
-                    VBC = (double)lineValue,
-                    PICMS = rate,
-                    VICMS = (double)tax
-                }
+                Orig = origem,
+                CST = fiscal.Cst,
+                ModBC = ModalidadeBaseCalculoICMS.ValorOperacao,
+                PRedBC = Percentage(reduction),
+                VBC = (double)reducedBase,
+                PICMS = Percentage(fiscal.AliquotaIcms),
+                VICMS = (double)tax
+            };
+        }
+
+        /// <summary>CSOSN 101 — Simples with a credit the buyer may take.</summary>
+        /// <remarks>
+        /// The credit is the emitter's own effective Simples rate for the period, so it comes from
+        /// the enterprise profile and not from the product. It carries no ICMS into the note totals:
+        /// the company did not collect this tax on this note, it is telling the buyer what may be
+        /// credited, and adding it to vICMS would claim tax that was never charged.
+        /// </remarks>
+        private static ICMSSN101 BuildCsosn101(ResolvedItemFiscal fiscal, OrigemMercadoria origem, decimal lineValue)
+        {
+            var rate = fiscal.AliquotaCreditoSn
+                ?? throw new InvalidOperationException(
+                    "CSOSN 101 passes an ICMS credit to the buyer, and the enterprise fiscal profile carries no " +
+                    "AliquotaCreditoSn. Fill it — a credit of zero silently denies the buyer a credit they are entitled to.");
+
+            if (rate <= 0m || rate >= 1m)
+            {
+                throw new InvalidOperationException(
+                    $"AliquotaCreditoSn is {rate}, which is not a Simples credit rate. It is a fraction between 0 and 1 " +
+                    "(0.0254 is 2,54%).");
+            }
+
+            return new ICMSSN101
+            {
+                Orig = origem,
+                CSOSN = fiscal.Csosn,
+                PCredSN = Percentage(rate),
+                VCredICMSSN = (double)Math.Round(lineValue * rate, 2, MidpointRounding.AwayFromZero)
             };
         }
 
@@ -783,8 +879,9 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
         private static InvalidOperationException Unsupported(string what, string value) =>
-            new($"{what} '{value}' is not supported by this issuer. Supported today: ICMS CST 00, CSOSN 102/103/300/400, " +
-                "and PIS/COFINS CSTs other than 03. Extending this needs the tax fields the code requires, not a default of zero.");
+            new($"{what} '{value}' is not supported by this issuer. Supported today: ICMS CST 00, 20, 40, 41, 50 and 60, " +
+                "CSOSN 101, 102, 103, 300, 400 and 500, and PIS/COFINS CSTs other than 03. Extending this needs the tax " +
+                "fields the code requires — a deferment percentage, an ST base and margin — not a default of zero.");
 
         /// <summary>Accumulates the note-level totals as items are built, so nothing is summed twice.</summary>
         private sealed class RunningTotals

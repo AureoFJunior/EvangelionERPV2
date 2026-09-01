@@ -327,6 +327,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             target.DefaultCsosn = source.DefaultCsosn;
             target.DefaultOrigem = source.DefaultOrigem;
             target.DefaultAliquotaIcms = source.DefaultAliquotaIcms;
+            target.AliquotaCreditoSn = source.AliquotaCreditoSn;
             target.DefaultCstPis = source.DefaultCstPis;
             target.DefaultAliquotaPis = source.DefaultAliquotaPis;
             target.DefaultCstCofins = source.DefaultCstCofins;

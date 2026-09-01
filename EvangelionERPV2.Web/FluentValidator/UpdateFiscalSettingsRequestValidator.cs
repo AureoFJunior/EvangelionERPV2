@@ -84,6 +84,7 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .InclusiveBetween((byte)0, (byte)8).WithMessage("DefaultOrigem must be between 0 and 8.");
 
             RuleFor(x => x.DefaultAliquotaIcms).InclusiveBetween(0m, 1m);
+            RuleFor(x => x.AliquotaCreditoSn).ExclusiveBetween(0m, 1m).When(x => x.AliquotaCreditoSn.HasValue);
             RuleFor(x => x.DefaultAliquotaPis).InclusiveBetween(0m, 1m);
             RuleFor(x => x.DefaultAliquotaCofins).InclusiveBetween(0m, 1m);
 

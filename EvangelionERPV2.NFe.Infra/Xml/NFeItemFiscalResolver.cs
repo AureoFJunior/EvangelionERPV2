@@ -76,7 +76,13 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 AliquotaPis: product.AliquotaPis ?? settings.DefaultAliquotaPis,
                 CstCofins: cstCofins,
                 AliquotaCofins: product.AliquotaCofins ?? settings.DefaultAliquotaCofins,
-                CodigoBeneficioFiscal: Trimmed(product.CodigoBeneficioFiscal));
+                CodigoBeneficioFiscal: Trimmed(product.CodigoBeneficioFiscal),
+
+                // Neither of these has a fallback, and deliberately so. A base reduction belongs to
+                // the goods and a Simples credit rate belongs to the company, so there is no second
+                // place to look; the CST/CSOSN that needs one refuses to build when it is absent.
+                ReducaoBaseIcms: product.ReducaoBaseIcms,
+                AliquotaCreditoSn: settings.AliquotaCreditoSn);
         }
 
         private static string? Trimmed(string? value) =>
@@ -101,5 +107,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         decimal AliquotaPis,
         string CstCofins,
         decimal AliquotaCofins,
-        string? CodigoBeneficioFiscal);
+        string? CodigoBeneficioFiscal,
+        decimal? ReducaoBaseIcms = null,
+        decimal? AliquotaCreditoSn = null);
 }

@@ -115,6 +115,19 @@ namespace EvangelionERPV2.Shared.Entities
         [Column(TypeName = "decimal(5,4)")]
         public decimal? AliquotaCofins { get; set; }
 
+        /// <summary>
+        /// pRedBC — how much of the ICMS base this item's tax treatment removes, as a fraction
+        /// (0.2667 is a 26,67% reduction), like every other rate here.
+        /// </summary>
+        /// <remarks>
+        /// Only CST 20 uses it, and only a product knows it: the reduction follows the goods, not
+        /// the company. Null means "this item has no reduction", which is why CST 20 refuses to
+        /// build without it rather than sending a zero — a zero reduction is a full base, so the
+        /// note would declare more tax than the item owes and the error would look like arithmetic.
+        /// </remarks>
+        [Column(TypeName = "decimal(5,4)")]
+        public decimal? ReducaoBaseIcms { get; set; }
+
         /// <summary>cBenef, required by some UFs when the CST is exempt.</summary>
         [MaxLength(10)]
         public string? CodigoBeneficioFiscal { get; set; }

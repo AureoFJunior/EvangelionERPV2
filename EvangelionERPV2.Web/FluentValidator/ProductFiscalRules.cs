@@ -71,6 +71,12 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .InclusiveBetween(0m, 1m).WithMessage("AliquotaIcms must be between 0 and 1.")
                 .When(x => x.AliquotaIcms.HasValue);
 
+            // Exclusive on both ends, unlike a rate: a reduction of zero is CST 00 and a reduction
+            // of one is an exemption, and both are a different CST rather than this field.
+            validator.RuleFor(x => x.ReducaoBaseIcms)
+                .ExclusiveBetween(0m, 1m).WithMessage("ReducaoBaseIcms must be between 0 and 1, exclusive.")
+                .When(x => x.ReducaoBaseIcms.HasValue);
+
             validator.RuleFor(x => x.AliquotaPis)
                 .InclusiveBetween(0m, 1m).WithMessage("AliquotaPis must be between 0 and 1.")
                 .When(x => x.AliquotaPis.HasValue);
