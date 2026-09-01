@@ -20,18 +20,28 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
     /// </remarks>
     public class EmployeeVacationService : IEmployeeVacationService<EmployeeVacationAccrual>
     {
+        /// <summary>
+        /// CLT art. 145: a férias bill falls due two days before the leave starts. The same rule
+        /// <c>VacationPay.DueDateFor</c> applies, copied rather than shared for the same reason the
+        /// calendar link below is copied — Employee does not depend on the Bills module.
+        /// </summary>
+        private const int PaymentLeadDays = 2;
+
         private readonly IRepository<EmployeeVacationAccrual> _accrualRepository;
         private readonly IRepository<EmployeeAbsence> _absenceRepository;
         private readonly IRepository<Employee> _employeeRepository;
+        private readonly IRepository<PayableBill> _payableBillRepository;
 
         public EmployeeVacationService(
             IRepository<EmployeeVacationAccrual> accrualRepository,
             IRepository<EmployeeAbsence> absenceRepository,
-            IRepository<Employee> employeeRepository)
+            IRepository<Employee> employeeRepository,
+            IRepository<PayableBill> payableBillRepository)
         {
             _accrualRepository = accrualRepository;
             _absenceRepository = absenceRepository;
             _employeeRepository = employeeRepository;
+            _payableBillRepository = payableBillRepository;
         }
 
         public async Task<IReadOnlyList<EmployeeVacationAccrual>> RefreshAsync(Guid employeeId, Guid enterpriseId)
@@ -209,6 +219,16 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                 if (days > accrual.RemainingDays)
                     throw new InsertDatabaseException($"Only {accrual.RemainingDays} day(s) remain on this período aquisitivo.");
 
+                // Sold days are only ever paid by riding a férias bill: VacationPayService attaches
+                // the abono to a stretch it is billing on that run. So if every scheduled stretch is
+                // already billed and this sale would leave no days to schedule another one, nothing
+                // will ever issue a bill carrying these days — they would sit sold, unpaid, and with
+                // nothing anywhere to say so. Refusing is the honest answer; the alternative is a
+                // férias bill with no stretch, which has no art. 145 due date of its own.
+                if (accrual.RemainingDays - days <= 0 && !await HasUnbilledStretchAsync(accrual, enterpriseId))
+                    throw new InsertDatabaseException(
+                        "Every férias period on this período aquisitivo has already been billed and none of its days are left to schedule another, so an abono pecuniário sold now would have no férias payment to be paid on (CLT art. 143).");
+
                 accrual.SoldDays += days;
                 accrual.Status = (int)StatusFor(accrual);
                 accrual.UpdatedAt = DateTime.UtcNow;
@@ -266,6 +286,39 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                      && x.StartDate <= windowEnd);
 
             return booked.Select(x => (x.EndDate.Date - x.StartDate.Date).Days + 1).ToList();
+        }
+
+        /// <summary>
+        /// Whether any férias stretch booked against this accrual still has no bill standing against
+        /// it — that is, whether a future <c>VacationPayService.GenerateAsync</c> run still has
+        /// something to issue, and therefore something an abono could ride.
+        /// </summary>
+        /// <remarks>
+        /// The due date is the stretch start less <see cref="PaymentLeadDays"/> by construction, so
+        /// it identifies the stretch; refunded and inactive bills are ignored, matching the set
+        /// <c>VacationPayService</c> itself counts as standing.
+        /// </remarks>
+        private async Task<bool> HasUnbilledStretchAsync(EmployeeVacationAccrual accrual, Guid enterpriseId)
+        {
+            var windowStart = accrual.AcquisitionEnd.Date;
+            var windowEnd = accrual.ConcessionDeadline.Date;
+
+            var stretches = await _absenceRepository.GetAllAsync(
+                x => x.IsActive == true
+                     && x.EmployeeId == accrual.EmployeeId
+                     && x.Type == (int)EnumEmployeeAbsenceType.Vacation
+                     && x.StartDate >= windowStart
+                     && x.StartDate <= windowEnd);
+
+            var bills = await _payableBillRepository.GetAllAsync(
+                x => x.IsActive == true
+                     && x.EnterpriseId == enterpriseId
+                     && !x.RefundedAt.HasValue
+                     && x.EmployeeVacationAccrualId == accrual.Id);
+
+            var billedDueDates = bills.Select(x => x.DueDate.Date).ToHashSet();
+
+            return stretches.Any(x => !billedDueDates.Contains(x.StartDate.Date.AddDays(-PaymentLeadDays)));
         }
 
         /// <summary>

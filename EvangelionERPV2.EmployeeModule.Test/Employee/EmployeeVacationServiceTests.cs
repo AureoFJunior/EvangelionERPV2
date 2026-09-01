@@ -236,6 +236,44 @@ namespace EvangelionERPV2.EmployeeModule.Test
         }
 
         [Fact]
+        public async Task SellDaysAsync_WhenEveryFeriasIsBilledAndNoDaysRemain_RefusesTheSale()
+        {
+            var (sut, world) = await BuildScheduledSut();
+            var accrual = world.Accruals[0];
+            var inTime = accrual.AcquisitionEnd.AddDays(-30);
+            var start = accrual.AcquisitionEnd.AddDays(10);
+
+            // 30 entitled: the whole leave is booked in one stretch and that stretch is already
+            // billed, so the 10 sellable days are the last thing left on the accrual.
+            await sut.ScheduleAsync(accrual.Id, EnterpriseId, start, 20);
+            world.PayableBills.Add(VacationBill(accrual, start.Date.AddDays(-2)));
+
+            var exception = await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => sut.SellDaysAsync(accrual.Id, EnterpriseId, 10, inTime));
+
+            // Nothing would ever issue a bill carrying them: GenerateAsync only hangs the abono on
+            // a stretch it is billing on that run, and there is no unbilled stretch left nor any
+            // day to schedule one with.
+            Assert.Contains("no férias payment to be paid on", exception.Message);
+            Assert.Equal(0, accrual.SoldDays);
+        }
+
+        [Fact]
+        public async Task SellDaysAsync_WhenAScheduledFeriasIsStillUnbilled_AllowsTheSale()
+        {
+            var (sut, world) = await BuildScheduledSut();
+            var accrual = world.Accruals[0];
+
+            await sut.ScheduleAsync(accrual.Id, EnterpriseId, accrual.AcquisitionEnd.AddDays(10), 20);
+
+            // Same shape as above minus the bill: the stretch has not been paid yet, so the days
+            // sold now ride it when it is.
+            await sut.SellDaysAsync(accrual.Id, EnterpriseId, 10, accrual.AcquisitionEnd.AddDays(-30));
+
+            Assert.Equal(10, accrual.SoldDays);
+        }
+
+        [Fact]
         public async Task ScheduleAsync_RefusesAnAccrualFromAnotherTenant()
         {
             var (sut, world) = await BuildScheduledSut();
@@ -250,6 +288,7 @@ namespace EvangelionERPV2.EmployeeModule.Test
             public required Employee Employee { get; init; }
             public List<EmployeeVacationAccrual> Accruals { get; } = [];
             public List<EmployeeAbsence> Absences { get; } = [];
+            public List<PayableBill> PayableBills { get; } = [];
         }
 
         /// <summary>A ledger refreshed once, so the first period is closed and schedulable.</summary>
@@ -275,11 +314,13 @@ namespace EvangelionERPV2.EmployeeModule.Test
 
             var accruals = ListRepository(world.Accruals);
             var absences = ListRepository(world.Absences);
+            var payableBills = ListRepository(world.PayableBills);
 
             var employees = new Mock<IRepository<Employee>>();
             employees.Setup(x => x.GetByIdAsync(EmployeeId)).ReturnsAsync(world.Employee);
 
-            return (new EmployeeVacationService(accruals.Object, absences.Object, employees.Object), world);
+            return (new EmployeeVacationService(
+                accruals.Object, absences.Object, employees.Object, payableBills.Object), world);
         }
 
         /// <summary>
@@ -318,6 +359,18 @@ namespace EvangelionERPV2.EmployeeModule.Test
 
             return repository;
         }
+
+        /// <summary>A standing férias bill for the stretch falling due on <paramref name="dueDate"/>.</summary>
+        private static PayableBill VacationBill(EmployeeVacationAccrual accrual, DateTime dueDate) => new()
+        {
+            Id = Guid.NewGuid(),
+            EnterpriseId = EnterpriseId,
+            BillType = (int)EnumPayableBillType.Vacation,
+            EmployeeVacationAccrualId = accrual.Id,
+            DueDate = dueDate,
+            Amount = 2000m,
+            IsActive = true
+        };
 
         private static EmployeeAbsence Absence(EnumEmployeeAbsenceType type, DateTime start, DateTime end, bool justified) => new()
         {

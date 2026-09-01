@@ -66,9 +66,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             // What is still owed on the abono: everything sold, less what the bills already
             // standing against this accrual carry. Days sold *after* the first bill used to fall
             // out here — the abono rode that bill or nothing — and were never paid.
-            // ponytail: days sold after every scheduled stretch is already billed still have no
-            // bill to ride. Paying them needs a stretchless férias bill, which is a document with
-            // no due date rule of its own; the days stay visible on the accrual until one exists.
+            // Days sold once every scheduled stretch is billed have nothing left to ride, so they
+            // are refused at the source instead: EmployeeVacationService.SellDaysAsync will not
+            // record a sale that leaves no unbilled stretch and no days to schedule one. The
+            // alternative — a stretchless férias bill — is a document with no art. 145 due date.
             var settledDays = existingBills.Sum(bill => SettledAbonoDaysOn(bill, accrual, employee, stretches));
             var abonoDays = Math.Max(0, accrual.SoldDays - settledDays);
 
