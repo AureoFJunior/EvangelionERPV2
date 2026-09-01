@@ -312,17 +312,18 @@ namespace EvangelionERPV2.PdvModule.Test
         }
 
         [Fact]
-        public async Task ASecondShiftOnTheSameTerminal_IsRefusedWithAReasonRatherThanA500()
+        public async Task ASecondShiftOnTheSameTerminal_IsRefusedInAWayTheTillKeepsRetrying()
         {
             var context = _database.CreateContext();
             var service = CreateService(context);
 
             await OpenSessionAsync(service, Guid.NewGuid());
 
-            // The filtered unique index would answer this with a DbUpdateException, which the
-            // middleware turns into a 500 and the terminal's outbox retries forever without ever
-            // saying why nothing syncs. ArgumentException is a 400 the till reports as a refusal.
-            var refusal = await Assert.ThrowsAsync<ArgumentException>(
+            // Not an ArgumentException, deliberately: that is a 400, and a 400 makes the till
+            // discard the queued open — for a non-Sale outbox kind, without even recording why —
+            // so the shift could never open again once a human closed the stale one. Anything else
+            // is a 500 the outbox keeps and retries, which is what should happen here.
+            var refusal = await Assert.ThrowsAsync<InsertDatabaseException>(
                 () => service.OpenSessionAsync(new OpenCashSessionRequestDTO
                 {
                     ClientSessionId = Guid.NewGuid(),
@@ -331,6 +332,7 @@ namespace EvangelionERPV2.PdvModule.Test
                     OpenedAt = DateTime.UtcNow
                 }, _enterpriseId, _userId));
 
+            Assert.IsNotType<ArgumentException>(refusal);
             Assert.Contains("already has an open cash session", refusal.Message);
             Assert.Equal(1, await context.CashSession.CountAsync());
         }

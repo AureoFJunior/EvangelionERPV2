@@ -74,11 +74,15 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (existing != null)
                 return existing;
 
-            // One open shift per till is a filtered unique index, so a second one is a
-            // DbUpdateException — a 500, which the terminal's outbox retries forever without ever
-            // telling the operator why nothing syncs. Named here instead: a 400 the till reports as
-            // a refusal, saying which shift is in the way. The remedy is closing that shift, and
-            // inventing a Z reading for it here would be worse than saying so.
+            // One open shift per till is a filtered unique index, so a second one arrives here as
+            // a DbUpdateException whose message names a constraint. Caught by hand instead, for the
+            // log line below — but deliberately *not* as an ArgumentException. A 400 is final at the
+            // till: SyncEngine marks it Rejected and discards the outbox entry, and for a non-Sale
+            // kind it keeps no record of it at all, so the shift would never open even after
+            // somebody closes the stale one. This stays retryable, which is the honest behaviour —
+            // the remedy happens elsewhere and then the queued open succeeds on its own. The reason
+            // reaches a human through the log, because the middleware sanitises every 4xx body to a
+            // fixed string and logs a 5xx by type alone.
             var openOnTerminal = await _appDbContext.CashSession
                 .AsNoTracking()
                 .FirstOrDefaultAsync(session =>
@@ -87,7 +91,13 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     && session.Status == (int)EnumCashSessionStatus.Open);
 
             if (openOnTerminal != null)
-                throw new ArgumentException("The terminal already has an open cash session. Close it before opening another.");
+            {
+                Log.Logger.Warning(
+                    "PDV terminal [{TerminalId}] already has cash session [{SessionId}] open; refusing to open [{ClientSessionId}] until it is closed.",
+                    request.TerminalId.Trim(), openOnTerminal.Id, request.ClientSessionId);
+
+                throw new InsertDatabaseException("The terminal already has an open cash session. Close it before opening another.");
+            }
 
             var opened = new CashSession
             {
