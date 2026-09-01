@@ -63,12 +63,14 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var existingBills = await ExistingBillsAsync(enterpriseId, accrualId);
 
-            // The abono is one conversion of days into cash for the whole período, so it settles
-            // with the first bill this accrual ever produces and never rides a second one.
-            // ponytail: days sold *after* that first bill are therefore not billed by this method.
-            // Recording the abono settled on the bill would fix it; that needs a column, and
-            // selling days after the leave is already being paid out is not a flow anyone has.
-            var abonoDays = existingBills.Count == 0 ? accrual.SoldDays : 0;
+            // What is still owed on the abono: everything sold, less what the bills already
+            // standing against this accrual carry. Days sold *after* the first bill used to fall
+            // out here — the abono rode that bill or nothing — and were never paid.
+            // ponytail: days sold after every scheduled stretch is already billed still have no
+            // bill to ride. Paying them needs a stretchless férias bill, which is a document with
+            // no due date rule of its own; the days stay visible on the accrual until one exists.
+            var settledDays = existingBills.Sum(bill => SettledAbonoDaysOn(bill, accrual, employee, stretches));
+            var abonoDays = Math.Max(0, accrual.SoldDays - settledDays);
 
             var pending = new List<(EmployeeAbsence Stretch, int SoldDays, VacationPayAmounts Amounts)>();
 
@@ -91,10 +93,14 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             // leave the employee paid for one stretch and not the next, with no record of which.
             await _payableBillRepository.ExecuteInTransactionAsync(async () =>
             {
-                foreach (var (stretch, _, amounts) in pending)
+                foreach (var (stretch, soldDays, amounts) in pending)
                 {
                     await _payableBillService.CreateAsync(new PayableBill
                     {
+                        // Recorded, not inferred: the next run has to know these days are paid for
+                        // even after more are sold against the same período.
+                        AbonoDaysSettled = soldDays,
+
                         Description = $"Férias {stretch.StartDate:dd/MM/yyyy} a {stretch.EndDate:dd/MM/yyyy} - {employee.Name}",
                         DueDate = VacationPay.DueDateFor(stretch.StartDate),
                         // Amount is written gross here and netted by the drawdown below, which is
@@ -226,14 +232,19 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             (stretch.EndDate.Date - stretch.StartDate.Date).Days + 1;
 
         /// <summary>
-        /// Whether an already-issued bill included the abono, inferred from its amount.
+        /// How many abono days an already-issued bill settled.
         /// </summary>
         /// <remarks>
-        /// Nothing records it, and the alternative is a column for a value that is derivable: a bill
-        /// worth more than the stretch alone is worth is the one that settled the abono.
+        /// <see cref="PayableBill.AbonoDaysSettled"/> when the bill carries it. A bill issued before
+        /// that column existed is inferred the old way — a bill worth more than its stretch alone is
+        /// worth is the one that settled the abono — and the inference can only answer "all of what
+        /// had been sold", so it is capped at what the accrual says was sold in total.
         /// </remarks>
         private static int SoldDaysOn(PayableBill bill, EmployeeVacationAccrual accrual, Employee employee, EmployeeAbsence stretch)
         {
+            if (bill.AbonoDaysSettled is { } recorded)
+                return Math.Min(recorded, accrual.SoldDays);
+
             if (accrual.SoldDays == 0)
                 return 0;
 
@@ -242,6 +253,21 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             // The gross, not Amount: Amount is netted by the provision drawdown, so a bill that did
             // settle the abono can still be worth less than the stretch alone.
             return GrossOf(bill) > withoutAbono.Total ? accrual.SoldDays : 0;
+        }
+
+        /// <summary>
+        /// The same question for a bill whose stretch has to be found first — the due date is
+        /// start - 2 days by construction, so it identifies it. A bill with no scheduled stretch
+        /// left (a cancelled one) settled whatever it recorded, and nothing if it recorded nothing.
+        /// </summary>
+        private static int SettledAbonoDaysOn(PayableBill bill, EmployeeVacationAccrual accrual,
+            Employee employee, IReadOnlyList<EmployeeAbsence> stretches)
+        {
+            var stretch = stretches.FirstOrDefault(x => VacationPay.DueDateFor(x.StartDate) == bill.DueDate.Date);
+
+            return stretch == null
+                ? Math.Min(bill.AbonoDaysSettled ?? 0, accrual.SoldDays)
+                : SoldDaysOn(bill, accrual, employee, stretch);
         }
 
         private static VacationPayDTO Map(

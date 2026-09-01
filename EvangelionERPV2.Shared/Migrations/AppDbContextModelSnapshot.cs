@@ -1838,6 +1838,9 @@ namespace EvangelionERPV2.Shared.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int?>("AbonoDaysSettled")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("Amount")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");

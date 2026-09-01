@@ -121,6 +121,71 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(10, payments.Single(x => x.AbonoAmount > 0).SoldDays);
         }
 
+        [Fact]
+        public async Task GenerateAsync_WithDaysSoldAfterTheFirstBill_BillsThemOnTheNextStretch()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3000m);
+
+            var first = BuildStretch(employee, FeriasStart, days: 14);
+            var second = BuildStretch(employee, FeriasStart.AddMonths(3), days: 16);
+
+            // The first stretch was billed when 4 days had been sold; 3 more were sold afterwards.
+            // Those used to fall out entirely — the abono rode the first bill or nothing.
+            accrual.SoldDays = 7;
+
+            var alreadyBilled = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                BillType = (int)EnumPayableBillType.Vacation,
+                EmployeeVacationAccrualId = accrual.Id,
+                DueDate = first.StartDate.AddDays(-2),
+                Amount = 1806.45m,
+                AbonoDaysSettled = 4,
+                IsActive = true
+            };
+
+            var (sut, stores) = BuildSut(accrual, employee, [first, second], payableBills: [alreadyBilled]);
+
+            await sut.GenerateAsync(enterpriseId, accrual.Id);
+
+            var created = Assert.Single(stores.createdBills);
+            Assert.Equal(second.StartDate.AddDays(-2).Date, created.DueDate.Date);
+            Assert.Equal(3, created.AbonoDaysSettled);
+        }
+
+        [Fact]
+        public async Task GenerateAsync_WithEveryDaySettledByAnEarlierBill_BillsNoAbonoAgain()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3000m);
+
+            var first = BuildStretch(employee, FeriasStart, days: 14);
+            var second = BuildStretch(employee, FeriasStart.AddMonths(3), days: 16);
+
+            accrual.SoldDays = 10;
+
+            var alreadyBilled = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                BillType = (int)EnumPayableBillType.Vacation,
+                EmployeeVacationAccrualId = accrual.Id,
+                DueDate = first.StartDate.AddDays(-2),
+                Amount = 1806.45m,
+                AbonoDaysSettled = 10,
+                IsActive = true
+            };
+
+            var (sut, stores) = BuildSut(accrual, employee, [first, second], payableBills: [alreadyBilled]);
+
+            await sut.GenerateAsync(enterpriseId, accrual.Id);
+
+            var created = Assert.Single(stores.createdBills);
+            Assert.Equal(0, created.AbonoDaysSettled);
+        }
+
         #endregion
 
         #region Due date

@@ -113,6 +113,22 @@ namespace EvangelionERPV2.Shared.Entities
         /// </remarks>
         public decimal? GrossAmount { get; set; } = null;
 
+        /// <summary>
+        /// Abono pecuniário days settled by a <c>BillType = Vacation</c> bill (CLT art. 143).
+        /// </summary>
+        /// <remarks>
+        /// The abono used to be inferred — a bill worth more than its stretch alone is worth was
+        /// the one that carried it — and the inference could only answer "all of them or none".
+        /// Days sold *after* that bill was issued were therefore never billed and never reported,
+        /// because <c>SoldDays</c> had grown while the bill had not. Recorded here instead, so what
+        /// is left to settle is arithmetic rather than a guess.
+        ///
+        /// Nullable: bills issued before this column existed carry no record, and null keeps the
+        /// old inference for exactly those rows rather than declaring they settled nothing and
+        /// paying the abono a second time.
+        /// </remarks>
+        public int? AbonoDaysSettled { get; set; } = null;
+
         public virtual ICollection<PayableBillProduct>? Items { get; set; }
     }
 }
