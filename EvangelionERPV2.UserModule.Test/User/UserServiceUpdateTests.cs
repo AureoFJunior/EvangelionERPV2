@@ -153,6 +153,41 @@ namespace EvangelionERPV2.UserModule.Test.User
             userRepository.Verify(repository => repository.Update(It.IsAny<Shared.Entities.User>()), Times.Never);
         }
 
+        [Fact]
+        public void Delete_DeactivatesTheUserRatherThanRemovingTheRow()
+        {
+            var userRepository = new Mock<IRepository<Shared.Entities.User>>();
+            var existingUser = new Shared.Entities.User
+            {
+                Id = Guid.NewGuid(),
+                UserName = "rei",
+                Email = "rei@example.com",
+                EnterpriseId = Guid.NewGuid(),
+                IsActive = true
+            };
+            Shared.Entities.User? updatedUser = null;
+
+            userRepository
+                .Setup(repository => repository.GetById(existingUser.Id))
+                .Returns(existingUser);
+            userRepository
+                .Setup(repository => repository.Update(It.IsAny<Shared.Entities.User>()))
+                .Callback<Shared.Entities.User>(user => updatedUser = user)
+                .Returns((Shared.Entities.User user) => user);
+            userRepository
+                .Setup(repository => repository.Commit(It.IsAny<CancellationToken>()));
+
+            var deleted = CreateService(userRepository.Object).Delete(existingUser.Id);
+
+            // The row stays: orders, cash sessions and audit trails all name this user, and the
+            // till's session FK is Restrict, so removing it threw there anyway.
+            userRepository.Verify(repository => repository.Delete(It.IsAny<Shared.Entities.User>()), Times.Never);
+            Assert.NotNull(updatedUser);
+            Assert.False(updatedUser!.IsActive);
+            Assert.NotNull(updatedUser.UpdatedAt);
+            Assert.False(deleted.IsActive);
+        }
+
         private static UserService CreateService(IRepository<Shared.Entities.User> userRepository)
         {
             var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();

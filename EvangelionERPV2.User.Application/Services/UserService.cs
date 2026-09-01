@@ -135,16 +135,29 @@ namespace EvangelionERPV2.UserModule.Application.Services
             return updatedUser;
         }
 
+        /// <summary>
+        /// Deactivates a user. Soft, like every other delete in the system.
+        /// </summary>
+        /// <remarks>
+        /// It used to remove the row, and it was the only hard delete here. A user is referenced by
+        /// the orders they rang up, the cash sessions they were accountable for and every audit
+        /// trail entry naming them — the till's session FK is <c>Restrict</c> precisely so a
+        /// dismissal cannot take a shift's cash history with it, which means the hard delete threw
+        /// there anyway. Deactivating keeps the history readable and still ends every way in:
+        /// login, Google sign-in and the till all require <c>IsActive == true</c>, and the e-mail
+        /// stops counting against the active-email uniqueness check, so it can be reused.
+        /// </remarks>
         public User Delete(Guid id)
         {
-
             User user = _userRepository.GetById(id);
-            User deletedUser = new User();
 
             if (user == null)
                 throw new NotFoundDatabaseException($"{nameof(User)} was not found in database.");
 
-            deletedUser = _userRepository.Delete(user);
+            user.IsActive = false;
+            user.UpdatedAt = DateTime.UtcNow;
+
+            var deletedUser = _userRepository.Update(user);
             _userRepository.Commit();
             return deletedUser;
         }
