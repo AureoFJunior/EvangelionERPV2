@@ -101,6 +101,7 @@ namespace EvangelionERPV2.BillsModule.Test
             var existingDetail = new PayrollBillDetail
             {
                 Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
                 EmployeeId = employee.Id,
                 PayableBillId = existingBill.Id,
                 ReferenceYear = 2026,
@@ -197,6 +198,7 @@ namespace EvangelionERPV2.BillsModule.Test
             var existingDetail = new PayrollBillDetail
             {
                 Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
                 EmployeeId = billed.Id,
                 PayableBillId = existingBill.Id,
                 ReferenceYear = 2026,
@@ -236,6 +238,7 @@ namespace EvangelionERPV2.BillsModule.Test
             var orphanDetail = new PayrollBillDetail
             {
                 Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
                 EmployeeId = employee.Id,
                 PayableBillId = deletedBill.Id,
                 ReferenceYear = 2026,
@@ -520,6 +523,7 @@ namespace EvangelionERPV2.BillsModule.Test
             var detail = new PayrollBillDetail
             {
                 Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
                 EmployeeId = employee.Id,
                 PayableBillId = bill.Id,
                 ReferenceYear = 2026,
@@ -642,6 +646,64 @@ namespace EvangelionERPV2.BillsModule.Test
                     PayrollDueDay = dueDay
                 }));
         }
+
+        #region Tenant
+
+        [Fact]
+        public async Task GeneratePayrollAsync_WritesTheTenantOnTheDetail()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+
+            var (sut, stores) = BuildSut(employees: [employee]);
+
+            await sut.GeneratePayrollAsync(enterpriseId, 2026, 7);
+
+            // Until 2026-09-01 the row carried no tenant at all and every read of this table had to
+            // reach the payable bill to find out whose it was.
+            var detail = Assert.Single(stores.details);
+            Assert.Equal(enterpriseId, detail.EnterpriseId);
+        }
+
+        [Fact]
+        public async Task GetPayrollAsync_SkipsADetailBelongingToAnotherTenant()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var employee = BuildEmployee(enterpriseId, 3000m);
+
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                BillType = (int)EnumPayableBillType.Payroll,
+                DueDate = new DateTime(2026, 8, 5, 0, 0, 0, DateTimeKind.Utc),
+                Amount = 4866.17m,
+                IsActive = true
+            };
+
+            // The detail says another company; the bill says this one. The tenant column is the
+            // gate now, not the bill lookup that used to be the only one — so this row is invisible
+            // here whichever of the two is wrong.
+            var foreignDetail = new PayrollBillDetail
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = Guid.NewGuid(),
+                EmployeeId = employee.Id,
+                PayableBillId = bill.Id,
+                ReferenceYear = 2026,
+                ReferenceMonth = 7,
+                IsActive = true
+            };
+
+            var (sut, _) = BuildSut(
+                employees: [employee],
+                payableBills: [bill],
+                details: [foreignDetail]);
+
+            Assert.Empty(await sut.GetPayrollAsync(enterpriseId, 2026, 7));
+        }
+
+        #endregion
 
         #region Absences
 

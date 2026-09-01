@@ -259,13 +259,16 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             List<PayrollBillDetail> orphanedDetails)> LoadExistingAsync(
             Guid enterpriseId, int year, int month, HashSet<Guid>? employeeIds = null)
         {
-            // PayrollBillDetail has no enterprise column: tenant isolation comes from the payable
-            // bill lookup below, which discards details whose bill is not in this enterprise.
+            // Scoped at the database since 2026-09-01. It used to read every tenant's competência
+            // and discard the rows whose bill was not this enterprise's — right answers, but the
+            // whole installation's salary-derived rows in memory to get them. The bill lookup below
+            // still discards what does not belong here, as the second belt.
             var filterByEmployee = employeeIds != null;
             var filteredEmployeeIds = employeeIds ?? [];
 
             var details = (await _payrollDetailRepository.GetAllAsync(
                     x => x.IsActive == true
+                         && x.EnterpriseId == enterpriseId
                          && x.ReferenceYear == year
                          && x.ReferenceMonth == month
                          && (!filterByEmployee || filteredEmployeeIds.Contains(x.EmployeeId))))
@@ -318,6 +321,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return new PayrollBillDetail
             {
                 Id = Guid.NewGuid(),
+
+                // From the employee, who is the only party to this row that is loaded tenant-scoped
+                // already: the bill is created after this and the caller's id would be a second
+                // source of the same truth.
+                EnterpriseId = employee.EnterpriseId ?? Guid.Empty,
                 ReferenceYear = year,
                 ReferenceMonth = month,
                 EmployeeId = employee.Id,

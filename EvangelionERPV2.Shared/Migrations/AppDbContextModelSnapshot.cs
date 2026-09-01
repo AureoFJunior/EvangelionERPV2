@@ -1991,6 +1991,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<Guid>("EmployeeId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal>("FgtsAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -2047,6 +2050,8 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasIndex("EmployeeId");
 
                     b.HasIndex("PayableBillId");
+
+                    b.HasIndex("EnterpriseId", "ReferenceYear", "ReferenceMonth");
 
                     b.HasIndex("ReferenceYear", "ReferenceMonth", "EmployeeId")
                         .IsUnique()

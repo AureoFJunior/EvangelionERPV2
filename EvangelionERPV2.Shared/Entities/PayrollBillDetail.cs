@@ -9,8 +9,27 @@ namespace EvangelionERPV2.Shared.Entities
     // The (ReferenceYear, ReferenceMonth, EmployeeId) unique filtered index is declared
     // fluently in AppDbContext — [Index] cannot express HasFilter.
     [Table("PayrollBillDetail")]
+    [Index(nameof(EnterpriseId), nameof(ReferenceYear), nameof(ReferenceMonth))]
     public class PayrollBillDetail : BaseEntity
     {
+        /// <summary>
+        /// The tenant this row belongs to.
+        /// </summary>
+        /// <remarks>
+        /// It had none until 2026-09-01, and isolation came from post-filtering: every query loaded
+        /// the competência for *all* tenants and then discarded the rows whose payable bill was not
+        /// this enterprise's. The answers were right and nothing leaked, but salary-derived rows of
+        /// every other company were read into memory to produce them, and the next query written
+        /// over this table would have had to remember the join or leak. With the column the
+        /// convention filter in <c>AppDbContext.ApplyTenantQueryFilters</c> covers it like every
+        /// other tenant-owned entity, and the hand-written predicates stay as the second belt.
+        ///
+        /// A bare Guid, not a navigation: this row already reaches Enterprise through both its
+        /// payable bill and its employee, and a third FK is a third cascade path SQL Server
+        /// refuses. <c>PdvSalePayment</c> carries its tenant the same way.
+        /// </remarks>
+        public Guid EnterpriseId { get; set; }
+
         public int ReferenceYear { get; set; }
         public int ReferenceMonth { get; set; }
 
