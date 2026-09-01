@@ -133,7 +133,9 @@ namespace EvangelionERPV2.Test.Resilience
                 enterpriseRepositoryMock.Object,
                 providerMock.Object,
                 FiscalSettingsFor(enterpriseId).Object,
-                Options.Create(new NFeSettings { Enabled = true }));
+                Options.Create(new NFeSettings { Enabled = true }),
+                new Mock<IRepository<PdvSale>>().Object,
+                new Mock<IRepository<PdvSalePayment>>().Object);
 
             var result = await service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
 
@@ -247,7 +249,9 @@ namespace EvangelionERPV2.Test.Resilience
                 enterpriseRepositoryMock.Object,
                 providerMock.Object,
                 FiscalSettingsFor(enterpriseId).Object,
-                Options.Create(new NFeSettings { Enabled = true }));
+                Options.Create(new NFeSettings { Enabled = true }),
+                new Mock<IRepository<PdvSale>>().Object,
+                new Mock<IRepository<PdvSalePayment>>().Object);
 
             var issuanceTask1 = service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
             var issuanceTask2 = service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
@@ -352,7 +356,9 @@ namespace EvangelionERPV2.Test.Resilience
                 enterpriseRepositoryMock.Object,
                 providerMock.Object,
                 FiscalSettingsFor(enterpriseId).Object,
-                Options.Create(new NFeSettings { Enabled = true }));
+                Options.Create(new NFeSettings { Enabled = true }),
+                new Mock<IRepository<PdvSale>>().Object,
+                new Mock<IRepository<PdvSalePayment>>().Object);
 
             var result = await service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
 

@@ -320,6 +320,27 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             public Mock<INFeProvider> Provider { get; } = new();
             public Mock<INFeFiscalSettingsService> FiscalSettings { get; } = new();
 
+            /// <summary>The till's rows. Empty by default: most notes here are modelo 55.</summary>
+            public Mock<IRepository<PdvSale>> PdvSaleRepository { get; } = new();
+            public Mock<IRepository<PdvSalePayment>> PdvPaymentRepository { get; } = new();
+
+            /// <summary>Makes this order a till sale settled by the given tenders.</summary>
+            public void SeedTillSale(params PdvSalePayment[] tenders)
+            {
+                var sale = new PdvSale { Id = Guid.NewGuid(), EnterpriseId = EnterpriseId, OrderId = OrderId };
+
+                PdvSaleRepository
+                    .Setup(x => x.GetAllAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PdvSale, bool>>>()))
+                    .ReturnsAsync([sale]);
+
+                foreach (var tender in tenders)
+                    tender.PdvSaleId = sale.Id;
+
+                PdvPaymentRepository
+                    .Setup(x => x.GetAllAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PdvSalePayment, bool>>>()))
+                    .ReturnsAsync(tenders);
+            }
+
             public NFeDocument? Persisted { get; private set; }
             public int CommitCalls { get; private set; }
 
@@ -405,7 +426,9 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                     enterpriseRepository.Object,
                     Provider.Object,
                     FiscalSettings.Object,
-                    Options.Create(new NFeSettings { Enabled = true }));
+                    Options.Create(new NFeSettings { Enabled = true }),
+                    PdvSaleRepository.Object,
+                    PdvPaymentRepository.Object);
             }
 
             /// <summary>Puts an existing row in front of the service, as a committed claim would be.</summary>

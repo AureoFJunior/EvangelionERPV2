@@ -37,6 +37,13 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         private readonly INFeProvider _provider;
         private readonly INFeFiscalSettingsService _fiscalSettingsService;
         private readonly NFeSettings _settings;
+
+        // The till's own rows, read through Shared repositories rather than through the Pdv module:
+        // EvangelionERPV2.Pdv.Application already references this project, so a reference back
+        // would be a cycle. Entities, not services — the same way Order and Customer arrive here.
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<PdvSale> _pdvSaleRepository;
+        private readonly EvangelionERPV2.Shared.Repositories.IRepository<PdvSalePayment> _pdvPaymentRepository;
+
         private bool disposed;
 
         public NFeService(
@@ -47,8 +54,12 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> enterpriseRepository,
             INFeProvider provider,
             INFeFiscalSettingsService fiscalSettingsService,
-            IOptions<NFeSettings> settings)
+            IOptions<NFeSettings> settings,
+            EvangelionERPV2.Shared.Repositories.IRepository<PdvSale> pdvSaleRepository,
+            EvangelionERPV2.Shared.Repositories.IRepository<PdvSalePayment> pdvPaymentRepository)
         {
+            _pdvSaleRepository = pdvSaleRepository;
+            _pdvPaymentRepository = pdvPaymentRepository;
             _nfeRepository = nfeRepository;
             _nfeRepositoryCustom = nfeRepositoryCustom;
             _orderRepository = orderRepository;
@@ -210,6 +221,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                         Enterprise = enterprise,
                         Customer = customer,
                         Type = type,
+                        Payments = await GetTillTendersAsync(orderId, type),
                         AccessKey = pendingDocument.AccessKey,
                         Number = pendingDocument.Number,
                         Series = pendingDocument.Series,
@@ -412,6 +424,40 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             await _nfeRepository.CommitAsync();
 
             return document;
+        }
+
+        /// <summary>
+        /// How the counter was paid, for the note's <c>pag</c> group. Null for anything that is not
+        /// a till sale.
+        /// </summary>
+        /// <remarks>
+        /// NFC-e only. A modelo 55 is issued from a back office against an order that records no
+        /// means of payment, and inventing one would be a claim to the fisco; the till, by contrast,
+        /// has recorded a tender breakdown since M29a. Without this the consumer note said tPag 99
+        /// "Outros" for every sale, including the card ones whose authorisation code it holds.
+        /// </remarks>
+        private async Task<IReadOnlyList<PdvSalePayment>?> GetTillTendersAsync(Guid orderId, NFeDocumentType type)
+        {
+            if (type != NFeDocumentType.NFCe)
+                return null;
+
+            var sale = (await _pdvSaleRepository.GetAllAsync(x => x.OrderId == orderId)).FirstOrDefault();
+            if (sale == null)
+                return null;
+
+            var tenders = (await _pdvPaymentRepository.GetAllAsync(x => x.PdvSaleId == sale.Id)).ToList();
+
+            // An NFC-e for a till sale whose tenders are missing would otherwise fall back to
+            // "Outros" silently, which is the state this exists to end.
+            if (tenders.Count == 0)
+            {
+                Log.Logger.Warning(
+                    "PDV sale {PdvSaleId} has no tender rows; its NFC-e will declare tPag 99.", sale.Id);
+
+                return null;
+            }
+
+            return tenders;
         }
 
         /// <summary>Copies a SEFAZ verdict onto the document. One place, so consult and the reconciler agree.</summary>

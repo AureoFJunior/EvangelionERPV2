@@ -178,7 +178,7 @@ behind it is still the one path `M-B8` shadows in production.
 | A4 | **Juros e multa policy** (`M-B12`), with your accountant | The dunning e-mail says amount, due date and **no late fee**. Inventing a rate is a claim the ERP cannot back | S — a rate and a rule |
 | A5 | **A bank** (`M-B1`: platform account or per-tenant?) | M9's CNAB remessa/retorno cannot start without the layout and the beneficiary decision | L |
 | A6 | **Does the pilot sell services?** | NFS-e is per-municipality webservices, hundreds of incompatible ones. Changes the cut list | L if yes |
-| A7 | **Confirm the pilot only issues plain sales** (§M14) | `natOp` and `tPag` are single constants because `Order` records neither. Wrong the moment devolução or a real payment breakdown matters | S — two fields on `Order` |
+| A7 | **Confirm the pilot only issues plain sales** (§M14) | **Half answered in code 2026-09-01**: `tPag` is now real on the till's NFC-e, built from the sale's tenders. `natOp` is still one constant because `Order` records none, so this stays open for devolução and remessa — and for modelo 55, which still declares "Outros" | S — one field on `Order` |
 | A8 | ~~What fiscal document does the till issue?~~ **Answered 2026-08-31: NFC-e, with offline contingency.** Tasks 1–4 and the contingency spine shipped the same day (`8e7b594`…`fe225d9`); §6 of the plan lists them. **The contingency answer collided with a standing constraint** — the till holds no certificate, and offline signing needs one. What shipped covers "SEFAZ unreachable, till↔ERP fine"; covering a fully isolated till means an A1 certificate on a shop-floor machine, which is a decision, not a task (plan §7). Original entry: SAT-CF-e rejected (SP-only, certified hardware). Plan: **`docs/fiscal/PLAN-nfce.md`**, which supersedes `SPEC-remaining-code.md` §2.3 — that sketch predates M29 and assumed NFC-e was a back-office concern. **Scope is not yet confirmed**: five blockers in §0, of which **Q5 (offline contingency) is new and changes the shape of the work**. Smaller than "L" looked: `NFeDocumentType.NFCe`, model 65 in the numbering table, and the `TpImp`/`IndPres` branches already exist | M once §0 is answered; L if contingency is needed |
 | A9 | **Does the shop hold a Stripe BR PIX account?** (invite-only) | The proven-PIX code all landed 2026-08-31 (plan tasks 5–9) and **has never been run against Stripe**. Task 10 is the round trip, and it cannot happen without the account. Until it does, treat every `SefazCStatMap`-style assumption in `StripePixProvider` as a guess | S once the account exists |
 
@@ -339,8 +339,11 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
 - **M11 P4**: the approaching-deadline liability read has no controller action and no permission —
   `SPEC-hr-module.md` §8 puts that KPI out of scope.
 - **Users**: `DeleteUser` is a **hard** delete, the only one in the system.
-- **M6**: `NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only; `natOp` and `tPag` are
-  single constants because `Order` records neither.
+- **M6**: `NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only, and `natOp` is a single
+  constant because `Order` records none. **`tPag` no longer is, for the till**: since 2026-09-01 an
+  NFC-e is built from the sale's own `PdvSalePayment` rows — one `detPag` per tender, `vTroco` for
+  the change, and the `card` group with the authorisation code on a card. A modelo 55 still declares
+  "Outros", which is the honest answer for a back-office order that records no means of payment.
 - **NFC-e**: `EnterpriseFiscalSettings.Enabled` and `.NFCeEnabled` were stored, editable and
   **enforced nowhere**. `6264ab5` gated the till's `IssueFiscalDocument` on both; since 2026-08-31
   `NFeService.IssueAsync` reads them too, before it claims a document, so a certificate removal

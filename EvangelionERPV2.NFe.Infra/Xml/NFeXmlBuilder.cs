@@ -1,5 +1,6 @@
 using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.NFeModule.Infra.Sefaz;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Utils;
 
@@ -96,7 +97,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             }
 
             infNFe.Total = new Total { ICMSTot = totals.ToIcmsTot() };
-            infNFe.Pag = BuildPag(context.Order, totals.ProductValue);
+            infNFe.Pag = BuildPag(context, totals.ProductValue);
 
             CrossCheckAccessKey(infNFe, context.AccessKey);
 
@@ -507,27 +508,118 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             _ => ContributionRegime.Outras
         };
 
-        private static Pag BuildPag(Order order, decimal total)
+        private static Pag BuildPag(NFeIssueContext context, decimal total)
         {
-            // ponytail: the order records no payment method, so the document says "outros" rather
-            // than asserting a means of payment nobody entered. Map tPag properly once Order carries
-            // one — the boleto work in M9 is where that field naturally appears.
-            var paidUpFront = order.Payday.HasValue && order.Payday.Value.Date <= DateTime.UtcNow.Date;
+            var tenders = context.Payments;
+
+            if (tenders is null || tenders.Count == 0)
+            {
+                // ponytail: a back-office order records no payment method, so the document says
+                // "outros" rather than asserting a means of payment nobody entered. A till sale
+                // does know, and takes the branch below.
+                var paidUpFront = context.Order.Payday.HasValue
+                    && context.Order.Payday.Value.Date <= DateTime.UtcNow.Date;
+
+                return new Pag
+                {
+                    DetPag =
+                    [
+                        new DetPag
+                        {
+                            IndPag = paidUpFront ? IndicadorPagamento.PagamentoVista : IndicadorPagamento.PagamentoPrazo,
+                            TPag = MeioPagamento.Outros,
+                            XPag = "OUTROS",
+                            VPag = (double)Round(total)
+                        }
+                    ]
+                };
+            }
+
+            // vPag is what the customer handed over, and vTroco what came back — not the same thing
+            // as PdvSalePayment.Amount, which is what the tender *settled*. A R$ 50 note against a
+            // R$ 43 basket is Amount 43 with ChangeGiven 7, so on the wire it is vPag 50 and
+            // vTroco 7. Σ vPag − vTroco is then vNF, which is the rule SEFAZ checks.
+            var settled = tenders.Sum(x => x.Amount);
+            var change = tenders.Sum(x => x.ChangeGiven);
+
+            if (Round(settled) != Round(total))
+            {
+                // Refused here rather than at SEFAZ: this fails the whole note, and at a counter
+                // that means a customer standing in front of an operator who cannot fix it.
+                throw new InvalidOperationException(
+                    $"The sale's tenders settle {Round(settled)} but the note totals {Round(total)}; " +
+                    "a fiscal document cannot claim a payment that does not add up.");
+            }
 
             return new Pag
             {
-                DetPag =
-                [
-                    new DetPag
-                    {
-                        IndPag = paidUpFront ? IndicadorPagamento.PagamentoVista : IndicadorPagamento.PagamentoPrazo,
-                        TPag = MeioPagamento.Outros,
-                        XPag = "OUTROS",
-                        VPag = (double)Math.Round(total, 2, MidpointRounding.AwayFromZero)
-                    }
-                ]
+                DetPag = tenders.Select(BuildDetPag).ToList(),
+                VTroco = (double)Round(change)
             };
         }
+
+        /// <summary>One tender. The mapping to tPag is a lookup, not a judgement — see EnumPaymentMethod.</summary>
+        private static DetPag BuildDetPag(PdvSalePayment payment)
+        {
+            var method = (EnumPaymentMethod)payment.Method;
+
+            var detPag = new DetPag
+            {
+                // A counter sale is settled as it is rung. The exceptions are the two tenders that
+                // deliberately leave the shop owed money.
+                IndPag = method is EnumPaymentMethod.StoreCredit or EnumPaymentMethod.Boleto
+                    || (method == EnumPaymentMethod.Credit && payment.Installments > 1)
+                        ? IndicadorPagamento.PagamentoPrazo
+                        : IndicadorPagamento.PagamentoVista,
+
+                TPag = TPagFor(method),
+                VPag = (double)Round(payment.Amount + payment.ChangeGiven)
+            };
+
+            // xPag is what tPag 99 means; it is meaningless on any other code.
+            if (detPag.TPag == MeioPagamento.Outros)
+                detPag.XPag = "OUTROS";
+
+            // tpIntegra is mandatory on a card tender. This till has no TEF — the operator reads the
+            // code off the POS terminal's own slip — so it is always "not integrated", and cAut is
+            // that code. The till refuses a card tender without one, so it is here in practice.
+            if (method is EnumPaymentMethod.Credit or EnumPaymentMethod.Debit)
+            {
+                detPag.Card = new Card
+                {
+                    TpIntegra = TipoIntegracaoPagamento.PagamentoNaoIntegrado,
+                    CAut = string.IsNullOrWhiteSpace(payment.AuthorizationCode)
+                        ? null
+                        : payment.AuthorizationCode.Trim()
+                };
+            }
+
+            return detPag;
+        }
+
+        /// <summary>
+        /// The till's vocabulary is the tPag table collapsed to what a counter offers, so this is a
+        /// total function with no default that guesses.
+        /// </summary>
+        /// <remarks>
+        /// <c>Voucher</c> is 10 (vale alimentação), not the 05 an older comment on
+        /// <see cref="EnumPaymentMethod"/> claimed: 05 is crédito loja, which is what
+        /// <c>StoreCredit</c> is. 05 for a Sodexo card would misdeclare a third-party voucher as the
+        /// shop's own credit.
+        /// </remarks>
+        private static MeioPagamento TPagFor(EnumPaymentMethod method) => method switch
+        {
+            EnumPaymentMethod.Cash => MeioPagamento.Dinheiro,
+            EnumPaymentMethod.Debit => MeioPagamento.CartaoDebito,
+            EnumPaymentMethod.Credit => MeioPagamento.CartaoCredito,
+            EnumPaymentMethod.Pix => MeioPagamento.PagamentoInstantaneo,
+            EnumPaymentMethod.Voucher => MeioPagamento.ValeAlimentacao,
+            EnumPaymentMethod.StoreCredit => MeioPagamento.CreditoLoja,
+            EnumPaymentMethod.Boleto => MeioPagamento.BoletoBancario,
+            _ => MeioPagamento.Outros
+        };
+
+        private static decimal Round(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
 
         /// <summary>
         /// dhEmi in the emitter's own timezone, cross-checked against the AAMM already baked into

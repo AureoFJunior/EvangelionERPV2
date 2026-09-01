@@ -47,6 +47,18 @@ namespace EvangelionERPV2.NFeModule.Infra.Providers
         public bool IsOfflineContingency => TipoEmissao == 9;
 
         /// <summary>
+        /// How the counter was actually paid — one row per tender, cash and card and PIX together.
+        /// Null for anything that is not a till sale, which is every modelo 55.
+        /// </summary>
+        /// <remarks>
+        /// A counter sale knows its means of payment; a back-office order does not, which is why
+        /// <c>pag</c> falls back to a single "Outros" line without this. The till has recorded the
+        /// breakdown since M29a and the note has been claiming "Outros" ever since — on a consumer
+        /// document, where <c>pag</c> is what the customer and the fisco both read.
+        /// </remarks>
+        public IReadOnlyList<PdvSalePayment>? Payments { get; init; }
+
+        /// <summary>
         /// The value at or above which an NFCe must identify its consumer. R$ 10.000 is the national
         /// reference.
         /// </summary>

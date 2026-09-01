@@ -236,3 +236,31 @@ the result) and by making the allocation reusable only for the tpEmis being issu
 Also: `IssueFiscalDocument` took any `contingencyReason` and let a too-short one become a second
 fiscal document in Error. xJust's 15..256 bound is now checked at the endpoint, where the answer is
 a 400 the operator can act on.
+
+## 10. The `pag` group, 2026-09-01
+
+§2 listed "NFC-e's own tPag handling: a counter sale has a real payment breakdown" under the XML
+builder, and it never made it into the §3 task table. It was still missing after the spine shipped:
+**every note the till issued declared tPag 99 "Outros"** — including the card sales whose
+authorisation code the same row already carried, on the one document type where `pag` is what the
+customer and the fisco both read. `PdvSalePayment`'s own summary has said since M29a that it is "the
+source NFC-e's `pag` group is built from".
+
+Now `NFeService` reads the sale's tenders for an NFC-e — through `IRepository<PdvSale>` and
+`IRepository<PdvSalePayment>`, **not** through the Pdv module, which already references NFe and
+would be a cycle — and the builder emits one `detPag` per tender:
+
+- **tPag** is a lookup off `EnumPaymentMethod`, no default that guesses. **Voucher is 10, not the 05
+  that enum's comment claimed** — 05 is crédito loja, which is what StoreCredit is; declaring a
+  Sodexo card as 05 would report a third-party voucher as the shop's own credit. Comment corrected.
+- **vPag is what the customer handed over, vTroco what came back.** `PdvSalePayment.Amount` is what
+  the tender *settled* (43 of a R$ 50 note against a R$ 43 basket, with `ChangeGiven` 7), so the wire
+  figure is Amount + ChangeGiven and Σ vPag − vTroco is vNF, the rule SEFAZ actually checks.
+- **A card tender carries `card` with tpIntegra 2 and cAut.** tpIntegra is mandatory there, and this
+  till has no TEF — the operator reads the code off the POS slip, which the till already refuses a
+  card tender without.
+- **Tenders that do not add up to the note are refused at build time**, where the number survives
+  and the message names both figures. SEFAZ would reject the whole note, and at a counter that is a
+  customer standing in front of an operator who cannot fix it.
+- **A modelo 55 never asks.** It is issued against an order that records no means of payment, and
+  "Outros" is the honest declaration; an NFC-e for an order no till ever rang falls back the same way.

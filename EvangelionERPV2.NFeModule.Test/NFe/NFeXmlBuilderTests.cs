@@ -2,6 +2,7 @@ using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.NFeModule.Infra.Sefaz;
 using EvangelionERPV2.NFeModule.Infra.Xml;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 
 using System.Globalization;
 
@@ -101,7 +102,8 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             EnterpriseFiscalSettings? settings = null,
             Customer? customer = null,
             IReadOnlyList<OrderedProduct>? items = null,
-            string? accessKey = null)
+            string? accessKey = null,
+            IReadOnlyList<PdvSalePayment>? payments = null)
         {
             settings ??= Settings();
             var order = new Order { Id = OrderId, EnterpriseId = EnterpriseId, TotalValue = 250m };
@@ -129,11 +131,133 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                 Type = NFeDocumentType.NFe,
                 AccessKey = accessKey ?? AccessKeyForNow(),
                 Number = "42",
-                Series = "1"
+                Series = "1",
+                Payments = payments
             };
         }
 
         private static InfNFe Build(NFeIssueContext context) => NFeXmlBuilder.Build(context).NFe[0].InfNFe[0];
+
+        #region pag — how the counter was actually paid
+
+        private static PdvSalePayment Tender(
+            EnumPaymentMethod method,
+            decimal amount,
+            decimal change = 0m,
+            string? authorization = null,
+            int? installments = null) => new()
+            {
+                Method = (int)method,
+                Amount = amount,
+                ChangeGiven = change,
+                AuthorizationCode = authorization,
+                Installments = installments
+            };
+
+        [Fact]
+        public void Pag_WithoutTenders_StillSaysOutros()
+        {
+            // Modelo 55 comes from a back-office order that records no means of payment. Declaring
+            // one would be a claim to the fisco that nobody made.
+            var detPag = Assert.Single(Build(Context()).Pag.DetPag);
+
+            Assert.Equal(MeioPagamento.Outros, detPag.TPag);
+            Assert.Equal("OUTROS", detPag.XPag);
+            Assert.Equal(250d, detPag.VPag);
+        }
+
+        [Fact]
+        public void Pag_SplitBetweenCashAndCard_IsOneDetPagEach()
+        {
+            var infNFe = Build(Context(payments:
+            [
+                Tender(EnumPaymentMethod.Cash, 100m),
+                Tender(EnumPaymentMethod.Credit, 150m, authorization: "AUT-9911")
+            ]));
+
+            Assert.Equal(2, infNFe.Pag.DetPag.Count);
+            Assert.Equal(MeioPagamento.Dinheiro, infNFe.Pag.DetPag[0].TPag);
+            Assert.Equal(100d, infNFe.Pag.DetPag[0].VPag);
+            Assert.Equal(MeioPagamento.CartaoCredito, infNFe.Pag.DetPag[1].TPag);
+            Assert.Equal(150d, infNFe.Pag.DetPag[1].VPag);
+
+            // xPag describes tPag 99 and nothing else.
+            Assert.Null(infNFe.Pag.DetPag[0].XPag);
+        }
+
+        [Fact]
+        public void Pag_CashWithChange_DeclaresWhatWasHandedOverAndWhatCameBack()
+        {
+            // vPag is the note the customer put on the counter, vTroco what went back. Amount is
+            // what the tender settled, so the two have to be added back together here.
+            var infNFe = Build(Context(payments: [Tender(EnumPaymentMethod.Cash, 250m, change: 50m)]));
+
+            Assert.Equal(300d, infNFe.Pag.DetPag[0].VPag);
+            Assert.Equal(50d, infNFe.Pag.VTroco);
+        }
+
+        [Fact]
+        public void Pag_ACardTender_CarriesItsAuthorizationAndSaysItIsNotIntegrated()
+        {
+            // tpIntegra is mandatory on a card tender, and this till has no TEF: the operator reads
+            // the code off the POS terminal's slip.
+            var card = Assert.Single(Build(Context(payments:
+                [Tender(EnumPaymentMethod.Debit, 250m, authorization: " AUT-4242 ")])).Pag.DetPag).Card;
+
+            Assert.NotNull(card);
+            Assert.Equal(TipoIntegracaoPagamento.PagamentoNaoIntegrado, card!.TpIntegra);
+            Assert.Equal("AUT-4242", card.CAut);
+        }
+
+        [Theory]
+        [InlineData(EnumPaymentMethod.Cash, MeioPagamento.Dinheiro)]
+        [InlineData(EnumPaymentMethod.Debit, MeioPagamento.CartaoDebito)]
+        [InlineData(EnumPaymentMethod.Credit, MeioPagamento.CartaoCredito)]
+        [InlineData(EnumPaymentMethod.Pix, MeioPagamento.PagamentoInstantaneo)]
+        [InlineData(EnumPaymentMethod.Voucher, MeioPagamento.ValeAlimentacao)]
+        [InlineData(EnumPaymentMethod.StoreCredit, MeioPagamento.CreditoLoja)]
+        [InlineData(EnumPaymentMethod.Boleto, MeioPagamento.BoletoBancario)]
+        [InlineData(EnumPaymentMethod.Other, MeioPagamento.Outros)]
+        public void Pag_EveryTillMethod_HasItsOwnTPag(EnumPaymentMethod method, MeioPagamento expected)
+        {
+            var detPag = Assert.Single(Build(Context(payments: [Tender(method, 250m)])).Pag.DetPag);
+
+            Assert.Equal(expected, detPag.TPag);
+        }
+
+        [Fact]
+        public void Pag_WhatTheShopIsStillOwed_IsAPrazo()
+        {
+            // Everything at a counter is settled as it is rung, except the two tenders that
+            // deliberately leave the shop waiting for the money, and credit in installments.
+            Assert.Equal(
+                IndicadorPagamento.PagamentoVista,
+                Assert.Single(Build(Context(payments: [Tender(EnumPaymentMethod.Cash, 250m)])).Pag.DetPag).IndPag);
+
+            Assert.Equal(
+                IndicadorPagamento.PagamentoPrazo,
+                Assert.Single(Build(Context(payments: [Tender(EnumPaymentMethod.Boleto, 250m)])).Pag.DetPag).IndPag);
+
+            Assert.Equal(
+                IndicadorPagamento.PagamentoPrazo,
+                Assert.Single(Build(Context(payments:
+                    [Tender(EnumPaymentMethod.Credit, 250m, installments: 3)])).Pag.DetPag).IndPag);
+        }
+
+        [Fact]
+        public void Pag_TendersThatDoNotAddUp_AreRefusedBeforeSefazSeesThem()
+        {
+            // SEFAZ would reject the whole note, and at a counter that is a customer standing in
+            // front of an operator who cannot fix it.
+            var context = Context(payments: [Tender(EnumPaymentMethod.Cash, 249m)]);
+
+            var exception = Assert.Throws<InvalidOperationException>(() => Build(context));
+
+            Assert.Contains("249", exception.Message);
+            Assert.Contains("250", exception.Message);
+        }
+
+        #endregion
 
         #region infRespTec
 

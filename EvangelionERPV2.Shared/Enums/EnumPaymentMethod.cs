@@ -9,7 +9,12 @@ namespace EvangelionERPV2.Shared.Enums
     ///
     /// The set is deliberately the NFC-e <c>tPag</c> vocabulary collapsed to what a till actually
     /// offers, so the fiscal mapping is a lookup and not a judgement call:
-    /// Cash-01, Credit-03, Debit-04, Voucher-05, StoreCredit-05, Boleto-15, Pix-17, Other-99.
+    /// Cash-01, Credit-03, Debit-04, Voucher-10, StoreCredit-05, Boleto-15, Pix-17, Other-99.
+    /// The lookup itself lives in <c>NFeXmlBuilder.TPagFor</c>.
+    ///
+    /// This list said Voucher-05 until 2026-09-01, which was wrong: 05 is crédito loja, i.e. what
+    /// StoreCredit is. A Sodexo card declared as 05 would report a third-party voucher as the
+    /// shop's own credit.
     /// </remarks>
     public enum EnumPaymentMethod
     {

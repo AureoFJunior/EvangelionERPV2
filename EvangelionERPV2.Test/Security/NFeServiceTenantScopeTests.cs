@@ -160,7 +160,9 @@ namespace EvangelionERPV2.Test.Security
                 enterpriseRepository.Object,
                 provider.Object,
                 fiscalSettingsService.Object,
-                Options.Create(new NFeSettings { Enabled = true }));
+                Options.Create(new NFeSettings { Enabled = true }),
+                new Mock<IRepository<PdvSale>>().Object,
+                new Mock<IRepository<PdvSalePayment>>().Object);
 
             return (service, nfeRepositoryCustom, orderRepository, customerRepository, enterpriseRepository, provider);
         }
