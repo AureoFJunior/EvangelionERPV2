@@ -74,6 +74,21 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (existing != null)
                 return existing;
 
+            // One open shift per till is a filtered unique index, so a second one is a
+            // DbUpdateException — a 500, which the terminal's outbox retries forever without ever
+            // telling the operator why nothing syncs. Named here instead: a 400 the till reports as
+            // a refusal, saying which shift is in the way. The remedy is closing that shift, and
+            // inventing a Z reading for it here would be worse than saying so.
+            var openOnTerminal = await _appDbContext.CashSession
+                .AsNoTracking()
+                .FirstOrDefaultAsync(session =>
+                    session.EnterpriseId == enterpriseId
+                    && session.TerminalId == request.TerminalId.Trim()
+                    && session.Status == (int)EnumCashSessionStatus.Open);
+
+            if (openOnTerminal != null)
+                throw new ArgumentException("The terminal already has an open cash session. Close it before opening another.");
+
             var opened = new CashSession
             {
                 Id = Guid.NewGuid(),
@@ -169,7 +184,15 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (request.CountedAmount < 0)
                 throw new ArgumentException("A count cannot be negative.");
 
-            var session = await RequireOpenSessionAsync(request.ClientSessionId, enterpriseId);
+            var session = await RequireSessionAsync(request.ClientSessionId, enterpriseId);
+
+            // Idempotent, like every other write a terminal makes: the till queues the close and
+            // resends it until it is acknowledged, so a lost response must not come back as a
+            // refusal on a shift that closed correctly. The stored count is not touched — the
+            // reading the operator was held to on the night stands.
+            if (session.Status != (int)EnumCashSessionStatus.Open)
+                return await BuildSummaryAsync(session, includeExpectedCash: true);
+
             var summary = await BuildSummaryAsync(session, includeExpectedCash: true);
 
             var closedAt = request.ClosedAt == default ? DateTime.UtcNow : request.ClosedAt;
@@ -363,10 +386,11 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         /// in another would either throw on the nested BeginTransaction or detach the rows written
         /// before it. The same shape the NFe module uses for the same reason.
         ///
-        /// So the claim is committed first. A crash between the claim and the order leaves a Pending
-        /// row, and the retry — which carries the same ClientSaleId — finds that row and finishes
-        /// the job rather than selling the basket twice. The unique index is what makes the claim
-        /// a claim: two terminals racing the same id, one of them loses at the database.
+        /// So the claim is committed first, then the order id it produced, then the payments and the
+        /// drawer movement together. A crash at any point leaves a Pending row that says exactly how
+        /// far it got, and the retry — which carries the same ClientSaleId — resumes from there
+        /// rather than selling the basket twice. The unique index is what makes the claim a claim:
+        /// two terminals racing the same id, one of them loses at the database.
         /// </remarks>
         public async Task<PdvSaleSyncResultDTO> SyncSaleAsync(PdvSaleSyncRequestDTO request, Guid enterpriseId, Guid userId)
         {
@@ -417,12 +441,27 @@ namespace EvangelionERPV2.PdvModule.Application.Services
 
             try
             {
-                var order = await _orderService.CreateAsync(
-                    BuildOrder(request, items, enterpriseId, userId),
-                    allowCreditOverride: false,
-                    allowNegativeStock: true);
+                // The order id is committed on its own, before the payments and the drawer
+                // movement, for the same reason the claim is: OrderService.CreateAsync commits in
+                // its own transaction, so a crash between it and CompleteAsync would otherwise
+                // leave a Pending claim with no trace of the order it already rang up — and the
+                // retry, finding only a Pending row, would sell the basket a second time. Stock,
+                // revenue and the drawer would all count it twice.
+                if (claimed.Sale.OrderId == null)
+                {
+                    var order = await _orderService.CreateAsync(
+                        BuildOrder(request, items, enterpriseId, userId),
+                        allowCreditOverride: false,
+                        allowNegativeStock: true);
 
-                await CompleteAsync(claimed.Sale, order, payments, enterpriseId, userId);
+                    claimed.Sale.OrderId = order.Id;
+                    claimed.Sale.UpdatedAt = DateTime.UtcNow;
+
+                    _saleRepository.Update(claimed.Sale);
+                    await _saleRepository.CommitAsync();
+                }
+
+                await CompleteAsync(claimed.Sale, payments, enterpriseId, userId);
 
                 return Describe(claimed.Sale, wasAlreadyRecorded: false);
             }
@@ -529,10 +568,9 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             };
         }
 
-        private async Task CompleteAsync(PdvSale sale, Order order, List<PdvSalePaymentRequestDTO> payments,
+        private async Task CompleteAsync(PdvSale sale, List<PdvSalePaymentRequestDTO> payments,
             Guid enterpriseId, Guid userId)
         {
-            sale.OrderId = order.Id;
             sale.Status = (int)EnumPdvSaleStatus.Synced;
             sale.SyncedAt = DateTime.UtcNow;
             sale.UpdatedAt = DateTime.UtcNow;

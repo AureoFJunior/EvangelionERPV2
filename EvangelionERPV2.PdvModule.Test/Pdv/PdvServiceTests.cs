@@ -61,12 +61,23 @@ namespace EvangelionERPV2.PdvModule.Test
             return mock;
         }
 
-        private PdvService CreateService(AppDbContext context, Mock<IOrderService<Order>>? orderService = null) =>
+        /// <summary>
+        /// Refuses to write the payments — the crash window between the order commit and the
+        /// completion commit, which is the one a retry must not sell twice.
+        /// </summary>
+        private sealed class FailingPaymentRepository(AppDbContext context) : Repository<PdvSalePayment>(context)
+        {
+            public override Task<IEnumerable<PdvSalePayment>> CreateRangeAsync(IEnumerable<PdvSalePayment> entitys) =>
+                throw new InsertDatabaseException("boom");
+        }
+
+        private PdvService CreateService(AppDbContext context, Mock<IOrderService<Order>>? orderService = null,
+            IRepository<PdvSalePayment>? paymentRepository = null) =>
             new(context,
                 new Repository<CashSession>(context),
                 new Repository<CashMovement>(context),
                 new Repository<PdvSale>(context),
-                new Repository<PdvSalePayment>(context),
+                paymentRepository ?? new Repository<PdvSalePayment>(context),
                 (orderService ?? OrderServiceStub(context)).Object,
                 ProductServiceStub().Object,
                 new Repository<PdvCharge>(context),
@@ -216,6 +227,50 @@ namespace EvangelionERPV2.PdvModule.Test
         }
 
         [Fact]
+        public async Task AFailureAfterTheOrderWasCreated_ResumesInsteadOfSellingTheBasketTwice()
+        {
+            var context = _database.CreateContext();
+            var orderService = OrderServiceStub(context);
+
+            // The order commits, the completion does not. Before the sale carried its order id
+            // through that window, the retry found a bare Pending claim and rang the basket up
+            // again: a second order, a second stock movement and a second cash movement.
+            var crashing = CreateService(context, orderService, new FailingPaymentRepository(context));
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(crashing, sessionId);
+
+            var request = SaleFor(Guid.NewGuid(), sessionId);
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => crashing.SyncSaleAsync(request, _enterpriseId, _userId));
+
+            var interrupted = await context.PdvSale.AsNoTracking()
+                .SingleAsync(sale => sale.ClientSaleId == request.ClientSaleId);
+
+            Assert.Equal((int)EnumPdvSaleStatus.Pending, interrupted.Status);
+            Assert.NotNull(interrupted.OrderId);
+
+            // The retry is a new request, so a new context: what it resumes from is the database,
+            // not the failed attempt's change tracker.
+            var retryContext = _database.CreateContext();
+            var service = CreateService(retryContext, orderService);
+
+            var resumed = await service.SyncSaleAsync(request, _enterpriseId, _userId);
+
+            Assert.Equal((int)EnumPdvSaleStatus.Synced, resumed.Status);
+            Assert.Equal(interrupted.OrderId, resumed.OrderId);
+
+            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Once);
+            Assert.Equal(1, await retryContext.Order.CountAsync());
+            Assert.Equal(1, await retryContext.PdvSalePayment.CountAsync(payment => payment.PdvSaleId == interrupted.Id));
+
+            // And the drawer took the cash exactly once.
+            Assert.Equal(1, await retryContext.CashMovement
+                .CountAsync(movement => movement.Type == (int)EnumCashMovementType.Sale));
+        }
+
+        [Fact]
         public async Task OnlyTheCashLegOfASaleReachesTheDrawer()
         {
             var context = _database.CreateContext();
@@ -254,6 +309,62 @@ namespace EvangelionERPV2.PdvModule.Test
             Assert.Equal(first.Id, second.Id);
             Assert.Equal(200m, second.OpeningFloat);
             Assert.Equal(1, await context.CashSession.CountAsync());
+        }
+
+        [Fact]
+        public async Task ASecondShiftOnTheSameTerminal_IsRefusedWithAReasonRatherThanA500()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            await OpenSessionAsync(service, Guid.NewGuid());
+
+            // The filtered unique index would answer this with a DbUpdateException, which the
+            // middleware turns into a 500 and the terminal's outbox retries forever without ever
+            // saying why nothing syncs. ArgumentException is a 400 the till reports as a refusal.
+            var refusal = await Assert.ThrowsAsync<ArgumentException>(
+                () => service.OpenSessionAsync(new OpenCashSessionRequestDTO
+                {
+                    ClientSessionId = Guid.NewGuid(),
+                    TerminalId = "CAIXA-01",
+                    OpeningFloat = 100m,
+                    OpenedAt = DateTime.UtcNow
+                }, _enterpriseId, _userId));
+
+            Assert.Contains("already has an open cash session", refusal.Message);
+            Assert.Equal(1, await context.CashSession.CountAsync());
+        }
+
+        [Fact]
+        public async Task ClosingTwice_ReturnsTheSameReadingRatherThanRefusingIt()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId, openingFloat: 200m);
+
+            var close = new CloseCashSessionRequestDTO
+            {
+                ClientSessionId = sessionId,
+                CountedAmount = 195m,
+                ClosedAt = DateTime.UtcNow
+            };
+
+            var first = await service.CloseSessionAsync(close, _enterpriseId, _userId);
+
+            // The till queues the close and resends it until it is acknowledged. A lost response
+            // must not come back as a refusal on a shift that closed correctly — and the second
+            // count must not overwrite the reading the operator was held to.
+            var second = await service.CloseSessionAsync(
+                new CloseCashSessionRequestDTO { ClientSessionId = sessionId, CountedAmount = 999m },
+                _enterpriseId, _userId);
+
+            Assert.Equal(first.Session.CountedAmount, second.Session.CountedAmount);
+            Assert.Equal(first.Session.Difference, second.Session.Difference);
+            Assert.Equal(first.Session.ClosedAt, second.Session.ClosedAt);
+            Assert.Equal(1, await context.CashMovement
+                .CountAsync(movement => movement.Type == (int)EnumCashMovementType.Closing));
         }
 
         [Fact]
