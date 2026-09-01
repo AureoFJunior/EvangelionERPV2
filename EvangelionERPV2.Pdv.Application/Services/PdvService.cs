@@ -545,13 +545,18 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 .Distinct()
                 .ToList();
 
+            // Scoped to this basket and matched on the amount, not merely "a paid charge of ours".
+            // A terminal names the charge id, so anything the id alone can reach is something the
+            // terminal can choose: without the ClientSaleId a R$ 500 tender could point at a paid
+            // R$ 1 charge from yesterday's sale and be recorded as proven.
             var paidCharges = namedCharges.Count == 0
                 ? []
                 : await _appDbContext.PdvCharge
                     .Where(charge => charge.EnterpriseId == enterpriseId
                                      && namedCharges.Contains(charge.Id)
+                                     && charge.ClientSaleId == sale.ClientSaleId
                                      && charge.Status == (int)EnumPdvChargeStatus.Paid)
-                    .Select(charge => charge.Id)
+                    .Select(charge => new { charge.Id, charge.Amount })
                     .ToListAsync();
 
             await _saleRepository.ExecuteInTransactionAsync(async () =>
@@ -570,10 +575,15 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     Installments = payment.Installments,
                     PdvChargeId = payment.ChargeId,
 
-                    // Never the raw flag. Proof is a charge that exists, belongs to this shop
-                    // and reached Paid — checked here against our own rows, because a terminal
-                    // that could mint proof by setting a bool would make the column worthless.
-                    IsVerified = payment.ChargeId != null && paidCharges.Contains(payment.ChargeId.Value),
+                    // Never the raw flag. Proof is a charge that exists, belongs to this shop,
+                    // was raised for this basket, reached Paid and settled this much — checked
+                    // here against our own rows, because a terminal that could mint proof by
+                    // setting a bool would make the column worthless. A tender that fails any of
+                    // those is recorded unverified, never refused: the sale itself is fine and
+                    // RejectAsync is terminal.
+                    IsVerified = payment.ChargeId != null
+                        && paidCharges.Any(charge => charge.Id == payment.ChargeId.Value
+                                                     && charge.Amount == payment.Amount),
                     CreatedAt = DateTime.UtcNow,
                     IsActive = true
                 }));
@@ -897,11 +907,33 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             }
 
             var existing = await _appDbContext.PdvCharge
-                .FirstOrDefaultAsync(charge => charge.EnterpriseId == enterpriseId
-                                               && charge.ClientSaleId == request.ClientSaleId);
+                .Where(charge => charge.EnterpriseId == enterpriseId
+                                 && charge.ClientSaleId == request.ClientSaleId)
+                .OrderByDescending(charge => charge.CreatedAt)
+                .FirstOrDefaultAsync();
 
-            if (existing != null)
+            // A charge that was abandoned or refused is not an answer to "take PIX for this
+            // basket". Handing it back left the operator with a dead QR and a poll that reports
+            // "cancelado" forever — PIX permanently unavailable for a basket the customer is still
+            // standing at. Those get a fresh attempt; Pending and Paid do not.
+            var settledOrAbandoned = existing != null
+                && existing.Status is (int)EnumPdvChargeStatus.Cancelled
+                    or (int)EnumPdvChargeStatus.Failed
+                    or (int)EnumPdvChargeStatus.Expired;
+
+            if (existing != null && !settledOrAbandoned)
+            {
+                // Paid: never a second charge for a basket the customer already paid for.
+                // Pending: the live intent, and only if it is for the amount being asked. Returning
+                // a QR for a different figure is how a customer pays the wrong price.
+                if (existing.Status == (int)EnumPdvChargeStatus.Pending && existing.Amount != request.Amount)
+                {
+                    throw new ArgumentException(
+                        "A PIX charge for a different amount is already open on this sale. Cancel it first.");
+                }
+
                 return ToDto(existing);
+            }
 
             var enterprise = await _appDbContext.Enterprise
                 .FirstOrDefaultAsync(shop => shop.Id == enterpriseId);

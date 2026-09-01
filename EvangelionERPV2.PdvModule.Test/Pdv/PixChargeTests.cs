@@ -68,6 +68,72 @@ namespace EvangelionERPV2.PdvModule.Test
         }
 
         [Fact]
+        public async Task AfterACancel_TheSameBasketCanTakePixAgain()
+        {
+            // Handing back the cancelled charge left the operator with a dead QR and a poll that
+            // answers "cancelado" forever — PIX permanently unavailable for a basket whose customer
+            // is still standing there. An abandoned attempt is not an answer to "take PIX now".
+            using var context = _database.CreateContext();
+            await GiveShopAPixAccountAsync(context);
+            // A fresh intent per call, as Stripe gives: the unique index on
+            // (EnterpriseId, ProviderIntentId) is what refuses a genuine duplicate.
+            var provider = ProviderReturning("pi_1", "qr");
+            provider.Setup(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<string>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() => new PixIntent($"pi_{Guid.NewGuid():N}", "qr", DateTime.UtcNow.AddMinutes(30), "requires_action"));
+
+            var service = CreateService(context, provider);
+            var request = new StartPixChargeRequestDTO { ClientSaleId = Guid.NewGuid(), Amount = 60m };
+
+            var first = await service.StartPixChargeAsync(request, _enterpriseId);
+            await service.CancelPixChargeAsync(first.ChargeId, _enterpriseId);
+
+            var second = await service.StartPixChargeAsync(request, _enterpriseId);
+
+            Assert.NotEqual(first.ChargeId, second.ChargeId);
+            Assert.Equal((int)EnumPdvChargeStatus.Pending, second.Status);
+            Assert.Equal(2, await context.PdvCharge.CountAsync());
+        }
+
+        [Fact]
+        public async Task APaidBasket_IsNeverChargedASecondTime()
+        {
+            using var context = _database.CreateContext();
+            await GiveShopAPixAccountAsync(context);
+            var provider = ProviderReturning("pi_1", "qr");
+            var service = CreateService(context, provider);
+            var request = new StartPixChargeRequestDTO { ClientSaleId = Guid.NewGuid(), Amount = 60m };
+
+            var first = await service.StartPixChargeAsync(request, _enterpriseId);
+
+            var row = await context.PdvCharge.SingleAsync();
+            row.Status = (int)EnumPdvChargeStatus.Paid;
+            await context.SaveChangesAsync();
+
+            var second = await service.StartPixChargeAsync(request, _enterpriseId);
+
+            Assert.Equal(first.ChargeId, second.ChargeId);
+            Assert.Equal(1, await context.PdvCharge.CountAsync());
+        }
+
+        [Fact]
+        public async Task AnOpenChargeForADifferentAmount_IsRefusedRatherThanReturned()
+        {
+            // Returning the open QR would take a figure nobody agreed to. The operator cancels the
+            // one that is open and starts the one they meant.
+            using var context = _database.CreateContext();
+            await GiveShopAPixAccountAsync(context);
+            var service = CreateService(context, ProviderReturning("pi_1", "qr"));
+            var clientSaleId = Guid.NewGuid();
+
+            await service.StartPixChargeAsync(
+                new StartPixChargeRequestDTO { ClientSaleId = clientSaleId, Amount = 60m }, _enterpriseId);
+
+            await Assert.ThrowsAsync<ArgumentException>(() => service.StartPixChargeAsync(
+                new StartPixChargeRequestDTO { ClientSaleId = clientSaleId, Amount = 45m }, _enterpriseId));
+        }
+
+        [Fact]
         public async Task AShopWithNoConnectedAccount_IsRefusedBeforeStripeIsCalled()
         {
             using var context = _database.CreateContext();

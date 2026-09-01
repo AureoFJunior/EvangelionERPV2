@@ -448,9 +448,11 @@ namespace EvangelionERPV2.PdvModule.Test
             var sessionId = Guid.NewGuid();
             await OpenSessionAsync(service, sessionId);
 
-            // A real charge, settled. Proof is checked against this row, not against the payload.
-            var chargeId = await GivePaidChargeAsync(context);
-            var request = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
+            // A real charge, settled, raised for this basket and for this amount. Proof is checked
+            // against that row, not against the payload.
+            var clientSaleId = Guid.NewGuid();
+            var chargeId = await GivePaidChargeAsync(context, clientSaleId: clientSaleId);
+            var request = SaleFor(clientSaleId, sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
             var pix = request.Payments!.Single();
             pix.ChargeId = chargeId;
             pix.IsVerified = true;
@@ -460,6 +462,56 @@ namespace EvangelionERPV2.PdvModule.Test
             var payment = await context.PdvSalePayment.SingleAsync();
             Assert.True(payment.IsVerified);
             Assert.Equal(chargeId, payment.PdvChargeId);
+        }
+
+        [Fact]
+        public async Task ATenderNamingAPaidChargeFromAnotherBasket_IsNotProof()
+        {
+            // The terminal chooses the charge id, so anything the id alone can reach is something
+            // the terminal can choose. Yesterday's settled charge must not vouch for today's sale.
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var otherBasket = await GivePaidChargeAsync(context, clientSaleId: Guid.NewGuid());
+            var request = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
+            var pix = request.Payments!.Single();
+            pix.ChargeId = otherBasket;
+            pix.IsVerified = true;
+
+            await service.SyncSaleAsync(request, _enterpriseId, _userId);
+
+            var payment = await context.PdvSalePayment.SingleAsync();
+            Assert.False(payment.IsVerified);
+
+            // The sale itself is fine and is never refused for this: RejectAsync is terminal, and
+            // the customer has already paid.
+            Assert.Equal(otherBasket, payment.PdvChargeId);
+            Assert.Equal((int)EnumPdvSaleStatus.Synced, (await context.PdvSale.SingleAsync()).Status);
+        }
+
+        [Fact]
+        public async Task ATenderClaimingMoreThanTheChargeSettled_IsNotProof()
+        {
+            // A R$ 1 charge cannot vouch for a R$ 60 tender, however genuinely it was paid.
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+
+            var clientSaleId = Guid.NewGuid();
+            var smallCharge = await GivePaidChargeAsync(context, clientSaleId: clientSaleId, amount: 1m);
+            var request = SaleFor(clientSaleId, sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
+            var pix = request.Payments!.Single();
+            pix.ChargeId = smallCharge;
+            pix.IsVerified = true;
+
+            await service.SyncSaleAsync(request, _enterpriseId, _userId);
+
+            Assert.False((await context.PdvSalePayment.SingleAsync()).IsVerified);
         }
 
         [Fact]
@@ -508,16 +560,20 @@ namespace EvangelionERPV2.PdvModule.Test
 
         /// <summary>A charge row the proof check can find, in whatever state the test needs.</summary>
         private async Task<Guid> GivePaidChargeAsync(AppDbContext context,
-            EnumPdvChargeStatus status = EnumPdvChargeStatus.Paid, Guid? enterpriseId = null)
+            EnumPdvChargeStatus status = EnumPdvChargeStatus.Paid, Guid? enterpriseId = null,
+            Guid? clientSaleId = null, decimal amount = 60m)
         {
             var charge = new PdvCharge
             {
                 Id = Guid.NewGuid(),
                 EnterpriseId = enterpriseId ?? _enterpriseId,
-                ClientSaleId = Guid.NewGuid(),
+
+                // The basket it was raised for. Proof is scoped to it, so a test that wants a
+                // verified tender has to say which sale the charge belongs to.
+                ClientSaleId = clientSaleId ?? Guid.NewGuid(),
                 Provider = "stripe",
                 ProviderIntentId = $"pi_{Guid.NewGuid():N}",
-                Amount = 60m,
+                Amount = amount,
                 Status = (int)status,
                 ExpiresAt = DateTime.UtcNow.AddMinutes(30)
             };
@@ -557,9 +613,10 @@ namespace EvangelionERPV2.PdvModule.Test
             var sessionId = Guid.NewGuid();
             await OpenSessionAsync(service, sessionId);
 
-            var proven = SaleFor(Guid.NewGuid(), sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
+            var provenSaleId = Guid.NewGuid();
+            var proven = SaleFor(provenSaleId, sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
             var provenPix = proven.Payments!.Single();
-            provenPix.ChargeId = await GivePaidChargeAsync(context);
+            provenPix.ChargeId = await GivePaidChargeAsync(context, clientSaleId: provenSaleId);
             provenPix.IsVerified = true;
 
             await service.SyncSaleAsync(proven, _enterpriseId, _userId);
