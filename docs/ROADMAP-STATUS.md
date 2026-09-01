@@ -24,12 +24,12 @@ Measured 2026-09-01, not remembered.
 | | |
 |---|---|
 | Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **294 commits ahead of `origin/main`** |
-| Head | `430e2f2` — every till write survives a lost answer. FrontV2 `57fd4e6`, PDV `046e573`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
+| Head | `a02c003` — the abono days sold after the first bill get paid. FrontV2 `57fd4e6`, PDV `046e573`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1636 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 610, `NFeModule` 363, `PdvModule` 85. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| Tests | **1639 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 610, `NFeModule` 363, `PdvModule` 85, `BillsModule` 275. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
 | PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `046e573` (58 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-09-01. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
-| Migrations | chain ends `20260901122839_AddFiscalNatOp`. **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
+| Migrations | chain ends `20260901132721_AddAbonoDaysSettled` (nullable `PayableBill.AbonoDaysSettled`, applied and verified in `sys.columns` 2026-09-01). **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -200,11 +200,22 @@ behind it is still the one path `M-B8` shadows in production.
 
 Each is recorded with its reasoning in *Open follow-ons* below. The ones most likely to bite first:
 
-- **M11 P5 abono** — days sold after the first bill go unbilled. Needs a column.
+- ~~**M11 P5 abono**~~ — closed 2026-09-01. `PayableBill.AbonoDaysSettled` (migration `…132721`,
+  nullable so bills older than the column keep the old inference) records what each férias bill
+  settled, so days sold after the first one ride the next stretch instead of vanishing. **Residual,
+  marked `ponytail:`**: days sold after *every* scheduled stretch is billed still have no bill to
+  ride — that needs a férias bill with no stretch, which has no due-date rule of its own.
 - ~~**M20 orphan supplier**~~ — closed 2026-09-01; the emitter and its first bill are one unit of work.
 - **M21 credit-limit race** — two simultaneous orders that each fit but together do not both pass.
-- **Users `DeleteUser`** is a hard delete, the only one in the system.
-- **Three duplicate `IDistributedCache` registrations** — last one wins, the other two are dead weight.
+  **Re-read 2026-09-01 and left alone**: the limit is a policy, not a ledger invariant, and the only
+  fix is serialising every order behind the customer's row.
+- ~~**Users `DeleteUser`** is a hard delete~~ — closed 2026-09-01. It deactivates now, like every
+  other delete here. It was also the one that could not work: the till's `CashSession.UserId` is
+  `Restrict`, so removing an operator with a shift on record threw at the database. Login, Google
+  sign-in and the till all require `IsActive == true`, and the e-mail stops counting against the
+  active-email uniqueness check, so it can be reused.
+- ~~**Three duplicate `IDistributedCache` registrations**~~ — already closed by R4 on 2026-08-28;
+  this line had gone stale. `SharedIoC:34` is the only `AddStackExchangeRedisCache` in the tree.
 
 ## Needs a human, not code
 
@@ -335,14 +346,19 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   bounded by `RecurrenceUntilUtc >= today`, so an installation's finished chains do not make the
   morning pass read a growing table to do nothing. Recurrence must travel on
   **every** payable update — a missing value means "stop repeating", which is how a chain is ended.
-- **M11 P5**: abono settles with the first bill an accrual produces; days sold afterwards go unbilled
-  (`ponytail:`, needs a column). A férias bill whose stretch is cancelled after issue is reported as
-  an orphan. `PayableBillDetail` has no `EnterpriseId`.
+- **M11 P5**: ~~abono settles with the first bill an accrual produces; days sold afterwards go
+  unbilled~~ — closed 2026-09-01 by `PayableBill.AbonoDaysSettled`; what is still owed is now
+  `SoldDays` minus what the standing bills recorded, and a bill older than the column is still
+  inferred from its amount. Days sold once every stretch is billed remain unbillable (`ponytail:`).
+  A férias bill whose stretch is cancelled after issue is reported as an orphan. `PayableBillDetail`
+  has no `EnterpriseId`.
 - **M11 P5a**: `PayableBill.Amount` on a férias bill is the *netted* figure; whoever pays reads
   `GrossAmount`. M12's matcher and M18's export both already do.
 - **M11 P4**: the approaching-deadline liability read has no controller action and no permission —
   `SPEC-hr-module.md` §8 puts that KPI out of scope.
-- **Users**: `DeleteUser` is a **hard** delete, the only one in the system.
+- ~~**Users**: `DeleteUser` is a **hard** delete, the only one in the system.~~ Closed 2026-09-01 —
+  it deactivates, and the row it used to remove is referenced by orders, cash sessions and audit
+  trails.
 - **M6**: `NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only. **`natOp` is no longer a
   constant**: since 2026-09-01 it is `EnterpriseFiscalSettings.DefaultNatOp` (default
   `VENDA DE MERCADORIA`, blank falls back to it, over 60 characters is cut rather than refused
