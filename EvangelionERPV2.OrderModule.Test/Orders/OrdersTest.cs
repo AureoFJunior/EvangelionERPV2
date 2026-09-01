@@ -59,7 +59,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 _mockICustomerRepository.Object,
                 _mockIBillRepository.Object,
                 _mockIProductService.Object,
-                null,
+                null!,
                 _orderReportGeneratorService,
                 null);
         }
@@ -81,7 +81,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 // Assert
                 Assert.Null(result);
             }
-            catch (InsertDatabaseException ex)
+            catch (InsertDatabaseException)
             {
                 // Negative or Null values Identified
                 Assert.True(true);
@@ -678,7 +678,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns(originalOrder);
 
             // Simulate updating the order
-            var updatedOrder = new Order(originalOrder.Payday, originalOrder.PaymentScheduledDate, 200, originalOrder.EnterpriseId, originalOrder.CustomerId, originalOrder.OrderedProduct, Guid.NewGuid())
+            var updatedOrder = new Order(originalOrder.Payday, originalOrder.PaymentScheduledDate, 200, originalOrder.EnterpriseId, originalOrder.CustomerId, originalOrder.OrderedProduct!, Guid.NewGuid())
             {
                 // Set the same ID as the original
                 Id = orderId
@@ -938,7 +938,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_OrderWithNullOrderedProducts_ThrowsInsertDatabaseException()
         {
-            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid());
+            var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(), null!, Guid.NewGuid());
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
         }
 
@@ -979,7 +979,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 }, Guid.NewGuid())
             { Id = orderId };
 
-            _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns((Order)null);
+            _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns((Order)null!);
 
             Assert.Throws<NotFoundDatabaseException>(() => _orderService.Update(order));
         }
@@ -1136,7 +1136,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             // CommitAsync must be setup to avoid awaiting null
             mockOrderRepo.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
             mockOrderRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-            mockOrderedProductRepo.Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<OrderedProduct>>())).ReturnsAsync(order.OrderedProduct);
+            mockOrderedProductRepo.Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<OrderedProduct>>()))
+                .Returns(Task.FromResult<IEnumerable<OrderedProduct>>(order.OrderedProduct!));
             mockOrderedProductRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
             mockProductService.Setup(p => p.UpdateForOrder(It.IsAny<Order>())).Returns(Task.CompletedTask);
             SetupProductLookupForOrder(mockProductRepo, order);
@@ -1166,7 +1167,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 EmptyCustomerRepository(),
                 new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Bill>>().Object,
                 mockProductService.Object,
-                null,
+                null!,
                 orderReportGeneratorService,
                 mockHubContext.Object);
 

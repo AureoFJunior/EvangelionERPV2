@@ -640,7 +640,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 });
 
             repo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>()))
-                .ReturnsAsync((Guid id) => records.FirstOrDefault(x => x.Id == id));
+                .Returns((Guid id) => Task.FromResult<TEntity>(records.FirstOrDefault(x => x.Id == id)!));
 
             repo.Setup(x => x.CreateAsync(It.IsAny<TEntity>()))
                 .ReturnsAsync((TEntity entity) =>

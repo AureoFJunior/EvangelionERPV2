@@ -229,7 +229,12 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
         /// </remarks>
         public override Order Update(Order entity)
         {
-            InvalidateCachedOrder(entity?.Id);
+            // The parameter is non-nullable, so a null here is a caller bug rather than a state to
+            // tolerate — and the `entity?.` this used to carry only moved the failure from a named
+            // exception to a NullReferenceException inside EF, several frames further on.
+            ArgumentNullException.ThrowIfNull(entity);
+
+            InvalidateCachedOrder(entity.Id);
             return base.Update(entity);
         }
 
@@ -244,7 +249,9 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
 
         public override Order Delete(Order entity)
         {
-            InvalidateCachedOrder(entity?.Id);
+            ArgumentNullException.ThrowIfNull(entity);
+
+            InvalidateCachedOrder(entity.Id);
             return base.Delete(entity);
         }
 

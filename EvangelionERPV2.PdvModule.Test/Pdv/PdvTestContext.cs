@@ -76,6 +76,11 @@ namespace EvangelionERPV2.PdvModule.Test
                 });
 
             var table = entityType.GetTableName();
+
+            // EF1002 through to the restore below: this is DDL built from EF's own model metadata
+            // — table, column and index names it just gave us — in a test harness that never sees
+            // outside input. Identifiers cannot be parameters in DDL anyway.
+#pragma warning disable EF1002
             context.Database.ExecuteSqlRaw($"CREATE TABLE \"{table}\" ({string.Join(", ", columns)}, PRIMARY KEY(\"Id\"))");
 
             var index = 0;
@@ -91,6 +96,7 @@ namespace EvangelionERPV2.PdvModule.Test
 
                 context.Database.ExecuteSqlRaw($"CREATE UNIQUE INDEX \"UX_{table}_{index++}\" ON \"{table}\" ({names})");
             }
+#pragma warning restore EF1002
         }
 
         public AppDbContext CreateContext()

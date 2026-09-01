@@ -367,10 +367,15 @@ namespace EvangelionERPV2.Shared.Repositories
             if (string.IsNullOrEmpty(table))
                 return;
 
+            // EF1002 flags the interpolation, and cannot see that the only interpolated value is
+            // the table name EF itself just handed us three lines up — never anything a caller
+            // passed. A table name cannot be a parameter in any case; the id, which can, is one.
+#pragma warning disable EF1002
             await _context.Database.ExecuteSqlRawAsync(
                 $"SELECT TOP 1 1 FROM [{table}] WITH (UPDLOCK, HOLDLOCK) WHERE Id = {{0}}",
                 [id],
                 cancellation);
+#pragma warning restore EF1002
         }
 
         public virtual async Task<TEntity> CreateAsync(TEntity entity)

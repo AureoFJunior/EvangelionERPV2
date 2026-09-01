@@ -88,7 +88,7 @@ namespace EvangelionERPV2.EmployeeModule.Test
             Assert.Equal(20, accrual.ScheduledDays);
             Assert.Equal(10, accrual.RemainingDays);
 
-            var booked = Assert.Single(world.Absences.Where(x => x.Type == (int)EnumEmployeeAbsenceType.Vacation));
+            var booked = Assert.Single(world.Absences, x => x.Type == (int)EnumEmployeeAbsenceType.Vacation);
             Assert.Equal(20, (booked.EndDate - booked.StartDate).Days + 1);
 
             // Paid leave: this row must never travel PayrollService.ReducesPay, which would cut the
@@ -147,7 +147,7 @@ namespace EvangelionERPV2.EmployeeModule.Test
                 () => sut.ScheduleAsync(accrual.Id, EnterpriseId, accrual.AcquisitionEnd.AddDays(10), 31));
 
             Assert.Contains("30 day(s) remain", exception.Message);
-            Assert.Empty(world.Absences.Where(x => x.Type == (int)EnumEmployeeAbsenceType.Vacation));
+            Assert.DoesNotContain(world.Absences, x => x.Type == (int)EnumEmployeeAbsenceType.Vacation);
         }
 
         [Fact]

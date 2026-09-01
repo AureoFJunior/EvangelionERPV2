@@ -151,7 +151,10 @@ namespace EvangelionERPV2.BillsModule.Test
             var enterpriseId = Guid.NewGuid();
 
             billRepoCustom.Setup(r => r.GetByOrderIdAsync(orderId)).ReturnsAsync((BillEntity?)null);
-            orderRepo.Setup(r => r.GetByIdAsync(orderId)).ReturnsAsync((Order?)null);
+            // IRepository.GetByIdAsync is declared non-nullable, so the nullable ReturnsAsync
+            // overload does not match it. Task.FromResult says the same thing without asking Moq
+            // to reconcile a nullability the interface never claimed.
+            orderRepo.Setup(r => r.GetByIdAsync(orderId)).Returns(Task.FromResult<Order>(null!));
 
             await Assert.ThrowsAsync<NotFoundDatabaseException>(() => service.GenerateAsync(orderId, enterpriseId));
         }
