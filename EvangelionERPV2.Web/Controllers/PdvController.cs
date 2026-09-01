@@ -908,6 +908,18 @@ namespace EvangelionERPV2.Web.Controllers
 
             if (neverTransmitted && !string.IsNullOrWhiteSpace(contingencyReason))
             {
+                // xJust is bounded by the schema at 15..256. Refused here, where the answer is a
+                // 400 the operator can act on, rather than deeper down where it becomes a second
+                // fiscal document in Error for a sale that already has one.
+                var reason = contingencyReason.Trim();
+                if (reason.Length is < 15 or > 256)
+                {
+                    return BadRequest(new
+                    {
+                        message = "A contingency reason must be between 15 and 256 characters."
+                    });
+                }
+
                 document = await _nfeService.IssueAsync(
                     sale.OrderId.Value,
                     enterpriseId,
@@ -915,7 +927,7 @@ namespace EvangelionERPV2.Web.Controllers
                     new NFeContingency
                     {
                         EnteredAt = DateTime.UtcNow,
-                        Justification = contingencyReason.Trim()
+                        Justification = reason
                     }) ?? document;
             }
 

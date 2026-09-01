@@ -100,6 +100,24 @@ namespace EvangelionERPV2.Test.Security
                 It.Is<NFeContingency>(contingency => contingency != null)), Times.Never);
         }
 
+        [Theory]
+        [InlineData("sem sinal")]                                                   // 9 — too short
+        [InlineData("   caiu a net   ")]                                            // 11 once trimmed
+        public async Task AReasonTheSchemaWouldReject_IsRefusedHere(string reason)
+        {
+            // xJust is bounded at 15..256. Refused before the second issue call, so a short reason
+            // costs a 400 the operator can fix instead of a second fiscal document in Error.
+            var nfe = new Mock<INFeService<NFeDocument>>(MockBehavior.Strict);
+            nfe.Setup(x => x.IssueAsync(OrderId, EnterpriseId, NFeDocumentType.NFCe, null))
+                .ReturnsAsync(Document(NFeStatus.Error, transmittedAt: null));
+
+            var result = await Controller(SyncedSale(), nfe).IssueFiscalDocument(ClientSaleId, reason);
+
+            Assert.IsType<BadRequestObjectResult>(result);
+            nfe.Verify(x => x.IssueAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<NFeDocumentType>(),
+                It.Is<NFeContingency>(contingency => contingency != null)), Times.Never);
+        }
+
         [Fact]
         public async Task ASaleThatNeverBecameAnOrder_HasNothingToIssueAgainst()
         {
