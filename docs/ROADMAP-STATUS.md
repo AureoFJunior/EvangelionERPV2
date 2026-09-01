@@ -350,8 +350,27 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   unbilled~~ — closed 2026-09-01 by `PayableBill.AbonoDaysSettled`; what is still owed is now
   `SoldDays` minus what the standing bills recorded, and a bill older than the column is still
   inferred from its amount. Days sold once every stretch is billed remain unbillable (`ponytail:`).
-  A férias bill whose stretch is cancelled after issue is reported as an orphan. `PayableBillDetail`
-  has no `EnterpriseId`.
+  A férias bill whose stretch is cancelled after issue is reported as an orphan.
+  ~~`PayableBillDetail` has no `EnterpriseId`.~~ **Closed 2026-09-01** — the table is
+  `PayrollBillDetail`, and it now carries the column (migration `…133552`, backfilled from the
+  payable bill and then from the employee; verified locally: 6 rows, none left at `Guid.Empty`). It
+  is therefore covered by the convention filter in `ApplyTenantQueryFilters` like every other
+  tenant-owned entity, and `PayrollService.LoadExistingAsync` scopes its query instead of reading
+  every tenant's competência and discarding the rows whose bill was not this enterprise's. Nothing
+  leaked before — the post-filter was correct — but the whole installation's salary-derived rows
+  were read into memory to produce one tenant's answer. **Migration trap paid for here:** an
+  `UPDATE` naming the new column has to go through `EXEC`, because the idempotent script puts it in
+  one batch with the `ALTER` and SQL Server parses a batch whole — the direct form failed with
+  `Invalid column name 'EnterpriseId'`.
+
+  **The rest of the entities were swept the same day.** Thirteen carry no `EnterpriseId`;
+  `PayrollBillDetail` was the only one queried without either a join to its tenant-owned parent or a
+  set of ids that came from a tenant-scoped query. `Bill` reaches the tenant through
+  `x.Order.EnterpriseId` in every query, the radar's signals and recommendations through
+  `OpportunityId`, the item tables through their parent, and `RefreshToken` / `PasswordResetToken` /
+  the e-mail settings are deliberately not tenant-owned. None of those are covered by the convention
+  filter, so each stays correct only as long as the next author remembers the join — a known shape,
+  not a defect today.
 - **M11 P5a**: `PayableBill.Amount` on a férias bill is the *netted* figure; whoever pays reads
   `GrossAmount`. M12's matcher and M18's export both already do.
 - **M11 P4**: the approaching-deadline liability read has no controller action and no permission —
