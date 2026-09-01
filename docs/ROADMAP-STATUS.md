@@ -24,11 +24,11 @@ Measured 2026-09-01, not remembered.
 | | |
 |---|---|
 | Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **294 commits ahead of `origin/main`** |
-| Head | `2ddcefe` — the emitter and its first bill as one unit of work. FrontV2 `57fd4e6`, PDV `2545dcc`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
+| Head | `430e2f2` — every till write survives a lost answer. FrontV2 `57fd4e6`, PDV `046e573`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1633 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 610, `NFeModule` 363, `PdvModule` 82. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| Tests | **1636 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 610, `NFeModule` 363, `PdvModule` 85. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
-| PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `2545dcc` (57 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-08-31. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
+| PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `046e573` (58 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-09-01. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
 | Migrations | chain ends `20260901122839_AddFiscalNatOp`. **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
@@ -398,6 +398,35 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   **Residual, by design, not a finding:** every supervisor's PIN verifier is cached on every till, so
   a stolen terminal is an offline six-digit guess at 210k iterations. That is the stated trade for an
   override that still works with the network down.
+- **M29a sync path, reviewed 2026-09-01.** Session open/close, cash movements and
+  `SyncSale`/`SyncSaleBatch` read end to end against the till's own outbox in the PDV repo. Sound:
+  the claim on `ClientSaleId` and its unique index; the tender total asserted against the basket
+  before anything is written; a card tender refused without its authorization code at the server as
+  well as the till; only the cash leg reaching the drawer; `RequireSessionAsync` rather than
+  `RequireOpenSessionAsync` on a sale, so an offline shift still syncs after its close; the till's
+  queue draining in order and stopping at the first retry.
+  **Three holes, all fixed (`430e2f2`, PDV `046e573`).**
+  1. **A crash between the order and the payments sold the basket twice.** `OrderService.CreateAsync`
+     commits in its own transaction; the sale's `OrderId` was written only by the *later* completion
+     commit, so a failure in between left a bare Pending claim and the retry rang the whole basket up
+     again — second order, second stock movement, second cash movement, and a drawer expecting money
+     nobody put in it. The order id is now committed on its own the moment it exists, and a claim
+     that already carries one resumes instead of re-creating. Covered by
+     `AFailureAfterTheOrderWasCreated_ResumesInsteadOfSellingTheBasketTwice`, verified red without
+     the guard.
+  2. **The till read 204 as an acknowledgement.** `NotFoundDatabaseException` maps to 204 across this
+     API, and `InterpretAsync` treated any success status as accepted — so a sale for a session the
+     server had never heard of was dropped from the outbox and marked Sent, with the money recorded
+     on the terminal only. 204 now retries: the queue stops where a human can see it. The old
+     `A204IsStillAccepted` test asserted the bug and is now its opposite.
+  3. **A resent close came back as a refusal, and a second shift as a 500.** Closing is idempotent
+     now — the stored reading stands, the count is not overwritten and no second Closing movement is
+     written — and opening a shift on a terminal that already has one is named as a 400 the operator
+     can act on, instead of the filtered unique index throwing a `DbUpdateException` the outbox
+     retries forever without saying why.
+  **Left open, deliberately:** a stale open shift still blocks its terminal until somebody closes it,
+  and the backoffice can only *list* open sessions. Forcing a close is a Z reading nobody counted, so
+  it is a decision rather than a fix.
 - **NFC-e**: `EnterpriseFiscalSettings.Enabled` and `.NFCeEnabled` were stored, editable and
   **enforced nowhere**. `6264ab5` gated the till's `IssueFiscalDocument` on both; since 2026-08-31
   `NFeService.IssueAsync` reads them too, before it claims a document, so a certificate removal
