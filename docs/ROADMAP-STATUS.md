@@ -344,6 +344,27 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   NFC-e is built from the sale's own `PdvSalePayment` rows — one `detPag` per tender, `vTroco` for
   the change, and the `card` group with the authorisation code on a card. A modelo 55 still declares
   "Outros", which is the honest answer for a back-office order that records no means of payment.
+- **M29e PIX, reviewed 2026-09-01** — the slice landed on 2026-08-31 in a parallel session and had
+  never been read by another pass. Two defects, both fixed the same day:
+  - **A cancelled charge blocked its basket forever.** `StartPixChargeAsync` returned *any* existing
+    charge for the `ClientSaleId`, so after the operator pressed Esc — which the till does, then
+    clears its own handle and lets them press PIX again — the next attempt got the **cancelled** row
+    back: a dead QR and a poll answering "cancelado" for a customer still standing at the counter.
+    Now only **Pending** (the live intent) and **Paid** (never charge a paid basket twice) are
+    handed back; Cancelled, Failed and Expired get a fresh attempt. A Pending charge for a
+    *different* amount is refused rather than returned — that QR would take a figure nobody agreed to.
+  - **`IsVerified` was weaker than it reads.** It required a Paid charge of the tenant named by the
+    terminal, but **not that the charge was raised for this basket, nor that it settled this much**.
+    The terminal chooses the id, so anything the id alone reaches is something the terminal can
+    choose: a R$ 500 PIX tender could point at yesterday's paid R$ 1 charge and be recorded as
+    proven. Now matched on `ClientSaleId` and `Amount` too. **A mismatch records the tender
+    unverified and never refuses the sale** — `RejectAsync` is terminal and the customer has paid.
+  - **Left open, deliberately.** `PdvCharge.EndToEndId` is read off `intent.LatestCharge`, which a
+    webhook payload does not expand, so **it is null in practice** — the PIX e2e id costs an API
+    call per settlement and belongs in the same batched sweep as `FeeAmount` (already `ponytail:`).
+    And **nothing ever writes `Expired`**: `ExpiresAt` is recorded and only the till reads it, so an
+    unpaid charge stays Pending forever. Neither loses money; both are worth one sweep when the
+    account exists (A9).
 - **NFC-e**: `EnterpriseFiscalSettings.Enabled` and `.NFCeEnabled` were stored, editable and
   **enforced nowhere**. `6264ab5` gated the till's `IssueFiscalDocument` on both; since 2026-08-31
   `NFeService.IssueAsync` reads them too, before it claims a document, so a certificate removal
