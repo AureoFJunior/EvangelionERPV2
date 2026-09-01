@@ -106,11 +106,15 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 };
             }
 
-            var (supplierRecord, supplierCreated) = await ResolveSupplierAsync(enterpriseId, nota);
+            // Matching first, and the emitter after it: everything that can fail without writing
+            // anything runs before the row that would be left behind if it did.
             var (items, unmatched, costed) = await MatchItemsAsync(enterpriseId, nota);
             await PersistBackfilledCostsAsync(costed);
 
+            var (supplierRecord, supplierCreated) = await ResolveSupplierAsync(enterpriseId, nota);
+
             var created = new List<PayableBill>(existing);
+            var supplierPending = supplierCreated;
 
             // Only what is missing, so an import that died halfway — the third instalment threw,
             // the first two are already rows — finishes on the next attempt instead of leaving the
@@ -140,6 +144,26 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 // keepProvidedAmount: the payable is what the nota says is owed — vDup per
                 // instalment, or vNF for a nota with no schedule — and neither is the sum of the
                 // line values, which exclude freight, insurance and ST.
+                if (supplierPending)
+                {
+                    // An emitter nobody has traded with before is created *with* the first bill it
+                    // was created for, in one unit of work. It used to be committed on its own
+                    // several steps earlier, so an import refused afterwards — a closed period, a
+                    // bad line, a lost connection — left a supplier the shop never dealt with
+                    // sitting in its list and in every picker.
+                    await _supplierRepository.ExecuteInTransactionAsync(async () =>
+                    {
+                        await _supplierRepository.CreateAsync(supplierRecord);
+                        await _supplierRepository.CommitAsync();
+
+                        created.Add(await _payableBillService.CreateAsync(
+                            bill, useAmbientTransaction: true, keepProvidedAmount: true));
+                    });
+
+                    supplierPending = false;
+                    continue;
+                }
+
                 created.Add(await _payableBillService.CreateAsync(bill, keepProvidedAmount: true));
             }
 
@@ -171,6 +195,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// The emitter, matched on its document. Unknown emitters become suppliers — unlike a
         /// product, a supplier record carries nothing the nota does not already state.
         /// </summary>
+        /// <returns>
+        /// The supplier, and whether it is **new and not yet persisted**. A new one is deliberately
+        /// left unsaved: the caller writes it in the same transaction as the first bill, so a
+        /// refused import cannot leave a supplier the shop never traded with.
+        /// </returns>
         private async Task<(Supplier Supplier, bool Created)> ResolveSupplierAsync(Guid enterpriseId, SupplierNFeDocument nota)
         {
             // GetPagedAsync, not GetAllAsync: SupplierRepository's override throws
@@ -195,9 +224,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 Email = string.Empty,
                 IsActive = true
             };
-
-            await _supplierRepository.CreateAsync(supplier);
-            await _supplierRepository.CommitAsync();
 
             return (supplier, true);
         }

@@ -24,9 +24,9 @@ Measured 2026-09-01, not remembered.
 | | |
 |---|---|
 | Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **294 commits ahead of `origin/main`** |
-| Head | `09c1ca2` — the PIX review. FrontV2 `57fd4e6`, PDV `2545dcc`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
+| Head | `4c8505d` — the PIX expiry window. FrontV2 `57fd4e6`, PDV `2545dcc`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1625 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 608, `NFeModule` 361, `PdvModule` 78. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| Tests | **1631 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 608, `NFeModule` 363, `PdvModule` 82. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
 | PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `2545dcc` (57 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-08-31. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
 | Migrations | chain ends `20260901122839_AddFiscalNatOp`. **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
@@ -201,8 +201,7 @@ behind it is still the one path `M-B8` shadows in production.
 Each is recorded with its reasoning in *Open follow-ons* below. The ones most likely to bite first:
 
 - **M11 P5 abono** — days sold after the first bill go unbilled. Needs a column.
-- **M20 orphan supplier** — a refused import leaves the supplier row it created; the resumable path
-  reuses it, so this is untidy rather than wrong.
+- ~~**M20 orphan supplier**~~ — closed 2026-09-01; the emitter and its first bill are one unit of work.
 - **M21 credit-limit race** — two simultaneous orders that each fit but together do not both pass.
 - **Users `DeleteUser`** is a hard delete, the only one in the system.
 - **Three duplicate `IDistributedCache` registrations** — last one wins, the other two are dead weight.
@@ -323,8 +322,13 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   with no schedule, or one whose duplicatas carry no amounts, is still a single bill for vNF.
   A half-finished import now resumes: only the missing duplicatas are created on the next attempt,
   and a nota imported before the key widened (null duplicata) is never re-entered as instalments.
-  Still open there: an unknown emitter's supplier row is created before the bills, so a refused
-  import can leave an orphan supplier — which the resumable path then reuses.
+  ~~Still open there: an unknown emitter's supplier row is created before the bills, so a refused
+  import can leave an orphan supplier.~~ **Closed 2026-09-01.** The emitter is now created **in the
+  same transaction as the first bill it was created for**, and item matching plus the cost backfill
+  — everything that can fail while writing nothing — moved ahead of it. A refused import (a closed
+  period is the ordinary case) now leaves nothing behind. The test double had to be fixed to earn
+  the test: a loose Moq `ExecuteInTransactionAsync` answers a completed Task and **never calls the
+  delegate**, so the transaction body silently did not run at all.
 - **M21**: two simultaneous orders that each fit under the limit but together do not will both pass.
   The limit is a policy, not a ledger invariant; serialising it would lock every order.
 - **M22**: a long-dormant chain catches up one month per sweep, by design. Both sweep queries are

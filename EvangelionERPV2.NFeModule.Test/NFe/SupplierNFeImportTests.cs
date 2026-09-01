@@ -318,6 +318,40 @@ namespace EvangelionERPV2.NFeModule.Test
         }
 
         [Fact]
+        public async Task Import_RefusedAfterTheEmitterWasResolved_LeavesNoSupplierBehind()
+        {
+            // The emitter used to be committed several steps before the first bill, so an import
+            // refused afterwards — a closed period is the ordinary case — left a supplier the shop
+            // never traded with sitting in its list and in every picker.
+            var product = BuildProduct("Plugsuit", ean: "7891234567895");
+            var (service, bills, suppliers, payableBillService) = BuildSut(products: [product]);
+
+            payableBillService
+                .Setup(x => x.CreateAsync(It.IsAny<PayableBill>(), It.IsAny<bool>(), It.IsAny<bool>()))
+                .ThrowsAsync(new PeriodClosedException("The period is closed."));
+
+            await Assert.ThrowsAsync<PeriodClosedException>(
+                () => service.ImportAsync(EnterpriseId, BuildNota()));
+
+            Assert.Empty(bills);
+            Assert.Empty(suppliers);
+        }
+
+        [Fact]
+        public async Task Import_ThatSucceeds_StillRecordsTheEmitterOnce()
+        {
+            var product = BuildProduct("Plugsuit", ean: "7891234567895");
+            var (service, bills, suppliers, _) = BuildSut(products: [product]);
+
+            var result = await service.ImportAsync(EnterpriseId, BuildNota());
+
+            var supplier = Assert.Single(suppliers);
+            Assert.True(result.SupplierCreated);
+            Assert.Equal(supplier.Id, result.SupplierId);
+            Assert.Equal(supplier.Id, Assert.Single(bills).SupplierId);
+        }
+
+        [Fact]
         public async Task Import_TheSameFileTwice_ReturnsTheBillThatAlreadyExists()
         {
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
@@ -552,6 +586,26 @@ namespace EvangelionERPV2.NFeModule.Test
                 });
 
             repo.Setup(x => x.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+            // Runs the body and rolls this store back if it throws, like the real one. A loose mock
+            // answers a completed Task and never calls the delegate at all; one that called it but
+            // kept the writes would pass a test whose whole subject is that they are undone.
+            repo.Setup(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
+                .Returns(async (Func<Task> operation, CancellationToken _) =>
+                {
+                    var snapshot = records.ToList();
+
+                    try
+                    {
+                        await operation();
+                    }
+                    catch
+                    {
+                        records.Clear();
+                        records.AddRange(snapshot);
+                        throw;
+                    }
+                });
 
             return repo;
         }
