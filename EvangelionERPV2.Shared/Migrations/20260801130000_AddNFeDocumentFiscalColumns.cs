@@ -141,20 +141,32 @@ namespace EvangelionERPV2.Shared.Migrations
             // Backfill the denormalised tenant key from the owning order. Rows whose order has
             // no enterprise keep Guid.Empty; tenant scoping treats that as "matches nobody",
             // and NFeService falls back to the Order lookup for them.
+            // Through EXEC: the idempotent script emits this in the same batch as the ALTER that
+            // adds the column, and SQL Server compiles a batch whole — naming the column directly
+            // fails with "Invalid column name" on any database that has not run this migration yet.
             migrationBuilder.Sql("""
-                UPDATE d
-                   SET d.EnterpriseId = o.EnterpriseId
-                  FROM dbo.NFeDocument AS d
-                  INNER JOIN dbo.[Order] AS o ON o.Id = d.OrderId
-                 WHERE o.EnterpriseId IS NOT NULL;
+                EXEC(N'
+                    UPDATE d
+                       SET d.EnterpriseId = o.EnterpriseId
+                      FROM dbo.NFeDocument AS d
+                      INNER JOIN dbo.[Order] AS o ON o.Id = d.OrderId
+                     WHERE o.EnterpriseId IS NOT NULL;
+
+                ');
                 """);
 
             // Anything the join could not resolve becomes Guid.Empty rather than NULL, so the
             // column can go NOT NULL and match the model.
+            // Through EXEC: the idempotent script emits this in the same batch as the ALTER that
+            // adds the column, and SQL Server compiles a batch whole — naming the column directly
+            // fails with "Invalid column name" on any database that has not run this migration yet.
             migrationBuilder.Sql("""
-                UPDATE dbo.NFeDocument
-                   SET EnterpriseId = '00000000-0000-0000-0000-000000000000'
-                 WHERE EnterpriseId IS NULL;
+                EXEC(N'
+                    UPDATE dbo.NFeDocument
+                       SET EnterpriseId = ''00000000-0000-0000-0000-000000000000''
+                     WHERE EnterpriseId IS NULL;
+
+                ');
                 """);
 
             migrationBuilder.AlterColumn<Guid>(
@@ -167,10 +179,16 @@ namespace EvangelionERPV2.Shared.Migrations
                 oldNullable: true);
 
             // Type is the API-facing enum (1 = NFe, 2 = NFCe); Model is the SEFAZ document model.
+            // Through EXEC: the idempotent script emits this in the same batch as the ALTER that
+            // adds the column, and SQL Server compiles a batch whole — naming the column directly
+            // fails with "Invalid column name" on any database that has not run this migration yet.
             migrationBuilder.Sql("""
-                UPDATE dbo.NFeDocument
-                   SET Model = CASE WHEN [Type] = 2 THEN 65 ELSE 55 END
-                 WHERE Model = 0;
+                EXEC(N'
+                    UPDATE dbo.NFeDocument
+                       SET Model = CASE WHEN [Type] = 2 THEN 65 ELSE 55 END
+                     WHERE Model = 0;
+
+                ');
                 """);
 
             migrationBuilder.CreateIndex(

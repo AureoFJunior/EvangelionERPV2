@@ -27,13 +27,19 @@ namespace EvangelionERPV2.Shared.Migrations
                 type: "uniqueidentifier",
                 nullable: true);
 
+            // Through EXEC: the idempotent script emits this in the same batch as the ALTER that
+            // adds the column, and SQL Server compiles a batch whole — naming the column directly
+            // fails with "Invalid column name" on any database that has not run this migration yet.
             migrationBuilder.Sql("""
-                UPDATE [audit]
-                SET [EnterpriseId] = [userRecord].[EnterpriseId]
-                FROM [AuditTrails] AS [audit]
-                INNER JOIN [User] AS [userRecord]
-                    ON [audit].[UserId] = [userRecord].[Id]
-                WHERE [audit].[EnterpriseId] IS NULL;
+                EXEC(N'
+                    UPDATE [audit]
+                    SET [EnterpriseId] = [userRecord].[EnterpriseId]
+                    FROM [AuditTrails] AS [audit]
+                    INNER JOIN [User] AS [userRecord]
+                        ON [audit].[UserId] = [userRecord].[Id]
+                    WHERE [audit].[EnterpriseId] IS NULL;
+
+                ');
                 """);
 
             migrationBuilder.CreateIndex(
