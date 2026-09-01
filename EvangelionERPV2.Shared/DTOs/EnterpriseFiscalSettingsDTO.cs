@@ -75,6 +75,9 @@ namespace EvangelionERPV2.Shared.DTOs
 
         #region Fiscal defaults
 
+        /// <summary>natOp, printed on the DANFE. One per tenant — see the entity.</summary>
+        public string DefaultNatOp { get; set; } = "VENDA DE MERCADORIA";
+
         public string DefaultCfopIntra { get; set; } = "5102";
         public string DefaultCfopInter { get; set; } = "6102";
         public string? DefaultCst { get; set; }

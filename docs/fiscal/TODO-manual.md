@@ -59,10 +59,16 @@ IDs are referenced from the code spec as §M1 / §M-B1. Last reviewed 2026-08-20
       `CsrtSecret` (a Secrets Manager reference) only if the pilot UF demands the CSRT — the library derives
       `hashCSRT` from it and the chave. **Fill the four values or the first real transmission is still
       rejected.** *Owner: you — the values, not the code.*
-- [ ] **M14 — `natOp` and `tPag` are single constants.** Every note says `VENDA DE MERCADORIA` and every
-      payment says `99 / OUTROS`, because `Order` records neither a nature of operation nor a means of
-      payment. Correct for a pure sales flow and wrong the moment devolução, remessa or a real payment
-      breakdown matters. Confirm the pilot only ever issues plain sales, or the two fields go on `Order`.
+- [ ] **M14 — one nature of operation per tenant, and only the till knows how it was paid.**
+      **Both halves moved on 2026-09-01.** `tPag` is now real on an NFC-e: the note is built from the
+      sale's own `PdvSalePayment` rows, one `detPag` per tender, with `vTroco` and the card
+      authorisation code. And `natOp` is no longer a constant in the XML builder — it is
+      `EnterpriseFiscalSettings.DefaultNatOp`, defaulting to `VENDA DE MERCADORIA`, so the wording is
+      the shop's and its accountant's rather than a release.
+      **What is still owed by a human:** whether the pilot ever issues anything but a plain sale. A
+      devolução or a remessa needs a natOp that follows the CFOP, and a modelo 55 still declares
+      `99 / OUTROS` because a back-office `Order` records no means of payment — inventing one would be
+      a claim to the fisco. Confirm plain sales only, or a nature-of-operation field goes on `Order`.
       *Owner: you / pilot tenant's accountant.*
 - [ ] **M9 — `NFeDocument.EnterpriseId` FK: `Restrict` or no FK at all.** The original "cascade would
       delete fiscal documents" argument does not survive scrutiny — `NFeNumberSequence` already

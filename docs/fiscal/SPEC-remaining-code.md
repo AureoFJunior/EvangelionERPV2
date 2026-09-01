@@ -80,6 +80,13 @@ Four things decided while writing them, worth not re-deriving:
    re-allocated and burned anyway. `NFeReconciliationService` was collapsed onto the same `ApplyOutcome`
    rather than keeping its own transcription of the rules.
 
+   **Correction, 2026-08-31.** "Collapsed onto the same `ApplyOutcome`" was true of consult and of the
+   reconciler, and **not of `IssueAsync`**, which kept a hand-copied transcription until it was found
+   in review. That copy ignored `NeverTransmitted` — so a pre-transmission failure on the issue path
+   burned its number on the next attempt, exactly the bug this item describes fixing — and it dropped
+   the consumer QR entirely. Both fixed; see `PLAN-nfce.md` §9. The lesson is the one this bullet
+   already implies: an adoption path with two implementations is the one that drifts.
+
 Also landed with it: `Customer` gained nine nullable fiscal-address columns
 (`Logradouro`/`Numero`/`Complemento`/`Bairro`/`CodigoMunicipioIbge`/`Municipio`/`Uf`/`Cep`/`InscricaoEstadual`,
 migration `20260820100000_AddCustomerFiscalAddress`). `enderDest` needs them as separate fields and

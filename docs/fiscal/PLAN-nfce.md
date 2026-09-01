@@ -264,3 +264,23 @@ would be a cycle — and the builder emits one `detPag` per tender:
   customer standing in front of an operator who cannot fix it.
 - **A modelo 55 never asks.** It is issued against an order that records no means of payment, and
   "Outros" is the honest declaration; an NFC-e for an order no till ever rang falls back the same way.
+
+## 11. natOp, 2026-09-01
+
+The other half of §A7. `natOp` was `private const string OperationNature = "VENDA DE MERCADORIA"` in
+the builder — a value that prints on the DANFE, that the shop's accountant has opinions about, and
+that only a release could change. It is now `EnterpriseFiscalSettings.DefaultNatOp`, beside the CFOP
+and CST defaults it belongs with, migration `20260901122839_AddFiscalNatOp`.
+
+**Applied locally 2026-09-01** and verified against `sys.columns`: `nvarchar(60)`, default constraint
+`VENDA DE MERCADORIA` — hand-corrected from EF's generated `""`, the third time that has been needed
+in this chain. An empty natOp is refused by the 4.00 schema, and every note this system ever issued
+said exactly that string, so a profile written before the column must keep saying it.
+
+Blank still falls back to that constant at build time, and a value over 60 characters is **cut, not
+refused**: unlike a tax field, a truncated description misstates nothing that is computed from it,
+and refusing would cost a sale over wording.
+
+**Still one nature per tenant.** A per-CFOP natOp needs devolução and remessa to exist, which needs a
+field on `Order` that does not — §A7 is still a question for a human, and this narrows it rather than
+answering it.

@@ -173,6 +173,21 @@ namespace EvangelionERPV2.Shared.Entities
         // Fallback source when a Product leaves the corresponding field blank. Resolution is
         // Product -> these defaults -> hard validation error. A value is never guessed.
 
+        /// <summary>
+        /// natOp — the free-text nature of the operation, printed on the DANFE.
+        /// </summary>
+        /// <remarks>
+        /// One value per tenant, because v1 issues exactly one kind of document: a sale against an
+        /// Order. It is configuration rather than the constant it used to be because the wording is
+        /// the shop's own and its accountant's, and changing it must not be a release.
+        ///
+        /// It does **not** vary per operation. Devolução and remessa need a natOp that follows the
+        /// CFOP, and `Order` records neither — see ROADMAP-STATUS §A7, which is still a question for
+        /// a human rather than a gap in the code.
+        /// </remarks>
+        [MaxLength(60)]
+        public string DefaultNatOp { get; set; } = "VENDA DE MERCADORIA";
+
         [MaxLength(4)]
         public string DefaultCfopIntra { get; set; } = "5102";
 

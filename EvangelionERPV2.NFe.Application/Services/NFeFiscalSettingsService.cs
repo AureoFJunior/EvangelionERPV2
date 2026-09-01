@@ -177,6 +177,10 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             settings.Pais = BlankTo(settings.Pais?.Trim(), "BRASIL");
             settings.DefaultUnidadeTributavel = BlankTo(settings.DefaultUnidadeTributavel?.Trim(), "UN");
 
+            // natOp is mandatory on the wire and free text, so a tenant that clears it gets the
+            // default back rather than a note SEFAZ refuses for an empty element.
+            settings.DefaultNatOp = BlankTo(settings.DefaultNatOp?.Trim(), "VENDA DE MERCADORIA");
+
             // The client never supplies cUF — it is derived from the UF so the two cannot drift.
             if (SupportedUfs.TryGetValue(settings.Uf, out var codigoUf))
                 settings.CodigoUfIbge = codigoUf;
@@ -316,6 +320,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             target.NFCeCancellationWindowMinutes = source.NFCeCancellationWindowMinutes;
             target.NFCeCustomerIdentificationThreshold = source.NFCeCustomerIdentificationThreshold;
 
+            target.DefaultNatOp = source.DefaultNatOp;
             target.DefaultCfopIntra = source.DefaultCfopIntra;
             target.DefaultCfopInter = source.DefaultCfopInter;
             target.DefaultCst = source.DefaultCst;

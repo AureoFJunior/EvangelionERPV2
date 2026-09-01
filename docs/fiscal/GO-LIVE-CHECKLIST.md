@@ -99,9 +99,12 @@ autorizador produces it.** This is the whole point of the exercise.
 
 ## Still owed after go-live
 
-- **§M14** — `natOp` and `tPag` are single constants (`VENDA DE MERCADORIA`, `99 / OUTROS`) because
-  `Order` records neither. Correct for a pure sales flow, wrong the moment devolução or a real
-  payment breakdown matters.
+- **§M14** — **narrowed 2026-09-01.** `natOp` is now per tenant
+  (`EnterpriseFiscalSettings.DefaultNatOp`, default `VENDA DE MERCADORIA`) and `tPag` is real on the
+  till's NFC-e, built from the sale's tenders. What remains: a modelo 55 still says `99 / OUTROS`,
+  because a back-office `Order` records no means of payment, and no natOp follows the CFOP — so a
+  devolução or remessa is still out of scope. **Set the shop's natOp before the first real note**;
+  it prints on the DANFE.
 - **§M13 (operational)** — subscribe someone to the SEFAZ Notas Técnicas mailing list. NTs land
   2–4×/year and can add mandatory fields with a hard cutover date.
 - **Release note** if `nfe.cancel` moved Supervisor → Manager: anyone Supervisor today who can

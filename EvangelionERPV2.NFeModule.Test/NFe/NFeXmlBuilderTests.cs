@@ -138,6 +138,41 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
         private static InfNFe Build(NFeIssueContext context) => NFeXmlBuilder.Build(context).NFe[0].InfNFe[0];
 
+        #region natOp
+
+        [Fact]
+        public void NatOp_IsTheTenantsWording()
+        {
+            var settings = Settings();
+            settings.DefaultNatOp = "VENDA AO CONSUMIDOR FINAL";
+
+            Assert.Equal("VENDA AO CONSUMIDOR FINAL", Build(Context(settings)).Ide.NatOp);
+        }
+
+        [Fact]
+        public void NatOp_WhenTheTenantHasNone_IsWhatEveryPastNoteSaid()
+        {
+            // A profile saved before the column existed, or one cleared to blank. natOp is
+            // mandatory on the wire, so this can never be empty.
+            var settings = Settings();
+            settings.DefaultNatOp = "   ";
+
+            Assert.Equal("VENDA DE MERCADORIA", Build(Context(settings)).Ide.NatOp);
+        }
+
+        [Fact]
+        public void NatOp_LongerThanTheSchemaAllows_IsCutRatherThanRejected()
+        {
+            // 60 is the 4.00 bound. Unlike a tax field, a truncated description misstates nothing
+            // that is computed from it, and refusing the note would cost a sale over wording.
+            var settings = Settings();
+            settings.DefaultNatOp = new string('A', 80);
+
+            Assert.Equal(60, Build(Context(settings)).Ide.NatOp.Length);
+        }
+
+        #endregion
+
         #region pag — how the counter was actually paid
 
         private static PdvSalePayment Tender(

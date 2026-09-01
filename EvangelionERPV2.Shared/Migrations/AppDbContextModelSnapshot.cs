@@ -947,6 +947,11 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasMaxLength(2)
                         .HasColumnType("nvarchar(2)");
 
+                    b.Property<string>("DefaultNatOp")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
                     b.Property<byte>("DefaultOrigem")
                         .HasColumnType("tinyint");
 

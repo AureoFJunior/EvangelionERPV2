@@ -131,7 +131,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             {
                 CUF = ToUf(settings.Uf, nameof(EnterpriseFiscalSettings.Uf)),
                 CNF = accessKey.Substring(CodigoNumericoOffset, CodigoNumericoLength),
-                NatOp = OperationNature,
+                NatOp = OperationNature(settings),
                 Mod = model,
                 Serie = ParseIdentity(context.Series, nameof(context.Series)),
                 NNF = ParseIdentity(context.Number, nameof(context.Number)),
@@ -197,9 +197,29 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 .ToOffset(TimeSpan.FromHours(-3));
         }
 
-        // ponytail: one nature of operation, because v1 issues exactly one — a sale against an Order.
-        // Becomes a per-CFOP lookup the day devolução or remessa is in scope.
-        private const string OperationNature = "VENDA DE MERCADORIA";
+        /// <summary>
+        /// natOp — the tenant's wording, falling back to the one this was hard-coded to.
+        /// </summary>
+        /// <remarks>
+        /// Still one nature per tenant, because v1 issues exactly one kind of document: a sale
+        /// against an Order. It becomes a per-CFOP lookup the day devolução or remessa is in scope,
+        /// which needs a field on `Order` that does not exist — see ROADMAP-STATUS §A7. What changed
+        /// is only that the wording is the shop's to set, and 60 characters is the schema's bound.
+        /// </remarks>
+        private static string OperationNature(EnterpriseFiscalSettings settings)
+        {
+            var natOp = (settings.DefaultNatOp ?? string.Empty).Trim();
+
+            if (natOp.Length == 0)
+                return DefaultOperationNature;
+
+            return natOp.Length > MaxOperationNatureLength ? natOp[..MaxOperationNatureLength] : natOp;
+        }
+
+        private const string DefaultOperationNature = "VENDA DE MERCADORIA";
+
+        /// <summary>natOp is 1..60 in the 4.00 schema.</summary>
+        private const int MaxOperationNatureLength = 60;
 
         private static Emit BuildEmit(EnterpriseFiscalSettings settings)
         {

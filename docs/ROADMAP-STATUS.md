@@ -19,17 +19,17 @@ any of them is re-litigating a settled decision.
 
 ## State of the tree
 
-Measured 2026-08-31, not remembered.
+Measured 2026-09-01, not remembered.
 
 | | |
 |---|---|
 | Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **294 commits ahead of `origin/main`** |
-| Head | `6264ab5` — the tenant's NFC-e switch, enforced. FrontV2 `57fd4e6`, PDV `2545dcc`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
+| Head | `09c1ca2` — the PIX review. FrontV2 `57fd4e6`, PDV `2545dcc`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1592 passing / 0 failing** across 15 assemblies (1497 on 2026-08-28). `Web` 606, `NFeModule` 335. A whole-solution run *while another session was rebuilding* reported one spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| Tests | **1625 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 608, `NFeModule` 361, `PdvModule` 78. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
 | PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `2545dcc` (57 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-08-31. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
-| Migrations | chain ends `20260831171026_AddNFCeContingencySeries`. **All applied to the local container**, verified 2026-08-31 against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1` and `NFCeContingencySeries` to `N'9'`, which are the hand-corrected backfills — EF had generated `0` and `""`. Both tables are **empty locally**, so the backfill was verified as a constraint, not observed on rows. Production is still untouched |
+| Migrations | chain ends `20260901122839_AddFiscalNatOp`. **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -178,7 +178,7 @@ behind it is still the one path `M-B8` shadows in production.
 | A4 | **Juros e multa policy** (`M-B12`), with your accountant | The dunning e-mail says amount, due date and **no late fee**. Inventing a rate is a claim the ERP cannot back | S — a rate and a rule |
 | A5 | **A bank** (`M-B1`: platform account or per-tenant?) | M9's CNAB remessa/retorno cannot start without the layout and the beneficiary decision | L |
 | A6 | **Does the pilot sell services?** | NFS-e is per-municipality webservices, hundreds of incompatible ones. Changes the cut list | L if yes |
-| A7 | **Confirm the pilot only issues plain sales** (§M14) | **Half answered in code 2026-09-01**: `tPag` is now real on the till's NFC-e, built from the sale's tenders. `natOp` is still one constant because `Order` records none, so this stays open for devolução and remessa — and for modelo 55, which still declares "Outros" | S — one field on `Order` |
+| A7 | **Confirm the pilot only issues plain sales** (§M14) | **Narrowed in code 2026-09-01, not answered.** `tPag` is real on the till's NFC-e (built from the sale's tenders) and `natOp` is now per tenant (`EnterpriseFiscalSettings.DefaultNatOp`, migration `…122839`) instead of a constant in the builder. What still needs you: whether anything but a plain sale is ever issued. A devolução or remessa needs a natOp that follows the CFOP, and a modelo 55 still declares "Outros" because a back-office `Order` records no means of payment | S — one field on `Order`, only if the answer is no |
 | A8 | ~~What fiscal document does the till issue?~~ **Answered 2026-08-31: NFC-e, with offline contingency.** Tasks 1–4 and the contingency spine shipped the same day (`8e7b594`…`fe225d9`); §6 of the plan lists them. **The contingency answer collided with a standing constraint** — the till holds no certificate, and offline signing needs one. What shipped covers "SEFAZ unreachable, till↔ERP fine"; covering a fully isolated till means an A1 certificate on a shop-floor machine, which is a decision, not a task (plan §7). Original entry: SAT-CF-e rejected (SP-only, certified hardware). Plan: **`docs/fiscal/PLAN-nfce.md`**, which supersedes `SPEC-remaining-code.md` §2.3 — that sketch predates M29 and assumed NFC-e was a back-office concern. **Scope is not yet confirmed**: five blockers in §0, of which **Q5 (offline contingency) is new and changes the shape of the work**. Smaller than "L" looked: `NFeDocumentType.NFCe`, model 65 in the numbering table, and the `TpImp`/`IndPres` branches already exist | M once §0 is answered; L if contingency is needed |
 | A9 | **Does the shop hold a Stripe BR PIX account?** (invite-only) | The proven-PIX code all landed 2026-08-31 (plan tasks 5–9) and **has never been run against Stripe**. Task 10 is the round trip, and it cannot happen without the account. Until it does, treat every `SefazCStatMap`-style assumption in `StripePixProvider` as a guess | S once the account exists |
 
@@ -339,8 +339,12 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
 - **M11 P4**: the approaching-deadline liability read has no controller action and no permission —
   `SPEC-hr-module.md` §8 puts that KPI out of scope.
 - **Users**: `DeleteUser` is a **hard** delete, the only one in the system.
-- **M6**: `NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only, and `natOp` is a single
-  constant because `Order` records none. **`tPag` no longer is, for the till**: since 2026-09-01 an
+- **M6**: `NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only. **`natOp` is no longer a
+  constant**: since 2026-09-01 it is `EnterpriseFiscalSettings.DefaultNatOp` (default
+  `VENDA DE MERCADORIA`, blank falls back to it, over 60 characters is cut rather than refused
+  because a truncated description misstates nothing that is computed from it). It is still one
+  nature per tenant — a per-CFOP one needs devolução and remessa, which need a field on `Order`.
+  **`tPag` is no longer one either, for the till**: since 2026-09-01 an
   NFC-e is built from the sale's own `PdvSalePayment` rows — one `detPag` per tender, `vTroco` for
   the change, and the `card` group with the authorisation code on a card. A modelo 55 still declares
   "Outros", which is the honest answer for a back-office order that records no means of payment.
