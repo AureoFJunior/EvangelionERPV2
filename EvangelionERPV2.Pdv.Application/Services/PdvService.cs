@@ -912,8 +912,12 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 .OrderByDescending(charge => charge.CreatedAt)
                 .FirstOrDefaultAsync();
 
-            // A charge that was abandoned or refused is not an answer to "take PIX for this
-            // basket". Handing it back left the operator with a dead QR and a poll that reports
+            // A window that has closed is the same dead QR as an abandoned one, so it is written
+            // down here rather than left Pending forever — nothing else in the system does it.
+            await ExpireIfElapsedAsync(existing);
+
+            // A charge that was abandoned, refused or timed out is not an answer to "take PIX for
+            // this basket". Handing it back left the operator with a dead QR and a poll that reports
             // "cancelado" forever — PIX permanently unavailable for a basket the customer is still
             // standing at. Those get a fresh attempt; Pending and Paid do not.
             var settledOrAbandoned = existing != null
@@ -985,7 +989,41 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             var charge = await _appDbContext.PdvCharge
                 .FirstOrDefaultAsync(row => row.Id == chargeId && row.EnterpriseId == enterpriseId);
 
+            // The till polls this while the customer pays. Without it a closed window answers
+            // Pending forever and the operator waits on a QR nobody can still scan.
+            await ExpireIfElapsedAsync(charge);
+
             return charge == null ? null : ToDto(charge);
+        }
+
+        /// <summary>
+        /// Writes down that a charge's window closed. One row, at most once.
+        /// </summary>
+        /// <remarks>
+        /// Lazily, on the two paths that care — the till's poll and the next attempt on the same
+        /// basket — rather than in a sweeper. A charge nobody is looking at costs nothing by staying
+        /// Pending, and a background pass over every open charge in every tenant would exist to
+        /// change rows no one is waiting on.
+        ///
+        /// **Expired is our inference, not the provider's verdict**, which is why
+        /// <see cref="ApplyChargeEventAsync"/> still lets a Paid event settle a row this marked. The
+        /// clocks are not the same and the money is what matters: a customer whose PIX landed in the
+        /// last second of the window is paid, whatever we had written down by then.
+        /// </remarks>
+        private async Task ExpireIfElapsedAsync(PdvCharge? charge)
+        {
+            if (charge == null
+                || charge.Status != (int)EnumPdvChargeStatus.Pending
+                || charge.ExpiresAt > DateTime.UtcNow)
+            {
+                return;
+            }
+
+            charge.Status = (int)EnumPdvChargeStatus.Expired;
+            charge.UpdatedAt = DateTime.UtcNow;
+
+            _chargeRepository.Update(charge);
+            await _chargeRepository.CommitAsync();
         }
 
         /// <summary>
@@ -1044,9 +1082,17 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             var charge = await _appDbContext.PdvCharge
                 .FirstOrDefaultAsync(row => row.ProviderIntentId == providerIntentId);
 
+            // Pending is the ordinary case. Expired is the one exception, because unlike Cancelled
+            // (we called the provider and it agreed) and Failed (the provider's own verdict), it is
+            // a conclusion this system drew from a clock. A settlement event outranks it: the money
+            // arrived, and a paid customer must never be filed as timed out.
+            var settlesAnExpiredCharge = charge != null
+                && charge.Status == (int)EnumPdvChargeStatus.Expired
+                && status == (int)EnumPdvChargeStatus.Paid;
+
             if (charge == null
                 || charge.ProviderEventId == eventId
-                || charge.Status != (int)EnumPdvChargeStatus.Pending)
+                || (charge.Status != (int)EnumPdvChargeStatus.Pending && !settlesAnExpiredCharge))
             {
                 return false;
             }

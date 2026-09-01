@@ -96,6 +96,102 @@ namespace EvangelionERPV2.PdvModule.Test
         }
 
         [Fact]
+        public async Task AWindowThatClosed_IsWrittenDownAndTheBasketCanTryAgain()
+        {
+            // Nothing else in the system writes Expired, so without this a charge whose window shut
+            // stays Pending forever — and the next attempt on that basket reuses it, which is the
+            // dead QR the cancel case already cost us once.
+            using var context = _database.CreateContext();
+            await GiveShopAPixAccountAsync(context);
+            var provider = ProviderReturning("pi_1", "qr");
+            provider.Setup(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<string>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() => new PixIntent($"pi_{Guid.NewGuid():N}", "qr", DateTime.UtcNow.AddMinutes(30), "requires_action"));
+
+            var service = CreateService(context, provider);
+            var request = new StartPixChargeRequestDTO { ClientSaleId = Guid.NewGuid(), Amount = 60m };
+
+            var first = await service.StartPixChargeAsync(request, _enterpriseId);
+
+            var row = await context.PdvCharge.SingleAsync();
+            row.ExpiresAt = DateTime.UtcNow.AddMinutes(-1);
+            await context.SaveChangesAsync();
+
+            var second = await service.StartPixChargeAsync(request, _enterpriseId);
+
+            Assert.NotEqual(first.ChargeId, second.ChargeId);
+            Assert.Equal((int)EnumPdvChargeStatus.Expired,
+                (await context.PdvCharge.SingleAsync(charge => charge.Id == first.ChargeId)).Status);
+        }
+
+        [Fact]
+        public async Task PollingAClosedWindow_StopsSayingPending()
+        {
+            // The till polls this every second. Answering Pending forever leaves the operator
+            // watching a QR nobody can still scan.
+            using var context = _database.CreateContext();
+            await GiveShopAPixAccountAsync(context);
+            var service = CreateService(context, ProviderReturning("pi_1", "qr"));
+            var started = await service.StartPixChargeAsync(
+                new StartPixChargeRequestDTO { ClientSaleId = Guid.NewGuid(), Amount = 60m }, _enterpriseId);
+
+            var row = await context.PdvCharge.SingleAsync();
+            row.ExpiresAt = DateTime.UtcNow.AddSeconds(-1);
+            await context.SaveChangesAsync();
+
+            var read = await service.GetChargeAsync(started.ChargeId, _enterpriseId);
+
+            Assert.Equal((int)EnumPdvChargeStatus.Expired, read!.Status);
+        }
+
+        [Fact]
+        public async Task APaymentThatLandedInTheLastSecond_StillSettlesAnExpiredCharge()
+        {
+            // Expired is this system's inference from a clock; Paid is the bank's. A customer whose
+            // PIX arrived must never be filed as timed out because our window shut first.
+            using var context = _database.CreateContext();
+            await GiveShopAPixAccountAsync(context);
+            var service = CreateService(context, ProviderReturning("pi_1", "qr"));
+            var started = await service.StartPixChargeAsync(
+                new StartPixChargeRequestDTO { ClientSaleId = Guid.NewGuid(), Amount = 60m }, _enterpriseId);
+
+            var row = await context.PdvCharge.SingleAsync();
+            row.ExpiresAt = DateTime.UtcNow.AddSeconds(-1);
+            await context.SaveChangesAsync();
+
+            await service.GetChargeAsync(started.ChargeId, _enterpriseId);
+
+            var settled = await service.ApplyChargeEventAsync(
+                "evt_1", row.ProviderIntentId, (int)EnumPdvChargeStatus.Paid, "E2E-1", 0.71m, DateTime.UtcNow);
+
+            Assert.True(settled);
+            Assert.Equal((int)EnumPdvChargeStatus.Paid,
+                (await context.PdvCharge.SingleAsync()).Status);
+        }
+
+        [Fact]
+        public async Task ACancelledCharge_IsNotResurrectedByALateEvent()
+        {
+            // Unlike expiry, a cancel was agreed with the provider before the row moved. Nothing
+            // arriving afterwards may undo it.
+            using var context = _database.CreateContext();
+            await GiveShopAPixAccountAsync(context);
+            var service = CreateService(context, ProviderReturning("pi_1", "qr"));
+            var started = await service.StartPixChargeAsync(
+                new StartPixChargeRequestDTO { ClientSaleId = Guid.NewGuid(), Amount = 60m }, _enterpriseId);
+
+            await service.CancelPixChargeAsync(started.ChargeId, _enterpriseId);
+
+            var row = await context.PdvCharge.SingleAsync();
+            var settled = await service.ApplyChargeEventAsync(
+                "evt_1", row.ProviderIntentId, (int)EnumPdvChargeStatus.Paid, null, null, DateTime.UtcNow);
+
+            Assert.False(settled);
+            Assert.Equal((int)EnumPdvChargeStatus.Cancelled,
+                (await context.PdvCharge.SingleAsync()).Status);
+        }
+
+        [Fact]
         public async Task APaidBasket_IsNeverChargedASecondTime()
         {
             using var context = _database.CreateContext();

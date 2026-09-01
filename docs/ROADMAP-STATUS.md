@@ -363,12 +363,19 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
     choose: a R$ 500 PIX tender could point at yesterday's paid R$ 1 charge and be recorded as
     proven. Now matched on `ClientSaleId` and `Amount` too. **A mismatch records the tender
     unverified and never refuses the sale** — `RejectAsync` is terminal and the customer has paid.
+  - ~~**Nothing ever writes `Expired`.**~~ **Closed 2026-09-01**, because it was the same bug as the
+    cancel one through a different door: a charge whose window shut stayed Pending, and the fix
+    above reuses a Pending charge — so the next attempt on that basket would hand back a QR nobody
+    can still scan. Expiry is now written **lazily on the two paths that care** (the till's poll and
+    the next attempt on that basket), never by a sweeper: a charge nobody is looking at costs
+    nothing by staying Pending. **Expired is our inference, not the provider's verdict**, so a Paid
+    event still settles a row we expired — the clocks are not the same and a customer whose PIX
+    landed in the last second is paid. Cancelled and Failed stay untouchable: one was agreed with
+    the provider before the row moved, the other is the provider's own answer.
   - **Left open, deliberately.** `PdvCharge.EndToEndId` is read off `intent.LatestCharge`, which a
     webhook payload does not expand, so **it is null in practice** — the PIX e2e id costs an API
-    call per settlement and belongs in the same batched sweep as `FeeAmount` (already `ponytail:`).
-    And **nothing ever writes `Expired`**: `ExpiresAt` is recorded and only the till reads it, so an
-    unpaid charge stays Pending forever. Neither loses money; both are worth one sweep when the
-    account exists (A9).
+    call per settlement and belongs in the same batched fetch as `FeeAmount` (already `ponytail:`),
+    worth doing when the account exists (A9).
 - **NFC-e**: `EnterpriseFiscalSettings.Enabled` and `.NFCeEnabled` were stored, editable and
   **enforced nowhere**. `6264ab5` gated the till's `IssueFiscalDocument` on both; since 2026-08-31
   `NFeService.IssueAsync` reads them too, before it claims a document, so a certificate removal
