@@ -24,12 +24,12 @@ Measured 2026-09-01, not remembered.
 | | |
 |---|---|
 | Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **294 commits ahead of `origin/main`** |
-| Head | `a02c003` — the abono days sold after the first bill get paid. FrontV2 `57fd4e6`, PDV `046e573`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
+| Head | `7955532` — a backfill can run on the database it was written for. FrontV2 `57fd4e6`, PDV `046e573`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1639 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 610, `NFeModule` 363, `PdvModule` 85, `BillsModule` 275. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| Tests | **1642 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 610, `NFeModule` 363, `PdvModule` 85, `BillsModule` 278. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
 | PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `046e573` (58 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-09-01. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
-| Migrations | chain ends `20260901132721_AddAbonoDaysSettled` (nullable `PayableBill.AbonoDaysSettled`, applied and verified in `sys.columns` 2026-09-01). **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
+| Migrations | chain ends `20260901133552_AddPayrollDetailEnterprise` (after `…132721_AddAbonoDaysSettled`); both applied and verified in `sys.columns` 2026-09-01, and the whole chain replays clean onto an empty database since the `EXEC` fix in the traps list. **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
 | Commits | authored solely by Aureo — **no `Co-Authored-By` trailers** |
 
 ## Milestones
@@ -240,6 +240,21 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
 
 ## Traps this session paid for — do not rediscover
 
+- **A backfill in the same migration as its column never ran anywhere but here.** Found and fixed
+  2026-09-01. `dotnet ef migrations script --idempotent` emits one batch per migration — the
+  `ALTER TABLE ... ADD` and everything after it, wrapped in `IF NOT EXISTS(...)` blocks, with the
+  `GO` only between migrations. SQL Server compiles a batch whole, so an `UPDATE` naming the column
+  the `ALTER` above it is about to add fails with `Invalid column name` on **every database that has
+  not run that migration yet** — which is the only kind of database the backfill exists for.
+  It never showed locally because those migrations were applied through `dotnet ef database update`
+  (one command per operation) before `scripts/local-db-update.sh` existed. **Proven, not reasoned:**
+  the pre-fix script run against a fresh database died at `Invalid column name 'CurrentBalance'`,
+  then `'EnterpriseId'`; after the fix the same script applied all 59 migrations and 45 tables
+  clean. Three committed migrations carried it — `AddEnterpriseCurrentBalance`,
+  `AddAuditTrailEnterpriseSnapshot` and `AddNFeDocumentFiscalColumns` — plus the new
+  `AddPayrollDetailEnterprise`, which is how it was found. **The fix is `EXEC(N'...')`**: dynamic SQL
+  is compiled at execution, so the column exists by then. Doubling the single quotes inside is part
+  of it. `CREATE INDEX` on a fresh column is fine — DDL resolves at execution; only DML is affected.
 - **Cypress seeds accumulate.** Teardown goes through the API, which only soft-deletes, so every
   run leaves its `E2E `-prefixed customers, products, employees and orders in the tables — invisible
   in the UI, in the way of anyone reading the database. `./scripts/e2e-cleanup.sh` removes them in
