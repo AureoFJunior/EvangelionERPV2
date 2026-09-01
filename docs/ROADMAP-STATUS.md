@@ -24,9 +24,9 @@ Measured 2026-09-01, not remembered.
 | | |
 |---|---|
 | Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **294 commits ahead of `origin/main`** |
-| Head | `4c8505d` — the PIX expiry window. FrontV2 `57fd4e6`, PDV `2545dcc`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
+| Head | `2ddcefe` — the emitter and its first bill as one unit of work. FrontV2 `57fd4e6`, PDV `2545dcc`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
 | Build | **0 errors as of 2026-08-28 — it was 1 until then.** `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped. Fixed here; see the traps list |
-| Tests | **1631 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 608, `NFeModule` 363, `PdvModule` 82. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| Tests | **1633 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 610, `NFeModule` 363, `PdvModule` 82. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **not run since 2026-08-24** — the five M24–M28 screens are still unexercised |
 | PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `2545dcc` (57 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-08-31. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
 | Migrations | chain ends `20260901122839_AddFiscalNatOp`. **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
@@ -380,6 +380,24 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
     webhook payload does not expand, so **it is null in practice** — the PIX e2e id costs an API
     call per settlement and belongs in the same batched fetch as `FeeAmount` (already `ponytail:`),
     worth doing when the account exists (A9).
+- **M29b credential chain, reviewed 2026-09-01.** The till's auth surface — enrollment credential,
+  anonymous login, PIN verifiers, override audit, and the M29f backoffice reads — read end to end.
+  Sound: PBKDF2 at 210k iterations with `FixedTimeEquals`; login answers one 401 whatever failed and
+  counts the attempt against both a per-terminal and a per-terminal-and-operator window; the
+  credential picks the tenant, so an operator from another company cannot log in through an enrolled
+  till; the terminal list is a projection, never the row with the verifier on it.
+  **One real hole, fixed.** `SetPdvPin` was **the only authenticated action in the API carrying no
+  rbac policy** — and `PdvTokenScope.Grants` runs *inside* the policy handlers, so a pdv-scoped token
+  reached it unchecked. A credential lifted off a shop-floor machine (the exact threat `PdvTokenScope`
+  is written against) could set the override PIN of the user it belongs to; where that user is
+  supervisor tier, the thief then authorises their own overrides with a PIN they chose, **recorded
+  against the supervisor** — the attributability the design exists to keep. It now refuses a scoped
+  caller by hand, and `RbacControllerPolicyCoverageTests.EveryAuthenticatedAction_CarriesAPolicy`
+  fails the day a second policy-less action appears (verified by removing the exemption and watching
+  it go red).
+  **Residual, by design, not a finding:** every supervisor's PIN verifier is cached on every till, so
+  a stolen terminal is an offline six-digit guess at 210k iterations. That is the stated trade for an
+  override that still works with the network down.
 - **NFC-e**: `EnterpriseFiscalSettings.Enabled` and `.NFCeEnabled` were stored, editable and
   **enforced nowhere**. `6264ab5` gated the till's `IssueFiscalDocument` on both; since 2026-08-31
   `NFeService.IssueAsync` reads them too, before it claims a document, so a certificate removal

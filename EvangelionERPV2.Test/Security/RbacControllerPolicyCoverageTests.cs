@@ -1,6 +1,10 @@
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Web.Controllers;
 using EvangelionERPV2.Web.Security;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Routing;
+using System.Reflection;
 
 namespace EvangelionERPV2.Test.Security
 {
@@ -273,6 +277,38 @@ namespace EvangelionERPV2.Test.Security
                 Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Supervisor, permission));
                 Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Employee, permission));
             }
+        }
+
+        /// <summary>
+        /// Every authenticated action carries an rbac policy, because that is where the till
+        /// token's scope is enforced.
+        /// </summary>
+        /// <remarks>
+        /// `PdvTokenScope.Grants` runs inside the two policy handlers, so an action with no policy
+        /// is an action a pdv-scoped token reaches unchecked — a credential lifted off a shop floor
+        /// buying more than the till. There is exactly one exception and it refuses scoped callers
+        /// by hand; a second one must be a deliberate edit to this list, not a quiet omission.
+        /// </remarks>
+        [Fact]
+        public void EveryAuthenticatedAction_CarriesAPolicy()
+        {
+            var exempt = new HashSet<string> { $"{nameof(PdvController)}.{nameof(PdvController.SetPdvPin)}" };
+
+            var unpoliced = typeof(PdvController).Assembly.GetTypes()
+                .Where(type => typeof(ControllerBase).IsAssignableFrom(type) && !type.IsAbstract)
+                .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                .Where(method => method.GetCustomAttributes<HttpMethodAttribute>(inherit: true).Any())
+                .Where(method => !method.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true).Any())
+                .Where(method => method.DeclaringType?.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true).Any() != true)
+                .Where(method => method.GetCustomAttributes<AuthorizeAttribute>(inherit: true)
+                    .All(attribute => string.IsNullOrWhiteSpace(attribute.Policy) && string.IsNullOrWhiteSpace(attribute.Roles)))
+                .Select(method => $"{method.DeclaringType!.Name}.{method.Name}")
+                .Where(name => !exempt.Contains(name))
+                .Distinct()
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToList();
+
+            Assert.Empty(unpoliced);
         }
 
         [Fact]

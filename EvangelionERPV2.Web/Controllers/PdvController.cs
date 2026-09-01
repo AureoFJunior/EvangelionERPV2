@@ -334,6 +334,15 @@ namespace EvangelionERPV2.Web.Controllers
         /// Self-service and nobody else's: a PIN a manager could set for a cashier would be a PIN
         /// the manager knows, which defeats the point of an override being attributable. Only the
         /// verifier is stored, and the PIN is never logged.
+        ///
+        /// **Not from a till.** This is the one authenticated action in the API that carries no
+        /// rbac policy — it needs none, since it only ever touches the caller's own row — and that
+        /// is exactly why it has to refuse a scoped token by hand: `PdvTokenScope.Grants` runs
+        /// inside the policy handlers, so an endpoint with no policy is an endpoint the scope never
+        /// reaches. A credential lifted off a shop-floor machine could otherwise set the override
+        /// PIN of the user it belongs to, and if that user is supervisor tier the thief then
+        /// authorises their own overrides with a PIN they chose — recorded against the supervisor,
+        /// which is the attributability this whole design exists to keep.
         /// </remarks>
         [HttpPost]
         [RequestSizeLimit(MaxPinRequestBodySizeInBytes)]
@@ -344,6 +353,10 @@ namespace EvangelionERPV2.Web.Controllers
         {
             if (!ModelState.IsValid)
                 return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+            // A PIN is set from the backoffice, on a machine that is not the shop floor.
+            if (PdvTokenScope.IsPdvScoped(User))
+                return Forbid();
 
             var pin = request?.Pin ?? string.Empty;
 

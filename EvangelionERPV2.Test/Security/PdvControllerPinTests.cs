@@ -48,6 +48,26 @@ namespace EvangelionERPV2.Test.Security
             Assert.True(Pbkdf2Verifier.Verify("482913", user.PdvPinVerifier));
         }
 
+        [Fact]
+        public async Task SetPdvPin_IsRefusedToATillToken()
+        {
+            // The one authenticated action in the API with no rbac policy, so PdvTokenScope.Grants
+            // — which runs inside the policy handlers — never sees it. Without the explicit refusal
+            // a credential lifted off a shop floor could set the override PIN of the user it
+            // belongs to, and then authorise overrides recorded against that user.
+            var user = BuildUser(EnumAccessLevel.Supervisor);
+            var claims = ClaimsFor(user)
+                .Append(new Claim(PdvTokenScope.ClaimType, PdvTokenScope.ClaimValue))
+                .ToArray();
+
+            var controller = CreateController([user], claims);
+
+            var response = await controller.SetPdvPin(new SetPdvPinRequestDTO { Pin = "482913" });
+
+            Assert.IsType<ForbidResult>(response);
+            Assert.Null(user.PdvPinVerifier);
+        }
+
         [Theory]
         [InlineData("12345")]
         [InlineData("48291a")]
