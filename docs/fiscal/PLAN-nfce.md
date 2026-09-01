@@ -208,9 +208,31 @@ If the ERP runs on-prem beside the till, mode 2 may never occur and this is alre
   It needed one change here, `6264ab5`: `EnterpriseFiscalSettings.NFCeEnabled` was stored, editable
   and enforced nowhere. It now gates `IssueFiscalDocument` together with `Enabled`, and travels on
   the sync snapshot so a till knows before the sale what paper it is about to print.
-- **The tenant's `Enabled` switch is still unenforced on the modelo 55 path.** `NFeService.IssueAsync`
-  reads only the global `NFeSettings.Enabled`, so `NFeCertificateService` setting
-  `settings.Enabled = false` when a certificate is removed stops nothing. Fixed for the till's
-  endpoint only — widening it would refuse issuance for every tenant that never configured a
-  profile, which is correct and is a release-note change rather than a drive-by.
+- ~~**The tenant's `Enabled` switch is still unenforced on the modelo 55 path.**~~ **Done.**
+  `NFeService.IssueAsync` now reads both tenant switches before it claims a document, so
+  `NFeCertificateService` setting `settings.Enabled = false` when a certificate is removed finally
+  stops something. **The stated reason for deferring it was wrong**: a tenant that never configured
+  a profile was never able to issue anyway — `AssignNumberAndAccessKeyAsync` already refused it for
+  having no CNPJ, a few lines further on. The only behaviour that changes is a tenant that *has* a
+  profile with the switch off, which is exactly what the switch is for. A refusal answers null, so
+  the controller reports it the same way the global kill switch is reported: 204, no document row.
 - **One real NFC-e in homologação** — still the only evidence that counts, still gated on Q1 + Q2.
+
+## 9. Three defects the review found, 2026-08-31
+
+All on `NFeService.IssueAsync`, all invisible to the suite because every test of adoption went
+through the reconciler. The issue path had a hand-copied version of `ApplyOutcome` that had drifted.
+
+| What | Effect |
+|---|---|
+| The copy never set `QrCode`/`UrlChave` | **An NFC-e authorised at a counter had no QR.** The reconciler could not repair it either: an authorised document is terminal, so nothing ever looks at it again. `PdvFiscalDocumentDTO` carried an empty string to the till, and the DANFE would print without the thing the customer is meant to scan |
+| The copy ignored `result.NeverTransmitted` | A provable pre-transmission failure — no CSC, a certificate that would not load, a schema refusal — kept its write-ahead marker. So the **retry burned the allocated number** instead of reusing it, and `IssueFiscalDocument`'s `Status == Error && TransmittedAtUtc == null` was never true, which made **the whole contingency fallback dead code at the counter** |
+| `CanReuseAllocation` ignored tpEmis | Even with the marker retracted, the contingency retry would *reuse the online allocation*: online series, and a chave whose 35th digit says tpEmis 1 while the XML says 9. The note would contradict the key printed on the customer's receipt — and, being tpEmis 1, would carry no dhCont or xJust at all |
+
+Fixed by calling `ApplyOutcome` on the issue path (the identity fields are still never adopted from
+the result) and by making the allocation reusable only for the tpEmis being issued now. Covered by
+`NFCeConsumerQrTests`, `NFCeOfflineIssuanceTests` and `NFeIssuanceWriteAheadTests`.
+
+Also: `IssueFiscalDocument` took any `contingencyReason` and let a too-short one become a second
+fiscal document in Error. xJust's 15..256 bound is now checked at the endpoint, where the answer is
+a 400 the operator can act on.

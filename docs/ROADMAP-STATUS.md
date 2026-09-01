@@ -342,11 +342,23 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
 - **M6**: `NFeXmlBuilder` covers ICMS CST 00 and CSOSN 102/103/300/400 only; `natOp` and `tPag` are
   single constants because `Order` records neither.
 - **NFC-e**: `EnterpriseFiscalSettings.Enabled` and `.NFCeEnabled` were stored, editable and
-  **enforced nowhere**. `6264ab5` gates the till's `IssueFiscalDocument` on both and publishes them
-  on the sync snapshot, but **modelo 55 issuance still reads only the global `NFeSettings.Enabled`** —
-  so `NFeCertificateService` setting `settings.Enabled = false` when a certificate is removed stops
-  nothing. Widening it would refuse issuance for every tenant that never configured a profile, which
-  is correct and is a release-note change rather than a drive-by.
+  **enforced nowhere**. `6264ab5` gated the till's `IssueFiscalDocument` on both; since 2026-08-31
+  `NFeService.IssueAsync` reads them too, before it claims a document, so a certificate removal
+  (`NFeCertificateService` sets `Enabled = false`) now actually stops issuance. **The earlier note
+  here was wrong about the cost**: a tenant with no profile could never issue anyway — the CNPJ
+  guard in `AssignNumberAndAccessKeyAsync` already refused it — so the only changed behaviour is a
+  configured tenant whose switch is off. A refusal answers null, i.e. 204 and no document row,
+  exactly as the global kill switch already did. **Release note**: a tenant that saved a fiscal
+  profile without ticking the switch stops issuing.
+- **NFC-e, three defects found reviewing the slice on 2026-08-31** and fixed the same day; the table
+  is in `docs/fiscal/PLAN-nfce.md` §9. In short: the issue path carried a hand-copied `ApplyOutcome`
+  that dropped the consumer QR (**an NFC-e authorised at a counter had nothing to scan**, and the
+  reconciler never revisits an authorised document to repair it) and ignored `NeverTransmitted`
+  (**the till's contingency fallback was dead code**, and every retry burned a fiscal number), while
+  `CanReuseAllocation` would have handed a contingency retry its online allocation — tpEmis 9 in the
+  XML, tpEmis 1 in the chave on the customer's receipt. **Lesson: an adoption path with two
+  implementations is the one that drifts**; the whole point of `ApplyOutcome` being `internal` was
+  that two copies had drifted once already, and a third copy was sitting inside `IssueAsync`.
 
 ## What we could build next — candidates, not commitments
 
