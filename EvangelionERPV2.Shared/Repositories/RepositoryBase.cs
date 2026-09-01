@@ -346,6 +346,33 @@ namespace EvangelionERPV2.Shared.Repositories
             return (result, totalItems);
         }
 
+        /// <summary>
+        /// Takes SQL Server's update lock on one row and holds it to the end of the caller's
+        /// transaction, so two transactions that read-then-write around that row queue behind
+        /// each other instead of both reading the state before either wrote. It is that one row:
+        /// any other id contends with nothing.
+        /// </summary>
+        /// <remarks>
+        /// A no-op off SQL Server — the SQLite harnesses the tests run on cannot parse the hint,
+        /// and outside a transaction the lock is taken and dropped again, which harms nothing.
+        /// </remarks>
+        public virtual async Task LockForUpdateAsync(Guid id, CancellationToken cancellation = default)
+        {
+            if (_context.Database.ProviderName?.Contains("SqlServer", StringComparison.Ordinal) != true)
+                return;
+
+            // The table name is EF's own model metadata, never anything a caller passed; the id
+            // is a parameter.
+            var table = _context.Model.FindEntityType(typeof(TEntity))?.GetTableName();
+            if (string.IsNullOrEmpty(table))
+                return;
+
+            await _context.Database.ExecuteSqlRawAsync(
+                $"SELECT TOP 1 1 FROM [{table}] WITH (UPDLOCK, HOLDLOCK) WHERE Id = {{0}}",
+                [id],
+                cancellation);
+        }
+
         public virtual async Task<TEntity> CreateAsync(TEntity entity)
         {
             foreach (var navigationEntry in _context.Entry(entity).Navigations)

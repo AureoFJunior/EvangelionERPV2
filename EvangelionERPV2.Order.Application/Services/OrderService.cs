@@ -657,9 +657,11 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// the panel and the forecast use, so the number a salesperson is blocked by is the number
         /// the carteira shows.
         ///
-        /// Inside the creation transaction, so a concurrent order cannot slip past the check; two
-        /// simultaneous orders that each fit but together do not are still possible, and that is
-        /// accepted — the limit is a policy, not a ledger invariant.
+        /// Inside the creation transaction, and the customer's own row is locked before the
+        /// carteira is read, so two simultaneous orders for the same customer queue behind each
+        /// other: the second reads the carteira with the first order already in it instead of
+        /// both reading the total from before either. Only that customer's row is held — orders
+        /// for anyone else never wait on it.
         /// </remarks>
         private async Task AssertWithinCreditLimitAsync(Order order, bool allowCreditOverride)
         {
@@ -682,6 +684,12 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             var creditLimit = customer?.CreditLimit;
             if (creditLimit == null)
                 return;
+
+            // The gate between the read below and the insert this transaction is about to make.
+            // Without it two orders for this customer both read the carteira before either is in
+            // it, both fit, and the pair goes over. Taken only once a limit is actually set, so a
+            // customer with no limit still contends with nobody.
+            await _customerRepository.LockForUpdateAsync(customerId);
 
             var exposure = await GetOpenExposureAsync(enterpriseId, customerId);
             var projected = exposure + order.TotalValue;

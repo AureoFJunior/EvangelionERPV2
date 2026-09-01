@@ -222,6 +222,65 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         }
 
         [Fact]
+        public async Task CreateAsync_LocksTheCustomersRowBeforeReadingTheCarteira()
+        {
+            // The two-order race itself is not reproducible here: nothing behind these mocks is a
+            // database, so no lock can make anything wait. What is asserted is the mechanism that
+            // closes it — the customer's row is locked inside the creating transaction, before the
+            // carteira is read, and it is that customer's row and nobody else's, so orders for
+            // other customers are not serialised behind it.
+            var (order, customer) = BuildOrderForCustomer(total: 400, creditLimit: 1000);
+            SetupCustomer(customer);
+            SetupOpenExposure(customer, []);
+
+            var steps = new List<string>();
+
+            _mockIOrderRepository
+                .Setup(r => r.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
+                .Returns((Func<Task> operation, CancellationToken _) =>
+                {
+                    steps.Add("transaction");
+                    return operation();
+                });
+
+            _mockICustomerRepository
+                .Setup(r => r.LockForUpdateAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .Callback(() => steps.Add("lock"))
+                .Returns(Task.CompletedTask);
+
+            _mockIOrderRepository
+                .Setup(r => r.GetPagedAsync(
+                    It.IsAny<Expression<Func<Order, bool>>?>(),
+                    It.IsAny<Func<IQueryable<Order>, IOrderedQueryable<Order>>?>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
+                .Callback(() => steps.Add("carteira"))
+                .ReturnsAsync(((IReadOnlyList<Order>)new List<Order>(), 0));
+
+            await _orderService.CreateAsync(order);
+
+            Assert.Equal(new[] { "transaction", "lock", "carteira" }, steps);
+            _mockICustomerRepository.Verify(
+                r => r.LockForUpdateAsync(customer.Id, It.IsAny<CancellationToken>()), Times.Once);
+            _mockICustomerRepository.Verify(
+                r => r.LockForUpdateAsync(It.Is<Guid>(id => id != customer.Id), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task CreateAsync_WithNoLimitSet_LocksNothing()
+        {
+            // A customer with no limit reads nothing and blocks nobody.
+            var (order, customer) = BuildOrderForCustomer(total: 9000, creditLimit: null);
+            SetupCustomer(customer);
+            SetupOpenExposure(customer, []);
+
+            await _orderService.CreateAsync(order);
+
+            _mockICustomerRepository.Verify(
+                r => r.LockForUpdateAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
         public async Task CreateAsync_DoesNotCountARefundedOrderAgainstTheLimit()
         {
             var (order, customer) = BuildOrderForCustomer(total: 400, creditLimit: 1000);

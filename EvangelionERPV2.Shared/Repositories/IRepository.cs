@@ -49,6 +49,12 @@ namespace EvangelionERPV2.Shared.Repositories
             int? pageSize,
             Expression<Func<TEntity, bool>>? predicate = null,
             Expression<Func<TEntity, object>>? orderBy = null);
+        /// <summary>
+        /// Locks one row for the rest of the caller's transaction, so a read-then-write around
+        /// that row cannot interleave with another transaction doing the same. Only that row is
+        /// held — rows with any other id are untouched. No-op off SQL Server.
+        /// </summary>
+        Task LockForUpdateAsync(Guid id, CancellationToken cancellation = default);
         Task<TEntity> CreateAsync(TEntity entity);
         Task<IEnumerable<TEntity>> CreateRangeAsync(IEnumerable<TEntity> entitys);
         #endregion
