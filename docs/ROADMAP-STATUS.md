@@ -365,6 +365,13 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   unbilled~~ — closed 2026-09-01 by `PayableBill.AbonoDaysSettled`; what is still owed is now
   `SoldDays` minus what the standing bills recorded, and a bill older than the column is still
   inferred from its amount. Days sold once every stretch is billed remain unbillable (`ponytail:`).
+  **A review pass caught one real defect in that change the same day** (`0349f84`): a bill issued
+  before the column existed whose stretch was later cancelled has no recorded value *and* no stretch
+  to price the inference against, and reading it as "settled nothing" put the whole abono back on
+  the next bill — paying days already standing, unrefunded, on the first one. Such a bill is now
+  read the old way: the abono rode the first bill this accrual produced. Under-billing an orphan
+  that never carried it leaves the days visible on the accrual; over-billing one that did sends the
+  money twice.
   A férias bill whose stretch is cancelled after issue is reported as an orphan.
   ~~`PayableBillDetail` has no `EnterpriseId`.~~ **Closed 2026-09-01** — the table is
   `PayrollBillDetail`, and it now carries the column (migration `…133552`, backfilled from the
