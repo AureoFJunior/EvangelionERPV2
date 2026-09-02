@@ -189,6 +189,7 @@ behind it is still the one path `M-B8` shadows in production.
 | B1 | ~~Apply the two newest migrations.~~ **Done 2026-08-31.** `./scripts/local-db-update.sh` backed the database up and applied `AddPdvSalePaymentVerification` and `AddPdvCharge`; verified against `sys.columns` — `PdvSalePayment.PdvChargeId` and `.IsVerified` exist and the `PdvCharge` table exists. `/health` answers Healthy. Production is still untouched — nothing calls `Database.Migrate()` |
 | B2 | **Push the branch.** `feature/33-pdv-terminal-login` has no upstream and is **285 commits ahead of `origin/main`** — M14–M29 and the whole bug pass live on one unpushed branch on one machine. Now the *only* copy: the six worktree duplicates were removed 2026-08-31 (R5) |
 | B6 | ~~Apply the M24–M28 migrations.~~ **Done.** Verified 2026-08-28: `__EFMigrationsHistory` ends at `20260826174529_AddPdvOverrideAudit`, so the four M29 migrations are applied locally too |
+| B7b | **Cypress now opens all 18 sidebar modules, not 11** (FrontV2 `055f48a`, 2026-09-02). `MODULE_MARKERS` was missing quotes, map, performance, pdv, opportunities, audit and users — seven screens no test had ever opened, which is why the suite stayed green through M24–M29f. All seven pass. **Two pre-existing failures surfaced with them and are not caused by the change** — `Orders → opens the details of an order and deletes it` and `Receivables → generates a bill for an order and previews the PDF` both fail on the unmodified spec too (26/30). Each seeds a row through the API, finds it, then cannot see it in the UI list. The suite was recorded here as 0 failing on 2026-09-01, so something moved since; not chased |
 | B7 | ~~**Re-run Cypress.**~~ **Ran 2026-09-01 against an image rebuilt from today's commits: 30 tests, 26 passing, 0 failing, 4 pending** (the recaptcha-gated credential specs and two others that skip themselves), in 1m57s. The Products flake did not reproduce — both product specs passed. **This entry was wrong about what the suite covers**: it says "seven screens now … none has been through a browser", but `cypress/e2e/frontend.cy.js` is the only spec file and it exercises the module shell, the dashboard, customers, products, orders, bills, payables, the forecast, employees, payroll and settings. **None of the M24–M29f screens has a spec at all** — margin, seller performance, the ficha, the command palette, the map and the *Tills* backoffice are unexercised because nothing was ever written for them, not because the suite was not run. Writing those specs is the open work; the run itself is done, and `./scripts/e2e-cleanup.sh --apply` cleared its 11 seeded rows afterwards |
 | B10 | **Give `EvangelionERPV2.PDV` a remote and push it.** `git remote -v` is empty in that repo. Every line of the till exists on one disk |
 | B11 | ~~Commit or drop the two dirty FrontV2 files.~~ **Done 2026-08-31.** `useLoginController.ts` was a real fix — Google web login now goes through PKCE, which the server already required a `code_verifier` for (FrontV2 `80dec33`) — and `Dashboard.tsx` was the revenue-by-product chart rebuilt as stacked bars (`2c25979`). Both committed separately |
@@ -226,6 +227,28 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   active-email uniqueness check, so it can be reused.
 - ~~**Three duplicate `IDistributedCache` registrations**~~ — already closed by R4 on 2026-08-28;
   this line had gone stale. `SharedIoC:34` is the only `AddStackExchangeRedisCache` in the tree.
+
+## What 2026-09-02 changed in the PDV contract
+
+- **`CashSessionDTO.ClientSessionId` is published** (`af5e170`). `Id` meant the terminal's own id on
+  `GetOpenSessions` — which projects `Id = session.ClientSessionId` — and the server row id on
+  `GetOpenSession` and `OpenSession`, which go through `ToDto`. One field, two meanings, depending
+  on which endpoint answered. It matters because `CloseSession` matches on `ClientSessionId` and
+  nothing else, so the difference decides whether a shift can be closed at all. Both now populate
+  the field under its own name; `Id` keeps its existing value on each route, so nothing that reads
+  it today changes.
+
+- **The till reads a rejection out of a 200** (PDV `cd03d52`). Found by the first real round trip
+  against this ERP: `SyncSale` answers `Ok(body)` even when `RejectAsync` refuses, so the refusal
+  lives only in the body's `Status`. The terminal was reading the HTTP class alone and discarding
+  the outbox row — money in the drawer, no `Order`, nothing to retry, and a till reporting a clean
+  sync. **Nothing needed to change on this side**, but the shape is worth knowing: a 200 that means
+  "refused" is a contract only the body expresses.
+
+- **`Pdv/GetProductImages` took 21s cold**, then 7.3s, then 1.8s, against a catalog of *two*
+  products. The till's client times out at 20s, so a new terminal's first image pull can fail. It
+  degrades safely — pictures are never required to sell and the next cycle asks again — but it is
+  worth a look before a shop with a real catalog meets it.
 
 ## Needs a human, not code
 
