@@ -3,6 +3,19 @@ namespace EvangelionERPV2.Shared.DTOs
     public sealed class CashSessionDTO
     {
         public Guid Id { get; set; }
+
+        /// <summary>
+        /// The id the terminal minted for this shift, which is the only key that closes it.
+        /// </summary>
+        /// <remarks>
+        /// Published because <c>CloseSession</c> matches on it and nothing else did. Without it an
+        /// open shift was visible from the backoffice and closable only from the one machine that
+        /// still held the value in its local database — so a till that was reinstalled, or whose
+        /// disk failed, left a shift nobody could close, and <c>OpenSessionAsync</c> then refused to
+        /// open another on that terminal for ever. Seeing it costs nothing: it is the tenant's own
+        /// data, and closing still needs the CloseSession grant and a counted amount.
+        /// </remarks>
+        public Guid ClientSessionId { get; set; }
         public string TerminalId { get; set; } = string.Empty;
         public Guid UserId { get; set; }
         public DateTime OpenedAt { get; set; }

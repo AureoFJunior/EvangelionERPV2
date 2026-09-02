@@ -1146,6 +1146,7 @@ namespace EvangelionERPV2.Web.Controllers
         private static CashSessionDTO ToDto(Shared.Entities.CashSession session) => new()
         {
             Id = session.Id,
+            ClientSessionId = session.ClientSessionId,
             TerminalId = session.TerminalId,
             UserId = session.UserId,
             OpenedAt = session.OpenedAt,

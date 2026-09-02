@@ -309,7 +309,13 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 .OrderBy(session => session.TerminalId)
                 .Select(session => new CashSessionDTO
                 {
+                    // Id has meant the terminal's own id on this list since it was written, because
+                    // that is the one every other endpoint takes — while ToDto on the singular
+                    // routes puts the server row id in the same field. One name, two meanings,
+                    // which is a trap however long it has been true. ClientSessionId is now
+                    // populated on both, so a caller never has to know which endpoint it came from.
                     Id = session.ClientSessionId,
+                    ClientSessionId = session.ClientSessionId,
                     TerminalId = session.TerminalId,
                     UserId = session.UserId,
                     OpenedAt = session.OpenedAt,

@@ -120,6 +120,10 @@ namespace EvangelionERPV2.PdvModule.Test
 
             // The terminal's own id for the session, which is what every other endpoint takes.
             Assert.Equal(openId, session.Id);
+
+            // And under its own name, so a caller does not have to know that `Id` means something
+            // different here than it does on GetOpenSession.
+            Assert.Equal(openId, session.ClientSessionId);
         }
 
         [Fact]
