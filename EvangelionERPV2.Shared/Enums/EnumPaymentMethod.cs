@@ -15,6 +15,9 @@ namespace EvangelionERPV2.Shared.Enums
     /// This list said Voucher-05 until 2026-09-01, which was wrong: 05 is crédito loja, i.e. what
     /// StoreCredit is. A Sodexo card declared as 05 would report a third-party voucher as the
     /// shop's own credit.
+    ///
+    /// <see cref="Mixed"/> is the one member with no tPag: it describes an order, not a tender.
+    /// See its own remarks.
     /// </remarks>
     public enum EnumPaymentMethod
     {
@@ -40,6 +43,19 @@ namespace EvangelionERPV2.Shared.Enums
         Boleto = 7,
 
         /// <summary>Anything the store settles by hand. Forces an operator note.</summary>
-        Other = 99
+        Other = 99,
+
+        /// <summary>
+        /// A sale settled by two or more different methods. Order-level only.
+        /// </summary>
+        /// <remarks>
+        /// Written to <c>Order.PaymentMethod</c> and nowhere else. It is not a tender and has no
+        /// NFC-e <c>tPag</c> — the note declares each real tender in its own <c>pag</c> entry — so
+        /// a row carrying this in <c>PdvSalePayment.Method</c> would have no fiscal mapping at all.
+        /// Both the validator and <c>SyncSaleAsync</c> refuse it on an inbound tender.
+        ///
+        /// Numbered below <see cref="Other"/> so that 99 stays the last of the real methods.
+        /// </remarks>
+        Mixed = 98
     }
 }

@@ -455,6 +455,16 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     "Um pagamento em cartão precisa do código de autorização.");
             }
 
+            // Mixed describes an order, not a tender, and has no NFC-e tPag. The validator refuses
+            // it first; this is the assertion that makes it true of anything reaching the database,
+            // including a request built by hand. Rejected for the same reason the card check is:
+            // resending it will never help.
+            if (payments.Any(payment => payment.Method == (int)EnumPaymentMethod.Mixed))
+            {
+                return await RejectAsync(claimed.Sale,
+                    "Mixed is not a tender — send each payment with its own method.");
+            }
+
             try
             {
                 // The order id is committed on its own, before the payments and the drawer
@@ -466,7 +476,7 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 if (claimed.Sale.OrderId == null)
                 {
                     var order = await _orderService.CreateAsync(
-                        BuildOrder(request, items, enterpriseId, userId),
+                        BuildOrder(request, items, payments, enterpriseId, userId),
                         allowCreditOverride: false,
                         allowNegativeStock: true);
 
@@ -555,7 +565,8 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             }
         }
 
-        private Order BuildOrder(PdvSaleSyncRequestDTO request, List<PdvSaleItemRequestDTO> items, Guid enterpriseId, Guid userId)
+        private Order BuildOrder(PdvSaleSyncRequestDTO request, List<PdvSaleItemRequestDTO> items,
+            List<PdvSalePaymentRequestDTO> payments, Guid enterpriseId, Guid userId)
         {
             var soldAt = request.SoldAtLocal == default ? DateTime.UtcNow : request.SoldAtLocal;
 
@@ -565,9 +576,13 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 CustomerId = request.CustomerId,
                 UserId = userId,
 
-                // A till sale is paid before the customer leaves, so it is Paid on arrival — not
-                // Pending waiting on a receivable that does not exist.
-                Status = (int)EnumOrderStatus.Paid,
+                // A till sale is over, not merely paid: the customer has the goods and has left.
+                // Paid is a way-station on the backoffice ladder where an order can still be
+                // re-priced or deleted, and no sale that walked out of the shop belongs there.
+                // Finished is immutable in OrderService — edits and deletes are refused, refunds
+                // are not, which is the one correction a till actually needs.
+                Status = (int)EnumOrderStatus.Finished,
+                PaymentMethod = ResolvePaymentMethod(payments),
                 Payday = soldAt,
                 PaymentScheduledDate = soldAt,
                 OrderedProduct = items.Select(item => new OrderedProduct
@@ -581,6 +596,27 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     CreatedAt = DateTime.UtcNow,
                     IsActive = true
                 }).ToList()
+            };
+        }
+
+        /// <summary>
+        /// The one method that settled the sale, or <see cref="EnumPaymentMethod.Mixed"/> when
+        /// several did.
+        /// </summary>
+        /// <remarks>
+        /// Distinct methods, not tenders: two cash notes are still a cash sale. Null is
+        /// unreachable here — <c>SyncSaleAsync</c> refuses a sale with no payments — but is the
+        /// honest answer if it ever were, and it matches what a backoffice order stores.
+        /// </remarks>
+        private static int? ResolvePaymentMethod(List<PdvSalePaymentRequestDTO> payments)
+        {
+            var methods = payments.Select(payment => payment.Method).Distinct().Take(2).ToList();
+
+            return methods.Count switch
+            {
+                0 => null,
+                1 => methods[0],
+                _ => (int)EnumPaymentMethod.Mixed
             };
         }
 

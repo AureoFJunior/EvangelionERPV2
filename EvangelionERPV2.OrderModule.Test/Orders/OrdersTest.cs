@@ -808,8 +808,15 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 Times.Once);
         }
 
-        [Fact]
-        public async Task RefundAsync_ValidOrder_ShouldRestoreStockAndSetRefundState()
+        /// <summary>
+        /// Finished is in here on purpose. It blocks edits and deletes, and used to block this too
+        /// — which would have made every till sale unrefundable the moment PDV started creating
+        /// them Finished. A finished sale is precisely what a refund reverses.
+        /// </summary>
+        [Theory]
+        [InlineData((int)EnumOrderStatus.Processing)]
+        [InlineData((int)EnumOrderStatus.Finished)]
+        public async Task RefundAsync_ValidOrder_ShouldRestoreStockAndSetRefundState(int status)
         {
             var enterpriseId = Guid.NewGuid();
             var orderId = Guid.NewGuid();
@@ -820,7 +827,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 Id = orderId,
                 EnterpriseId = enterpriseId,
                 IsActive = true,
-                Status = (int)EnumOrderStatus.Processing,
+                Status = status,
                 TotalValue = 80
             };
 
@@ -905,8 +912,12 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 () => _orderService.RefundAsync(Guid.NewGuid(), Guid.NewGuid(), " "));
         }
 
-        [Fact]
-        public async Task RefundAsync_WhenOrderIsFinished_ShouldThrowInsertDatabaseException()
+        /// <summary>Already refunded is the one status a refund still refuses.</summary>
+        [Theory]
+        [InlineData((int)EnumOrderStatus.Refund, false)]
+        [InlineData((int)EnumOrderStatus.Finished, true)]
+        public async Task RefundAsync_WhenAlreadyRefunded_ShouldThrowInsertDatabaseException(
+            int status, bool refundedAt)
         {
             var enterpriseId = Guid.NewGuid();
             var order = new Order
@@ -914,13 +925,17 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 Id = Guid.NewGuid(),
                 EnterpriseId = enterpriseId,
                 IsActive = true,
-                Status = (int)EnumOrderStatus.Finished
+                Status = status,
+
+                // A row can carry the stamp without the status, which is how the guarded UPDATE
+                // leaves a loser of a concurrent refund.
+                RefundedAt = refundedAt ? DateTime.UtcNow : null
             };
 
             _mockIOrderRepository.Setup(r => r.GetByIdAsync(order.Id)).ReturnsAsync(order);
 
             await Assert.ThrowsAsync<InsertDatabaseException>(
-                () => _orderService.RefundAsync(order.Id, enterpriseId, "Cannot change final status"));
+                () => _orderService.RefundAsync(order.Id, enterpriseId, "Cannot refund twice"));
         }
 
         #endregion

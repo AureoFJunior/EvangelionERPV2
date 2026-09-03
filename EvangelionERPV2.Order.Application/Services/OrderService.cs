@@ -231,8 +231,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
                     var oldContribution = EnterpriseBalanceContributionHelper.GetOrderRealizedContribution(existentOrder, DateTime.UtcNow.Date);
 
-                    if (IsImmutableStatus(existentOrder.Status))
-                        throw new InsertDatabaseException("Orders with status Finished or Refund cannot be edited.");
+                    // Deliberately not IsImmutableStatus. Finished means the order can no longer be
+                    // rewritten, not that money can never be given back — a finished sale is
+                    // precisely what a refund exists to reverse, and every till sale is Finished on
+                    // arrival. Already-refunded is the only status a refund refuses; the period
+                    // lock below is what actually protects the books.
+                    if (existentOrder.Status == (int)EnumOrderStatus.Refund || existentOrder.RefundedAt.HasValue)
+                        throw new InsertDatabaseException("Order was already refunded.");
 
                     // The order's own date, not today: a refund reverses revenue in the month the
                     // order was booked into, which is the month that must still be open.
@@ -258,10 +263,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (_appDbContext != null)
                     {
                         var affectedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
-                            $"UPDATE [Order] SET TotalValue = 0, Status = {(int)EnumOrderStatus.Refund}, RefundReason = {trimmedReason}, RefundedAt = {now}, UpdatedAt = {now} WHERE Id = {id} AND EnterpriseId = {enterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished}");
+                            $"UPDATE [Order] SET TotalValue = 0, Status = {(int)EnumOrderStatus.Refund}, RefundReason = {trimmedReason}, RefundedAt = {now}, UpdatedAt = {now} WHERE Id = {id} AND EnterpriseId = {enterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status <> {(int)EnumOrderStatus.Refund}");
 
                         if (affectedRows <= 0)
-                            throw new InsertDatabaseException("Order was already refunded or finalized.");
+                            throw new InsertDatabaseException("Order was already refunded.");
                     }
 
                     foreach (var orderedProduct in orderedProducts)

@@ -120,7 +120,11 @@ namespace EvangelionERPV2.Web.FluentValidator
         {
             RuleFor(x => x.Method)
                 .Must(method => Enum.IsDefined(typeof(EnumPaymentMethod), method))
-                .WithMessage("Unknown payment method.");
+                .WithMessage("Unknown payment method.")
+                // Mixed is what an order says about itself when several tenders settled it. It is
+                // not a tender, and has no NFC-e tPag to be declared under.
+                .Must(method => method != (int)EnumPaymentMethod.Mixed)
+                .WithMessage("Mixed is not a tender — send each payment with its own method.");
 
             RuleFor(x => x.Amount)
                 .GreaterThan(0).WithMessage("A payment must be greater than zero.");

@@ -20,6 +20,11 @@ namespace EvangelionERPV2.Shared.DTOs
         public string? CustomerName { get; set; } = null;
         public IEnumerable<OrderedProduct>? OrderedProduct { get; set; } = null;
         public int Status { get; set; } = 0;
+
+        // EnumPaymentMethod, or Mixed when the sale was split. Null on a backoffice order, which
+        // has no tender — see Order.PaymentMethod.
+        public int? PaymentMethod { get; set; } = null;
+
         public string? RefundReason { get; set; } = null;
         public DateTime? RefundedAt { get; set; } = null;
 

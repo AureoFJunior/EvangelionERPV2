@@ -1712,6 +1712,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime?>("Payday")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("PaymentMethod")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("PaymentScheduledDate")
                         .HasColumnType("datetime2");
 
