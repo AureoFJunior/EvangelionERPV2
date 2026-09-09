@@ -93,5 +93,28 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()),
                 Times.Never);
         }
+
+        /// <summary>
+        /// The repository is read one row past the display cap specifically so ForModel can tell
+        /// "exactly 20 matched" from "more than 20 matched". Without that extra row, total and
+        /// mostrando are always equal and truncado can never be true.
+        /// </summary>
+        [Fact]
+        public async Task Invoking_WithMoreThanTheDisplayCap_ReportsTruncated()
+        {
+            var repository = new Mock<IRepository<Product>>();
+            repository
+                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .ReturnsAsync(Enumerable.Range(1, 21).Select(i => new Product { Id = Guid.NewGuid(), Name = $"Produto {i}" }));
+
+            var tool = new BuscarProdutosTool(repository.Object);
+            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+
+            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "produto" });
+
+            var json = result?.ToString() ?? string.Empty;
+            Assert.Contains("\"mostrando\":20", json);
+            Assert.Contains("\"truncado\":true", json);
+        }
     }
 }

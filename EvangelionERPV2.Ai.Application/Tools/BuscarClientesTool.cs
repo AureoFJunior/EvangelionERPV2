@@ -8,7 +8,15 @@ namespace EvangelionERPV2.AiModule.Application.Tools
 {
     public sealed class BuscarClientesTool : IAiTool
     {
-        private const int PageSize = 20;
+        private const int PageSize = AiJson.DefaultCap;
+
+        // ponytail: fetch one row past the display cap so AiJson.ForModel can tell "exactly 20
+        // matched" from "more than 20 matched" — with this, `total` is a lower bound (it reads 21
+        // when 137 match), not an exact count. `truncado` is what the model actually needs and is
+        // correct either way; an exact count would need a second COUNT query per search, which
+        // isn't worth it for a chat answer.
+        private const int FetchSize = PageSize + 1;
+
         private readonly IRepository<Customer> _repository;
 
         public BuscarClientesTool(IRepository<Customer> repository) => _repository = repository;
@@ -34,7 +42,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
 
                 var customers = await AiQuery.OrEmptyAsync(() => _repository.GetAllAsync(
                     1,
-                    PageSize,
+                    FetchSize,
                     x => x.EnterpriseId == context.EnterpriseId
                          && (x.Name.Contains(needle) || (x.Document != null && x.Document.Contains(needle)))));
 
