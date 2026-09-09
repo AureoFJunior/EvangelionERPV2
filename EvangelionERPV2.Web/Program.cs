@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using AspNetCoreRateLimit;
+using EvangelionERPV2.AiModule.Application.DI;
 using EvangelionERPV2.AuditModule.Application.DI;
 using EvangelionERPV2.BillsModule.Application.DI;
 using EvangelionERPV2.CustomerModule.Application.DI;
@@ -366,6 +367,7 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     OpportunityRadarIoC.Configure(builder.Services, builder.Configuration);
     ReportsIoC.Configure(builder.Services, builder.Configuration);
     PdvIoC.Configure(builder.Services, builder.Configuration);
+    AiIoC.Configure(builder.Services, builder.Configuration);
     SharedIoC.Configure(builder.Services, builder.Configuration);
 
     // reCAPTCHA verification (short timeout, fail-closed for auth endpoints).
