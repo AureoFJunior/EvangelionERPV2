@@ -32,6 +32,8 @@ namespace EvangelionERPV2.Web.Security
 
             RbacPermissions.Metrics.Read,
 
+            RbacPermissions.Ai.Chat,
+
             RbacPermissions.Audit.Read,
 
             RbacPermissions.Bills.Read,
