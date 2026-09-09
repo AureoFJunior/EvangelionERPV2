@@ -252,7 +252,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 MaxToolIterations = maxIterations,
             });
 
-            return new AiAgentService(chat, registry, settings, messages.Object);
+            return new AiAgentService(chat, registry, settings, messages.Object, Mock.Of<IAiProgressNotifier>());
         }
     }
 }

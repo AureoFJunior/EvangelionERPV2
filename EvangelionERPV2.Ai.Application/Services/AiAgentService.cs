@@ -23,17 +23,20 @@ namespace EvangelionERPV2.AiModule.Application.Services
         private readonly IAiToolRegistry _registry;
         private readonly AiSettings _settings;
         private readonly IRepository<AiMessage> _messages;
+        private readonly IAiProgressNotifier _notifier;
 
         public AiAgentService(
             IChatClient chatClient,
             IAiToolRegistry registry,
             IOptions<AiSettings> settings,
-            IRepository<AiMessage> messages)
+            IRepository<AiMessage> messages,
+            IAiProgressNotifier notifier)
         {
             _chatClient = chatClient;
             _registry = registry;
             _settings = settings.Value;
             _messages = messages;
+            _notifier = notifier;
         }
 
         /// <remarks>
@@ -84,12 +87,19 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     var text = response.Text ?? string.Empty;
                     await PersistAsync(request.ConversationId, AiMessageRole.Assistant, text,
                         toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
+
+                    foreach (var chunk in AiTextChunker.Split(text))
+                        await NotifyAsync(() => _notifier.ChunkAsync(request.Context.UserId, chunk));
+
+                    await NotifyAsync(() => _notifier.DoneAsync(request.Context.UserId, request.ConversationId));
+
                     return new AiTurnResult(text, toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
                 }
 
                 var results = new List<AIContent>();
                 foreach (var call in calls)
                 {
+                    await NotifyAsync(() => _notifier.StatusAsync(request.Context.UserId, DescribeTool(call.Name)));
                     toolsCalled.Add(call.Name);
                     results.Add(new FunctionResultContent(call.CallId, await ExecuteAsync(tools, call, cancellation)));
                 }
@@ -106,6 +116,32 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
             return new AiTurnResult(exhausted, toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
         }
+
+        /// <summary>Progress is decoration. A hub that is down must not cost the user their answer.</summary>
+        private static async Task NotifyAsync(Func<Task> notify)
+        {
+            try
+            {
+                await notify();
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning("AI progress notification failed. ErrorType={ErrorType}", ex.GetType().Name);
+            }
+        }
+
+        private static string DescribeTool(string toolName) => toolName switch
+        {
+            "buscar_produtos" => "Consultando produtos...",
+            "buscar_clientes" => "Consultando clientes...",
+            "consultar_pedidos" => "Consultando pedidos...",
+            "resumo_de_vendas" => "Somando as vendas...",
+            "painel_do_dia" => "Montando o panorama do dia...",
+            "contas_a_receber" => "Consultando o financeiro do cliente...",
+            "previsao_de_caixa" => "Projetando o caixa...",
+            "estoque_baixo" => "Verificando o estoque...",
+            _ => "Consultando...",
+        };
 
         /// <summary>
         /// A failing tool comes back as a tool result, not an exception. Bad arguments and transient
@@ -178,6 +214,23 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 LatencyMs = latencyMs,
             });
             await _messages.CommitAsync();
+        }
+    }
+
+    public static class AiTextChunker
+    {
+        // ponytail: chunks a finished answer rather than streaming from the model, because tool
+        // calling and streaming cannot be combined on this path. Upgrade path if true token
+        // latency is ever wanted: once the loop sees a response with no tool calls, re-issue that
+        // final turn through GetStreamingResponseAsync with ChatOptions.Tools cleared — one extra
+        // model call, which today is not worth it.
+        public static IEnumerable<string> Split(string text, int size = 80)
+        {
+            if (string.IsNullOrEmpty(text))
+                yield break;
+
+            for (var offset = 0; offset < text.Length; offset += size)
+                yield return text.Substring(offset, Math.Min(size, text.Length - offset));
         }
     }
 }
