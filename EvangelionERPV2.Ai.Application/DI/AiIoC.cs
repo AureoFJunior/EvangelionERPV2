@@ -16,6 +16,11 @@ namespace EvangelionERPV2.AiModule.Application.DI
             services.AddScoped<IAiTool, BuscarProdutosTool>();
             services.AddScoped<IAiTool, BuscarClientesTool>();
             services.AddScoped<IAiTool, ConsultarPedidosTool>();
+            services.AddScoped<IAiTool, ResumoDeVendasTool>();
+            services.AddScoped<IAiTool, PainelDoDiaTool>();
+            services.AddScoped<IAiTool, ContasAReceberTool>();
+            services.AddScoped<IAiTool, PrevisaoDeCaixaTool>();
+            services.AddScoped<IAiTool, EstoqueBaixoTool>();
 
             services.AddScoped<IAiToolRegistry>(sp =>
                 new AiToolRegistry(sp.GetServices<IAiTool>()));
