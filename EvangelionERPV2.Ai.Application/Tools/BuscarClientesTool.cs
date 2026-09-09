@@ -29,11 +29,14 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             {
                 var needle = (termo ?? string.Empty).Trim();
 
-                var customers = (await _repository.GetAllAsync(
+                if (needle.Length == 0)
+                    return "{\"erro\":\"informe um termo de busca\"}";
+
+                var customers = await AiQuery.OrEmptyAsync(() => _repository.GetAllAsync(
                     1,
                     PageSize,
                     x => x.EnterpriseId == context.EnterpriseId
-                         && (x.Name.Contains(needle) || (x.Document != null && x.Document.Contains(needle))))).ToList();
+                         && (x.Name.Contains(needle) || (x.Document != null && x.Document.Contains(needle)))));
 
                 // Document is deliberately not returned: the model needs the id to chain a call,
                 // and a CPF in the conversation log is personal data this feature does not need.

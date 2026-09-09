@@ -1,6 +1,7 @@
 using EvangelionERPV2.AiModule.Application.Interface;
 using EvangelionERPV2.AiModule.Application.Tools;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.Extensions.AI;
 using Moq;
@@ -55,6 +56,42 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "nao existe" });
 
             Assert.Contains("\"total\":0", result?.ToString() ?? string.Empty);
+        }
+
+        /// <summary>
+        /// The real ProductRepository throws NotFoundDatabaseException on zero matches instead of
+        /// returning an empty list. A search matching nothing is a normal answer, not a failure.
+        /// </summary>
+        [Fact]
+        public async Task Invoking_WhenRepositoryThrowsNotFound_ReportsZeroRatherThanFailing()
+        {
+            var repository = new Mock<IRepository<Product>>();
+            repository
+                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .ThrowsAsync(new NotFoundDatabaseException());
+
+            var tool = new BuscarProdutosTool(repository.Object);
+            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+
+            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "nao existe" });
+
+            Assert.Contains("\"total\":0", result?.ToString() ?? string.Empty);
+        }
+
+        [Fact]
+        public async Task Invoking_WithEmptyTerm_ReturnsErrorRatherThanEverything()
+        {
+            var repository = new Mock<IRepository<Product>>();
+
+            var tool = new BuscarProdutosTool(repository.Object);
+            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+
+            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "  " });
+
+            Assert.Contains("\"erro\"", result?.ToString() ?? string.Empty);
+            repository.Verify(
+                x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()),
+                Times.Never);
         }
     }
 }

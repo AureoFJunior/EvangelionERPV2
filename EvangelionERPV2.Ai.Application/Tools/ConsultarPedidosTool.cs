@@ -1,23 +1,24 @@
 using EvangelionERPV2.AiModule.Application.Interface;
 using EvangelionERPV2.AiModule.Application.Services;
-using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
+using EvangelionERPV2.Shared.Repositories;
 using Microsoft.Extensions.AI;
 
 namespace EvangelionERPV2.AiModule.Application.Tools
 {
     /// <summary>
-    /// Recent orders for the tenant, optionally narrowed to one customer. Date filtering happens
-    /// here rather than in the service because the service has no date-ranged read and adding one
-    /// for this feature alone would widen a shared interface for a single caller.
+    /// Recent orders for the tenant, optionally narrowed to one customer. Goes through
+    /// IRepository&lt;Order&gt; rather than IOrderService so the date window and customer id are
+    /// pushed into the SQL predicate: OrderRepository's paged read orders by Id, not by date, so
+    /// paging first and filtering by CreatedAt in memory (the original approach) could silently
+    /// drop real matches for a tenant with more than one page of orders.
     /// </summary>
     public sealed class ConsultarPedidosTool : IAiTool
     {
-        private const int FetchSize = 200;
-        private readonly IOrderService<Order> _orderService;
+        private readonly IRepository<Order> _repository;
 
-        public ConsultarPedidosTool(IOrderService<Order> orderService) => _orderService = orderService;
+        public ConsultarPedidosTool(IRepository<Order> repository) => _repository = repository;
 
         public string Name => "consultar_pedidos";
 
@@ -36,23 +37,28 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 var window = DateTime.UtcNow.AddDays(-Math.Clamp(diasAtras ?? 30, 1, 365));
                 Guid.TryParse(clienteId, out var customerId);
 
-                var orders = (await _orderService.GetByEnterpriseIdAsync(context.EnterpriseId, 1, FetchSize))
-                    .Where(x => x.CreatedAt >= window)
-                    .Where(x => customerId == Guid.Empty || x.CustomerId == customerId)
+                // ponytail: the date window bounds what gets loaded, so a very high-volume tenant
+                // combined with a wide diasAtras would load more than it needs. Upgrade path is a
+                // date-ordered, paged repository read once that pattern exists on Order.
+                var orders = await AiQuery.OrEmptyAsync(() => _repository.GetAllAsync(
+                    x => x.EnterpriseId == context.EnterpriseId
+                         && x.CreatedAt >= window
+                         && (customerId == Guid.Empty || x.CustomerId == customerId)));
+
+                var rows = orders
                     .OrderByDescending(x => x.CreatedAt)
-                    .ToList();
+                    .Take(AiJson.DefaultCap)
+                    .Select(x => new
+                    {
+                        id = x.Id,
+                        data = x.CreatedAt.ToString("yyyy-MM-dd"),
+                        valor = x.TotalValue,
+                        // Order.Status is an int column, not an enum property. Cast it, or the
+                        // model is handed "1" and will invent a meaning for it.
+                        status = ((EnumOrderStatus)x.Status).ToString(),
+                    }).ToList();
 
-                var rows = orders.Select(x => new
-                {
-                    id = x.Id,
-                    data = x.CreatedAt.ToString("yyyy-MM-dd"),
-                    valor = x.TotalValue,
-                    // Order.Status is an int column, not an enum property. Cast it, or the
-                    // model is handed "1" and will invent a meaning for it.
-                    status = ((EnumOrderStatus)x.Status).ToString(),
-                }).ToList();
-
-                return AiJson.ForModel(rows, rows.Count);
+                return AiJson.ForModel(rows, orders.Count);
             }, Name, Description);
     }
 }

@@ -32,11 +32,14 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             {
                 var needle = (termo ?? string.Empty).Trim();
 
-                var products = (await _repository.GetAllAsync(
+                if (needle.Length == 0)
+                    return "{\"erro\":\"informe um termo de busca\"}";
+
+                var products = await AiQuery.OrEmptyAsync(() => _repository.GetAllAsync(
                     1,
                     PageSize,
                     x => x.EnterpriseId == context.EnterpriseId
-                         && (x.Name.Contains(needle) || (x.Sku != null && x.Sku.Contains(needle))))).ToList();
+                         && (x.Name.Contains(needle) || (x.Sku != null && x.Sku.Contains(needle)))));
 
                 var rows = products.Select(x => new
                 {
