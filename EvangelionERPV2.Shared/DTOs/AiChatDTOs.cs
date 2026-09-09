@@ -4,7 +4,13 @@ namespace EvangelionERPV2.Shared.DTOs
 {
     public class AiChatRequestDTO
     {
-        /// <summary>Null starts a new thread. The response always carries the id to continue with.</summary>
+        /// <summary>
+        /// Null starts a new thread. The response always carries the id to continue with.
+        /// A supplied id that does not resolve to a conversation owned by the caller (wrong user,
+        /// wrong tenant, or simply unknown) also silently starts a new thread rather than erroring —
+        /// this is deliberate, not a bug: it avoids confirming or denying that a given id exists to
+        /// a caller who does not own it.
+        /// </summary>
         public Guid? ConversationId { get; set; }
 
         [Required]
