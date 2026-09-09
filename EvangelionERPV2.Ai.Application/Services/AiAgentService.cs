@@ -22,23 +22,26 @@ namespace EvangelionERPV2.AiModule.Application.Services
         private readonly IChatClient _chatClient;
         private readonly IAiToolRegistry _registry;
         private readonly AiSettings _settings;
-        private readonly IRepository<AiConversation> _conversations;
         private readonly IRepository<AiMessage> _messages;
 
         public AiAgentService(
             IChatClient chatClient,
             IAiToolRegistry registry,
             IOptions<AiSettings> settings,
-            IRepository<AiConversation> conversations,
             IRepository<AiMessage> messages)
         {
             _chatClient = chatClient;
             _registry = registry;
             _settings = settings.Value;
-            _conversations = conversations;
             _messages = messages;
         }
 
+        /// <remarks>
+        /// Precondition: the caller has already resolved the conversation and confirmed it belongs
+        /// to the calling user and tenant. This method does not re-check that. The controller does
+        /// it once, against a DbContext whose global filter already scopes the read to the tenant;
+        /// repeating it here would be a second source of truth for the same rule.
+        /// </remarks>
         public async Task<AiTurnResult> RunTurnAsync(AiTurnRequest request, CancellationToken cancellation = default)
         {
             var stopwatch = Stopwatch.StartNew();
@@ -136,8 +139,10 @@ namespace EvangelionERPV2.AiModule.Application.Services
 
         private async Task<List<ChatMessage>> LoadHistoryAsync(Guid conversationId)
         {
-            // OrEmptyAsync because a conversation on its first turn has no rows, and this
-            // repository layer says that by throwing rather than returning an empty list.
+            // AiMessage has no dedicated repository, so this is the generic RepositoryBase, which
+            // returns an empty list for no rows. OrEmptyAsync is defensive: every entity-specific
+            // repository in this codebase signals "nothing matched" by throwing instead, so an
+            // AiMessageRepository added later would follow that pattern and break the first turn.
             var stored = (await AiQuery.OrEmptyAsync(() => _messages.GetAllAsync(x => x.AiConversationId == conversationId)))
                 .OrderByDescending(x => x.CreatedAt)
                 .Take(MaxHistoryMessages)

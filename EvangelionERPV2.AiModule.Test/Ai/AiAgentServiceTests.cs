@@ -100,23 +100,89 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         /// <summary>
-        /// The repositories here signal "nothing matched" by throwing, and a conversation on its
-        /// first turn legitimately has no messages. That must not end the turn.
+        /// A conversation on its first turn has no rows. The model must still be asked, and asked
+        /// with nothing but the system prompt and the question.
         /// </summary>
         [Fact]
         public async Task ABrandNewConversationWithNoHistory_StillAnswers()
         {
-            var messages = new Mock<IRepository<AiMessage>>();
+            var chat = ChatReturning(Text("Olá."));
+            List<ChatMessage>? sent = null;
+            chat.Setup(x => x.GetResponseAsync(
+                    It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+                .Callback<IEnumerable<ChatMessage>, ChatOptions?, CancellationToken>((m, _, _) => sent = m.ToList())
+                .ReturnsAsync(Text("Olá."));
+
+            var result = await BuildService(chat.Object, NoTools()).RunTurnAsync(Request("oi"), CancellationToken.None);
+
+            Assert.Equal("Olá.", result.Text);
+            Assert.NotNull(sent);
+            Assert.Equal(new[] { ChatRole.System, ChatRole.User }, sent!.Select(x => x.Role));
+            Assert.Equal("oi", sent[1].Text);
+        }
+
+        /// <summary>
+        /// Defensive: AiMessage uses the generic repository, which returns an empty list. Every
+        /// entity-specific repository here throws instead, so a future AiMessageRepository would
+        /// too — and that must not blow up somebody's first question.
+        /// </summary>
+        [Fact]
+        public async Task AHistoryReadThatThrowsNotFound_IsTreatedAsNoHistory()
+        {
+            var messages = MessageRepository();
             messages.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<AiMessage, bool>>>()))
                 .ThrowsAsync(new NotFoundDatabaseException("no rows"));
-            messages.Setup(x => x.CreateAsync(It.IsAny<AiMessage>()))
-                .ReturnsAsync((AiMessage m) => m);
 
-            var service = BuildService(ChatReturning(Text("Olá.")).Object, NoTools(), messages: messages.Object);
+            var service = BuildService(ChatReturning(Text("Olá.")).Object, NoTools(), messages: messages);
 
             var result = await service.RunTurnAsync(Request("oi"), CancellationToken.None);
 
             Assert.Equal("Olá.", result.Text);
+        }
+
+        /// <summary>
+        /// The AiMessage rows are the cost ledger and the only place conversation content lives.
+        /// Nothing else in the system would notice if this wrote the wrong thing.
+        /// </summary>
+        [Fact]
+        public async Task ATurn_PersistsTheQuestionAndTheAnswerWithWhatTheyCost()
+        {
+            var response = Text("Você tem 12 unidades.");
+            response.Usage = new UsageDetails { InputTokenCount = 900, OutputTokenCount = 30 };
+            var persisted = new List<AiMessage>();
+
+            await BuildService(ChatReturning(response).Object, NoTools(), persisted: persisted)
+                .RunTurnAsync(Request("quantas coca tem?"), CancellationToken.None);
+
+            var user = Assert.Single(persisted, x => x.Role == AiMessageRole.User);
+            Assert.Equal("quantas coca tem?", user.Content);
+            Assert.Equal(ConversationId, user.AiConversationId);
+
+            var assistant = Assert.Single(persisted, x => x.Role == AiMessageRole.Assistant);
+            Assert.Equal("Você tem 12 unidades.", assistant.Content);
+            Assert.Equal(ConversationId, assistant.AiConversationId);
+            Assert.Equal("modelo-de-teste", assistant.Model);
+            Assert.Equal(900, assistant.PromptTokens);
+            Assert.Equal(30, assistant.CompletionTokens);
+            Assert.True(assistant.LatencyMs >= 0);
+            Assert.Equal("[]", assistant.ToolCallsJson);
+        }
+
+        [Fact]
+        public async Task ATurnStoppedAtTheCap_PersistsTheToolsItBurnedThrough()
+        {
+            var persisted = new List<AiMessage>();
+
+            await BuildService(
+                    ChatReturning(ToolCall("c1", "ferramenta_ok")).Object,
+                    OneToolNamed("ferramenta_ok", () => "{}"),
+                    maxIterations: 2,
+                    persisted: persisted)
+                .RunTurnAsync(Request("loop"), CancellationToken.None);
+
+            var assistant = Assert.Single(persisted, x => x.Role == AiMessageRole.Assistant);
+            Assert.Contains("não consegui", assistant.Content, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("[\"ferramenta_ok\",\"ferramenta_ok\"]", assistant.ToolCallsJson);
         }
 
         private static AiTurnRequest Request(string text) =>
@@ -155,25 +221,29 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             return registry.Object;
         }
 
+        private static Mock<IRepository<AiMessage>> MessageRepository()
+        {
+            var messages = new Mock<IRepository<AiMessage>>();
+            messages.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<AiMessage, bool>>>()))
+                .ReturnsAsync(Array.Empty<AiMessage>());
+            messages.Setup(x => x.CreateAsync(It.IsAny<AiMessage>()))
+                .ReturnsAsync((AiMessage m) => m);
+            return messages;
+        }
+
         private static AiAgentService BuildService(
             IChatClient chat,
             IAiToolRegistry registry,
             int maxIterations = 6,
-            IRepository<AiMessage>? messages = null)
+            Mock<IRepository<AiMessage>>? messages = null,
+            List<AiMessage>? persisted = null)
         {
-            var conversations = new Mock<IRepository<AiConversation>>();
-            conversations.Setup(x => x.GetByIdAsync(It.IsAny<Guid>()))
-                .ReturnsAsync(new AiConversation { Id = ConversationId, EnterpriseId = Tenant });
+            messages ??= MessageRepository();
 
-            if (messages is null)
-            {
-                var stubbed = new Mock<IRepository<AiMessage>>();
-                stubbed.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<AiMessage, bool>>>()))
-                    .ReturnsAsync(Array.Empty<AiMessage>());
-                stubbed.Setup(x => x.CreateAsync(It.IsAny<AiMessage>()))
+            if (persisted is not null)
+                messages.Setup(x => x.CreateAsync(It.IsAny<AiMessage>()))
+                    .Callback<AiMessage>(persisted.Add)
                     .ReturnsAsync((AiMessage m) => m);
-                messages = stubbed.Object;
-            }
 
             var settings = Options.Create(new AiSettings
             {
@@ -182,7 +252,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 MaxToolIterations = maxIterations,
             });
 
-            return new AiAgentService(chat, registry, settings, conversations.Object, messages);
+            return new AiAgentService(chat, registry, settings, messages.Object);
         }
     }
 }
