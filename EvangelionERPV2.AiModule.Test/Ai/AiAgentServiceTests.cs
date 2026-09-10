@@ -186,13 +186,15 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         /// <summary>
-        /// TimeoutSeconds is documented as a budget for the turn. Zero makes the budget expire
-        /// before the first model call returns, which is the same path a wedged Ollama takes.
+        /// TimeoutSeconds is documented as a budget for the turn. A small positive value the model
+        /// mock can't answer within (it blocks on Task.Delay(Infinite) until the budget's token
+        /// fires) exercises the same path a wedged Ollama takes, without meaning "no budget" the
+        /// way 0 now does.
         /// </summary>
         [Fact]
         public async Task ATurnThatOverrunsItsBudget_AnswersInsteadOfThrowing()
         {
-            var service = BuildService(ChatThatNeverAnswers().Object, NoTools(), timeoutSeconds: 0);
+            var service = BuildService(ChatThatNeverAnswers().Object, NoTools(), timeoutSeconds: 1);
 
             var result = await service.RunTurnAsync(Request("demora"), CancellationToken.None);
 
@@ -204,11 +206,26 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         {
             var persisted = new List<AiMessage>();
 
-            await BuildService(ChatThatNeverAnswers().Object, NoTools(), persisted: persisted, timeoutSeconds: 0)
+            await BuildService(ChatThatNeverAnswers().Object, NoTools(), persisted: persisted, timeoutSeconds: 1)
                 .RunTurnAsync(Request("demora"), CancellationToken.None);
 
             var assistant = Assert.Single(persisted, x => x.Role == AiMessageRole.Assistant);
             Assert.Contains("demorou demais", assistant.Content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 0 means "no budget", not "expire immediately" — an operator's natural way to say
+        /// unlimited. A model that actually answers must get its answer back rather than being cut
+        /// off by a budget that was never armed.
+        /// </summary>
+        [Fact]
+        public async Task ATurnWithZeroTimeoutSeconds_HasNoBudgetAndAnswersNormally()
+        {
+            var service = BuildService(ChatReturning(Text("Bom dia.")).Object, NoTools(), timeoutSeconds: 0);
+
+            var result = await service.RunTurnAsync(Request("oi"), CancellationToken.None);
+
+            Assert.Equal("Bom dia.", result.Text);
         }
 
         /// <summary>
@@ -251,7 +268,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         {
             var notifier = new Mock<IAiProgressNotifier>();
 
-            await BuildService(ChatThatNeverAnswers().Object, NoTools(), notifier: notifier.Object, timeoutSeconds: 0)
+            await BuildService(ChatThatNeverAnswers().Object, NoTools(), notifier: notifier.Object, timeoutSeconds: 1)
                 .RunTurnAsync(Request("demora"), CancellationToken.None);
 
             notifier.Verify(x => x.DoneAsync(It.IsAny<Guid>(), ConversationId), Times.Once);

@@ -39,7 +39,7 @@ Two reasons, not one:
 | `Endpoint` | `http://localhost:11434` | From inside the container this is `http://host.docker.internal:11434` |
 | `Model` | `qwen3:14b` | See "Which model" below — undecided pending the ten-prompt run |
 | `MaxToolIterations` | `6` | Caps how many tool-call rounds one turn may take, so a model stuck in a loop fails fast instead of timing out |
-| `TimeoutSeconds` | `120` | Budget for the whole turn, tool rounds included. Enforced in `AiAgentService`; overrunning it ends the turn with a pt-BR message, not a 500. |
+| `TimeoutSeconds` | `120` | Budget for the whole turn, tool rounds included. Enforced in `AiAgentService`; overrunning it ends the turn with a pt-BR message, not a 500. A non-positive value disables the budget (no time limit). |
 | `MessageRetentionDays` | `90` | Recorded for LGPD purposes; the sweep that enforces it is not built in Rung 1 |
 | `ApiKey` | `null` | Unused with Ollama. Exists so pointing this module at a hosted provider is a config change, not a config-*shape* change |
 

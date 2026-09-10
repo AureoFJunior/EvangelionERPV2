@@ -22,7 +22,8 @@ namespace EvangelionERPV2.AiModule.Application.Configs
         /// <summary>
         /// Budget for one whole turn, tool rounds included — enforced by AiAgentService, not by the
         /// HTTP client, which OllamaApiClient builds itself. Overrunning it ends the turn with an
-        /// honest answer rather than an exception.
+        /// honest answer rather than an exception. A non-positive value (0 or below) disables the
+        /// budget entirely — the turn runs with no time limit.
         /// </summary>
         public int TimeoutSeconds { get; set; } = 120;
 

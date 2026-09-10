@@ -81,7 +81,10 @@ namespace EvangelionERPV2.AiModule.Application.Services
             // multiplied by MaxToolIterations is not what "TimeoutSeconds: 120" leads anyone to
             // expect, and OllamaApiClient builds its own HttpClient, so nothing else applies it.
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-            budget.CancelAfter(TimeSpan.FromSeconds(_settings.TimeoutSeconds));
+            // Non-positive means "no budget" — 0 is the value an operator picks to mean unlimited,
+            // and CancelAfter throws on a negative TimeSpan.
+            if (_settings.TimeoutSeconds > 0)
+                budget.CancelAfter(TimeSpan.FromSeconds(_settings.TimeoutSeconds));
 
             async Task<AiTurnResult> FinishAsync(string text)
             {
@@ -125,7 +128,7 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     messages.Add(new ChatMessage(ChatRole.Tool, results));
                 }
             }
-            catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+            catch (OperationCanceledException) when (budget.IsCancellationRequested && !cancellation.IsCancellationRequested)
             {
                 // The budget ran out, not the caller going away. A request the client abandoned
                 // still propagates: nobody is waiting for that answer, and it is not a timeout.
