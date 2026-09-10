@@ -2,11 +2,6 @@ using EvangelionERPV2.AiModule.Application.Services;
 
 namespace EvangelionERPV2.AiModule.Test.Ai
 {
-    /// <summary>
-    /// A tool that hands back four hundred rows does not produce a better answer, it produces a
-    /// model that has forgotten the question. Every tool result is capped, and the cap is stated in
-    /// the payload so the model can say "mostrando 20 de 137" instead of implying it saw them all.
-    /// </summary>
     public class AiJsonTests
     {
         [Fact]

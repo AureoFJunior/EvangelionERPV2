@@ -11,12 +11,6 @@ using System.Linq.Expressions;
 
 namespace EvangelionERPV2.AiModule.Test.Ai
 {
-    /// <summary>
-    /// The loop is the part with no natural ceiling: a local model that has lost the thread will
-    /// call the same tool until something stops it, and a tool that throws must not take the whole
-    /// turn with it. Both of those are tested here against a mocked IChatClient — no test in this
-    /// suite may require a running Ollama.
-    /// </summary>
     public class AiAgentServiceTests
     {
         private static readonly Guid Tenant = Guid.NewGuid();
@@ -99,10 +93,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal(40, result.CompletionTokens);
         }
 
-        /// <summary>
-        /// A conversation on its first turn has no rows. The model must still be asked, and asked
-        /// with nothing but the system prompt and the question.
-        /// </summary>
         [Fact]
         public async Task ABrandNewConversationWithNoHistory_StillAnswers()
         {
@@ -121,11 +111,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal("oi", sent[1].Text);
         }
 
-        /// <summary>
-        /// Defensive: AiMessage uses the generic repository, which returns an empty list. Every
-        /// entity-specific repository here throws instead, so a future AiMessageRepository would
-        /// too — and that must not blow up somebody's first question.
-        /// </summary>
         [Fact]
         public async Task AHistoryReadThatThrowsNotFound_IsTreatedAsNoHistory()
         {
@@ -140,10 +125,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal("Olá.", result.Text);
         }
 
-        /// <summary>
-        /// The AiMessage rows are the cost ledger and the only place conversation content lives.
-        /// Nothing else in the system would notice if this wrote the wrong thing.
-        /// </summary>
         [Fact]
         public async Task ATurn_PersistsTheQuestionAndTheAnswerWithWhatTheyCost()
         {
@@ -185,12 +166,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal("[\"ferramenta_ok\",\"ferramenta_ok\"]", assistant.ToolCallsJson);
         }
 
-        /// <summary>
-        /// TimeoutSeconds is documented as a budget for the turn. A small positive value the model
-        /// mock can't answer within (it blocks on Task.Delay(Infinite) until the budget's token
-        /// fires) exercises the same path a wedged Ollama takes, without meaning "no budget" the
-        /// way 0 now does.
-        /// </summary>
         [Fact]
         public async Task ATurnThatOverrunsItsBudget_AnswersInsteadOfThrowing()
         {
@@ -213,11 +188,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Contains("demorou demais", assistant.Content, StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>
-        /// 0 means "no budget", not "expire immediately" — an operator's natural way to say
-        /// unlimited. A model that actually answers must get its answer back rather than being cut
-        /// off by a budget that was never armed.
-        /// </summary>
         [Fact]
         public async Task ATurnWithZeroTimeoutSeconds_HasNoBudgetAndAnswersNormally()
         {
@@ -228,10 +198,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal("Bom dia.", result.Text);
         }
 
-        /// <summary>
-        /// A caller that went away is not a timeout. The budget swallows its own cancellation; an
-        /// aborted request has to keep propagating, or a disconnect looks like a slow model.
-        /// </summary>
         [Fact]
         public async Task ATurnCancelledByItsCaller_PropagatesRatherThanReportingATimeout()
         {
@@ -243,10 +209,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 () => service.RunTurnAsync(Request("cancela"), caller.Token));
         }
 
-        /// <summary>
-        /// The spinner in the UI clears on AiDone. The cap and the budget are exactly the paths
-        /// where the user needs to be told something, and both used to return without one.
-        /// </summary>
         [Fact]
         public async Task ATurnStoppedAtTheCap_StillChunksAndSignalsDone()
         {
@@ -274,10 +236,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             notifier.Verify(x => x.DoneAsync(It.IsAny<Guid>(), ConversationId), Times.Once);
         }
 
-        /// <summary>
-        /// Progress is decoration. A notifier that fails on every single call must cost the user
-        /// nothing — including the one in the finally block, which runs after the answer exists.
-        /// </summary>
         [Fact]
         public async Task ANotifierThatThrowsOnEveryCall_StillLetsTheTurnReturnItsAnswer()
         {
@@ -372,7 +330,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             return new AiAgentService(chat, registry, settings, messages.Object, notifier ?? Mock.Of<IAiProgressNotifier>());
         }
 
-        /// <summary>A model that never answers, so only the turn budget can end the wait.</summary>
         private static Mock<IChatClient> ChatThatNeverAnswers()
         {
             var chat = new Mock<IChatClient>();

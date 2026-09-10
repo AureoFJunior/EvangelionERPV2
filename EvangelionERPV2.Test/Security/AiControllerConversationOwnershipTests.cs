@@ -14,14 +14,6 @@ using System.Security.Claims;
 
 namespace EvangelionERPV2.Test.Security
 {
-    /// <summary>
-    /// AiAgentService.RunTurnAsync (Ai.Application) deliberately does not re-check that a supplied
-    /// ConversationId belongs to the calling user and tenant — it documents that precondition and
-    /// trusts the caller. AiController.ResolveConversationAsync is the only thing enforcing it.
-    /// These tests exist so that check cannot silently regress: the EF tenant filter already scopes
-    /// the read, but the UserId comparison is the second belt, and it is the one guarding
-    /// cross-user access within the same tenant.
-    /// </summary>
     public class AiControllerConversationOwnershipTests
     {
         private readonly Mock<IAiAgentService> _agentServiceMock = new();
@@ -38,7 +30,7 @@ namespace EvangelionERPV2.Test.Security
             {
                 Id = suppliedConversationId,
                 EnterpriseId = enterpriseId,
-                UserId = Guid.NewGuid(), // not the caller
+                UserId = Guid.NewGuid(),
             };
 
             _conversationsMock
@@ -135,11 +127,6 @@ namespace EvangelionERPV2.Test.Security
             _conversationsMock.Verify(x => x.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
         }
 
-        /// <summary>
-        /// The tool list is a second answer to "what may this caller do", and PermissionAuthorization-
-        /// Handler treats PdvTokenScope as the authority. A till-scoped token reaching a non-pdv tool
-        /// would be an escalation the handler had already refused.
-        /// </summary>
         [Fact]
         public async Task Chat_WithATillScopedToken_OffersNoToolOutsideThePdvScope()
         {
@@ -165,7 +152,6 @@ namespace EvangelionERPV2.Test.Security
                 permission => Assert.StartsWith(PdvTokenScope.PermissionPrefix, permission, StringComparison.Ordinal));
         }
 
-        /// <summary>Guards the test above from passing because the grant set was empty anyway.</summary>
         [Fact]
         public async Task Chat_WithAnOrdinaryToken_StillOffersToolsOutsideThePdvScope()
         {

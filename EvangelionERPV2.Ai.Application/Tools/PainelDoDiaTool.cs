@@ -7,10 +7,6 @@ using System.Text.Json;
 
 namespace EvangelionERPV2.AiModule.Application.Tools
 {
-    /// <summary>
-    /// The one tool worth calling when the question is vague: "como estamos hoje" has an answer
-    /// already assembled by the dashboard, and it is a better one than five separate lookups.
-    /// </summary>
     public sealed class PainelDoDiaTool : IAiTool
     {
         private readonly IDailyPanelService _service;
@@ -38,8 +34,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 }
                 catch (NotFoundDatabaseException)
                 {
-                    // The panel aggregates several repository reads, any of which can throw on
-                    // zero rows. Nothing to report is itself the honest answer.
                     return "{\"erro\":\"sem dados para hoje\"}";
                 }
             }, Name, Description);

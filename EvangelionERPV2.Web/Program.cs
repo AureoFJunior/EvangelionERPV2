@@ -226,9 +226,6 @@ static void SetupJWT(WebApplicationBuilder builder)
                 {
                     var accessToken = context.Request.Query["access_token"].FirstOrDefault();
                     var path = context.HttpContext.Request.Path;
-                    // Browser WebSocket and EventSource cannot set an Authorization header, so
-                    // @microsoft/signalr sends the JWT here instead. Every mapped hub needs to be
-                    // in this list or it only authenticates over long polling.
                     var isSignalRHubRequest =
                         path.StartsWithSegments("/orderHub") ||
                         path.StartsWithSegments("/aiHub");

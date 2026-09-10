@@ -15,15 +15,9 @@ namespace EvangelionERPV2.AiModule.Application.DI
         {
             services.Configure<AiSettings>(configuration.GetSection("AiSettings"));
 
-            // OllamaSharp's client implements IChatClient directly. Microsoft.Extensions.AI.Ollama
-            // is deprecated and must not be used. Nothing else in this module knows about Ollama —
-            // pointing the agent at a hosted provider is this registration and nothing more.
             services.AddSingleton<IChatClient>(serviceProvider =>
             {
                 var settings = serviceProvider.GetRequiredService<IOptions<AiSettings>>().Value;
-                // No per-call timeout here on purpose: AiSettings.TimeoutSeconds is a budget for
-                // the whole turn and AiAgentService enforces it. A per-call one would silently
-                // become TimeoutSeconds x MaxToolIterations.
                 return new OllamaSharp.OllamaApiClient(new Uri(settings.Endpoint), settings.Model);
             });
 

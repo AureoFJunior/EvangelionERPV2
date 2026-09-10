@@ -2,13 +2,6 @@ using EvangelionERPV2.Shared.Entities;
 
 namespace EvangelionERPV2.AiModule.Test.Ai
 {
-    /// <summary>
-    /// A conversation carries EnterpriseId directly so the AppDbContext global query filter picks
-    /// it up by convention; the messages reach the tenant through their parent, the same shape
-    /// OpportunitySignal and Bill already use. These tests pin the defaults that make the token
-    /// columns meaningful — a row that silently defaults its counts to something other than zero
-    /// would quietly corrupt every cost figure derived from them.
-    /// </summary>
     public class AiConversationTests
     {
         [Fact]

@@ -10,11 +10,6 @@ using System.Text.Json;
 
 namespace EvangelionERPV2.AiModule.Application.Services
 {
-    /// <summary>
-    /// Drives the tool-call loop by hand rather than through UseFunctionInvocation(). Rung 2 has to
-    /// intercept a call before it executes, hold it as a pending action and wait for a human; a
-    /// loop we own turns that into a branch instead of a rewrite.
-    /// </summary>
     public sealed class AiAgentService : IAiAgentService
     {
         private const int MaxHistoryMessages = 20;
@@ -39,7 +34,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             _notifier = notifier;
         }
 
-        /// <inheritdoc />
         public async Task<AiTurnResult> RunTurnAsync(AiTurnRequest request, CancellationToken cancellation = default)
         {
             try
@@ -48,9 +42,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             }
             finally
             {
-                // A UI clears its spinner on AiDone, so every path out of a turn owes it one —
-                // including the two that used to skip it, which are the two where the user most
-                // needs to be told something happened.
                 await NotifyAsync(() => _notifier.DoneAsync(request.Context.UserId, request.ConversationId));
             }
         }
@@ -66,8 +57,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
 
             await PersistAsync(request.ConversationId, AiMessageRole.User, request.UserMessage);
 
-            // Cast, not ToList: ChatOptions.Tools is IList<AITool> and the registry hands back
-            // AIFunction. The compiler will not widen the element type for you.
             var options = new ChatOptions
             {
                 Tools = tools.Cast<AITool>().ToList(),
@@ -77,12 +66,7 @@ namespace EvangelionERPV2.AiModule.Application.Services
             var promptTokens = 0;
             var completionTokens = 0;
 
-            // TimeoutSeconds is a budget for the whole turn, not for one call. A per-call timeout
-            // multiplied by MaxToolIterations is not what "TimeoutSeconds: 120" leads anyone to
-            // expect, and OllamaApiClient builds its own HttpClient, so nothing else applies it.
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-            // Non-positive means "no budget" — 0 is the value an operator picks to mean unlimited,
-            // and CancelAfter throws on a negative TimeSpan.
             if (_settings.TimeoutSeconds > 0)
                 budget.CancelAfter(TimeSpan.FromSeconds(_settings.TimeoutSeconds));
 
@@ -130,18 +114,13 @@ namespace EvangelionERPV2.AiModule.Application.Services
             }
             catch (OperationCanceledException) when (budget.IsCancellationRequested && !cancellation.IsCancellationRequested)
             {
-                // The budget ran out, not the caller going away. A request the client abandoned
-                // still propagates: nobody is waiting for that answer, and it is not a timeout.
                 Log.Logger.Warning("AI turn exceeded its budget. TimeoutSeconds={TimeoutSeconds}", _settings.TimeoutSeconds);
                 return await FinishAsync("A consulta demorou demais e foi interrompida. Tente perguntar de forma mais específica.");
             }
 
-            // The cap was reached. Say so rather than returning an empty string: a model stuck in a
-            // loop has already failed, and the user is owed an answer that admits it.
             return await FinishAsync("Não consegui concluir essa consulta. Tente perguntar de forma mais específica.");
         }
 
-        /// <summary>Progress is decoration. A hub that is down must not cost the user their answer.</summary>
         private static async Task NotifyAsync(Func<Task> notify)
         {
             try
@@ -167,11 +146,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             _ => "Consultando...",
         };
 
-        /// <summary>
-        /// A failing tool comes back as a tool result, not an exception. Bad arguments and transient
-        /// faults are both things the model can react to on the next iteration; an exception ends
-        /// the turn and tells the user nothing.
-        /// </summary>
         private static async Task<string> ExecuteAsync(
             IReadOnlyList<AIFunction> tools, FunctionCallContent call, CancellationToken cancellation)
         {
@@ -191,7 +165,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             }
             catch (Exception ex)
             {
-                // ErrorType only, never the message: a tool result may quote customer data.
                 Log.Logger.Warning("AI tool call failed. Tool={Tool} ErrorType={ErrorType}", call.Name, ex.GetType().Name);
                 return "{\"erro\":\"a consulta falhou\"}";
             }
@@ -199,10 +172,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
 
         private async Task<List<ChatMessage>> LoadHistoryAsync(Guid conversationId)
         {
-            // AiMessage has no dedicated repository, so this is the generic RepositoryBase, which
-            // returns an empty list for no rows. OrEmptyAsync is defensive: every entity-specific
-            // repository in this codebase signals "nothing matched" by throwing instead, so an
-            // AiMessageRepository added later would follow that pattern and break the first turn.
             var stored = (await AiQuery.OrEmptyAsync(() => _messages.GetAllAsync(x => x.AiConversationId == conversationId)))
                 .OrderByDescending(x => x.CreatedAt)
                 .Take(MaxHistoryMessages)
@@ -243,11 +212,8 @@ namespace EvangelionERPV2.AiModule.Application.Services
 
     public static class AiTextChunker
     {
-        // ponytail: chunks a finished answer rather than streaming from the model, because tool
-        // calling and streaming cannot be combined on this path. Upgrade path if true token
-        // latency is ever wanted: once the loop sees a response with no tool calls, re-issue that
-        // final turn through GetStreamingResponseAsync with ChatOptions.Tools cleared — one extra
-        // model call, which today is not worth it.
+        // ponytail: answers are chunked after completion because tool calling and streaming cannot
+        // combine on this path. Upgrade: re-issue the final turn via GetStreamingResponseAsync once no tool calls remain.
         public static IEnumerable<string> Split(string text, int size = 80)
         {
             if (string.IsNullOrEmpty(text))

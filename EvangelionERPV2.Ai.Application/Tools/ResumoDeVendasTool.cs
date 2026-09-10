@@ -37,8 +37,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 }
                 catch (NotFoundDatabaseException)
                 {
-                    // SalesPerformanceService reads through a repository that throws on zero rows
-                    // instead of returning an empty result. No sales this month is a normal answer.
                     return "{\"erro\":\"sem dados para o período\"}";
                 }
             }, Name, Description);

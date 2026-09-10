@@ -29,15 +29,11 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             {
                 if (!Guid.TryParse(clienteId, out var customerId) || customerId == Guid.Empty)
                 {
-                    // Returned to the model as a tool result, not thrown. A bad argument is a thing
-                    // the model can correct on the next iteration; an exception is not.
                     return "{\"erro\":\"clienteId inválido. Use buscar_clientes para obter o id.\"}";
                 }
 
                 try
                 {
-                    // includeFinancial: true is safe here only because the registry already checked
-                    // bills.read before this tool was put in front of the model.
                     var summary = await _service.GetSummaryAsync(customerId, context.EnterpriseId, includeFinancial: true);
 
                     return summary is null

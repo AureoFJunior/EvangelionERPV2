@@ -4,11 +4,6 @@ using Microsoft.Extensions.AI;
 
 namespace EvangelionERPV2.AiModule.Test.Ai
 {
-    /// <summary>
-    /// The registry is the security boundary, not a convenience. A tool the caller lacks the
-    /// permission for is never put in front of the model at all, so there is no prompt that can
-    /// talk it into calling one: as far as that turn is concerned the tool does not exist.
-    /// </summary>
     public class AiToolRegistryTests
     {
         private static readonly AiToolContext Context = new(Guid.NewGuid(), Guid.NewGuid());
@@ -33,8 +28,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 Tool("previsao_de_caixa", "cashflow.forecast.read"),
             });
 
-            // The caller holds only products.read; the forecast tool requires cashflow.forecast.read,
-            // so the registry hides it — as far as the model is concerned, that tool does not exist.
             var tools = registry.Build(new HashSet<string> { "products.read" }, Context);
 
             Assert.Single(tools);

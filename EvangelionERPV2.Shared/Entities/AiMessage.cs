@@ -12,15 +12,6 @@ namespace EvangelionERPV2.Shared.Entities
         public const string Tool = "tool";
     }
 
-    /// <summary>
-    /// One turn. Also the cost ledger: the token and latency columns are the only record of what a
-    /// turn cost, and they stay meaningful if the provider is ever swapped for a paid one, at which
-    /// point a money column is one migration rather than a redesign.
-    /// </summary>
-    /// <remarks>
-    /// Content may hold customer data. It is never written to Serilog — this row is the only place
-    /// it lives, and it is reachable only behind ai.chat.
-    /// </remarks>
     [Index(nameof(AiConversationId), nameof(CreatedAt))]
     public class AiMessage : BaseEntity
     {
@@ -34,10 +25,8 @@ namespace EvangelionERPV2.Shared.Entities
 
         public string Content { get; set; } = string.Empty;
 
-        /// <summary>The tool calls this assistant turn asked for, as JSON. "[]" when it asked for none.</summary>
         public string ToolCallsJson { get; set; } = "[]";
 
-        /// <summary>What those tools returned, as JSON. Kept so a turn can be replayed for an eval.</summary>
         public string ToolResultsJson { get; set; } = "[]";
 
         [MaxLength(128)]

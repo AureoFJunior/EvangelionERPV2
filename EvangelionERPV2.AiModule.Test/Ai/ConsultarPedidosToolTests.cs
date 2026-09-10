@@ -44,11 +44,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.DoesNotContain("\"status\":1", json);
         }
 
-        /// <summary>
-        /// A model that has only a name will pass the name. Guid.TryParse leaves Guid.Empty, the
-        /// customer predicate short-circuits and every order in the window comes back — which the
-        /// model then reports as that customer's. Wrong-and-confident is the worst answer here.
-        /// </summary>
         [Fact]
         public async Task Invoking_WithAnUnparseableCustomerId_ReturnsErrorRatherThanEveryOrder()
         {
@@ -63,7 +58,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             repository.Verify(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>()), Times.Never);
         }
 
-        /// <summary>An absent clienteId still means every customer, not an error.</summary>
         [Fact]
         public async Task Invoking_WithNoCustomerId_StillListsEveryCustomersOrders()
         {
@@ -80,10 +74,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Contains("\"total\":1", result?.ToString() ?? string.Empty);
         }
 
-        /// <summary>
-        /// This solution soft-deletes (OrderService sets IsActive = false) and has no global query
-        /// filter, so every read filters by hand or counts cancelled orders as revenue.
-        /// </summary>
         [Fact]
         public async Task Invoking_DoesNotReturnSoftDeletedOrders()
         {
@@ -108,10 +98,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.DoesNotContain("999", json);
         }
 
-        /// <summary>
-        /// The real OrderRepository throws NotFoundDatabaseException on zero matches instead of
-        /// returning an empty list. A period with no orders is a normal answer, not a failure.
-        /// </summary>
         [Fact]
         public async Task Invoking_WhenRepositoryThrowsNotFound_ReportsZeroRatherThanFailing()
         {

@@ -10,11 +10,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
     {
         private const int PageSize = AiJson.DefaultCap;
 
-        // ponytail: fetch one row past the display cap so AiJson.ForModel can tell "exactly 20
-        // matched" from "more than 20 matched" — with this, `total` is a lower bound (it reads 21
-        // when 137 match), not an exact count. `truncado` is what the model actually needs and is
-        // correct either way; an exact count would need a second COUNT query per search, which
-        // isn't worth it for a chat answer.
         private const int FetchSize = PageSize + 1;
 
         private readonly IRepository<Customer> _repository;
@@ -43,14 +38,10 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 var customers = await AiQuery.OrEmptyAsync(() => _repository.GetAllAsync(
                     1,
                     FetchSize,
-                    // IsActive == true, not just IsActive: the column is bool? and there is no
-                    // global soft-delete filter, so a deleted customer is otherwise listed as live.
                     x => x.EnterpriseId == context.EnterpriseId
                          && x.IsActive == true
                          && (x.Name.Contains(needle) || (x.Document != null && x.Document.Contains(needle)))));
 
-                // Document is deliberately not returned: the model needs the id to chain a call,
-                // and a CPF in the conversation log is personal data this feature does not need.
                 var rows = customers.Select(x => new
                 {
                     id = x.Id,

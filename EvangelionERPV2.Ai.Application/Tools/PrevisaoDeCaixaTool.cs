@@ -26,8 +26,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public AIFunction Create(AiToolContext context) =>
             AIFunctionFactory.Create(async (int? horizonteEmDias = null) =>
             {
-                // Clamped rather than validated: a model that asks for 99999 days meant "muito
-                // tempo", and answering with 90 is more useful than refusing.
                 var horizon = Math.Clamp(horizonteEmDias ?? 30, 1, 90);
 
                 try

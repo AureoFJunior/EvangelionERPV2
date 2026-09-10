@@ -42,10 +42,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.DoesNotContain("12345678900", json);
         }
 
-        /// <summary>
-        /// The real CustomerRepository throws NotFoundDatabaseException on zero matches instead of
-        /// returning an empty list. A search matching nothing is a normal answer, not a failure.
-        /// </summary>
         [Fact]
         public async Task Invoking_WhenRepositoryThrowsNotFound_ReportsZeroRatherThanFailing()
         {
@@ -78,10 +74,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 Times.Never);
         }
 
-        /// <summary>
-        /// This solution soft-deletes (CustomerService sets IsActive = false) and has no global
-        /// query filter, so every read filters by hand or lists deleted customers as live ones.
-        /// </summary>
         [Fact]
         public async Task Invoking_DoesNotReturnSoftDeletedCustomers()
         {
@@ -100,7 +92,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var tool = new BuscarClientesTool(repository.Object);
             var function = tool.Create(new AiToolContext(tenant, Guid.NewGuid()));
 
-            // Compiled in memory, so Contains is ordinal here where SQL Server's collation is not.
             var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "Padaria" });
 
             var json = result?.ToString() ?? string.Empty;
@@ -108,11 +99,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.DoesNotContain("Padaria Encerrada", json);
         }
 
-        /// <summary>
-        /// The repository is read one row past the display cap specifically so ForModel can tell
-        /// "exactly 20 matched" from "more than 20 matched". Without that extra row, total and
-        /// mostrando are always equal and truncado can never be true.
-        /// </summary>
         [Fact]
         public async Task Invoking_WithMoreThanTheDisplayCap_ReportsTruncated()
         {

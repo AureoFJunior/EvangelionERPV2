@@ -3,11 +3,6 @@ using EvangelionERPV2.AiModule.Application.Services;
 
 namespace EvangelionERPV2.AiModule.Test.Ai
 {
-    /// <summary>
-    /// Chunking is not cosmetic: a single 800-character frame defeats the point of the hub. These
-    /// pin that the whole text survives the split, because a chunker that drops the tail would
-    /// silently truncate every long answer and look like a model problem.
-    /// </summary>
     public class AiProgressTests
     {
         [Fact]

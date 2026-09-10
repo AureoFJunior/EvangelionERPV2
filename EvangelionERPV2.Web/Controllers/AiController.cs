@@ -64,11 +64,6 @@ namespace EvangelionERPV2.Web.Controllers
 
             var conversation = await ResolveConversationAsync(request.ConversationId, enterpriseId, userId.Value);
 
-            // The tool list is built from what this caller may do, computed here because
-            // RbacRolePermissionMap lives in Web and the Ai module must not reference it.
-            // Through PdvTokenScope, not the role map alone: that is what the authorization handler
-            // treats as the authority, and one source of truth for "what may this caller do" is the
-            // point — the next scoping mechanism has to be picked up here too.
             var granted = RbacPermissions.All
                 .Where(permission => PdvTokenScope.Grants(User, user.AccessLevel, permission))
                 .ToHashSet(StringComparer.Ordinal);
@@ -81,7 +76,6 @@ namespace EvangelionERPV2.Web.Controllers
                     new AiToolContext(enterpriseId, userId.Value)),
                 cancellation);
 
-            // Tool names and counts only. The prompt and the answer stay in AiMessage.
             Log.Logger.Information(
                 "AI turn completed. Tools={Tools} PromptTokens={PromptTokens} CompletionTokens={CompletionTokens} LatencyMs={LatencyMs}",
                 string.Join(",", result.ToolsCalled), result.PromptTokens, result.CompletionTokens, result.LatencyMs);
@@ -102,8 +96,6 @@ namespace EvangelionERPV2.Web.Controllers
             if (conversationId is not null)
             {
                 var existing = await _conversations.GetByIdAsync(conversationId.Value);
-                // The global query filter already scopes this to the tenant; the UserId check is
-                // the second belt, because two people in one tenant do not share a thread.
                 if (existing is not null && existing.UserId == userId)
                     return existing;
             }

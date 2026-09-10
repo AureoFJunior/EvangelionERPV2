@@ -6,17 +6,10 @@ using Microsoft.Extensions.AI;
 
 namespace EvangelionERPV2.AiModule.Application.Tools
 {
-    /// <summary>
-    /// Replenishment suggestions off the stock ledger, not off purchase history — the service
-    /// already made that choice and this tool inherits it.
-    /// </summary>
     public sealed class EstoqueBaixoTool : IAiTool
     {
         private const int PageSize = AiJson.DefaultCap;
 
-        // ponytail: fetch one row past the display cap so AiJson.ForModel can tell "exactly 20
-        // matched" from "more than 20 matched" — with this, `total` is a lower bound, not an exact
-        // count, but `truncado` is what the model actually needs and is correct either way.
         private const int FetchSize = PageSize + 1;
 
         private readonly IPayableBillService _service;

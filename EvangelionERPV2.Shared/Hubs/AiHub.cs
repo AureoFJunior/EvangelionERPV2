@@ -6,11 +6,6 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace EvangelionERPV2.Shared.Hubs
 {
-    /// <summary>
-    /// Groups by user, not by enterprise. OrderHub groups by enterprise because an order is news
-    /// for the whole shop; a chat answer is a private reply to one person and quotes whatever they
-    /// asked about, so broadcasting it to the tenant would leak it to every colleague online.
-    /// </summary>
     [Authorize(Policy = "rbac:ai.chat")]
     public class AiHub : Hub
     {

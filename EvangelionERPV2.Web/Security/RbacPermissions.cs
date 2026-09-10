@@ -152,12 +152,6 @@ namespace EvangelionERPV2.Web.Security
             public const string Export = "accounting.export";
         }
 
-        /// <summary>
-        /// Talking to the agent. Supervisor and above: the agent can reach anything its caller can
-        /// reach, so this is not a wider grant than the tier already has — it is a different way in.
-        /// The tools themselves are filtered per caller, so a Supervisor asking about the cash-flow
-        /// forecast is told the agent cannot see it, because as far as that turn goes it cannot.
-        /// </summary>
         public static class Ai
         {
             public const string Chat = "ai.chat";

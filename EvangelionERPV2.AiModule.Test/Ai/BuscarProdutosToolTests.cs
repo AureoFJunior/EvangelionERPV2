@@ -58,10 +58,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Contains("\"total\":0", result?.ToString() ?? string.Empty);
         }
 
-        /// <summary>
-        /// The real ProductRepository throws NotFoundDatabaseException on zero matches instead of
-        /// returning an empty list. A search matching nothing is a normal answer, not a failure.
-        /// </summary>
         [Fact]
         public async Task Invoking_WhenRepositoryThrowsNotFound_ReportsZeroRatherThanFailing()
         {
@@ -94,10 +90,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 Times.Never);
         }
 
-        /// <summary>
-        /// This solution soft-deletes (ProductService sets IsActive = false) and has no global
-        /// query filter, so every read filters by hand or quotes a deleted product's price.
-        /// </summary>
         [Fact]
         public async Task Invoking_DoesNotReturnSoftDeletedProducts()
         {
@@ -116,7 +108,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var tool = new BuscarProdutosTool(repository.Object);
             var function = tool.Create(new AiToolContext(tenant, Guid.NewGuid()));
 
-            // Compiled in memory, so Contains is ordinal here where SQL Server's collation is not.
             var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "Coca" });
 
             var json = result?.ToString() ?? string.Empty;
@@ -124,11 +115,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.DoesNotContain("Coca-Cola 600ml", json);
         }
 
-        /// <summary>
-        /// The repository is read one row past the display cap specifically so ForModel can tell
-        /// "exactly 20 matched" from "more than 20 matched". Without that extra row, total and
-        /// mostrando are always equal and truncado can never be true.
-        /// </summary>
         [Fact]
         public async Task Invoking_WithMoreThanTheDisplayCap_ReportsTruncated()
         {

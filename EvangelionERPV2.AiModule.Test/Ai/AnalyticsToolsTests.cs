@@ -9,11 +9,6 @@ using Moq;
 
 namespace EvangelionERPV2.AiModule.Test.Ai
 {
-    /// <summary>
-    /// Each of these wraps exactly one service call, so the test that earns its place is the one
-    /// that proves the wrapper passes the caller's tenant through and never a model-supplied one.
-    /// A tool that let the model choose the enterprise would be the whole isolation story undone.
-    /// </summary>
     public class AnalyticsToolsTests
     {
         private static readonly Guid Tenant = Guid.NewGuid();
@@ -99,8 +94,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 .ReturnsAsync(new SalesPerformanceDTO());
 
             var function = new ResumoDeVendasTool(service.Object).Create(Context);
-            // An empty bag is what a model that believes the description actually sends. The C#
-            // defaults are what make the emitted schema mark ano/mes optional.
             await function.InvokeAsync(new AIFunctionArguments());
 
             var now = DateTime.UtcNow;
@@ -207,11 +200,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Contains("\"total\":0", result?.ToString() ?? string.Empty);
         }
 
-        /// <summary>
-        /// The brief's original tool asked for exactly PageSize (20) rows and derived both
-        /// ForModel arguments from that same capped list, so truncado could never be true. Fetching
-        /// one row past the display cap (21) is what lets ForModel tell "exactly 20" from "more".
-        /// </summary>
         [Fact]
         public async Task EstoqueBaixo_WithMoreThanTheDisplayCap_ReportsTruncated()
         {

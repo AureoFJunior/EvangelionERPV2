@@ -6,11 +6,6 @@ using Microsoft.Extensions.Options;
 
 namespace EvangelionERPV2.AiModule.Test.Ai
 {
-    /// <summary>
-    /// The agent is off until somebody turns it on, the same posture the Opportunity Radar takes.
-    /// A default that reached production as true would start talking to an endpoint that is not
-    /// there, so the default itself is worth a test.
-    /// </summary>
     public class AiSettingsTests
     {
         [Fact]
