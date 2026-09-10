@@ -2,7 +2,8 @@
 
 **Date:** 2026-09-03
 **Work item:** AB#33
-**Status:** approved, not yet implemented
+**Status:** implemented 2026-09-03. Review corrections in `docs/ROADMAP-STATUS.md`,
+"What the payment-method review found".
 
 ## Why
 
@@ -151,6 +152,11 @@ WHERE o.Status = 2
   leaving the corrected value in place.
 
 The model snapshot is updated alongside, as every migration in this repo does.
+
+**Corrected 2026-09-03:** the `UPDATE` above must be wrapped in `EXEC(N'...')`, as
+`AddPayrollDetailEnterprise` is. `dotnet ef migrations script --idempotent` emits the `AddColumn`
+and the backfill in one batch, and SQL Server compiles a batch whole — as written it fails with
+`Invalid column name 'PaymentMethod'` on every database that has not already run it.
 
 ## Testing
 

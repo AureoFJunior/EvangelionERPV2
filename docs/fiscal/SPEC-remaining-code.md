@@ -144,12 +144,20 @@ else. These were read off the assembly, not guessed:
   `TipoAmbiente.Producao = 1`, `Homologacao = 2`; `TipoEmissao.Normal = 1`; `UFBrasil` is the IBGE
   code (`SP = 35`, `PR = 41`, `SC = 42`, `RS = 43`), plus `SVRS = 92` and the contingency authorizers.
 - Payload graph in `Unimake.Business.DFe.Xml.NFe`: `EnviNFe { Versao, IdLote, IndSinc, NFe }` →
+  `NFe { InfNFeField, InfNFeSupl, Signature }` →
   `InfNFe { Versao, Ide, Emit, Dest, Det, Total, Transp, Cobr, Pag, InfAdic, InfRespTec, Id, Chave }`.
   `ICMS` is a container of the CST-specific classes (`ICMS00`, `ICMS10`, … `ICMSSN101` … `ICMSSN900`),
   and `PISAliq` / `COFINSAliq` carry `CST/VBC/PPIS/VPIS` and `CST/VBC/PCOFINS/VCOFINS`.
   `RetConsSitNFe` exposes `CStat`, `XMotivo`, `DhRecbto`, `ChNFe`, `ProtNFe`, `ProcEventoNFe`.
 - The `*Field` properties (`VBCField`, `PPISField`, …) are the library's string/serialisation
   companions to the typed ones. Set the typed property; the `Field` twin is what lands in the XML.
+- **`NFe.InfNFeField` is the one exception to that rule, and it goes the other way.** `NFe.InfNFe`
+  is a `List<InfNFe>` marked `[Obsolete]` *and* `[XmlIgnore]` — it is never serialised. The property
+  that carries `<infNFe>` is `InfNFeField` (`[XmlElement("infNFe")]`), a pass-through over the list:
+  `get => InfNFe[0]`, `set => InfNFe = new List<InfNFe> { value }`. So here you set the `Field`
+  property, not the typed one. `NFeXmlBuilder` was switched to `InfNFeField = infNFe` on 2026-09-07
+  to clear the `CS0618` it raised; because the setter builds the identical one-element list the old
+  code built, the emitted XML is unchanged — `Build_MatchesTheGoldenInfNFe` covers that.
 
 **How to re-check any of this cheaply:** drop a temporary xUnit test in `NFeModule.Test` that reflects
 over `typeof(Unimake.Business.DFe.Servicos.Configuracao).Assembly` and `Assert.Fail`s with the names.
