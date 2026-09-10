@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Serilog;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace EvangelionERPV2.Web.Controllers
 {
@@ -19,20 +20,28 @@ namespace EvangelionERPV2.Web.Controllers
     public class AiController : ControllerBase
     {
         private const int MaxChatRequestBodySizeInBytes = 16 * 1024;
+        private const int MaxConversationsListed = 20;
+        private const int PreviewLength = 80;
 
         private readonly IAiAgentService _agentService;
+        private readonly IAiPendingActionService _pendingActions;
         private readonly IRepository<AiConversation> _conversations;
+        private readonly IRepository<AiMessage> _messages;
         private readonly IRepository<User> _users;
         private readonly AiSettings _settings;
 
         public AiController(
             IAiAgentService agentService,
+            IAiPendingActionService pendingActions,
             IRepository<AiConversation> conversations,
+            IRepository<AiMessage> messages,
             IRepository<User> users,
             IOptions<AiSettings> settings)
         {
             _agentService = agentService;
+            _pendingActions = pendingActions;
             _conversations = conversations;
+            _messages = messages;
             _users = users;
             _settings = settings.Value;
         }
@@ -64,9 +73,7 @@ namespace EvangelionERPV2.Web.Controllers
 
             var conversation = await ResolveConversationAsync(request.ConversationId, enterpriseId, userId.Value);
 
-            var granted = RbacPermissions.All
-                .Where(permission => PdvTokenScope.Grants(User, user.AccessLevel, permission))
-                .ToHashSet(StringComparer.Ordinal);
+            var granted = GrantedPermissions(user);
 
             var result = await _agentService.RunTurnAsync(
                 new AiTurnRequest(
@@ -88,8 +95,174 @@ namespace EvangelionERPV2.Web.Controllers
                 PromptTokens = result.PromptTokens,
                 CompletionTokens = result.CompletionTokens,
                 LatencyMs = result.LatencyMs,
+                PendingActions = result.PendingActions.Select(ToDto).ToList(),
             });
         }
+
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]
+        [HttpGet("conversations")]
+        [ProducesResponseType(typeof(IEnumerable<AiConversationSummaryDTO>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> Conversations()
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var userId = TryGetUserId();
+            if (userId is null)
+                return Unauthorized();
+
+            var conversations = await _conversations.GetAllAsync(
+                conversation => conversation.EnterpriseId == enterpriseId && conversation.UserId == userId.Value);
+
+            var recent = conversations
+                .OrderByDescending(conversation => conversation.CreatedAt)
+                .Take(MaxConversationsListed)
+                .ToList();
+
+            var previews = await PreviewsAsync(recent.Select(conversation => conversation.Id).ToList());
+
+            return Ok(recent.Select(conversation => new AiConversationSummaryDTO
+            {
+                Id = conversation.Id,
+                Title = conversation.Title,
+                CreatedAt = conversation.CreatedAt,
+                Preview = previews.TryGetValue(conversation.Id, out var preview) ? preview : string.Empty,
+            }));
+        }
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]
+        [HttpGet("conversations/{conversationId:guid}/messages")]
+        [ProducesResponseType(typeof(IEnumerable<AiMessageDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> Messages(Guid conversationId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var userId = TryGetUserId();
+            if (userId is null)
+                return Unauthorized();
+
+            var conversation = await _conversations.GetByIdAsync(conversationId);
+
+            // Someone else's conversation is not found rather than forbidden: the id itself is
+            // the only thing an outsider could learn from telling the two apart.
+            if (conversation is null || conversation.UserId != userId.Value || conversation.EnterpriseId != enterpriseId)
+                return NotFound();
+
+            var messages = await _messages.GetAllAsync(message => message.AiConversationId == conversationId);
+
+            return Ok(messages
+                .Where(message => message.Role == AiMessageRole.User || message.Role == AiMessageRole.Assistant)
+                .OrderBy(message => message.CreatedAt)
+                .Select(message => new AiMessageDTO
+                {
+                    Id = message.Id,
+                    Role = message.Role,
+                    Content = message.Content,
+                    CreatedAt = message.CreatedAt,
+                    ToolsCalled = ParseTools(message.ToolCallsJson),
+                }));
+        }
+
+        private async Task<Dictionary<Guid, string>> PreviewsAsync(IReadOnlyCollection<Guid> conversationIds)
+        {
+            if (conversationIds.Count == 0)
+                return new Dictionary<Guid, string>();
+
+            var messages = await _messages.GetAllAsync(
+                message => conversationIds.Contains(message.AiConversationId) && message.Role == AiMessageRole.User);
+
+            return messages
+                .GroupBy(message => message.AiConversationId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => Truncate(group.OrderBy(message => message.CreatedAt).First().Content));
+        }
+
+        private static string Truncate(string text) =>
+            text.Length <= PreviewLength ? text : text[..PreviewLength] + "...";
+
+        private static IReadOnlyList<string> ParseTools(string toolCallsJson)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<List<string>>(toolCallsJson) ?? new List<string>();
+            }
+            catch (JsonException)
+            {
+                return Array.Empty<string>();
+            }
+        }
+
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Act)]
+        [HttpPost("actions/{actionId:guid}/confirm")]
+        [ProducesResponseType(typeof(AiActionOutcomeDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> ConfirmAction(Guid actionId, CancellationToken cancellation)
+        {
+            if (!_settings.Enabled)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "O assistente está desativado.");
+
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var userId = TryGetUserId();
+            if (userId is null)
+                return Unauthorized();
+
+            var user = await _users.GetByIdAsync(userId.Value);
+            if (user is null)
+                return Unauthorized();
+
+            var granted = GrantedPermissions(user);
+
+            var outcome = await _pendingActions.ConfirmAsync(
+                actionId, granted, new AiToolContext(enterpriseId, userId.Value), cancellation);
+
+            Log.Logger.Information(
+                "AI pending action confirm requested. Action={ActionId} Success={Success}", actionId, outcome.Success);
+
+            return outcome.Success
+                ? Ok(new AiActionOutcomeDTO { Success = true, Message = outcome.Message })
+                : BadRequest(new AiActionOutcomeDTO { Success = false, Message = outcome.Message });
+        }
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Act)]
+        [HttpPost("actions/{actionId:guid}/reject")]
+        [ProducesResponseType(typeof(AiActionOutcomeDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> RejectAction(Guid actionId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var userId = TryGetUserId();
+            if (userId is null)
+                return Unauthorized();
+
+            var outcome = await _pendingActions.RejectAsync(actionId, new AiToolContext(enterpriseId, userId.Value));
+
+            return outcome.Success
+                ? Ok(new AiActionOutcomeDTO { Success = true, Message = outcome.Message })
+                : BadRequest(new AiActionOutcomeDTO { Success = false, Message = outcome.Message });
+        }
+
+        private HashSet<string> GrantedPermissions(User user) =>
+            RbacPermissions.All
+                .Where(permission => PdvTokenScope.Grants(User, user.AccessLevel, permission))
+                .ToHashSet(StringComparer.Ordinal);
+
+        private static AiPendingActionDTO ToDto(AiPendingActionCard card) =>
+            new()
+            {
+                Id = card.Id,
+                ToolName = card.ToolName,
+                Summary = card.Summary,
+                ExpiresAt = card.ExpiresAt,
+            };
 
         private async Task<AiConversation> ResolveConversationAsync(Guid? conversationId, Guid enterpriseId, Guid userId)
         {

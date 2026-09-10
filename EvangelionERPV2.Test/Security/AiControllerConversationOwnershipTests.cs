@@ -47,7 +47,7 @@ namespace EvangelionERPV2.Test.Security
             _agentServiceMock
                 .Setup(x => x.RunTurnAsync(It.IsAny<AiTurnRequest>(), It.IsAny<CancellationToken>()))
                 .Callback<AiTurnRequest, CancellationToken>((request, _) => capturedRequest = request)
-                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1));
+                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1, Array.Empty<AiPendingActionCard>()));
 
             var controller = CreateController(enterpriseId, callerUserId);
 
@@ -85,7 +85,7 @@ namespace EvangelionERPV2.Test.Security
             _agentServiceMock
                 .Setup(x => x.RunTurnAsync(It.IsAny<AiTurnRequest>(), It.IsAny<CancellationToken>()))
                 .Callback<AiTurnRequest, CancellationToken>((request, _) => capturedRequest = request)
-                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1));
+                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1, Array.Empty<AiPendingActionCard>()));
 
             var controller = CreateController(enterpriseId, callerUserId);
 
@@ -113,7 +113,7 @@ namespace EvangelionERPV2.Test.Security
 
             _agentServiceMock
                 .Setup(x => x.RunTurnAsync(It.IsAny<AiTurnRequest>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1));
+                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1, Array.Empty<AiPendingActionCard>()));
 
             var controller = CreateController(enterpriseId, callerUserId);
 
@@ -137,7 +137,7 @@ namespace EvangelionERPV2.Test.Security
             _agentServiceMock
                 .Setup(x => x.RunTurnAsync(It.IsAny<AiTurnRequest>(), It.IsAny<CancellationToken>()))
                 .Callback<AiTurnRequest, CancellationToken>((request, _) => capturedRequest = request)
-                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1));
+                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1, Array.Empty<AiPendingActionCard>()));
 
             _conversationsMock
                 .Setup(x => x.CreateAsync(It.IsAny<AiConversation>()))
@@ -162,7 +162,7 @@ namespace EvangelionERPV2.Test.Security
             _agentServiceMock
                 .Setup(x => x.RunTurnAsync(It.IsAny<AiTurnRequest>(), It.IsAny<CancellationToken>()))
                 .Callback<AiTurnRequest, CancellationToken>((request, _) => capturedRequest = request)
-                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1));
+                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1, Array.Empty<AiPendingActionCard>()));
 
             _conversationsMock
                 .Setup(x => x.CreateAsync(It.IsAny<AiConversation>()))
@@ -193,7 +193,9 @@ namespace EvangelionERPV2.Test.Security
 
             var controller = new AiController(
                 _agentServiceMock.Object,
+                Mock.Of<IAiPendingActionService>(),
                 _conversationsMock.Object,
+                Mock.Of<IRepository<AiMessage>>(),
                 _usersMock.Object,
                 settings);
 

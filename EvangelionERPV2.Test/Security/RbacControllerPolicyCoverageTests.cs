@@ -12,6 +12,10 @@ namespace EvangelionERPV2.Test.Security
     {
         [Theory]
         [InlineData(typeof(AiController), nameof(AiController.Chat), RbacPermissions.Ai.Chat)]
+        [InlineData(typeof(AiController), nameof(AiController.Conversations), RbacPermissions.Ai.Chat)]
+        [InlineData(typeof(AiController), nameof(AiController.Messages), RbacPermissions.Ai.Chat)]
+        [InlineData(typeof(AiController), nameof(AiController.ConfirmAction), RbacPermissions.Ai.Act)]
+        [InlineData(typeof(AiController), nameof(AiController.RejectAction), RbacPermissions.Ai.Act)]
         [InlineData(typeof(AuditTrailController), nameof(AuditTrailController.GetAuditTrails), RbacPermissions.Audit.Read)]
         [InlineData(typeof(AuditTrailController), nameof(AuditTrailController.GetAuditTrailsByFilter), RbacPermissions.Audit.Read)]
         [InlineData(typeof(AuditTrailController), nameof(AuditTrailController.GetAuditTrail), RbacPermissions.Audit.Read)]
