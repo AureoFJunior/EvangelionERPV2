@@ -23,8 +23,8 @@ namespace EvangelionERPV2.AiModule.Application.Tools
 
         public string Description =>
             "Altera preço ou estoque de um produto. Parâmetros: produtoId (o id devolvido por " +
-            "buscar_produtos), preco, estoque. A alteração só acontece depois que a pessoa " +
-            "confirmar na tela.";
+            "buscar_produtos, ou simplesmente o nome do produto — o sistema resolve), preco, " +
+            "estoque. A alteração só acontece depois que a pessoa confirmar na tela.";
 
         public string RequiredPermission => "products.update";
 
@@ -35,18 +35,27 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             + AiArguments.Suffix(arguments, "preco", ": preço para R$ ")
             + AiArguments.Suffix(arguments, "estoque", ", estoque para ");
 
-        public string? Validate(IReadOnlyDictionary<string, object?> arguments)
+        public async Task<AiToolArguments> PrepareAsync(
+            IReadOnlyDictionary<string, object?> arguments,
+            AiToolContext context,
+            CancellationToken cancellation = default)
         {
-            if (AiArguments.Id(arguments, "produtoId") is null)
-                return "produtoId inválido: use o id completo devolvido por buscar_produtos, não o nome nem um pedaço do id.";
-
             var price = AiArguments.Number(arguments, "preco");
             var stock = AiArguments.Number(arguments, "estoque");
 
             if (price is null && stock is null)
-                return "informe preco ou estoque.";
+                return AiToolArguments.Refused("informe preco ou estoque.");
 
-            return price < 0 || stock < 0 ? "preço e estoque não podem ser negativos." : null;
+            if (price < 0 || stock < 0)
+                return AiToolArguments.Refused("preço e estoque não podem ser negativos.");
+
+            var found = await AiEntityLookup.ProductAsync(
+                _repository, AiArguments.Text(arguments, "produtoId"), context.EnterpriseId);
+
+            if (found.Error is not null)
+                return AiToolArguments.Refused(found.Error);
+
+            return AiToolArguments.Ok(AiArguments.With(arguments, "produtoId", found.Id!.Value.ToString()));
         }
 
         public AIFunction Create(AiToolContext context) =>

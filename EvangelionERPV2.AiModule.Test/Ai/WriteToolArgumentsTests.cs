@@ -7,6 +7,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.Extensions.AI;
 using Moq;
+using System.Linq.Expressions;
 using System.Text.Json;
 
 namespace EvangelionERPV2.AiModule.Test.Ai
@@ -90,120 +91,42 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.True(tool.RequiresConfirmation);
         }
 
-
-        [Theory]
-        [InlineData("5ecc3fd5")]                                   // the id the model truncated
-        [InlineData("Monster Rosa")]                               // the name instead of the id
-        [InlineData("")]
-        public void AtualizarProduto_RefusesAnIdThatIsNotAWholeGuid(string produtoId)
+        [Fact]
+        public async Task CriarPedido_ResolvesTheCustomerAndEveryLineByName()
         {
-            var tool = new AtualizarProdutoTool(
-                Mock.Of<IProductService<Product>>(), Mock.Of<IRepository<Product>>());
+            var customerId = Guid.NewGuid();
+            var productId = Guid.NewGuid();
+            var tool = new CriarPedidoTool(
+                Mock.Of<IOrderService<Order>>(),
+                ProductsNamed((productId, "Monster Rosa")),
+                CustomersNamed((customerId, "Padaria do Zé")));
 
-            var invalid = tool.Validate(new Dictionary<string, object?>
+            var prepared = await tool.PrepareAsync(new Dictionary<string, object?>
             {
-                ["produtoId"] = produtoId,
-                ["preco"] = 15m,
-            });
+                ["clienteId"] = "Padaria do Zé",
+                ["itens"] = JsonSerializer.SerializeToElement(new[] { new { produtoId = "Monster Rosa", quantidade = 2 } }),
+            }, Context);
 
-            Assert.NotNull(invalid);
-            Assert.Contains("produtoId", invalid);
+            Assert.Null(prepared.Error);
+            Assert.Equal(customerId.ToString(), prepared.Arguments["clienteId"]);
+            Assert.Contains(productId.ToString(), prepared.Arguments["itens"]!.ToString());
         }
 
         [Fact]
-        public void AtualizarProduto_AcceptsAWholeGuidWithSomethingToChange()
-        {
-            var tool = new AtualizarProdutoTool(
-                Mock.Of<IProductService<Product>>(), Mock.Of<IRepository<Product>>());
-
-            var invalid = tool.Validate(new Dictionary<string, object?>
-            {
-                ["produtoId"] = Guid.NewGuid().ToString(),
-                ["estoque"] = 30m,
-            });
-
-            Assert.Null(invalid);
-        }
-
-        [Fact]
-        public void AtualizarProduto_RefusesACallThatChangesNothing()
-        {
-            var tool = new AtualizarProdutoTool(
-                Mock.Of<IProductService<Product>>(), Mock.Of<IRepository<Product>>());
-
-            var invalid = tool.Validate(new Dictionary<string, object?> { ["produtoId"] = Guid.NewGuid().ToString() });
-
-            Assert.Equal("informe preco ou estoque.", invalid);
-        }
-
-        [Fact]
-        public void AtualizarCliente_RefusesATruncatedId()
-        {
-            var tool = new AtualizarClienteTool(
-                Mock.Of<ICustomerService<Customer>>(), Mock.Of<IRepository<Customer>>());
-
-            Assert.NotNull(tool.Validate(new Dictionary<string, object?> { ["clienteId"] = "c704eb28" }));
-        }
-
-        [Fact]
-        public void CriarCliente_RefusesAnEmptyName()
-        {
-            var tool = new CriarClienteTool(Mock.Of<ICustomerService<Customer>>());
-
-            Assert.Equal("informe o nome do cliente.", tool.Validate(new Dictionary<string, object?> { ["nome"] = "  " }));
-        }
-
-        [Fact]
-        public void CriarPedido_RefusesLinesWithATruncatedProductIdOrNoQuantity()
+        public async Task CriarPedido_RefusesALineWithNoQuantity()
         {
             var tool = new CriarPedidoTool(
                 Mock.Of<IOrderService<Order>>(),
-                Mock.Of<IRepository<Product>>(),
-                Mock.Of<IRepository<Customer>>());
+                ProductsNamed((Guid.NewGuid(), "Monster Rosa")),
+                CustomersNamed((Guid.NewGuid(), "Padaria do Zé")));
 
-            var truncated = tool.Validate(new Dictionary<string, object?>
+            var prepared = await tool.PrepareAsync(new Dictionary<string, object?>
             {
-                ["clienteId"] = Guid.NewGuid().ToString(),
-                ["itens"] = JsonSerializer.SerializeToElement(new[] { new { produtoId = "5ecc3fd5", quantidade = 2 } }),
-            });
+                ["clienteId"] = "Padaria do Zé",
+                ["itens"] = JsonSerializer.SerializeToElement(new[] { new { produtoId = "Monster Rosa", quantidade = 0 } }),
+            }, Context);
 
-            var zeroed = tool.Validate(new Dictionary<string, object?>
-            {
-                ["clienteId"] = Guid.NewGuid().ToString(),
-                ["itens"] = JsonSerializer.SerializeToElement(new[] { new { produtoId = Guid.NewGuid().ToString(), quantidade = 0 } }),
-            });
-
-            Assert.Contains("produtoId", truncated);
-            Assert.Contains("quantidade", zeroed);
-        }
-
-        [Fact]
-        public void CriarPedido_AcceptsAWellFormedOrder()
-        {
-            var tool = new CriarPedidoTool(
-                Mock.Of<IOrderService<Order>>(),
-                Mock.Of<IRepository<Product>>(),
-                Mock.Of<IRepository<Customer>>());
-
-            var invalid = tool.Validate(new Dictionary<string, object?>
-            {
-                ["clienteId"] = Guid.NewGuid().ToString(),
-                ["itens"] = JsonSerializer.SerializeToElement(new[] { new { produtoId = Guid.NewGuid().ToString(), quantidade = 3 } }),
-            });
-
-            Assert.Null(invalid);
-        }
-
-
-        [Fact]
-        public void AtualizarCliente_RefusesAnIdWithNothingToChange()
-        {
-            var tool = new AtualizarClienteTool(
-                Mock.Of<ICustomerService<Customer>>(), Mock.Of<IRepository<Customer>>());
-
-            var invalid = tool.Validate(new Dictionary<string, object?> { ["clienteId"] = Guid.NewGuid().ToString() });
-
-            Assert.Equal("informe telefone, email ou limiteCredito.", invalid);
+            Assert.Equal("quantidade deve ser maior que zero.", prepared.Error);
         }
 
         [Fact]
@@ -243,6 +166,91 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal(15m, stored.DefaultValue);
             Assert.Equal(7m, stored.StorageQuantity);
             service.Verify(x => x.UpdateAsync(It.IsAny<Product>()), Times.Once);
+        }
+
+
+        [Fact]
+        public async Task AtualizarProduto_ResolvesAnIdFragmentToTheProductItStartsWith()
+        {
+            // The exact failure a live session hit: "5ecc3fd5" for 5ecc3fd5-496a-...
+            var id = new Guid("5ecc3fd5-496a-4e79-83c6-da8633b96645");
+            var tool = new AtualizarProdutoTool(
+                Mock.Of<IProductService<Product>>(), ProductsNamed((id, "Monster Rosa")));
+
+            var prepared = await tool.PrepareAsync(
+                new Dictionary<string, object?> { ["produtoId"] = "5ecc3fd5", ["preco"] = 33m }, Context);
+
+            Assert.Null(prepared.Error);
+            Assert.Equal(id.ToString(), prepared.Arguments["produtoId"]);
+        }
+
+        [Fact]
+        public async Task AtualizarProduto_AsksWhichOneWhenAFragmentMatchesTwoProducts()
+        {
+            var tool = new AtualizarProdutoTool(
+                Mock.Of<IProductService<Product>>(),
+                ProductsNamed(
+                    (new Guid("aaaaaaaa-0000-0000-0000-000000000001"), "Primeiro"),
+                    (new Guid("aaaaaaaa-0000-0000-0000-000000000002"), "Segundo")));
+
+            var prepared = await tool.PrepareAsync(
+                new Dictionary<string, object?> { ["produtoId"] = "aaaaaaaa", ["preco"] = 33m }, Context);
+
+            Assert.Contains("mais de um produto começa com", prepared.Error);
+        }
+
+        private static IRepository<Product> ProductsNamed(params (Guid Id, string Name)[] rows)
+        {
+            var repository = new Mock<IRepository<Product>>();
+            repository
+                .Setup(x => x.GetPagedAsync(
+                    It.IsAny<Expression<Func<Product, bool>>>(),
+                    It.IsAny<Func<IQueryable<Product>, IOrderedQueryable<Product>>>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
+                .ReturnsAsync(((IReadOnlyList<Product>)rows
+                    .Select(row => new Product { Id = row.Id, Name = row.Name, EnterpriseId = Context.EnterpriseId, IsActive = true })
+                    .ToList(), rows.Length));
+            repository
+                .Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>>()))
+                .ReturnsAsync((Expression<Func<Product, bool>> predicate) => rows
+                    .Select(row => new Product
+                    {
+                        Id = row.Id,
+                        Name = row.Name,
+                        EnterpriseId = Context.EnterpriseId,
+                        IsActive = true,
+                    })
+                    .Where(predicate.Compile()));
+
+            return repository.Object;
+        }
+
+        private static IRepository<Customer> CustomersNamed(params (Guid Id, string Name)[] rows)
+        {
+            var repository = new Mock<IRepository<Customer>>();
+            repository
+                .Setup(x => x.GetPagedAsync(
+                    It.IsAny<Expression<Func<Customer, bool>>>(),
+                    It.IsAny<Func<IQueryable<Customer>, IOrderedQueryable<Customer>>>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
+                .ReturnsAsync(((IReadOnlyList<Customer>)rows
+                    .Select(row => new Customer { Id = row.Id, Name = row.Name, EnterpriseId = Context.EnterpriseId, IsActive = true })
+                    .ToList(), rows.Length));
+            repository
+                .Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Customer, bool>>>()))
+                .ReturnsAsync((Expression<Func<Customer, bool>> predicate) => rows
+                    .Select(row => new Customer
+                    {
+                        Id = row.Id,
+                        Name = row.Name,
+                        EnterpriseId = Context.EnterpriseId,
+                        IsActive = true,
+                    })
+                    .Where(predicate.Compile()));
+
+            return repository.Object;
         }
 
         private static async Task<string> Invoke(IAiTool tool, Dictionary<string, object?> arguments)

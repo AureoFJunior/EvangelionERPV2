@@ -42,6 +42,18 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 : null;
         }
 
+        /// <summary>A copy with one key replaced — how a resolved id gets back into the arguments.</summary>
+        public static IReadOnlyDictionary<string, object?> With(
+            IReadOnlyDictionary<string, object?> arguments, string key, object? value)
+        {
+            var copy = new Dictionary<string, object?>(arguments, StringComparer.Ordinal)
+            {
+                [key] = value,
+            };
+
+            return copy;
+        }
+
         /// <summary>The value prefixed by <paramref name="label"/>, or nothing when it is absent.</summary>
         public static string Suffix(IReadOnlyDictionary<string, object?> arguments, string key, string label)
         {

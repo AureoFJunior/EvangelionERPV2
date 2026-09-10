@@ -23,7 +23,8 @@ namespace EvangelionERPV2.AiModule.Application.Tools
 
         public string Description =>
             "Altera dados de um cliente já cadastrado. Parâmetros: clienteId (o id devolvido por " +
-            "buscar_clientes), e os campos a mudar: telefone, email, limiteCredito. " +
+            "buscar_clientes, ou simplesmente o nome do cliente — o sistema resolve), e os campos " +
+            "a mudar: telefone, email, limiteCredito. " +
             "A alteração só acontece depois que a pessoa confirmar na tela.";
 
         public string RequiredPermission => "customers.update";
@@ -36,17 +37,26 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             + AiArguments.Suffix(arguments, "email", ", email para ")
             + AiArguments.Suffix(arguments, "limiteCredito", ", limite de crédito para R$ ");
 
-        public string? Validate(IReadOnlyDictionary<string, object?> arguments)
+        public async Task<AiToolArguments> PrepareAsync(
+            IReadOnlyDictionary<string, object?> arguments,
+            AiToolContext context,
+            CancellationToken cancellation = default)
         {
-            if (AiArguments.Id(arguments, "clienteId") is null)
-                return "clienteId inválido: use o id completo devolvido por buscar_clientes, não o nome nem um pedaço do id.";
-
             var nothingToChange = AiArguments.Text(arguments, "telefone").Length == 0
                                   && AiArguments.Text(arguments, "email").Length == 0
                                   && AiArguments.Number(arguments, "limiteCredito") is null;
 
             // An id on its own used to reach the tool, change nothing and still answer "Feito.".
-            return nothingToChange ? "informe telefone, email ou limiteCredito." : null;
+            if (nothingToChange)
+                return AiToolArguments.Refused("informe telefone, email ou limiteCredito.");
+
+            var found = await AiEntityLookup.CustomerAsync(
+                _repository, AiArguments.Text(arguments, "clienteId"), context.EnterpriseId);
+
+            if (found.Error is not null)
+                return AiToolArguments.Refused(found.Error);
+
+            return AiToolArguments.Ok(AiArguments.With(arguments, "clienteId", found.Id!.Value.ToString()));
         }
 
         public AIFunction Create(AiToolContext context) =>

@@ -305,8 +305,9 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             tool.SetupGet(x => x.Name).Returns("atualizar_produto");
             tool.SetupGet(x => x.RequiresConfirmation).Returns(true);
             tool.SetupGet(x => x.RequiredPermission).Returns("products.update");
-            tool.Setup(x => x.Validate(It.IsAny<IReadOnlyDictionary<string, object?>>()))
-                .Returns("produtoId inválido: use o id completo devolvido por buscar_produtos.");
+            tool.Setup(x => x.PrepareAsync(
+                    It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<AiToolContext>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(AiToolArguments.Refused("nenhum produto encontrado com \"5ecc3fd5\"."));
 
             var registry = new Mock<IAiToolRegistry>();
             registry.Setup(x => x.Build(It.IsAny<IReadOnlySet<string>>(), It.IsAny<AiToolContext>()))
@@ -331,6 +332,12 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             tool.SetupGet(x => x.Name).Returns(name);
             tool.SetupGet(x => x.RequiresConfirmation).Returns(true);
             tool.SetupGet(x => x.RequiredPermission).Returns("customers.create");
+            // A mocked interface does not run the default PrepareAsync, so it has to be stubbed:
+            // arguments pass through untouched, which is what a tool with nothing to resolve does.
+            tool.Setup(x => x.PrepareAsync(
+                    It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<AiToolContext>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((IReadOnlyDictionary<string, object?> args, AiToolContext _, CancellationToken _) =>
+                    AiToolArguments.Ok(args));
             return tool.Object;
         }
 

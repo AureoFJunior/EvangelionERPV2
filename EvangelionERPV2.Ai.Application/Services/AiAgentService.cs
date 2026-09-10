@@ -118,18 +118,18 @@ namespace EvangelionERPV2.AiModule.Application.Services
                                 ? new Dictionary<string, object?>()
                                 : new Dictionary<string, object?>(call.Arguments);
 
-                            // Arguments that cannot work never become a card. The model is told why
-                            // and gets to fix it in this same turn — a truncated id is the common
-                            // one — instead of a human confirming a write that was always going to
-                            // fail at execution.
-                            var invalid = tool.Validate(arguments);
-                            if (invalid is not null)
+                            // Arguments are checked and, where possible, repaired before a card
+                            // exists: a name becomes the id it meant, and what cannot be repaired
+                            // comes back to the model in this same turn instead of reaching a human
+                            // as a card that was always going to fail.
+                            var prepared = await tool.PrepareAsync(arguments, request.Context, budget.Token);
+                            if (prepared.Error is not null)
                             {
                                 Log.Logger.Information(
                                     "AI write proposal rejected before the card. Tool={Tool}", call.Name);
 
                                 results.Add(new FunctionResultContent(call.CallId,
-                                    JsonSerializer.Serialize(new { erro = invalid })));
+                                    JsonSerializer.Serialize(new { erro = prepared.Error })));
                                 continue;
                             }
 
@@ -139,7 +139,7 @@ namespace EvangelionERPV2.AiModule.Application.Services
                             var card = await _pendingActions.ProposeAsync(
                                 request.ConversationId,
                                 tool,
-                                arguments,
+                                prepared.Arguments,
                                 budget.Token);
 
                             proposals.Add(card);

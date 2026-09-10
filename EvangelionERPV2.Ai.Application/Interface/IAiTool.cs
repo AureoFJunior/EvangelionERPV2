@@ -15,6 +15,15 @@ namespace EvangelionERPV2.AiModule.Application.Interface
         public const string Act = "ai.act";
     }
 
+    /// <summary>Arguments ready to store, or why they cannot be.</summary>
+    public sealed record AiToolArguments(IReadOnlyDictionary<string, object?> Arguments, string? Error)
+    {
+        public static AiToolArguments Ok(IReadOnlyDictionary<string, object?> arguments) => new(arguments, null);
+
+        public static AiToolArguments Refused(string error) =>
+            new(new Dictionary<string, object?>(), error);
+    }
+
     public interface IAiTool
     {
         string Name { get; }
@@ -34,11 +43,16 @@ namespace EvangelionERPV2.AiModule.Application.Interface
         string Summarize(IReadOnlyDictionary<string, object?> arguments) => Name;
 
         /// <summary>
-        /// Why these arguments cannot work, or null when they can. Checked before a write becomes a
-        /// confirmation card, so the model gets the correction while it is still answering instead
-        /// of a human confirming something that was always going to fail. Cheap checks only — shape,
-        /// not existence; the tool re-checks everything when it actually runs.
+        /// Checks and, where it can, repairs the arguments before a write becomes a confirmation
+        /// card. Two jobs, both aimed at the same failure: a local model that truncates an id or
+        /// sends a name where an id belongs. Anything it cannot repair comes back as an error the
+        /// model reads while it is still answering, rather than a card that fails on confirm.
+        /// The tool re-checks everything when it actually runs — these arguments are replayed from
+        /// storage minutes later.
         /// </summary>
-        string? Validate(IReadOnlyDictionary<string, object?> arguments) => null;
+        Task<AiToolArguments> PrepareAsync(
+            IReadOnlyDictionary<string, object?> arguments,
+            AiToolContext context,
+            CancellationToken cancellation = default) => Task.FromResult(AiToolArguments.Ok(arguments));
     }
 }
