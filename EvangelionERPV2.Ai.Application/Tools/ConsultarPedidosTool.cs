@@ -1,9 +1,11 @@
 using EvangelionERPV2.AiModule.Application.Interface;
 using EvangelionERPV2.AiModule.Application.Services;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.Extensions.AI;
+using System.Text.Json;
 
 namespace EvangelionERPV2.AiModule.Application.Tools
 {
@@ -16,9 +18,10 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public string Name => "consultar_pedidos";
 
         public string Description =>
-            "Lista os pedidos da empresa em um período. Parâmetros: diasAtras (quantos dias para " +
-            "trás olhar, padrão 30) e clienteId (opcional, o id devolvido por buscar_clientes). " +
-            "Devolve valor, status e data de cada pedido.";
+            "Pedidos do período, do mais recente para o mais antigo, com o total e o ticket médio " +
+            "da janela. Responde \"quanto vendi hoje\", \"qual o ticket médio\", \"últimos pedidos\" " +
+            "e \"pedidos de um cliente\". Parâmetros: diasAtras (janela em dias, padrão 30 — para " +
+            "\"o pedido mais recente\" mantenha a janela larga, a lista já vem ordenada) e clienteId.";
 
         public string RequiredPermission => "orders.read";
 
@@ -51,9 +54,27 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                         data = x.CreatedAt.ToString("yyyy-MM-dd"),
                         valor = x.TotalValue,
                         status = ((EnumOrderStatus)x.Status).ToString(),
+                        cliente = x.Customer?.Name,
                     }).ToList();
 
-                return AiJson.ForModel(rows, orders.Count);
+                // The whole window's numbers, not just the twenty rows shown: a model asked for a
+                // total must not have to add up a truncated list to answer.
+                var sold = orders.Where(order => !ReceivableResolver.IsOrderRefunded(order)).ToList();
+                var revenue = sold.Sum(order => order.TotalValue);
+
+                return JsonSerializer.Serialize(new
+                {
+                    total = orders.Count,
+                    mostrando = rows.Count,
+                    truncado = orders.Count > rows.Count,
+                    resumo = new
+                    {
+                        pedidos = sold.Count,
+                        faturamento = revenue,
+                        ticketMedio = sold.Count == 0 ? 0m : Math.Round(revenue / sold.Count, 2),
+                    },
+                    itens = rows,
+                }, AiJson.Options);
             }, Name, Description);
     }
 }

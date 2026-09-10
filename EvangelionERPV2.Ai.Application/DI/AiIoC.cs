@@ -43,6 +43,9 @@ namespace EvangelionERPV2.AiModule.Application.DI
             services.AddScoped<IAiTool, PrevisaoDeCaixaTool>();
             services.AddScoped<IAiTool, EstoqueBaixoTool>();
             services.AddScoped<IAiTool, ProdutosMaisVendidosTool>();
+            services.AddScoped<IAiTool, MelhoresClientesTool>();
+            services.AddScoped<IAiTool, ClientesInadimplentesTool>();
+            services.AddScoped<IAiTool, ContasAPagarTool>();
 
             services.AddScoped<IAiTool, CriarClienteTool>();
             services.AddScoped<IAiTool, AtualizarClienteTool>();

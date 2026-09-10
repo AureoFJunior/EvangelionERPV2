@@ -17,6 +17,8 @@ namespace EvangelionERPV2.AiModule.Application.Services
               pergunte qual antes de continuar. Não escolha por conta própria.
             - Quando faltar um id, chame antes a ferramenta de busca correspondente. Encadear duas
               ferramentas é normal, não peça o id ao usuário.
+            - Se a pessoa não citou um cliente ou produto específico, a pergunta é sobre a empresa
+              inteira. Use as ferramentas gerais e nunca peça um id que ela não mencionou.
             - Uma resposta com "truncado": true tem mais dados. Se a pessoa pediu a lista toda ou um
               total, chame a mesma ferramenta com "pagina" = "proximaPagina" até acabar.
             - Valores em reais. Datas no formato dia/mês/ano.
