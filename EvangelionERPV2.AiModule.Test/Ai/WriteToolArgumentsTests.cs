@@ -4,6 +4,7 @@ using EvangelionERPV2.CustomerModule.Application.Interface;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.Extensions.AI;
 using Moq;
@@ -49,14 +50,15 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         [Fact]
-        public async Task AtualizarProduto_RunsWithOnlyTheIdSupplied()
+        public async Task AtualizarProduto_RunsWithTheIdAndAPrice()
         {
             var tool = new AtualizarProdutoTool(
                 Mock.Of<IProductService<Product>>(), Mock.Of<IRepository<Product>>());
 
-            var result = await Invoke(tool, new() { ["produtoId"] = Guid.NewGuid().ToString() });
+            var result = await Invoke(tool, new() { ["produtoId"] = Guid.NewGuid().ToString(), ["preco"] = 15m });
 
-            Assert.Contains("informe preco ou estoque", result);
+            // The product does not exist in this mock, which is as far as the argument binding needs to get.
+            Assert.Contains("produto não encontrado", result);
         }
 
         [Fact]
@@ -130,6 +132,31 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         [Fact]
+        public async Task AtualizarProduto_DoesNotTouchStockAtAll()
+        {
+            // Stock only moves through ProductService.ApplyStockMovementAsync, which writes the
+            // ledger row. This tool assigning StorageQuantity is what made the scalar and the
+            // StockMovement history disagree.
+            var id = Guid.NewGuid();
+            var stored = new Product { Id = id, EnterpriseId = Context.EnterpriseId, Name = "teste", DefaultValue = 12m, StorageQuantity = 7m };
+            var repository = new Mock<IRepository<Product>>();
+            repository.Setup(x => x.GetByIdAsync(id)).ReturnsAsync(stored);
+
+            var service = new Mock<IProductService<Product>>();
+            service.Setup(x => x.UpdateAsync(It.IsAny<Product>())).ReturnsAsync((Product p) => p);
+
+            var tool = new AtualizarProdutoTool(service.Object, repository.Object);
+
+            var result = await Invoke(tool, new() { ["produtoId"] = id.ToString(), ["preco"] = 15m, ["estoque"] = 999m });
+
+            Assert.Equal(7m, stored.StorageQuantity);
+            Assert.DoesNotContain("estoque", result);
+            service.Verify(x => x.ApplyStockMovementAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Never);
+        }
+
+        [Fact]
         public async Task AtualizarProduto_WithValuesTheProductAlreadyHas_DoesNotReportAChange()
         {
             var id = Guid.NewGuid();
@@ -140,8 +167,8 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var service = new Mock<IProductService<Product>>();
             var tool = new AtualizarProdutoTool(service.Object, repository.Object);
 
-            // The model echoes the stock it just read alongside the price it was asked to change.
-            var result = await Invoke(tool, new() { ["produtoId"] = id.ToString(), ["preco"] = 12m, ["estoque"] = 7m });
+            // The model echoes the price it just read.
+            var result = await Invoke(tool, new() { ["produtoId"] = id.ToString(), ["preco"] = 12m });
 
             Assert.Contains("nada para alterar", result);
             service.Verify(x => x.UpdateAsync(It.IsAny<Product>()), Times.Never);
@@ -160,7 +187,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             var tool = new AtualizarProdutoTool(service.Object, repository.Object);
 
-            var result = await Invoke(tool, new() { ["produtoId"] = id.ToString(), ["preco"] = 15m, ["estoque"] = 7m });
+            var result = await Invoke(tool, new() { ["produtoId"] = id.ToString(), ["preco"] = 15m });
 
             Assert.DoesNotContain("erro", result);
             Assert.Equal(15m, stored.DefaultValue);

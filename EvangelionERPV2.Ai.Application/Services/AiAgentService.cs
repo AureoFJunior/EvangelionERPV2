@@ -192,6 +192,9 @@ namespace EvangelionERPV2.AiModule.Application.Services
             "atualizar_cliente" => "Preparando a alteração do cliente...",
             "atualizar_produto" => "Preparando a alteração do produto...",
             "criar_pedido" => "Preparando o pedido...",
+            "compras_pendentes" => "Verificando as compras que não chegaram...",
+            "ajustar_estoque" => "Preparando o ajuste de estoque...",
+            "receber_compra" => "Preparando a entrada da mercadoria...",
             _ => "Consultando...",
         };
 

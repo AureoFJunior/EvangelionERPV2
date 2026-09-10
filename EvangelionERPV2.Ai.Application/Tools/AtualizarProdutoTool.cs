@@ -22,9 +22,10 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public string Name => "atualizar_produto";
 
         public string Description =>
-            "Altera preço ou estoque de um produto. Parâmetros: produtoId (o id devolvido por " +
-            "buscar_produtos, ou simplesmente o nome do produto — o sistema resolve), preco, " +
-            "estoque. A alteração só acontece depois que a pessoa confirmar na tela.";
+            "Altera o preço de venda de um produto. Parâmetros: produtoId (o id devolvido por " +
+            "buscar_produtos, ou simplesmente o nome do produto — o sistema resolve) e preco. " +
+            "Não mexe em estoque: para isso use ajustar_estoque (correção de contagem) ou " +
+            "receber_compra (chegada de mercadoria). Só acontece depois que a pessoa confirmar.";
 
         public string RequiredPermission => "products.update";
 
@@ -32,8 +33,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
 
         public string Summarize(IReadOnlyDictionary<string, object?> arguments) =>
             "Alterar o produto " + AiArguments.Text(arguments, "produtoId")
-            + AiArguments.Suffix(arguments, "preco", ": preço para R$ ")
-            + AiArguments.Suffix(arguments, "estoque", ", estoque para ");
+            + AiArguments.Suffix(arguments, "preco", ": preço para R$ ");
 
         public async Task<AiToolArguments> PrepareAsync(
             IReadOnlyDictionary<string, object?> arguments,
@@ -41,13 +41,12 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             CancellationToken cancellation = default)
         {
             var price = AiArguments.Number(arguments, "preco");
-            var stock = AiArguments.Number(arguments, "estoque");
 
-            if (price is null && stock is null)
-                return AiToolArguments.Refused("informe preco ou estoque.");
+            if (price is null)
+                return AiToolArguments.Refused("informe o preco.");
 
-            if (price < 0 || stock < 0)
-                return AiToolArguments.Refused("preço e estoque não podem ser negativos.");
+            if (price < 0)
+                return AiToolArguments.Refused("preço não pode ser negativo.");
 
             var found = await AiEntityLookup.ProductAsync(
                 _repository, AiArguments.Text(arguments, "produtoId"), context.EnterpriseId);
@@ -59,43 +58,31 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         }
 
         public AIFunction Create(AiToolContext context) =>
-            AIFunctionFactory.Create(async (string produtoId, decimal? preco = null, decimal? estoque = null) =>
+            AIFunctionFactory.Create(async (string produtoId, decimal preco) =>
             {
                 if (!Guid.TryParse(produtoId, out var productId) || productId == Guid.Empty)
                     return "{\"erro\":\"produtoId inválido. Use buscar_produtos para obter o id.\"}";
 
-                if (preco is null && estoque is null)
-                    return "{\"erro\":\"informe preco ou estoque\"}";
-
-                if (preco is < 0 || estoque is < 0)
-                    return "{\"erro\":\"preço e estoque não podem ser negativos\"}";
+                if (preco < 0)
+                    return "{\"erro\":\"preço não pode ser negativo\"}";
 
                 var product = await AiQuery.ByIdOrNullAsync(() => _repository.GetByIdAsync(productId));
                 if (product is null || product.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"produto não encontrado nesta empresa\"}";
 
-                var changed = false;
+                // Stock is deliberately absent here. ProductService.ApplyStockMovementAsync is the
+                // only place StorageQuantity may move, because the quantity, the ledger row saying
+                // why, and the cache invalidation have to happen together. Assigning it here left
+                // the scalar and the StockMovement ledger disagreeing.
+                if (product.DefaultValue == preco)
+                    return "{\"erro\":\"nada para alterar: o produto já está com esse preço\"}";
 
-                if (preco is not null && product.DefaultValue != preco.Value)
-                {
-                    product.DefaultValue = preco.Value;
-                    changed = true;
-                }
-
-                if (estoque is not null && product.StorageQuantity != estoque.Value)
-                {
-                    product.StorageQuantity = estoque.Value;
-                    changed = true;
-                }
-
-                // See AtualizarClienteTool: an echoed value is not a change, and must not read as one.
-                if (!changed)
-                    return "{\"erro\":\"nada para alterar: o produto já está com esses valores\"}";
+                product.DefaultValue = preco;
 
                 var updated = await _service.UpdateAsync(product);
 
                 return JsonSerializer.Serialize(
-                    new { id = updated.Id, nome = updated.Name, preco = updated.DefaultValue, estoque = updated.StorageQuantity },
+                    new { id = updated.Id, nome = updated.Name, preco = updated.DefaultValue },
                     AiJson.Options);
             }, Name, Description);
     }
