@@ -47,7 +47,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (preco is < 0 || estoque is < 0)
                     return "{\"erro\":\"preço e estoque não podem ser negativos\"}";
 
-                var product = await _repository.GetByIdAsync(productId);
+                var product = await AiQuery.ByIdOrNullAsync(() => _repository.GetByIdAsync(productId));
                 if (product is null || product.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"produto não encontrado nesta empresa\"}";
 

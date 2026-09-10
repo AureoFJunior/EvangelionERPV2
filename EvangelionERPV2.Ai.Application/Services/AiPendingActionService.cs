@@ -94,7 +94,17 @@ namespace EvangelionERPV2.AiModule.Application.Services
             try
             {
                 var value = await tool.Create(context).InvokeAsync(new AIFunctionArguments(arguments), cancellation);
-                action.ResultJson = value?.ToString() ?? "{}";
+                var result = value?.ToString() ?? "{}";
+
+                // A tool reports a refusal in its payload rather than by throwing. Confirming used to
+                // answer "Feito." for those too, so a write that never happened read as done.
+                if (TryReadError(result, out var toolError))
+                {
+                    Log.Logger.Warning("AI pending action refused by its tool. Tool={Tool}", action.ToolName);
+                    return new AiPendingActionOutcome(false, toolError, result);
+                }
+
+                action.ResultJson = result;
                 action.ExecutedAt = DateTime.UtcNow;
                 await TransitionAsync(action, AiPendingActionStatus.Confirmed, context.UserId, cancellation);
 
@@ -164,6 +174,29 @@ namespace EvangelionERPV2.AiModule.Application.Services
 
         private static AiPendingActionCard ToCard(AiPendingAction action) =>
             new(action.Id, action.ToolName, action.Summary, action.ArgumentsJson, action.ExpiresAt);
+
+        /// <summary>True when the tool answered with an "erro" field, with its message.</summary>
+        private static bool TryReadError(string result, out string message)
+        {
+            message = string.Empty;
+
+            try
+            {
+                using var document = JsonDocument.Parse(result);
+                if (document.RootElement.ValueKind != JsonValueKind.Object
+                    || !document.RootElement.TryGetProperty("erro", out var error))
+                {
+                    return false;
+                }
+
+                message = error.GetString() ?? "A ação não pôde ser executada.";
+                return true;
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
 
         private static Dictionary<string, object?> Deserialize(string argumentsJson)
         {

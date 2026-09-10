@@ -64,7 +64,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (itens.Length > MaxItems)
                     return $"{{\"erro\":\"no máximo {MaxItems} itens por pedido\"}}";
 
-                var customer = await _customers.GetByIdAsync(customerId);
+                var customer = await AiQuery.ByIdOrNullAsync(() => _customers.GetByIdAsync(customerId));
                 if (customer is null || customer.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"cliente não encontrado nesta empresa\"}";
 
@@ -88,7 +88,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                     if (!Guid.TryParse(item.produtoId, out var productId) || productId == Guid.Empty)
                         return "{\"erro\":\"produtoId inválido. Use buscar_produtos para obter o id.\"}";
 
-                    var product = await _products.GetByIdAsync(productId);
+                    var product = await AiQuery.ByIdOrNullAsync(() => _products.GetByIdAsync(productId));
                     if (product is null || product.EnterpriseId != context.EnterpriseId)
                         return "{\"erro\":\"produto não encontrado nesta empresa\"}";
 

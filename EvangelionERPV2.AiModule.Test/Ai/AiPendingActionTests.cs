@@ -171,6 +171,40 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.True(card.ExpiresAt > DateTime.UtcNow);
         }
 
+
+        [Fact]
+        public async Task Confirm_WhenTheToolRefuses_DoesNotReportItAsDone()
+        {
+            // The tool answers {"erro": ...} instead of throwing. Confirming used to say "Feito."
+            // and mark the action Confirmed, so a write that never happened read as applied.
+            var tool = RefusingTool("atualizar_produto", "customers.create", "produto não encontrado nesta empresa");
+            var action = PendingAction(tool.Name);
+            var (service, _) = BuildService(action, tool);
+
+            var outcome = await service.ConfirmAsync(action.Id, Granted("customers.create"), Context);
+
+            Assert.False(outcome.Success);
+            Assert.Equal("produto não encontrado nesta empresa", outcome.Message);
+            Assert.Equal(AiPendingActionStatus.Pending, action.Status);
+            Assert.Null(action.ExecutedAt);
+        }
+
+        [Fact]
+        public async Task Confirm_WhenTheToolSucceeds_KeepsReportingItAsDone()
+        {
+            var tool = WriteTool("criar_cliente", "customers.create");
+            var action = PendingAction(tool.Name);
+            var (service, _) = BuildService(action, tool);
+
+            var outcome = await service.ConfirmAsync(action.Id, Granted("customers.create"), Context);
+
+            Assert.True(outcome.Success);
+            Assert.Equal("Feito.", outcome.Message);
+        }
+
+        private static IAiTool RefusingTool(string name, string permission, string error) =>
+            new FakeTool(name, permission, true, null, $"{{\"erro\":\"{error}\"}}");
+
         private static HashSet<string> Granted(string permission) =>
             new() { permission, AiPermissions.Act };
 
@@ -226,13 +260,15 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         private sealed class FakeTool : IAiTool
         {
             private readonly Action? _onRun;
+            private readonly string _payload;
 
-            public FakeTool(string name, string permission, bool requiresConfirmation, Action? onRun)
+            public FakeTool(string name, string permission, bool requiresConfirmation, Action? onRun, string? payload = null)
             {
                 Name = name;
                 RequiredPermission = permission;
                 RequiresConfirmation = requiresConfirmation;
                 _onRun = onRun;
+                _payload = payload ?? "{\"ok\":true}";
             }
 
             public string Name { get; }
@@ -246,7 +282,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 AIFunctionFactory.Create(() =>
                 {
                     _onRun?.Invoke();
-                    return "{\"ok\":true}";
+                    return _payload;
                 }, Name, Description);
         }
     }

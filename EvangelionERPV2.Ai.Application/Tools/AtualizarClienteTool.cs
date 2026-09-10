@@ -42,7 +42,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (!Guid.TryParse(clienteId, out var customerId) || customerId == Guid.Empty)
                     return "{\"erro\":\"clienteId inválido. Use buscar_clientes para obter o id.\"}";
 
-                var customer = await _repository.GetByIdAsync(customerId);
+                var customer = await AiQuery.ByIdOrNullAsync(() => _repository.GetByIdAsync(customerId));
                 if (customer is null || customer.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"cliente não encontrado nesta empresa\"}";
 
