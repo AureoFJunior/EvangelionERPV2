@@ -101,7 +101,7 @@ tools. Asking "como estamos hoje?" (prompt 4 below) as a Supervisor must not pro
 numbers; the agent has to answer from whatever tools it *does* have, or say it cannot see that
 picture.
 
-The remaining five tools (`buscar_produtos`, `buscar_clientes`, `consultar_pedidos`,
+The remaining six tools (`buscar_produtos`, `buscar_clientes`, `consultar_pedidos`,
 `contas_a_receber`, `previsao_de_caixa`, `estoque_baixo`) are all granted at Supervisor tier or
 below, so a Supervisor can reach them. **`previsao_de_caixa` is visible to a Supervisor** —
 `cashflow.forecast.read` is granted starting at Supervisor tier in the current
