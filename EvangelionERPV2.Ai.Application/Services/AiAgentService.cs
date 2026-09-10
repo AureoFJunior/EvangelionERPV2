@@ -42,6 +42,21 @@ namespace EvangelionERPV2.AiModule.Application.Services
         /// <inheritdoc />
         public async Task<AiTurnResult> RunTurnAsync(AiTurnRequest request, CancellationToken cancellation = default)
         {
+            try
+            {
+                return await RunTurnCoreAsync(request, cancellation);
+            }
+            finally
+            {
+                // A UI clears its spinner on AiDone, so every path out of a turn owes it one —
+                // including the two that used to skip it, which are the two where the user most
+                // needs to be told something happened.
+                await NotifyAsync(() => _notifier.DoneAsync(request.Context.UserId, request.ConversationId));
+            }
+        }
+
+        private async Task<AiTurnResult> RunTurnCoreAsync(AiTurnRequest request, CancellationToken cancellation)
+        {
             var stopwatch = Stopwatch.StartNew();
             var tools = _registry.Build(request.GrantedPermissions, request.Context);
 
@@ -62,54 +77,65 @@ namespace EvangelionERPV2.AiModule.Application.Services
             var promptTokens = 0;
             var completionTokens = 0;
 
-            for (var iteration = 0; iteration < _settings.MaxToolIterations; iteration++)
+            // TimeoutSeconds is a budget for the whole turn, not for one call. A per-call timeout
+            // multiplied by MaxToolIterations is not what "TimeoutSeconds: 120" leads anyone to
+            // expect, and OllamaApiClient builds its own HttpClient, so nothing else applies it.
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            budget.CancelAfter(TimeSpan.FromSeconds(_settings.TimeoutSeconds));
+
+            async Task<AiTurnResult> FinishAsync(string text)
             {
-                var response = await _chatClient.GetResponseAsync(messages, options, cancellation);
+                stopwatch.Stop();
+                await PersistAsync(request.ConversationId, AiMessageRole.Assistant, text,
+                    toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
 
-                promptTokens += (int)(response.Usage?.InputTokenCount ?? 0);
-                completionTokens += (int)(response.Usage?.OutputTokenCount ?? 0);
+                foreach (var chunk in AiTextChunker.Split(text))
+                    await NotifyAsync(() => _notifier.ChunkAsync(request.Context.UserId, chunk));
 
-                var calls = response.Messages
-                    .SelectMany(message => message.Contents)
-                    .OfType<FunctionCallContent>()
-                    .ToList();
-
-                messages.AddMessages(response);
-
-                if (calls.Count == 0)
-                {
-                    stopwatch.Stop();
-                    var text = response.Text ?? string.Empty;
-                    await PersistAsync(request.ConversationId, AiMessageRole.Assistant, text,
-                        toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
-
-                    foreach (var chunk in AiTextChunker.Split(text))
-                        await NotifyAsync(() => _notifier.ChunkAsync(request.Context.UserId, chunk));
-
-                    await NotifyAsync(() => _notifier.DoneAsync(request.Context.UserId, request.ConversationId));
-
-                    return new AiTurnResult(text, toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
-                }
-
-                var results = new List<AIContent>();
-                foreach (var call in calls)
-                {
-                    await NotifyAsync(() => _notifier.StatusAsync(request.Context.UserId, DescribeTool(call.Name)));
-                    toolsCalled.Add(call.Name);
-                    results.Add(new FunctionResultContent(call.CallId, await ExecuteAsync(tools, call, cancellation)));
-                }
-
-                messages.Add(new ChatMessage(ChatRole.Tool, results));
+                return new AiTurnResult(text, toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
             }
 
-            stopwatch.Stop();
+            try
+            {
+                for (var iteration = 0; iteration < _settings.MaxToolIterations; iteration++)
+                {
+                    var response = await _chatClient.GetResponseAsync(messages, options, budget.Token);
+
+                    promptTokens += (int)(response.Usage?.InputTokenCount ?? 0);
+                    completionTokens += (int)(response.Usage?.OutputTokenCount ?? 0);
+
+                    var calls = response.Messages
+                        .SelectMany(message => message.Contents)
+                        .OfType<FunctionCallContent>()
+                        .ToList();
+
+                    messages.AddMessages(response);
+
+                    if (calls.Count == 0)
+                        return await FinishAsync(response.Text ?? string.Empty);
+
+                    var results = new List<AIContent>();
+                    foreach (var call in calls)
+                    {
+                        await NotifyAsync(() => _notifier.StatusAsync(request.Context.UserId, DescribeTool(call.Name)));
+                        toolsCalled.Add(call.Name);
+                        results.Add(new FunctionResultContent(call.CallId, await ExecuteAsync(tools, call, budget.Token)));
+                    }
+
+                    messages.Add(new ChatMessage(ChatRole.Tool, results));
+                }
+            }
+            catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+            {
+                // The budget ran out, not the caller going away. A request the client abandoned
+                // still propagates: nobody is waiting for that answer, and it is not a timeout.
+                Log.Logger.Warning("AI turn exceeded its budget. TimeoutSeconds={TimeoutSeconds}", _settings.TimeoutSeconds);
+                return await FinishAsync("A consulta demorou demais e foi interrompida. Tente perguntar de forma mais específica.");
+            }
 
             // The cap was reached. Say so rather than returning an empty string: a model stuck in a
             // loop has already failed, and the user is owed an answer that admits it.
-            const string exhausted = "Não consegui concluir essa consulta. Tente perguntar de forma mais específica.";
-            await PersistAsync(request.ConversationId, AiMessageRole.Assistant, exhausted,
-                toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
-            return new AiTurnResult(exhausted, toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
+            return await FinishAsync("Não consegui concluir essa consulta. Tente perguntar de forma mais específica.");
         }
 
         /// <summary>Progress is decoration. A hub that is down must not cost the user their answer.</summary>

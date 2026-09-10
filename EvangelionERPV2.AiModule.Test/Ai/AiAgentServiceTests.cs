@@ -185,6 +185,103 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal("[\"ferramenta_ok\",\"ferramenta_ok\"]", assistant.ToolCallsJson);
         }
 
+        /// <summary>
+        /// TimeoutSeconds is documented as a budget for the turn. Zero makes the budget expire
+        /// before the first model call returns, which is the same path a wedged Ollama takes.
+        /// </summary>
+        [Fact]
+        public async Task ATurnThatOverrunsItsBudget_AnswersInsteadOfThrowing()
+        {
+            var service = BuildService(ChatThatNeverAnswers().Object, NoTools(), timeoutSeconds: 0);
+
+            var result = await service.RunTurnAsync(Request("demora"), CancellationToken.None);
+
+            Assert.Contains("demorou demais", result.Text, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task ATurnThatOverrunsItsBudget_PersistsWhatTheUserWasTold()
+        {
+            var persisted = new List<AiMessage>();
+
+            await BuildService(ChatThatNeverAnswers().Object, NoTools(), persisted: persisted, timeoutSeconds: 0)
+                .RunTurnAsync(Request("demora"), CancellationToken.None);
+
+            var assistant = Assert.Single(persisted, x => x.Role == AiMessageRole.Assistant);
+            Assert.Contains("demorou demais", assistant.Content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// A caller that went away is not a timeout. The budget swallows its own cancellation; an
+        /// aborted request has to keep propagating, or a disconnect looks like a slow model.
+        /// </summary>
+        [Fact]
+        public async Task ATurnCancelledByItsCaller_PropagatesRatherThanReportingATimeout()
+        {
+            var service = BuildService(ChatThatNeverAnswers().Object, NoTools());
+            using var caller = new CancellationTokenSource();
+            await caller.CancelAsync();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => service.RunTurnAsync(Request("cancela"), caller.Token));
+        }
+
+        /// <summary>
+        /// The spinner in the UI clears on AiDone. The cap and the budget are exactly the paths
+        /// where the user needs to be told something, and both used to return without one.
+        /// </summary>
+        [Fact]
+        public async Task ATurnStoppedAtTheCap_StillChunksAndSignalsDone()
+        {
+            var notifier = new Mock<IAiProgressNotifier>();
+
+            await BuildService(
+                    ChatReturning(ToolCall("c1", "ferramenta_ok")).Object,
+                    OneToolNamed("ferramenta_ok", () => "{}"),
+                    maxIterations: 2,
+                    notifier: notifier.Object)
+                .RunTurnAsync(Request("loop"), CancellationToken.None);
+
+            notifier.Verify(x => x.ChunkAsync(It.IsAny<Guid>(), It.IsAny<string>()), Times.AtLeastOnce);
+            notifier.Verify(x => x.DoneAsync(It.IsAny<Guid>(), ConversationId), Times.Once);
+        }
+
+        [Fact]
+        public async Task ATurnThatOverrunsItsBudget_StillSignalsDone()
+        {
+            var notifier = new Mock<IAiProgressNotifier>();
+
+            await BuildService(ChatThatNeverAnswers().Object, NoTools(), notifier: notifier.Object, timeoutSeconds: 0)
+                .RunTurnAsync(Request("demora"), CancellationToken.None);
+
+            notifier.Verify(x => x.DoneAsync(It.IsAny<Guid>(), ConversationId), Times.Once);
+        }
+
+        /// <summary>
+        /// Progress is decoration. A notifier that fails on every single call must cost the user
+        /// nothing — including the one in the finally block, which runs after the answer exists.
+        /// </summary>
+        [Fact]
+        public async Task ANotifierThatThrowsOnEveryCall_StillLetsTheTurnReturnItsAnswer()
+        {
+            var notifier = new Mock<IAiProgressNotifier>();
+            notifier.Setup(x => x.StatusAsync(It.IsAny<Guid>(), It.IsAny<string>())).ThrowsAsync(new InvalidOperationException("hub down"));
+            notifier.Setup(x => x.ChunkAsync(It.IsAny<Guid>(), It.IsAny<string>())).ThrowsAsync(new InvalidOperationException("hub down"));
+            notifier.Setup(x => x.DoneAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ThrowsAsync(new InvalidOperationException("hub down"));
+
+            var chat = new Mock<IChatClient>();
+            chat.SetupSequence(x => x.GetResponseAsync(
+                    It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(ToolCall("c1", "ferramenta_ok"))
+                .ReturnsAsync(Text("Você tem 12 unidades."));
+
+            var service = BuildService(chat.Object, OneToolNamed("ferramenta_ok", () => "{}"), notifier: notifier.Object);
+
+            var result = await service.RunTurnAsync(Request("quantas coca tem?"), CancellationToken.None);
+
+            Assert.Equal("Você tem 12 unidades.", result.Text);
+        }
+
         private static AiTurnRequest Request(string text) =>
             new(ConversationId, text, new HashSet<string> { "products.read" }, new AiToolContext(Tenant, Guid.NewGuid()));
 
@@ -236,7 +333,9 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             IAiToolRegistry registry,
             int maxIterations = 6,
             Mock<IRepository<AiMessage>>? messages = null,
-            List<AiMessage>? persisted = null)
+            List<AiMessage>? persisted = null,
+            IAiProgressNotifier? notifier = null,
+            int timeoutSeconds = 120)
         {
             messages ??= MessageRepository();
 
@@ -250,9 +349,24 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 Enabled = true,
                 Model = "modelo-de-teste",
                 MaxToolIterations = maxIterations,
+                TimeoutSeconds = timeoutSeconds,
             });
 
-            return new AiAgentService(chat, registry, settings, messages.Object, Mock.Of<IAiProgressNotifier>());
+            return new AiAgentService(chat, registry, settings, messages.Object, notifier ?? Mock.Of<IAiProgressNotifier>());
+        }
+
+        /// <summary>A model that never answers, so only the turn budget can end the wait.</summary>
+        private static Mock<IChatClient> ChatThatNeverAnswers()
+        {
+            var chat = new Mock<IChatClient>();
+            chat.Setup(x => x.GetResponseAsync(
+                    It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+                .Returns(async (IEnumerable<ChatMessage> _, ChatOptions? _, CancellationToken token) =>
+                {
+                    await Task.Delay(Timeout.Infinite, token);
+                    return Text("nunca");
+                });
+            return chat;
         }
     }
 }

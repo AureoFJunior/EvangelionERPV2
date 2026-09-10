@@ -19,6 +19,11 @@ namespace EvangelionERPV2.AiModule.Application.Configs
         /// </summary>
         public int MaxToolIterations { get; set; } = 6;
 
+        /// <summary>
+        /// Budget for one whole turn, tool rounds included — enforced by AiAgentService, not by the
+        /// HTTP client, which OllamaApiClient builds itself. Overrunning it ends the turn with an
+        /// honest answer rather than an exception.
+        /// </summary>
         public int TimeoutSeconds { get; set; } = 120;
 
         /// <summary>
