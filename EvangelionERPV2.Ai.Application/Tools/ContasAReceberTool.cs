@@ -1,4 +1,5 @@
 using EvangelionERPV2.AiModule.Application.Interface;
+using EvangelionERPV2.AiModule.Application.Services;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.Exceptions;
 using Microsoft.Extensions.AI;
@@ -41,7 +42,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
 
                     return summary is null
                         ? "{\"erro\":\"cliente não encontrado nesta empresa\"}"
-                        : JsonSerializer.Serialize(summary);
+                        : JsonSerializer.Serialize(summary, AiJson.Options);
                 }
                 catch (NotFoundDatabaseException)
                 {

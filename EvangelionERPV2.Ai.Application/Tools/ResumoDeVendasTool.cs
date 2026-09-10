@@ -1,4 +1,5 @@
 using EvangelionERPV2.AiModule.Application.Interface;
+using EvangelionERPV2.AiModule.Application.Services;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.Exceptions;
 using Microsoft.Extensions.AI;
@@ -32,7 +33,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 try
                 {
                     var performance = await _service.GetPerformanceAsync(context.EnterpriseId, year, month);
-                    return JsonSerializer.Serialize(performance);
+                    return JsonSerializer.Serialize(performance, AiJson.Options);
                 }
                 catch (NotFoundDatabaseException)
                 {

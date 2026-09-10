@@ -1,4 +1,5 @@
 using EvangelionERPV2.AiModule.Application.Interface;
+using EvangelionERPV2.AiModule.Application.Services;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.Exceptions;
 using Microsoft.Extensions.AI;
@@ -32,7 +33,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 try
                 {
                     var forecast = await _service.GetForecastAsync(context.EnterpriseId, horizon);
-                    return JsonSerializer.Serialize(forecast);
+                    return JsonSerializer.Serialize(forecast, AiJson.Options);
                 }
                 catch (NotFoundDatabaseException)
                 {

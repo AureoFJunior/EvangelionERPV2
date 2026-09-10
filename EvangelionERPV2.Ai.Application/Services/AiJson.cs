@@ -6,7 +6,12 @@ namespace EvangelionERPV2.AiModule.Application.Services
     {
         public const int DefaultCap = 20;
 
-        private static readonly JsonSerializerOptions Options = new()
+        /// <summary>
+        /// One dialect for every tool result. Two of them in one context window is confusing to the
+        /// model, and the relaxed encoder is what stops every "ã" costing six tokens as \u00e3 —
+        /// which, in a pt-BR feature, is most of the characters.
+        /// </summary>
+        public static readonly JsonSerializerOptions Options = new()
         {
             // Compact on purpose: every space is a token, and a tool result is read by a model, not
             // by a person. System.Text.Json throughout, as everywhere else in this solution.
