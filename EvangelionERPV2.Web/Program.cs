@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using AspNetCoreRateLimit;
+using EvangelionERPV2.AiModule.Application.DI;
+using EvangelionERPV2.AiModule.Application.Interface;
 using EvangelionERPV2.AuditModule.Application.DI;
 using EvangelionERPV2.BillsModule.Application.DI;
 using EvangelionERPV2.CustomerModule.Application.DI;
@@ -25,6 +27,7 @@ using EvangelionERPV2.Web.FluentValidator;
 using EvangelionERPV2.Web.Logging;
 using EvangelionERPV2.Web.HealthChecks;
 using EvangelionERPV2.Web.Security;
+using EvangelionERPV2.Web.Services;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.EntityFrameworkCore;
@@ -140,6 +143,14 @@ try
             HttpTransportType.LongPolling;
     }).RequireAuthorization(RbacPolicies.Orders.Read);
 
+    app.MapHub<AiHub>("/aiHub", options =>
+    {
+        options.Transports =
+            HttpTransportType.WebSockets |
+            HttpTransportType.ServerSentEvents |
+            HttpTransportType.LongPolling;
+    }).RequireAuthorization(RbacPolicies.Ai.Chat);
+
     app.MapControllers();
     app.MapHealthChecks("/health").AllowAnonymous();
 
@@ -215,9 +226,14 @@ static void SetupJWT(WebApplicationBuilder builder)
                 {
                     var accessToken = context.Request.Query["access_token"].FirstOrDefault();
                     var path = context.HttpContext.Request.Path;
-                    var isOrderHubRequest = path.StartsWithSegments("/orderHub");
+                    // Browser WebSocket and EventSource cannot set an Authorization header, so
+                    // @microsoft/signalr sends the JWT here instead. Every mapped hub needs to be
+                    // in this list or it only authenticates over long polling.
+                    var isSignalRHubRequest =
+                        path.StartsWithSegments("/orderHub") ||
+                        path.StartsWithSegments("/aiHub");
 
-                    if (!string.IsNullOrEmpty(accessToken) && isOrderHubRequest)
+                    if (!string.IsNullOrEmpty(accessToken) && isSignalRHubRequest)
                     {
                         context.Token = accessToken;
                     }
@@ -366,6 +382,8 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     OpportunityRadarIoC.Configure(builder.Services, builder.Configuration);
     ReportsIoC.Configure(builder.Services, builder.Configuration);
     PdvIoC.Configure(builder.Services, builder.Configuration);
+    AiIoC.Configure(builder.Services, builder.Configuration);
+    builder.Services.AddScoped<IAiProgressNotifier, AiProgressNotifier>();
     SharedIoC.Configure(builder.Services, builder.Configuration);
 
     // reCAPTCHA verification (short timeout, fail-closed for auth endpoints).

@@ -218,6 +218,23 @@ Domain and Business Rules
 * Config `OpportunityRadarSettings`: `Enabled` (false by default), `DefaultHistoryWindowDays` (180),
   `MinimumSampleOrders` (3)
 
+### Agente do ERP
+
+* pt-BR chat agent over the ERP's own read services, reached through `Microsoft.Extensions.AI`'s
+  `IChatClient`, implemented by `OllamaSharp` against an Ollama instance running natively on the
+  host (not a Compose service — the GPU is the point). Eight tools, gated behind `ai.chat`
+  (Supervisor tier and above): `buscar_produtos`, `buscar_clientes`, `consultar_pedidos`,
+  `resumo_de_vendas`, `painel_do_dia`, `contas_a_receber`, `previsao_de_caixa`, `estoque_baixo`
+* `AiToolRegistry` filters the tool list to what the calling user's RBAC role may actually use
+  before it ever reaches the model, so a role that lacks a tool's permission cannot see it exists
+* `AiAgentService` drives the tool-call loop by hand rather than through
+  `UseFunctionInvocation()`, so Rung 2 can intercept a call before it runs; `AiConversation` +
+  `AiMessage` hold the thread and double as the token/latency cost ledger
+* Config `AiSettings`: `Enabled` (false by default), `Endpoint`, `Model`, `MaxToolIterations` (6),
+  `TimeoutSeconds` (120), `MessageRetentionDays` (90)
+* Full write-up, the tool/permission table and the model comparison: `docs/ai/README.md`. Rung 2
+  (write tools behind a human confirmation gate) is not built yet
+
 ### Products
 
 * Soft delete; pictures stored in S3 (`ProductPicture`), read through Redis-backed caching

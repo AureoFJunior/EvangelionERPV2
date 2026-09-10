@@ -200,6 +200,11 @@ namespace EvangelionERPV2.Web.Security
             public const string Export = "rbac:accounting.export";
         }
 
+        public static class Ai
+        {
+            public const string Chat = "rbac:ai.chat";
+        }
+
         public static class Audit
         {
             public const string Read = "rbac:audit.read";

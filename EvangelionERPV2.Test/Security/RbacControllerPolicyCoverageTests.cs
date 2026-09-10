@@ -11,6 +11,7 @@ namespace EvangelionERPV2.Test.Security
     public class RbacControllerPolicyCoverageTests
     {
         [Theory]
+        [InlineData(typeof(AiController), nameof(AiController.Chat), RbacPermissions.Ai.Chat)]
         [InlineData(typeof(AuditTrailController), nameof(AuditTrailController.GetAuditTrails), RbacPermissions.Audit.Read)]
         [InlineData(typeof(AuditTrailController), nameof(AuditTrailController.GetAuditTrailsByFilter), RbacPermissions.Audit.Read)]
         [InlineData(typeof(AuditTrailController), nameof(AuditTrailController.GetAuditTrail), RbacPermissions.Audit.Read)]

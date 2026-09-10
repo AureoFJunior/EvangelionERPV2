@@ -374,3 +374,10 @@ FodyWeavers.xsd
 docs/OpportunityRadar_Diagnostico.md
 AGENT.MD
 .codex
+
+# SDD scratch: ledger, briefs, review packages. Never committed.
+.superpowers/
+
+# Working docs for the in-flight agent work: not for this repo.
+docs/superpowers/plans/2026-09-09-agente-do-erp-rung1.md
+docs/superpowers/specs/2026-09-09-agente-do-erp-design.md

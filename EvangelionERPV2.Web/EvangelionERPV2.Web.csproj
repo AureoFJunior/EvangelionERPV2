@@ -85,6 +85,7 @@
     <ProjectReference Include="..\EvangelionERPV2.User.Domain\EvangelionERPV2.UserModule.Domain.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.User.Infra\EvangelionERPV2.UserModule.Infra.csproj" />
     <ProjectReference Include="..\EvangelionERPV2.Supplier.Application\EvangelionERPV2.SupplierModule.Application.csproj" />
+    <ProjectReference Include="..\EvangelionERPV2.Ai.Application\EvangelionERPV2.AiModule.Application.csproj" />
   </ItemGroup>
 
 </Project>
