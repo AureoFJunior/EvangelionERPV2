@@ -66,8 +66,11 @@ namespace EvangelionERPV2.Web.Controllers
 
             // The tool list is built from what this caller may do, computed here because
             // RbacRolePermissionMap lives in Web and the Ai module must not reference it.
+            // Through PdvTokenScope, not the role map alone: that is what the authorization handler
+            // treats as the authority, and one source of truth for "what may this caller do" is the
+            // point — the next scoping mechanism has to be picked up here too.
             var granted = RbacPermissions.All
-                .Where(permission => RbacRolePermissionMap.HasPermission(user.AccessLevel, permission))
+                .Where(permission => PdvTokenScope.Grants(User, user.AccessLevel, permission))
                 .ToHashSet(StringComparer.Ordinal);
 
             var result = await _agentService.RunTurnAsync(

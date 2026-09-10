@@ -5,6 +5,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -134,7 +135,63 @@ namespace EvangelionERPV2.Test.Security
             _conversationsMock.Verify(x => x.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
         }
 
-        private AiController CreateController(Guid enterpriseId, Guid callerUserId)
+        /// <summary>
+        /// The tool list is a second answer to "what may this caller do", and PermissionAuthorization-
+        /// Handler treats PdvTokenScope as the authority. A till-scoped token reaching a non-pdv tool
+        /// would be an escalation the handler had already refused.
+        /// </summary>
+        [Fact]
+        public async Task Chat_WithATillScopedToken_OffersNoToolOutsideThePdvScope()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var callerUserId = Guid.NewGuid();
+
+            AiTurnRequest? capturedRequest = null;
+            _agentServiceMock
+                .Setup(x => x.RunTurnAsync(It.IsAny<AiTurnRequest>(), It.IsAny<CancellationToken>()))
+                .Callback<AiTurnRequest, CancellationToken>((request, _) => capturedRequest = request)
+                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1));
+
+            _conversationsMock
+                .Setup(x => x.CreateAsync(It.IsAny<AiConversation>()))
+                .ReturnsAsync((AiConversation c) => c);
+
+            var controller = CreateController(enterpriseId, callerUserId, pdvScoped: true);
+
+            await controller.Chat(new AiChatRequestDTO { Message = "oi" }, CancellationToken.None);
+
+            Assert.NotNull(capturedRequest);
+            Assert.All(capturedRequest!.GrantedPermissions,
+                permission => Assert.StartsWith(PdvTokenScope.PermissionPrefix, permission, StringComparison.Ordinal));
+        }
+
+        /// <summary>Guards the test above from passing because the grant set was empty anyway.</summary>
+        [Fact]
+        public async Task Chat_WithAnOrdinaryToken_StillOffersToolsOutsideThePdvScope()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var callerUserId = Guid.NewGuid();
+
+            AiTurnRequest? capturedRequest = null;
+            _agentServiceMock
+                .Setup(x => x.RunTurnAsync(It.IsAny<AiTurnRequest>(), It.IsAny<CancellationToken>()))
+                .Callback<AiTurnRequest, CancellationToken>((request, _) => capturedRequest = request)
+                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1));
+
+            _conversationsMock
+                .Setup(x => x.CreateAsync(It.IsAny<AiConversation>()))
+                .ReturnsAsync((AiConversation c) => c);
+
+            var controller = CreateController(enterpriseId, callerUserId);
+
+            await controller.Chat(new AiChatRequestDTO { Message = "oi" }, CancellationToken.None);
+
+            Assert.NotNull(capturedRequest);
+            Assert.Contains(capturedRequest!.GrantedPermissions,
+                permission => !permission.StartsWith(PdvTokenScope.PermissionPrefix, StringComparison.Ordinal));
+        }
+
+        private AiController CreateController(Guid enterpriseId, Guid callerUserId, bool pdvScoped = false)
         {
             _usersMock
                 .Setup(x => x.GetByIdAsync(callerUserId))
@@ -154,11 +211,14 @@ namespace EvangelionERPV2.Test.Security
                 _usersMock.Object,
                 settings);
 
-            var claims = new[]
+            var claims = new List<Claim>
             {
-                new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
-                new Claim(ClaimTypes.Sid, callerUserId.ToString()),
+                new(ClaimTypes.GroupSid, enterpriseId.ToString()),
+                new(ClaimTypes.Sid, callerUserId.ToString()),
             };
+
+            if (pdvScoped)
+                claims.Add(new Claim(PdvTokenScope.ClaimType, PdvTokenScope.ClaimValue));
             var identity = new ClaimsIdentity(claims, "TestAuthType");
             controller.ControllerContext = new ControllerContext
             {
