@@ -39,12 +39,7 @@ namespace EvangelionERPV2.AiModule.Application.Services
             _notifier = notifier;
         }
 
-        /// <remarks>
-        /// Precondition: the caller has already resolved the conversation and confirmed it belongs
-        /// to the calling user and tenant. This method does not re-check that. The controller does
-        /// it once, against a DbContext whose global filter already scopes the read to the tenant;
-        /// repeating it here would be a second source of truth for the same rule.
-        /// </remarks>
+        /// <inheritdoc />
         public async Task<AiTurnResult> RunTurnAsync(AiTurnRequest request, CancellationToken cancellation = default)
         {
             var stopwatch = Stopwatch.StartNew();
