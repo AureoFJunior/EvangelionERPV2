@@ -24,5 +24,12 @@ namespace EvangelionERPV2.Shared.DTOs
         /// the performance screen shows as a blank cell rather than as zero.
         /// </summary>
         public decimal? CommissionRate { get; set; }
+
+        /// <summary>
+        /// True for a login that belongs to a process, not a person — the order worker's account,
+        /// a seed account. Those are left out of Desempenho de vendas: a robot has no commission
+        /// row and does not compete with the people who actually sold something.
+        /// </summary>
+        public bool IsServiceAccount { get; set; }
     }
 }

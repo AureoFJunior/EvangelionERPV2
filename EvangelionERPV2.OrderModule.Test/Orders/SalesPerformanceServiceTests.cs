@@ -239,5 +239,88 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
                 EnterpriseId,
                 new UpsertSalesGoalRequestDTO { UserId = Guid.NewGuid(), Year = 2026, Month = 8, TargetAmount = 100m }));
         }
+
+        /// <summary>
+        /// Like the setups above, but runs the predicate the service built instead of ignoring it.
+        /// The service-account rule lives in that expression, so a mock that answers every query
+        /// with the same list cannot tell whether it works.
+        /// </summary>
+        private void GivenFilteredUsers(params User[] users)
+        {
+            _users.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<User, bool>>?>()))
+                .ReturnsAsync((Expression<Func<User, bool>>? predicate) =>
+                    users.Where(predicate?.Compile() ?? (_ => true)).ToList());
+        }
+
+        private static User Person(Guid id) => new()
+        {
+            Id = id,
+            EnterpriseId = EnterpriseId,
+            IsActive = true,
+            FirstName = "Rei",
+            LastName = "Ayanami"
+        };
+
+        private static User Robot(Guid id) => new()
+        {
+            Id = id,
+            EnterpriseId = EnterpriseId,
+            IsActive = true,
+            FirstName = "Order",
+            LastName = "Worker",
+            IsServiceAccount = true
+        };
+
+        [Fact]
+        public async Task AServiceAccount_GetsNoSellerRow_ButItsSalesStillCountForTheCompany()
+        {
+            var robotId = Guid.NewGuid();
+            var robotSale = Sale(400m);
+            robotSale.UserId = robotId;
+
+            _orders.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>?>()))
+                .ReturnsAsync([Sale(1000m), robotSale]);
+            _bills.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Bill, bool>>?>())).ReturnsAsync([]);
+            _goals.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<SalesGoal, bool>>?>())).ReturnsAsync([]);
+            GivenFilteredUsers(Person(SellerId), Robot(robotId));
+
+            var performance = await BuildService().GetPerformanceAsync(EnterpriseId, 2026, 8);
+
+            Assert.Equal([SellerId], performance.Sellers.Select(row => row.UserId).ToArray());
+            // The money was real even though the seller was not a person, so the company keeps it.
+            Assert.Equal(1400m, performance.Enterprise.SoldAmount);
+            Assert.Equal(2, performance.Enterprise.OrderCount);
+        }
+
+        [Fact]
+        public async Task AServiceAccount_CannotBeGivenATarget()
+        {
+            var robotId = Guid.NewGuid();
+            GivenFilteredUsers(Robot(robotId));
+
+            await Assert.ThrowsAsync<NotFoundDatabaseException>(() => BuildService().UpsertGoalAsync(
+                EnterpriseId,
+                new UpsertSalesGoalRequestDTO { UserId = robotId, Year = 2026, Month = 8, TargetAmount = 100m }));
+        }
+
+        [Fact]
+        public async Task AServiceAccountsOldTarget_IsNotListed()
+        {
+            var robotId = Guid.NewGuid();
+            GivenFilteredUsers(Person(SellerId), Robot(robotId));
+            _goals.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<SalesGoal, bool>>?>())).ReturnsAsync(
+            [
+                new SalesGoal { Id = Guid.NewGuid(), EnterpriseId = EnterpriseId, UserId = SellerId, Year = 2026, Month = 8, TargetAmount = 500m, IsActive = true },
+                new SalesGoal { Id = Guid.NewGuid(), EnterpriseId = EnterpriseId, UserId = robotId, Year = 2026, Month = 8, TargetAmount = 900m, IsActive = true },
+                new SalesGoal { Id = Guid.NewGuid(), EnterpriseId = EnterpriseId, UserId = null, Year = 2026, Month = 8, TargetAmount = 5000m, IsActive = true }
+            ]);
+
+            var goals = await BuildService().GetGoalsAsync(EnterpriseId, 2026);
+
+            // The seller's and the company's own, never the robot's — a target set before the flag
+            // existed must not keep the account visible on the metas screen.
+            Assert.Equal(2, goals.Count);
+            Assert.DoesNotContain(goals, goal => goal.UserId == robotId);
+        }
     }
 }

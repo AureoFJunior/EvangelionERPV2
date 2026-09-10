@@ -62,10 +62,14 @@ namespace EvangelionERPV2.CustomerModule.Application.DI
                 // Mapa de clientes. The geocoder gets its own HttpClient with a short timeout: it
                 // decorates a map, so it must never be the reason a request hangs.
                 services.AddScoped<ICustomerLocationService, CustomerLocationService>();
-                services.AddHttpClient<ICepGeocoder, BrasilApiCepGeocoder>(client =>
+                services.AddHttpClient<IAddressGeocoder, NominatimAddressGeocoder>(client =>
                 {
-                    client.BaseAddress = new Uri("https://brasilapi.com.br/");
-                    client.Timeout = TimeSpan.FromSeconds(5);
+                    client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
+                    // Ten, not five: Nominatim is slower than a CEP lookup, and the caller is a
+                    // batch nobody is watching. Still a ceiling, so it cannot hang a request.
+                    client.Timeout = TimeSpan.FromSeconds(10);
+                    // Their usage policy refuses anonymous traffic; an unset agent gets a 403.
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("EvangelionERPV2/1.0 (+https://github.com/evangelion-erp)");
                 });
 
 

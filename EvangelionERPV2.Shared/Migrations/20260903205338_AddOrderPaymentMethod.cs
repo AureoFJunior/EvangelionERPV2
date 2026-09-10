@@ -35,21 +35,27 @@ namespace EvangelionERPV2.Shared.Migrations
             // A sale with no payment rows cannot exist — SyncSaleAsync refuses one — but the CASE
             // answers NULL rather than Mixed (98) if it ever did. A corrupt row should read as "not
             // known", never as a split payment that never happened.
+            //
+            // Through EXEC on purpose, like AddPayrollDetailEnterprise before it: the idempotent
+            // script puts the AddColumn above and this statement in one batch, and SQL Server
+            // parses a batch whole — a direct UPDATE naming PaymentMethod fails with "Invalid
+            // column name" before the ALTER has run.
             migrationBuilder.Sql(@"
-                UPDATE o
-                SET o.Status        = 5,
-                    o.PaymentMethod = m.Method
-                FROM [Order] o
-                JOIN PdvSale s ON s.OrderId = o.Id AND s.Status = 2
-                CROSS APPLY (
-                    SELECT CASE WHEN COUNT(p.Method) = 0          THEN NULL
-                                WHEN COUNT(DISTINCT p.Method) = 1 THEN MIN(p.Method)
-                                ELSE 98 END AS Method
-                    FROM PdvSalePayment p
-                    WHERE p.PdvSaleId = s.Id
-                ) m
-                WHERE o.Status = 2
-                  AND o.RefundedAt IS NULL;");
+                EXEC(N'
+                    UPDATE o
+                    SET o.Status        = 5,
+                        o.PaymentMethod = m.Method
+                    FROM [Order] o
+                    JOIN PdvSale s ON s.OrderId = o.Id AND s.Status = 2
+                    CROSS APPLY (
+                        SELECT CASE WHEN COUNT(p.Method) = 0          THEN NULL
+                                    WHEN COUNT(DISTINCT p.Method) = 1 THEN MIN(p.Method)
+                                    ELSE 98 END AS Method
+                        FROM PdvSalePayment p
+                        WHERE p.PdvSaleId = s.Id
+                    ) m
+                    WHERE o.Status = 2
+                      AND o.RefundedAt IS NULL;');");
         }
 
         /// <inheritdoc />

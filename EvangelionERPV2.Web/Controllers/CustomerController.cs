@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using AutoMapper;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.CustomerModule.Application.Interface;
@@ -56,6 +56,11 @@ namespace EvangelionERPV2.Web.Controllers
         /// Customers within a radius of a point, nearest first. Both limits apply: the radius and
         /// the count.
         /// </summary>
+        /// <remarks>
+        /// <paramref name="place"/> — a município, UF or bairro — replaces the radius rather than
+        /// narrowing it, and is the only mode that can answer with a customer who has no
+        /// coordinates yet. Typing a city is what the map is for; typing a latitude is not.
+        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Read)]
         [HttpGet]
         [ProducesResponseType(typeof(IEnumerable<NearbyCustomerDTO>), StatusCodes.Status200OK)]
@@ -66,7 +71,8 @@ namespace EvangelionERPV2.Web.Controllers
             decimal latitude,
             decimal longitude,
             double radiusKm = 50,
-            int take = 100)
+            int take = 100,
+            string? place = null)
         {
             if (!TryGetEnterpriseId(out var enterpriseId))
                 return Unauthorized();
@@ -74,7 +80,7 @@ namespace EvangelionERPV2.Web.Controllers
             try
             {
                 var nearby = await _customerLocationService.GetNearbyAsync(
-                    enterpriseId, latitude, longitude, radiusKm, take, HttpContext.RequestAborted);
+                    enterpriseId, latitude, longitude, radiusKm, take, place, HttpContext.RequestAborted);
 
                 return Ok(nearby);
             }
@@ -103,6 +109,44 @@ namespace EvangelionERPV2.Web.Controllers
 
             var result = await _customerLocationService.GeocodePendingAsync(enterpriseId, take, HttpContext.RequestAborted);
             return Ok(result);
+        }
+
+        /// <summary>
+        /// Pins a customer exactly where somebody says they are.
+        /// </summary>
+        /// <remarks>
+        /// The last few metres the geocoder cannot reach. OpenStreetMap holds no surveyed house
+        /// number for most Brazilian streets, so an address resolves to the middle of its road and
+        /// stops, a couple of hundred metres out; whoever visits the customer knows the door.
+        /// A pin set here is never overwritten — the backfill only fills in customers that have no
+        /// coordinates at all.
+        /// </remarks>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Update)]
+        [HttpPut]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> SetCustomerLocation([FromBody] SetCustomerLocationRequestDTO request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+            if (request == null) return BadRequest();
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                await _customerLocationService.SetLocationAsync(
+                    enterpriseId, request.CustomerId, request.Latitude, request.Longitude, HttpContext.RequestAborted);
+
+                // 204 either way: "no such customer of yours" and "moved it" must not read
+                // differently, or this endpoint enumerates other tenants' customer ids.
+                return NoContent();
+            }
+            catch (InsertDatabaseException ex)
+            {
+                return BadRequest(GetSafeLocationErrorMessage(ex));
+            }
         }
 
         /// <summary>Echoes back only messages this code wrote, never a submitted value.</summary>

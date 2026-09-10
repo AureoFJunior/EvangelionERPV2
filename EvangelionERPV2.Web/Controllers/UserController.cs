@@ -604,6 +604,9 @@ namespace EvangelionERPV2.Web.Controllers
                 user.ActualTheme = request.ActualTheme;
                 user.Language = request.Language;
                 user.CommissionRate = request.CommissionRate;
+                // ?? and not a plain assignment: an older client omits the field entirely, and that
+                // must leave a flagged service account flagged.
+                user.IsServiceAccount = request.IsServiceAccount ?? existentUser.IsServiceAccount;
                 user.IsActive = request.IsActive;
                 user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
                 user.ProfilePicture = string.IsNullOrWhiteSpace(request.ProfilePicture) ? existentUser.ProfilePicture : request.ProfilePicture;

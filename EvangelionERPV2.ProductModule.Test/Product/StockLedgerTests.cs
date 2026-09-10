@@ -205,6 +205,75 @@ namespace EvangelionERPV2.ProductModule.Test
                 context);
         }
 
+        /// <summary>
+        /// allowNegative is the single door to a negative balance, and only the PDV offline sync
+        /// holds the key: that sale already happened and the customer already left with the goods.
+        /// </summary>
+        [Fact]
+        public async Task ApplyStockMovementAsync_WithAllowNegative_IsTheOnlyWayBelowZero()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+            var enterpriseId = Guid.NewGuid();
+
+            var productId = await SeedProductAsync(context, enterpriseId, "Sold While Offline", 2m);
+
+            var movement = await service.ApplyStockMovementAsync(
+                productId, enterpriseId, -5m, EnumStockMovementType.Sale, Guid.NewGuid(), allowNegative: true);
+
+            // -3 is the honest record: three units left the shelf that the books never knew about.
+            Assert.Equal(-3m, await ReadStockAsync(context, productId));
+            Assert.Equal(-3m, movement.BalanceAfter);
+            Assert.Equal(-5m, movement.Quantity);
+        }
+
+        /// <summary>
+        /// The same oversell without the flag — every path but the till — is refused outright.
+        /// </summary>
+        [Fact]
+        public async Task ApplyStockMovementAsync_WithoutAllowNegative_RefusesToGoBelowZero()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+            var enterpriseId = Guid.NewGuid();
+
+            var productId = await SeedProductAsync(context, enterpriseId, "Scarce", 2m);
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(() =>
+                service.ApplyStockMovementAsync(
+                    productId, enterpriseId, -5m, EnumStockMovementType.Adjustment, null));
+
+            Assert.Equal(2m, await ReadStockAsync(context, productId));
+            Assert.Empty(await ReadMovementsAsync(context));
+        }
+
+        /// <summary>
+        /// The other half of the offline sale: a human counts the shelf and corrects the negative
+        /// the till left behind. The correction is a movement like any other, not an assignment.
+        /// </summary>
+        [Fact]
+        public async Task ApplyStockMovementAsync_ForAnAdjustment_BringsANegativeCountBack()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+            var enterpriseId = Guid.NewGuid();
+
+            var productId = await SeedProductAsync(context, enterpriseId, "Recounted", 0m);
+            await service.ApplyStockMovementAsync(
+                productId, enterpriseId, -4m, EnumStockMovementType.Sale, Guid.NewGuid(), allowNegative: true);
+
+            // The shelf actually holds 6, so the correction is +10 against the -4 on the books.
+            var correction = await service.ApplyStockMovementAsync(
+                productId, enterpriseId, 10m, EnumStockMovementType.Adjustment, null);
+
+            Assert.Equal(6m, await ReadStockAsync(context, productId));
+            Assert.Equal(6m, correction.BalanceAfter);
+
+            var movements = await ReadMovementsAsync(context);
+            Assert.Equal(2, movements.Count);
+            Assert.Single(movements, x => x.Type == (int)EnumStockMovementType.Adjustment);
+        }
+
         [Fact]
         public async Task ApplyStockMovementAsync_WhenThePeriodIsClosed_WritesNothing()
         {

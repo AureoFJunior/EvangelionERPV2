@@ -118,7 +118,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 // Synchronous batch: SEFAZ answers with the protocol on the same round trip, so the
                 // outcome is known before Executar() returns instead of needing a RetAutorizacao poll.
                 IndSinc = SimNao.Sim,
-                NFe = [new NFe { InfNFe = [infNFe] }]
+                NFe = [new NFe { InfNFeField = infNFe }]
             };
         }
 

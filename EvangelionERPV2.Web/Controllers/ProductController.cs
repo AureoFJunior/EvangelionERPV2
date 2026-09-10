@@ -261,7 +261,30 @@ namespace EvangelionERPV2.Web.Controllers
                 // form back would otherwise erase it on every edit they save.
                 if (request.CostPrice.HasValue && await CanReadCostAsync())
                     existentProduct.CostPrice = request.CostPrice;
-                existentProduct.StorageQuantity = request.StorageQuantity;
+                // Stock moves through the ledger, never by assignment. ApplyStockMovementAsync is
+                // the only place StorageQuantity is allowed to change, so a human correcting a
+                // count leaves an Adjustment row behind exactly like a sale or a receipt does —
+                // otherwise the scalar and the ledger drift apart and BalanceAfter stops being
+                // reconstructible. The delta is applied by a compare-and-swap against the stored
+                // value rather than by writing the number the form sent, so the correction is
+                // relative to what is actually on hand.
+                //
+                // allowNegative is left false: only the PDV offline sync may drive stock below
+                // zero, and the validator already caps the target at zero or greater, so the
+                // guard can only ever fire on a concurrent sale — which is exactly when it should.
+                var stockDelta = request.StorageQuantity - existentProduct.StorageQuantity;
+                if (stockDelta != 0)
+                {
+                    var adjustment = await _productService.ApplyStockMovementAsync(
+                        existentProduct.Id,
+                        enterpriseId,
+                        stockDelta,
+                        EnumStockMovementType.Adjustment,
+                        referenceId: null);
+
+                    existentProduct.StorageQuantity = adjustment.BalanceAfter;
+                }
+
                 existentProduct.UnitOfMeasure = request.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty;
                 existentProduct.IsExternal = request.IsExternal;
                 existentProduct.IsService = request.IsService;

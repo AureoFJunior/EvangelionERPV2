@@ -104,7 +104,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void AnAnonymousCounterSale_OmitsTheDestinatarioEntirely()
         {
-            var note = NFeXmlBuilder.Build(NFCeContext(), null).NFe[0].InfNFe[0];
+            var note = NFeXmlBuilder.Build(NFCeContext(), null).NFe[0].InfNFeField;
 
             Assert.Null(note.Dest);
         }
@@ -120,7 +120,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Contains("CPF", exception.Message);
 
             // And a centavo below it is an ordinary anonymous sale.
-            Assert.Null(NFeXmlBuilder.Build(WithTotal(9_999.99m), null).NFe[0].InfNFe[0].Dest);
+            Assert.Null(NFeXmlBuilder.Build(WithTotal(9_999.99m), null).NFe[0].InfNFeField.Dest);
         }
 
         [Fact]
@@ -164,7 +164,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         }
 
         private static Ide IdeOf(NFeIssueContext context) =>
-            NFeXmlBuilder.Build(context, null).NFe[0].InfNFe[0].Ide;
+            NFeXmlBuilder.Build(context, null).NFe[0].InfNFeField.Ide;
 
         /// <summary>An offline note. The chave is keyed with tpEmis 9 so it agrees with the document.</summary>
         private static NFeIssueContext Offline(string justification = Justification, DateTime? enteredAt = null, bool withDate = true)

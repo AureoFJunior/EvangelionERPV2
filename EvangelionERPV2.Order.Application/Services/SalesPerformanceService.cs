@@ -90,8 +90,18 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             var liveBills = ReceivableResolver.SelectLiveBillsByOrder(bills);
 
-            var sellers = (await _userRepository.GetAllAsync(user => user.IsActive == true && user.EnterpriseId == enterpriseId))
+            // One read, split two ways: the same rows answer "who is this seller" and "which of these
+            // are not people at all", and asking the tenant's users twice buys nothing.
+            var users = (await _userRepository.GetAllAsync(user => user.EnterpriseId == enterpriseId)).ToList();
+
+            var sellers = users
+                .Where(user => user.IsActive == true && !user.IsServiceAccount)
                 .ToDictionary(user => user.Id, user => user);
+
+            var serviceAccountIds = users
+                .Where(user => user.IsServiceAccount)
+                .Select(user => user.Id)
+                .ToHashSet();
 
             var goals = (await _salesGoalRepository.GetAllAsync(goal =>
                     goal.IsActive == true
@@ -105,9 +115,17 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 .ToDictionary(goal => goal.UserId!.Value, goal => goal.TargetAmount);
             var enterpriseGoal = goals.FirstOrDefault(goal => !goal.UserId.HasValue)?.TargetAmount;
 
+            // A service account is dropped, not shown under its user id. Its orders still count in the
+            // company's row below, which is built from every order rather than from the sum of
+            // these — the money was real, the seller was not a person.
+            //
+            // Dropped on the *user*, not on the order: an order with a UserId nobody can resolve is
+            // a different problem (a deleted user) and still deserves a row, which is what the id
+            // fallback in ResolveSellerName is for.
             var rows = orders
                 .Where(order => order.UserId.HasValue)
                 .GroupBy(order => order.UserId!.Value)
+                .Where(group => !serviceAccountIds.Contains(group.Key))
                 .Select(group =>
                 {
                     sellers.TryGetValue(group.Key, out var seller);
@@ -147,10 +165,14 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     goal.IsActive == true && goal.EnterpriseId == enterpriseId && goal.Year == year))
                 .ToList();
 
-            var sellers = (await _userRepository.GetAllAsync(user => user.EnterpriseId == enterpriseId))
+            var sellers = (await _userRepository.GetAllAsync(user =>
+                    user.EnterpriseId == enterpriseId && user.IsServiceAccount == false))
                 .ToDictionary(user => user.Id, user => user);
 
+            // Not IsActive: a target set for somebody who has since left still explains a past
+            // month. A service account never had a target worth explaining.
             return goals
+                .Where(goal => !goal.UserId.HasValue || sellers.ContainsKey(goal.UserId.Value))
                 .Select(goal => new SalesGoalDTO
                 {
                     Id = goal.Id,
@@ -180,7 +202,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 // A target for somebody else's employee would be invisible to them and would still
                 // occupy this tenant's unique index for that competência.
                 var seller = (await _userRepository.GetAllAsync(user =>
-                        user.Id == request.UserId.Value && user.EnterpriseId == enterpriseId && user.IsActive == true))
+                        user.Id == request.UserId.Value
+                        && user.EnterpriseId == enterpriseId
+                        && user.IsActive == true
+                        && user.IsServiceAccount == false))
                     .FirstOrDefault();
 
                 if (seller == null)

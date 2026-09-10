@@ -136,7 +136,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             };
         }
 
-        private static InfNFe Build(NFeIssueContext context) => NFeXmlBuilder.Build(context).NFe[0].InfNFe[0];
+        private static InfNFe Build(NFeIssueContext context) => NFeXmlBuilder.Build(context).NFe[0].InfNFeField;
 
         /// <summary>The default line — 2 x 125,00 — around a product the test configured itself.</summary>
         private static OrderedProduct Line(Product product) => new()
@@ -322,7 +322,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var technician = new NFeResponsibleTechnician(
                 "12345678000199", "Aureo", "dev@nerv.jp", "5199990000", null, null);
 
-            var respTec = NFeXmlBuilder.Build(Context(), technician).NFe[0].InfNFe[0].InfRespTec;
+            var respTec = NFeXmlBuilder.Build(Context(), technician).NFe[0].InfNFeField.InfRespTec;
 
             Assert.NotNull(respTec);
             Assert.Equal("12345678000199", respTec!.CNPJ);
@@ -342,7 +342,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var technician = new NFeResponsibleTechnician(
                 "12345678000199", "Aureo", "dev@nerv.jp", "5199990000", "01", "G8063VRTNDMPS3W2SPT9V6NEEJ0MYCF7");
 
-            var respTec = NFeXmlBuilder.Build(Context(), technician).NFe[0].InfNFe[0].InfRespTec;
+            var respTec = NFeXmlBuilder.Build(Context(), technician).NFe[0].InfNFeField.InfRespTec;
 
             Assert.Equal("01", respTec!.IdCSRT);
             Assert.Equal("G8063VRTNDMPS3W2SPT9V6NEEJ0MYCF7", respTec.CSRT);

@@ -23,6 +23,17 @@ namespace EvangelionERPV2.Shared.DTOs
         /// </summary>
         public decimal? CommissionRate { get; set; }
 
+        /// <summary>
+        /// Marks a login as belonging to a process rather than a person, which keeps it out of the
+        /// sales screens.
+        /// </summary>
+        /// <remarks>
+        /// Nullable, and null keeps whatever is stored — unlike <c>CommissionRate</c>, where null is
+        /// itself a setting. A client that predates this field sends nothing, and nothing must not
+        /// quietly un-flag the order worker and put it back in the seller list.
+        /// </remarks>
+        public bool? IsServiceAccount { get; set; }
+
         /// <summary>Left blank to keep the stored password.</summary>
         public string? Password { get; set; }
 

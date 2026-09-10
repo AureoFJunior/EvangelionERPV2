@@ -222,6 +222,27 @@ Domain and Business Rules
 
 * Soft delete; pictures stored in S3 (`ProductPicture`), read through Redis-backed caching
 * List endpoints take `includePictures` so grids do not pay for base64 payloads
+* **`StorageQuantity` only ever moves through `ProductService.ApplyStockMovementAsync`**, which
+  shifts the quantity, writes the `StockMovement` row explaining why, and drops the cache entry as
+  one unit. The shift is a compare-and-swap (`SET StorageQuantity = StorageQuantity + @delta …
+  WHERE … AND StorageQuantity + @delta >= 0`), so two concurrent sales of the last unit cannot both
+  win. Movement types: `Sale`, `Refund`, `Receipt`, `Adjustment`
+* **Stock may go negative from exactly one caller: the PDV offline sync.** `PdvService.SyncSale`
+  passes `allowNegativeStock: true` through `OrderService.CreateAsync`, and it is the only place in
+  production that does. That sale already happened while the till was offline — the customer left
+  with the goods — so refusing the movement would lose the revenue without restoring the stock. The
+  resulting negative is the honest record of a count discrepancy, and consumers that must not be
+  poisoned by it clamp with `Math.Max(0, …)` (`PayableBillService`, `OpportunityRadarService`)
+* Every other path refuses to oversell and cannot drive the count below zero: web orders,
+  `InsertQueuedOrder`, `QuoteService.ConvertQuote`, payable-bill receipts and reversals, and the
+  product edit form. `ProductController.UpdateProduct` sends the **delta** (`request.StorageQuantity
+  − stored`) through the ledger as an `Adjustment` rather than assigning the field, so a human
+  correcting a count leaves a row behind like any other movement. Because a movement asserts the
+  period lock, changing a count inside a closed period answers **409**; name- or price-only edits
+  do not touch stock and are unaffected. Covered by `StockLedgerTests` and
+  `EvangelionERPV2.Test/Security/ProductControllerStockLedgerTests.cs`
+* Not yet ledgered: `AddProduct` writes the opening `StorageQuantity` directly, so a product created
+  with stock has no opening-balance movement and its `BalanceAfter` chain does not start at zero
 
 ### Employees
 
@@ -405,7 +426,7 @@ Configuration is a mix of `appsettings*.json` sections and `EVA_*` environment v
 | `JwtSettings` | `Issuer`, `Audience`, `AccessTokenMinutes` (60), `RefreshTokenDays` (7) |
 | `Encryption` | `Key`, `TokenKey` (secret references) |
 | `GoogleSettings` | `ClientId`, `ClientSecret`, `AllowedRedirectUris[]` |
-| `RecaptchaSettings` | `Enabled`, `SecretKey`, `AllowedHostnames[]` |
+| `RecaptchaSettings` | `Enabled`, `SecretKey`, `AllowedHostnames[]`. **`Enabled` is `false` in Development as of 2026-09-07** so `User/LogInto` takes plain credentials from an API client; it stays `true` in Production with `AllowedHostnames` set |
 | `SelfAPIAuth` | machine credential used by the workers |
 | `AWSSettings` | `SecretName`, `BucketProducttName`, `BucketUserName` |
 | `RedisSettings` | `InstanceName`, `ConnectionString` |

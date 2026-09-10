@@ -70,6 +70,21 @@ namespace EvangelionERPV2.Shared.Entities
         /// </remarks>
         [Column(TypeName = "decimal(5,4)")]
         public decimal? CommissionRate { get; set; } = null;
+
+        /// <summary>
+        /// A login that belongs to a process, not to a person — the order worker's account, a seed
+        /// account, anything that authenticates without anybody sitting behind it.
+        /// </summary>
+        /// <remarks>
+        /// Exists because nothing else in this table separates the two. The order worker's account
+        /// is <see cref="Enums.EnumAccessLevel.Admin"/> like a director is, and its orders were
+        /// landing in Desempenho de vendas next to the people who actually sold something. Naming
+        /// conventions were the alternative and they break on the first rename.
+        ///
+        /// False for everybody by default, which is the safe direction: a person wrongly hidden
+        /// from their own commission row is a worse failure than a robot briefly listed.
+        /// </remarks>
+        public bool IsServiceAccount { get; set; } = false;
         public short Language { get; set; }
     }
 }

@@ -1,4 +1,4 @@
-using EvangelionERPV2.PdvModule.Application.Services;
+﻿using EvangelionERPV2.PdvModule.Application.Services;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.Configs;
@@ -211,6 +211,26 @@ namespace EvangelionERPV2.PdvModule.Test
             var mapper = MapperConfig.RegisterMaps().CreateMapper();
 
             Assert.Equal("Padaria do Shinji", mapper.Map<OrderDTO>(order).CustomerName);
+        }
+
+        [Fact]
+        public void AnOrderWhoseCustomerWasNotLoaded_IsNotAWalkIn()
+        {
+            // RepositoryBase.GetById does not Include the customer, and it is what the delete and
+            // update responses map. A backoffice order read that way must answer null, not claim
+            // the till rang it up.
+            var order = new Order
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = _enterpriseId,
+                CustomerId = Guid.NewGuid(),
+                Customer = null,
+                Status = (int)EnumOrderStatus.Paid
+            };
+
+            var mapper = MapperConfig.RegisterMaps().CreateMapper();
+
+            Assert.Null(mapper.Map<OrderDTO>(order).CustomerName);
         }
     }
 }

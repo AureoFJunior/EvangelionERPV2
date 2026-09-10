@@ -2829,6 +2829,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<short?>("IsLogged")
                         .HasColumnType("smallint");
 
+                    b.Property<bool>("IsServiceAccount")
+                        .HasColumnType("bit");
+
                     b.Property<short>("Language")
                         .HasColumnType("smallint");
 

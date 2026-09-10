@@ -84,9 +84,9 @@ namespace EvangelionERPV2.Shared.Entities
         #endregion
 
         /// <summary>
-        /// Where this customer is, for the map. Resolved from the CEP by the geocoding backfill —
-        /// nothing on the write path calls out to the internet, so saving a customer never waits on
-        /// a third party or fails because one is down.
+        /// Where this customer is, for the map. Resolved from the fiscal address above by the
+        /// geocoding backfill — nothing on the write path calls out to the internet, so saving a
+        /// customer never waits on a third party or fails because one is down.
         /// </summary>
         /// <remarks>
         /// decimal(9,6) is roughly 11 cm of precision and is mandatory here: the global

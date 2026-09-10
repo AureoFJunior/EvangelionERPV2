@@ -19,14 +19,15 @@ any of them is re-litigating a settled decision.
 
 ## State of the tree
 
-Measured 2026-09-01, not remembered.
+Measured 2026-09-01, not remembered. **Build and Tests re-measured 2026-09-09**; the Branch, Head,
+FrontV2 and PDV rows still date from 2026-09-01 and were not re-checked.
 
 | | |
 |---|---|
 | Branch | `feature/33-pdv-terminal-login`, **not pushed** (no upstream). **294 commits ahead of `origin/main`** |
 | Head | `05b8d62` — an abono no bill could pay is refused at the source. FrontV2 `57fd4e6`, PDV `046e573`; working tree clean in all three. **Another session was committing to this branch in parallel on 2026-08-31** (the PIX commits `b2354a9`…`0415e4e`); re-read the log before trusting any head recorded here |
-| Build | **0 errors, and 31 warnings down to 7 as of 2026-09-01** (`8629970`, `35ec606`). Most of the 31 were NU1510: five packages the framework already provides were referenced by hand in up to 32 projects each — `Microsoft.AspNetCore.SignalR` among them, pinned at **1.2.11**, a 2019 package, in 32 projects of which only `Shared`, `Order.Application` and `Web` use SignalR at all. `Shared` already carries `<FrameworkReference Include="Microsoft.AspNetCore.App" />` and that flows to everything referencing it, so all of them came out with 0 errors. Behind them sat 20 more: `EF1002` on two raw-SQL sites that are safe and now say so (`RepositoryBase.LockForUpdateAsync` interpolates only the table name EF's own metadata just returned, and the id is a parameter; `PdvTestContext` builds DDL from the same metadata), a real `CS8604` in `OrderRepository.Update/Delete` where `entity?.Id` guarded the cache but then handed the same possibly-null entity to a non-nullable parameter (now `ArgumentNullException.ThrowIfNull`, which names the caller bug instead of surfacing it as an NRE inside EF), and the rest test-only nullability and xUnit analyzer nits. **The remaining 7 are all `CS0618`** — `Unimake.DFe` deprecating `NFe.InfNFe` in favour of `InfNFeField` — and are **deliberately left**: that is the signed fiscal XML, it has never been validated against a real autorizador (A1, §A1), and a warning sweep is the wrong moment to change how a document SEFAZ will check is built. **Measure with `--no-incremental`**: an incremental build replays no warnings and reports 0. *Earlier:* 0 errors as of 2026-08-28 — it was 1 until then. `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped |
-| Tests | **1661 passing / 0 failing** across 15 assemblies, measured 2026-09-01 (1592 on 2026-08-31). `Web` 611, `NFeModule` 377, `PdvModule` 85, `BillsModule` 278, `OrderModule` 78, `EmployeeModule` 86. A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
+| Build | **0 errors and 0 warnings as of 2026-09-07** (31 → 7 on 2026-09-01 via `8629970`, `35ec606`; the last 7 cleared 2026-09-07). Most of the 31 were NU1510: five packages the framework already provides were referenced by hand in up to 32 projects each — `Microsoft.AspNetCore.SignalR` among them, pinned at **1.2.11**, a 2019 package, in 32 projects of which only `Shared`, `Order.Application` and `Web` use SignalR at all. `Shared` already carries `<FrameworkReference Include="Microsoft.AspNetCore.App" />` and that flows to everything referencing it, so all of them came out with 0 errors. Behind them sat 20 more: `EF1002` on two raw-SQL sites that are safe and now say so (`RepositoryBase.LockForUpdateAsync` interpolates only the table name EF's own metadata just returned, and the id is a parameter; `PdvTestContext` builds DDL from the same metadata), a real `CS8604` in `OrderRepository.Update/Delete` where `entity?.Id` guarded the cache but then handed the same possibly-null entity to a non-nullable parameter (now `ArgumentNullException.ThrowIfNull`, which names the caller bug instead of surfacing it as an NRE inside EF), and the rest test-only nullability and xUnit analyzer nits. **The last 7 were `CS0618`** — `Unimake.DFe` deprecating `NFe.InfNFe` in favour of `InfNFeField` — and are **now fixed too: 0 warnings as of 2026-09-07**. The earlier sweep left them because they sit in the signed fiscal XML, but decompiling `Unimake.Business.DFe.Xml.NFe.NFe` settles it: `InfNFe` is `[XmlIgnore]` and never serialized, while `InfNFeField` is `[XmlElement("infNFe")]` and a pure pass-through (`get => InfNFe[0]`, `set => InfNFe = new List<InfNFe>{ value }`). The builder already serialized through that getter, so writing the field instead of the list is byte-identical XML, not a fiscal change. One production site (`NFeXmlBuilder.cs:121`) and six test reads; `Build_MatchesTheGoldenInfNFe` serializes via `GerarXML().OuterXml` and stayed green. **Measure with `--no-incremental`**: an incremental build replays no warnings and reports 0. *Earlier:* 0 errors as of 2026-08-28 — it was 1 until then. `2f8064c` added a required `PasswordLoginService` parameter to `UserController` and updated every call site but one, so `EvangelionERPV2.UserModule.Test` had not compiled since. `dotnet test` on the solution *reports success anyway*: it runs the 13 assemblies that did build and never mentions the one it skipped |
+| Tests | **1695 passing / 0 failing** across 15 assemblies, measured 2026-09-09 (1661 on 2026-09-01, 1592 on 2026-08-31). `Web` 614, `NFeModule` 377, `PdvModule` 93, `BillsModule` 278, `EmployeeModule` 86, `OrderModule` 83, `ProductModule` 33, `UserModule` 32, `CustomerModule` 28, `AuditModule` 17, `ReportsModule` 17, `EnterpriseModule` 11, `EmailModule` 11, `OpportunityRadarModule` 9, `SupplierModule` 6. The +34 since 2026-09-01 is other sessions' work plus the six added on 2026-09-09 for the stock ledger (§"Only the till may sell what is not there"). A whole-solution run *while another session was rebuilding* once reported a spurious `Web` failure that did not reproduce — re-run before believing a lone failure |
 | FrontV2 | `npx tsc --noEmit` clean and `npx jest` **107 passing, re-run 2026-08-31**. Cypress **re-run 2026-09-01**: 30 tests, 26 passing, 0 failing, 4 pending, against an API image rebuilt from today's commits. The M24–M29f screens remain unexercised because no spec covers them (see B7) |
 | PDV till | separate repo `~/CodeProjects/EvangelionERPV2.PDV`, branch `feature/33-pdv-login-and-sync` at `046e573` (58 commits). `dotnet test EvangelionERPV2.PDV.slnx` **385 passing / 0 failing** (379 unit + 6 integration), build 0 warnings, measured 2026-09-01. **That repo has no git remote at all** — it exists on this machine only. Its `.claude/` is now gitignored — two agent worktrees were nearly committed as embedded repositories |
 | Migrations | chain ends `20260901192637_AddIcmsReductionAndSimplesCredit` (after `…133552_AddPayrollDetailEnterprise` and `…132721_AddAbonoDaysSettled`); both applied and verified in `sys.columns` 2026-09-01, and the whole chain replays clean onto an empty database since the `EXEC` fix in the traps list. **All applied to the local container**, verified against `__EFMigrationsHistory` and `sys.default_constraints`: `NFeDocument.TipoEmissao` defaults to `1`, `NFCeContingencySeries` to `N'9'` and `EnterpriseFiscalSettings.DefaultNatOp` to `N'VENDA DE MERCADORIA'` — **all three hand-corrected**, because EF generated `0`, `""` and `""`. Every one of those tables is **empty locally**, so each backfill is verified as a constraint and not observed on a row. Production is still untouched |
@@ -196,6 +197,7 @@ behind it is still the one path `M-B8` shadows in production.
 | B3 | **Confirm Chromium in the *production* image** (`M-B8`). Partly answered 2026-08-24: in the **local** container `/Bills/Pdf` returns 200 with a real PDF, so PuppeteerSharp works there. Production is a different image and a different network, and `BuildBillAttachmentsAsync` still swallows a renderer failure and mails the bill with no PDF |
 | B4 | ~~Run Cypress once.~~ **Done 2026-08-24 — and it earned its keep.** 16/30 on the first run, **27/30** now. It found four app bugs (see below). One test remains flaky: the two Products specs share a single seeded product, so whichever runs second finds it already deactivated and `GetProductsByFilter` answers 204. A fixture problem in the spec, not the app. **Run `./scripts/e2e-cleanup.sh --apply` after a session** — the suite can only soft-delete through the API, so every run leaves its seeds in the tables (204 rows after four runs, cleared 2026-08-24) |
 | B5 | **Decide on FrontV2 `abb1b46`** — it carries a `Co-Authored-By` trailer and is already pushed to `origin/master`. Removing it means force-pushing a shared branch |
+| B12 | **reCAPTCHA is off in Development as of 2026-09-07** (`appsettings.Development.json`, `RecaptchaSettings.Enabled: false`; Production still `true` with its `AllowedHostnames`). It was `true` with an **empty** `AllowedHostnames`, which meant `User/LogInto` answered `400 RECAPTCHA_MISSING` to any API client — no token an HTTP client can produce would pass, and the only exemption is the `SelfAPIAuth` machine login. That is what kept the recaptcha-gated Cypress credential specs pending in B7; they are now runnable, and so is a REST client against a local API. **Re-run Cypress to see whether those specs pass rather than assuming they do** |
 
 ### C. Known debt — none of it silent, none of it urgent
 
@@ -249,6 +251,227 @@ Each is recorded with its reasoning in *Open follow-ons* below. The ones most li
   products. The till's client times out at 20s, so a new terminal's first image pull can fail. It
   degrades safely — pictures are never required to sell and the next cycle asks again — but it is
   worth a look before a shop with a real catalog meets it.
+
+## What the payment-method review found
+
+The change itself is `8837491` — `Order.PaymentMethod`, PDV orders created `Finished`, refund
+exempted from the `Finished` gate, "Venda PDV" for a walk-in. Reviewed and corrected 2026-09-03.
+
+- **The migration had never been run.** `AddOrderPaymentMethod` put its backfill `UPDATE` in the
+  same batch as the `AddColumn` — exactly the trap this document already warns about two sections
+  down, and which `AddPayrollDetailEnterprise` carries the fix for in a comment. `local-db-update.sh`
+  died at `Invalid column name 'PaymentMethod'`; nothing had reached the database, so the column was
+  not half-created. Fixed with `EXEC(N'...')` like its three predecessors, and the re-run backfilled
+  **53 orders** — 25 cash, 13 credit, 15 PIX — leaving the one backoffice `Paid` order and the ten
+  already-`Finished` ones alone, which is what the scoping through `PdvSale` was for. **The lesson is
+  not about SQL**: the trap was written down and the gate that catches it is in this file, and the
+  change shipped without either being run.
+
+- **"Venda PDV" was keyed on the wrong thing.** The mapper answered it whenever `Order.Customer` was
+  null, but a null *navigation* is not a null *customer*: `RepositoryBase.GetById` does not `Include`
+  it, and that is what the delete and update responses map, so every backoffice order deleted or
+  updated would have come back labelled a till walk-in. Now keyed on `CustomerId` — the field the
+  argument actually rests on, since `CreateOrderRequestValidator` requires it — and a customer that
+  was simply not loaded goes back to answering null. `OrderRepository` overrides `GetByIdAsync` and
+  every list query with an `Include(o => o.Customer)`, so the read paths were never affected.
+
+- **The status audit table holds.** Re-checked against the code, not the spec: `GetOpenExposureAsync`,
+  `ReceivablesReportService` and `DunningService` all exclude `Finished` alongside `Paid`;
+  `IsPaydayStatus` and `EnterpriseBalanceContributionHelper` both count it. Nothing about revenue,
+  receivables or credit exposure moved, which was the claim.
+
+- **Nothing consumed the new column.** The point of the column was that an order says how it was
+  settled, and FrontV2 did not read it. `paymentMethod` now comes through `erpService` as a label
+  (`Mixed` included) and the order details modal shows a row for it — absent, not empty, on a
+  backoffice order, because those genuinely have no tender.
+
+Verified: `dotnet build`, `dotnet test` (1671 tests), `npx tsc --noEmit && npx jest` (107),
+`./scripts/local-db-update.sh`, and the stack rebuilt and answering `/health`.
+
+## What the customer-map review found
+
+Three separate reasons the map showed nobody, only one of which was about the map.
+
+- **The pins were pointed at an HTML document.** Leaflet's default marker is a PNG whose path it
+  discovers by reading the image URL back out of its own stylesheet. Metro injects that stylesheet
+  at the page root, so the path resolves to `/images/marker-icon.png` — and the Expo dev server
+  answers that with `index.html` (`Content-Type: text/html`, verified with curl). Every marker was
+  an `<img>` loading a web page, which renders as nothing. Replaced with a `divIcon` carrying an
+  inline SVG in the theme's purple: no file to miss, no bundler asset plumbing, and it matches the
+  `map-pin` the list already draws.
+
+- **Nothing in the local database could ever be plotted.** All 18 customers, and **zero** of them
+  have a `Cep` or coordinates. `GeocodePendingAsync` only looks at customers that already have a
+  CEP, so "Locate customers" is a no-op here and always will be. The screen said "No customers
+  within this radius", which blames the radius; it now says a customer appears once it has a CEP and
+  has been located. **This is a data state, not a bug** — but it is indistinguishable from one from
+  the outside, which is the actual complaint.
+
+- **A customer with an address but no coordinates was invisible everywhere on the screen.** The
+  radius query filters on `Latitude != null`, so the one customer you would go looking for — the one
+  that never got geocoded — was the one the map could not mention. A place search now returns them,
+  sorted last, with a null `DistanceKm` and a muted icon reading "Sem localização". `NearbyCustomerDTO`
+  gained nullable coordinates and a `Bairro` to make that sayable.
+
+**Search by município, UF or bairro** (`GetNearbyCustomers?place=`). It *replaces* the radius rather
+than narrowing it: the map opens on São Paulo, and "Campinas" inside a 50 km circle drawn there is
+nothing at all. The point still orders the answer, so the list stays nearest-first from wherever the
+user is standing. Blank and whitespace are treated as no place at all — a `LIKE '%%'` would quietly
+return the whole tenant and ignore the radius that *was* set. The filter is one expression in the
+SQL predicate, so the module's tests now compile and run that predicate instead of mocking past it.
+
+Verified against the running stack, not only in tests: two probe customers seeded in Campinas — one
+located, one not — and `place=campinas`, `place=CAMBUI` and `place=sp` each returned what they
+should through nginx with a real token, at a 5 km radius that would have excluded all of them.
+`place=curitiba` and the plain radius search returned nothing. Both probes were deleted afterwards;
+the table is back to its 18 rows.
+
+## The customer map, second pass
+
+The first pass fixed everything except the two things that actually kept a customer off the map.
+
+- **Nothing ever sent the address columns.** FrontV2's customer form collects street, number,
+  bairro, city, UF and CEP, then flattened all six into the single free-text `adress` blob and
+  posted only that. `erpService` already forwarded `cep`/`municipio`/`uf`/`bairro`, and
+  `CustomerController` already stored them — the one hop between the form and the service filled in
+  none of it. So every customer landed with `Cep = NULL`, which meant: the radius search filtered
+  them out (`Latitude != null`), the place search matched nothing (`Municipio` was null), and
+  "Locate customers" examined zero rows (`Cep != null`). Three symptoms, one missing spread.
+  `toCustomerFormValues` now reads the stored columns and keeps the comma-parse of `adress` only as
+  the fallback — without that, editing a customer writes the guess back over a real CEP.
+
+- **BrasilAPI does not know where a CEP is.** With the columns finally populated, the backfill ran
+  and pinned a customer in Menino Deus onto Centro Histórico, three kilometres off. The cause is not
+  a rounding error: BrasilAPI's `open-cep` service answers **every CEP in Porto Alegre with the same
+  pair**, `-30.03283,-51.23019`, the city centroid. Checked 90160-150 (Menino Deus), 90020-000
+  (Centro Histórico), 90110-270 (Menino Deus), 90050-100 (Cidade Baixa) and 91910-000 (Tristeza) —
+  identical to five decimal places. A CEP-level geocoder that returns city centroids is not a
+  geocoder, and it is worse than nothing here: a wrong pin inside a 50 km radius is confidently
+  wrong, where a missing one at least reads as missing.
+
+  Replaced with **Nominatim**, OpenStreetMap's own geocoder — the same OSM the map already draws its
+  tiles from, so no new dependency in any sense that matters, and no key or account. It is asked for
+  the whole structured address rather than the CEP, which is the part that separates one street from
+  another: `street=273 Rua Barão de Teffe&city=Porto Alegre&state=RS&country=Brazil` returns
+  `-30.0577754,-51.2194850`, on Rua Barão de Teffé in Menino Deus. `ICepGeocoder` became
+  `IAddressGeocoder` and takes an `AddressToLocate`; the pending filter is now `Municipio != null`
+  rather than `Cep != null`, since a município is the least that places anybody and a CEP without
+  one could only ever have resolved to the centroid this removed.
+
+  The CEP is deliberately **not** passed to Nominatim. It treats `postalcode` as a filter rather
+  than a hint, and OSM's Brazilian postcode coverage is thin enough that a correct street plus an
+  unmapped postcode returns nothing at all — the field most often right would be the one throwing
+  the answer away. Verified: with the postcode, no match; without it, the right street.
+
+  Their usage policy wants an identifying User-Agent and at most one request a second, so the client
+  sets the agent and the geocoder serialises through a process-wide one-second gate. A 50-customer
+  backfill is therefore about a minute of wall clock. It is a rare batch, the answers are cached for
+  30 days, and it is marked `ponytail:` at the call site.
+
+- **A street is not one line, and OSM has no house numbers here.** With Nominatim in place the pin
+  landed on the right street and the wrong end of it. Two reasons, both in the data. Overpass says
+  Rua Barão de Teffé has **zero** elements carrying `addr:housenumber`, so number 273 cannot resolve
+  and Nominatim falls back to the road — and that road is **four separate OSM ways** spread over
+  350 m, every one with importance `0.0534`. "The first result" was therefore whichever way the tie
+  broke towards, which is how 273 ended up at the northern end.
+
+  The geocoder now asks for five results and takes the mean of the segments that share the matched
+  street's name, so an unnumbered street resolves to its middle rather than to a random end of it.
+  A surveyed building still wins outright when one comes back, and two different roads are never
+  averaged into a point on neither. The cache key carries a version now: a stored point is the
+  output of whatever the parser did at the time, so changing how a result is picked has to leave
+  the old points behind.
+
+  **The ceiling is the data, and it is a couple of hundred metres.** No OSM-based geocoder will do
+  door-level accuracy on a Brazilian street nobody has surveyed, and every free CEP service resolves
+  through that same dataset.
+
+- **So the last few metres are placed by hand.** Pins on the map are draggable, and dropping one
+  calls `Customer/SetCustomerLocation`. That was the free half of the choice — the other was a keyed
+  commercial geocoder with surveyed Brazilian house numbers, which costs an account, a key in
+  Secrets Manager and per-request billing to buy back a distance a person can correct in one drag.
+
+  A hand-placed pin is never overwritten: `GeocodePendingAsync` only looks at customers with no
+  coordinates at all, which is asserted by a test rather than left to the reader. The endpoint reads
+  the customer through the tenant filter rather than by id — this one writes, and a customer id is
+  guessable — and answers `204` whether it moved somebody or found nobody, so it cannot be used to
+  enumerate another tenant's customers. The range rule exists twice on purpose, in the validator and
+  in the service; the comment on each says why.
+
+  `dragend`, not `drag`: one save when the pin is let go, not one per pixel. The list is patched in
+  place instead of re-searched, because a refetch would re-centre the map out from under the pin
+  that was just dropped.
+
+Existing rows carrying a stale point will not re-geocode on their own — the backfill only looks at
+customers with no coordinates at all. The one in this database was cleared by hand each time so the
+next pass re-locates it.
+
+## Service accounts are not sellers
+
+Desempenho de vendas listed the order worker's login next to the people who sold something. The rows
+are orders grouped by `Order.UserId` and nothing else, so any account that ever created an order
+appeared — and `AccessLevel` cannot separate them, because the worker's login is `Admin` exactly like
+a director's is.
+
+`User.IsServiceAccount`, defaulting false. Nothing else in the table said which logins belong to a
+process rather than to a person, and the alternatives were worse: a naming convention breaks on the
+first rename, and an email-pattern check silently hides a real seller in whichever tenant happens to
+match it. The migration adds the column and backfills **nothing** for that reason — which accounts
+are robots is not recoverable from the rows, and the default fails in the safe direction. Mark them
+where you know them; the local database has two, `worker.order@local.evangelion` and
+`admin@local.worker`, set by hand.
+
+Flagged accounts drop out of the seller rows, out of the metas list (including a target set before
+the flag existed), and out of what `UpsertGoalAsync` will accept a target for. Their orders still
+count in the **company's** row: that row is built from every order rather than from the sum of the
+seller rows, and the money was real even though the seller was not a person. The filter is dropped on
+the *user*, not on the order — an order whose `UserId` resolves to nobody is a different problem, a
+deleted user, and still earns a row through the id fallback in `ResolveSellerName`.
+
+`UpdateUserRequestDTO.IsServiceAccount` is nullable and null keeps what is stored, unlike
+`CommissionRate` where null is itself a setting. A client that predates the field sends nothing, and
+nothing must not quietly un-flag the order worker. There is a switch for it on the users screen, so
+a deployment can mark its own accounts without a DBA.
+
+## Only the till may sell what is not there
+
+Negative stock was reachable and nobody had written down whether that was a bug. It is not: exactly
+one caller may drive `Product.StorageQuantity` below zero, and that is the PDV offline sync.
+`PdvService.SyncSale` passes `allowNegativeStock: true` through `OrderService.CreateAsync`, which
+drops the `StorageQuantity + @delta >= 0` clause from the compare-and-swap in
+`ProductService.ApplyStockMovementCoreAsync`. The sale already happened while the till was offline
+and the customer already left with the goods, so refusing the movement loses the revenue without
+restoring the stock. The negative that results is the honest record of a count discrepancy — the
+books were already wrong before the sale, and clamping to zero would erase the evidence rather than
+fix it. Consumers that must not be poisoned by it clamp at the point of use (`PayableBillService`,
+`OpportunityRadarService`, all `Math.Max(0, …)`).
+
+Every other path refuses to oversell, and on 2026-09-09 that became true of the last one that did
+not. `ProductController.UpdateProduct` assigned `existentProduct.StorageQuantity = request.StorageQuantity`
+straight onto the entity, which moved stock without writing the `StockMovement` that
+explains it — flatly contradicting `ProductService`'s own claim to be "the only place
+StorageQuantity is allowed to move". The scalar and the ledger drifted apart silently, and
+`EnumStockMovementType.Adjustment` — documented as *"a human corrected the count"* — was only ever
+written by `PayableBillService` reversing a receipt, never by the path it was named for. Worst case
+was an admin seeing a negative left by the till, typing a number over it, and writing off units with
+no record of who did it.
+
+It now sends the **delta** (`request.StorageQuantity − stored`) through `ApplyStockMovementAsync` as
+an `Adjustment`, with `allowNegative` false: the validator already caps the target at zero or
+greater, so the guard can only fire on a concurrent sale, which is exactly when it should. Two
+consequences worth knowing. Changing a count inside a closed period now answers **409**, because a
+movement asserts the period lock — name- and price-only edits do not touch stock and are unaffected.
+And the value written back is the ledger's `BalanceAfter`, not the number the form sent, because the
+correction is applied relative to what is actually stored.
+
+Two things deliberately left. `ProductService.UpdateAsync` marks the whole entity `Modified`, so a
+sale landing between the adjustment and the save can still be clobbered by the entity write — a
+pre-existing hazard on every field of that endpoint, and closing it properly wants a `rowversion`.
+And `AddProduct` still writes the opening `StorageQuantity` directly, so a product created with
+stock has no opening-balance movement and its `BalanceAfter` chain does not start at zero.
+
+Pinned by `StockLedgerTests` (which had **no** `allowNegative` coverage at all before this) and the
+new `EvangelionERPV2.Test/Security/ProductControllerStockLedgerTests.cs`.
 
 ## Needs a human, not code
 

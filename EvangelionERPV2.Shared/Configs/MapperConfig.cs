@@ -23,12 +23,20 @@ namespace EvangelionERPV2.Shared.Configs
                 config.CreateMap<EnterprisePayrollSettings, EnterprisePayrollSettingsDTO>().ReverseMap();
                 config.CreateMap<EnterpriseFiscalSettings, EnterpriseFiscalSettingsDTO>().ReverseMap();
                 config.CreateMap<Order, OrderDTO>()
-                    // "Venda PDV" rather than nothing, because a null customer here is not missing
-                    // data — it is a walk-in at the till. CreateOrderRequestValidator requires a
-                    // CustomerId on every backoffice order, so an order with none can only have
-                    // come from PdvService.BuildOrder. A till sale that did identify its customer
-                    // passes the id through and keeps the real name.
-                    .ForMember(dest => dest.CustomerName, opt => opt.MapFrom(src => src.Customer != null ? src.Customer.Name : "Venda PDV"))
+                    // "Venda PDV" rather than nothing, because an order with no CustomerId is not
+                    // missing data — it is a walk-in at the till. CreateOrderRequestValidator
+                    // requires a CustomerId on every backoffice order, so an order with none can
+                    // only have come from PdvService.BuildOrder. A till sale that did identify its
+                    // customer passes the id through and keeps the real name.
+                    //
+                    // Keyed on CustomerId, not on the navigation: reads that do not Include the
+                    // customer (RepositoryBase.GetById, behind the delete and update responses)
+                    // leave Customer null on an order that has one, and those must still answer
+                    // null — "not loaded on this read" is not a walk-in.
+                    .ForMember(dest => dest.CustomerName, opt => opt.MapFrom(src =>
+                        src.Customer != null ? src.Customer.Name
+                        : src.CustomerId == null ? "Venda PDV"
+                        : null))
                     // Margin is derived from the line cost snapshots, never stored. Mapped here so
                     // every read surface agrees, the same reason Bill.Status is derived here.
                     // Answers null when the lines were not loaded, which is honest: "not known on
