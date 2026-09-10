@@ -11,6 +11,17 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 {
     public class BuscarClientesToolTests
     {
+        private static readonly Guid Tenant = Guid.NewGuid();
+
+        private static Customer Row(string name, string? document = null, bool active = true) => new()
+        {
+            Id = Guid.NewGuid(),
+            EnterpriseId = Tenant,
+            IsActive = active,
+            Name = name,
+            Document = document,
+        };
+
         [Fact]
         public void Tool_DeclaresItsNameAndPermission()
         {
@@ -24,20 +35,13 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Invoking_DoesNotReturnTheCustomersDocument()
         {
-            var repository = new Mock<IRepository<Customer>>();
-            repository
-                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Customer, bool>>>()))
-                .ReturnsAsync(new[]
-                {
-                    new Customer { Id = Guid.NewGuid(), Name = "Padaria do Zé", Document = "12345678900" },
-                });
+            var repository = PagedRepository(new[]
+            {
+                Row("Padaria do Zé", "12345678900"),
+            });
 
-            var tool = new BuscarClientesTool(repository.Object);
-            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+            var json = await Invoke(repository, new AIFunctionArguments { ["termo"] = "Zé" });
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "zé" });
-
-            var json = result?.ToString() ?? string.Empty;
             Assert.Contains("Padaria do Zé", json);
             Assert.DoesNotContain("12345678900", json);
         }
@@ -47,74 +51,98 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         {
             var repository = new Mock<IRepository<Customer>>();
             repository
-                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Customer, bool>>>()))
+                .Setup(x => x.GetPagedAsync(
+                    It.IsAny<Expression<Func<Customer, bool>>>(),
+                    It.IsAny<Func<IQueryable<Customer>, IOrderedQueryable<Customer>>>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
                 .ThrowsAsync(new NotFoundDatabaseException());
 
-            var tool = new BuscarClientesTool(repository.Object);
-            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+            var json = await Invoke(repository, new AIFunctionArguments { ["termo"] = "nao existe" });
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "nao existe" });
-
-            Assert.Contains("\"total\":0", result?.ToString() ?? string.Empty);
+            Assert.Contains("\"total\":0", json);
         }
 
         [Fact]
-        public async Task Invoking_WithEmptyTerm_ReturnsErrorRatherThanEverything()
+        public async Task Invoking_WithNoTerm_ListsTheCustomersInsteadOfRefusing()
         {
-            var repository = new Mock<IRepository<Customer>>();
+            var repository = PagedRepository(new[]
+            {
+                Row("Padaria do Zé"),
+                Row("Mercado Central"),
+            });
 
-            var tool = new BuscarClientesTool(repository.Object);
-            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+            var json = await Invoke(repository, new AIFunctionArguments());
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "" });
-
-            Assert.Contains("\"erro\"", result?.ToString() ?? string.Empty);
-            repository.Verify(
-                x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Customer, bool>>>()),
-                Times.Never);
+            Assert.Contains("Padaria do Zé", json);
+            Assert.Contains("Mercado Central", json);
+            Assert.DoesNotContain("\"erro\"", json);
         }
 
         [Fact]
         public async Task Invoking_DoesNotReturnSoftDeletedCustomers()
         {
-            var tenant = Guid.NewGuid();
-            var rows = new[]
+            var repository = PagedRepository(new[]
             {
-                new Customer { Id = Guid.NewGuid(), EnterpriseId = tenant, Name = "Padaria do Zé", IsActive = true },
-                new Customer { Id = Guid.NewGuid(), EnterpriseId = tenant, Name = "Padaria Encerrada", IsActive = false },
-            };
-            var repository = new Mock<IRepository<Customer>>();
-            repository
-                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Customer, bool>>>()))
-                .ReturnsAsync((int? _, int? _, Expression<Func<Customer, bool>> predicate) =>
-                    rows.Where(predicate.Compile()));
+                Row("Padaria do Zé"),
+                Row("Padaria Velha", active: false),
+            });
 
-            var tool = new BuscarClientesTool(repository.Object);
-            var function = tool.Create(new AiToolContext(tenant, Guid.NewGuid()));
+            var json = await Invoke(repository, new AIFunctionArguments { ["termo"] = "Padaria" });
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "Padaria" });
-
-            var json = result?.ToString() ?? string.Empty;
             Assert.Contains("Padaria do Zé", json);
-            Assert.DoesNotContain("Padaria Encerrada", json);
+            Assert.DoesNotContain("Padaria Velha", json);
         }
 
         [Fact]
-        public async Task Invoking_WithMoreThanTheDisplayCap_ReportsTruncated()
+        public async Task Invoking_WithMoreThanOnePage_SaysWhichPageToAskForNext()
+        {
+            var repository = PagedRepository(
+                Enumerable.Range(1, 21).Select(i => Row($"Cliente {i:00}")).ToList());
+
+            var json = await Invoke(repository, new AIFunctionArguments());
+
+            Assert.Contains("\"total\":21", json);
+            Assert.Contains("\"truncado\":true", json);
+            Assert.Contains("\"proximaPagina\":2", json);
+        }
+
+        private static async Task<string> Invoke(
+            Mock<IRepository<Customer>> repository, AIFunctionArguments arguments)
+        {
+            var tool = new BuscarClientesTool(repository.Object);
+            var function = tool.Create(new AiToolContext(Tenant, Guid.NewGuid()));
+            var result = await function.InvokeAsync(arguments);
+
+            return result?.ToString() ?? string.Empty;
+        }
+
+        private static Mock<IRepository<Customer>> PagedRepository(IReadOnlyList<Customer> rows)
         {
             var repository = new Mock<IRepository<Customer>>();
             repository
-                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Customer, bool>>>()))
-                .ReturnsAsync(Enumerable.Range(1, 21).Select(i => new Customer { Id = Guid.NewGuid(), Name = $"Cliente {i}" }));
+                .Setup(x => x.GetPagedAsync(
+                    It.IsAny<Expression<Func<Customer, bool>>>(),
+                    It.IsAny<Func<IQueryable<Customer>, IOrderedQueryable<Customer>>>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
+                .ReturnsAsync((
+                    Expression<Func<Customer, bool>>? predicate,
+                    Func<IQueryable<Customer>, IOrderedQueryable<Customer>>? orderBy,
+                    int? page,
+                    int? size) =>
+                {
+                    var matched = predicate is null ? rows : rows.Where(predicate.Compile()).ToList();
+                    var ordered = orderBy is null ? matched.AsQueryable() : orderBy(matched.AsQueryable());
+                    var items = ordered
+                        .Skip(((page ?? 1) - 1) * (size ?? matched.Count))
+                        .Take(size ?? matched.Count)
+                        .ToList();
 
-            var tool = new BuscarClientesTool(repository.Object);
-            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+                    return ((IReadOnlyList<Customer>)items, matched.Count);
+                });
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "cliente" });
-
-            var json = result?.ToString() ?? string.Empty;
-            Assert.Contains("\"mostrando\":20", json);
-            Assert.Contains("\"truncado\":true", json);
+            return repository;
         }
     }
 }

@@ -11,6 +11,19 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 {
     public class BuscarProdutosToolTests
     {
+        private static readonly Guid Tenant = Guid.NewGuid();
+
+        /// <summary>A row the tool's tenant predicate will actually match.</summary>
+        private static Product Row(string name, decimal price = 0, decimal stock = 0, bool active = true) => new()
+        {
+            Id = Guid.NewGuid(),
+            EnterpriseId = Tenant,
+            IsActive = active,
+            Name = name,
+            DefaultValue = price,
+            StorageQuantity = stock,
+        };
+
         [Fact]
         public void Tool_DeclaresItsNameAndPermission()
         {
@@ -24,20 +37,13 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Invoking_ReturnsTheMatchingProductsAsJson()
         {
-            var repository = new Mock<IRepository<Product>>();
-            repository
-                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
-                .ReturnsAsync(new[]
-                {
-                    new Product { Id = Guid.NewGuid(), Name = "Coca-Cola 2L", DefaultValue = 9.5m, StorageQuantity = 12 },
-                });
+            var repository = PagedRepository(new[]
+            {
+                Row("Coca-Cola 2L", 9.5m, 12),
+            });
 
-            var tool = new BuscarProdutosTool(repository.Object);
-            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+            var json = await Invoke(repository, new AIFunctionArguments { ["termo"] = "Coca" });
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "coca" });
-
-            var json = result?.ToString() ?? string.Empty;
             Assert.Contains("Coca-Cola 2L", json);
             Assert.Contains("\"total\":1", json);
         }
@@ -45,17 +51,9 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Invoking_WithNoMatches_SaysZeroRatherThanFailing()
         {
-            var repository = new Mock<IRepository<Product>>();
-            repository
-                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
-                .ReturnsAsync(Array.Empty<Product>());
+            var json = await Invoke(PagedRepository(Array.Empty<Product>()), new AIFunctionArguments { ["termo"] = "nao existe" });
 
-            var tool = new BuscarProdutosTool(repository.Object);
-            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
-
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "nao existe" });
-
-            Assert.Contains("\"total\":0", result?.ToString() ?? string.Empty);
+            Assert.Contains("\"total\":0", json);
         }
 
         [Fact]
@@ -63,74 +61,122 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         {
             var repository = new Mock<IRepository<Product>>();
             repository
-                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .Setup(x => x.GetPagedAsync(
+                    It.IsAny<Expression<Func<Product, bool>>>(),
+                    It.IsAny<Func<IQueryable<Product>, IOrderedQueryable<Product>>>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
                 .ThrowsAsync(new NotFoundDatabaseException());
 
-            var tool = new BuscarProdutosTool(repository.Object);
-            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+            var json = await Invoke(repository, new AIFunctionArguments { ["termo"] = "nao existe" });
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "nao existe" });
-
-            Assert.Contains("\"total\":0", result?.ToString() ?? string.Empty);
+            Assert.Contains("\"total\":0", json);
         }
 
         [Fact]
-        public async Task Invoking_WithEmptyTerm_ReturnsErrorRatherThanEverything()
+        public async Task Invoking_WithNoTerm_ListsTheCatalogueInsteadOfRefusing()
         {
-            var repository = new Mock<IRepository<Product>>();
+            // "lista os produtos" is a real question. An earlier version answered it with an error
+            // because termo was required.
+            var repository = PagedRepository(new[]
+            {
+                Row("Coca-Cola 2L"),
+                Row("Monster Rosa"),
+            });
 
-            var tool = new BuscarProdutosTool(repository.Object);
-            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+            var json = await Invoke(repository, new AIFunctionArguments());
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "  " });
-
-            Assert.Contains("\"erro\"", result?.ToString() ?? string.Empty);
-            repository.Verify(
-                x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()),
-                Times.Never);
+            Assert.Contains("Coca-Cola 2L", json);
+            Assert.Contains("Monster Rosa", json);
+            Assert.Contains("\"total\":2", json);
+            Assert.DoesNotContain("\"erro\"", json);
         }
 
         [Fact]
         public async Task Invoking_DoesNotReturnSoftDeletedProducts()
         {
-            var tenant = Guid.NewGuid();
-            var rows = new[]
+            var repository = PagedRepository(new[]
             {
-                new Product { Id = Guid.NewGuid(), EnterpriseId = tenant, Name = "Coca-Cola 2L", IsActive = true },
-                new Product { Id = Guid.NewGuid(), EnterpriseId = tenant, Name = "Coca-Cola 600ml", IsActive = false },
-            };
-            var repository = new Mock<IRepository<Product>>();
-            repository
-                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
-                .ReturnsAsync((int? _, int? _, Expression<Func<Product, bool>> predicate) =>
-                    rows.Where(predicate.Compile()));
+                Row("Coca-Cola 2L"),
+                Row("Coca-Cola 600ml", active: false),
+            });
 
-            var tool = new BuscarProdutosTool(repository.Object);
-            var function = tool.Create(new AiToolContext(tenant, Guid.NewGuid()));
+            var json = await Invoke(repository, new AIFunctionArguments { ["termo"] = "Coca" });
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "Coca" });
-
-            var json = result?.ToString() ?? string.Empty;
             Assert.Contains("Coca-Cola 2L", json);
             Assert.DoesNotContain("Coca-Cola 600ml", json);
         }
 
         [Fact]
-        public async Task Invoking_WithMoreThanTheDisplayCap_ReportsTruncated()
+        public async Task Invoking_WithMoreThanOnePage_SaysWhichPageToAskForNext()
+        {
+            var repository = PagedRepository(
+                Enumerable.Range(1, 21).Select(i => Row($"Produto {i:00}")).ToList());
+
+            var json = await Invoke(repository, new AIFunctionArguments { ["termo"] = "Produto" });
+
+            Assert.Contains("\"total\":21", json);
+            Assert.Contains("\"mostrando\":20", json);
+            Assert.Contains("\"truncado\":true", json);
+            Assert.Contains("\"proximaPagina\":2", json);
+        }
+
+        [Fact]
+        public async Task Invoking_TheSecondPage_ReturnsTheRestAndStopsAskingForMore()
+        {
+            var repository = PagedRepository(
+                Enumerable.Range(1, 21).Select(i => Row($"Produto {i:00}")).ToList());
+
+            var json = await Invoke(repository, new AIFunctionArguments { ["pagina"] = 2 });
+
+            Assert.Contains("\"pagina\":2", json);
+            Assert.Contains("\"mostrando\":1", json);
+            Assert.Contains("\"truncado\":false", json);
+            Assert.Contains("\"proximaPagina\":null", json);
+        }
+
+        private static async Task<string> Invoke(
+            Mock<IRepository<Product>> repository, AIFunctionArguments arguments)
+        {
+            var tool = new BuscarProdutosTool(repository.Object);
+            var function = tool.Create(new AiToolContext(Tenant, Guid.NewGuid()));
+            var result = await function.InvokeAsync(arguments);
+
+            return result?.ToString() ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Applies the predicate and the paging the way the real repository does. One difference to
+        /// know about: <c>string.Contains</c> compiled in memory is case-sensitive, while the same
+        /// predicate on SQL Server matches under the database collation, which is not. Search terms
+        /// here therefore match the stored case; case-insensitivity is the database's to keep.
+        /// </summary>
+        private static Mock<IRepository<Product>> PagedRepository(IReadOnlyList<Product> rows)
         {
             var repository = new Mock<IRepository<Product>>();
             repository
-                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
-                .ReturnsAsync(Enumerable.Range(1, 21).Select(i => new Product { Id = Guid.NewGuid(), Name = $"Produto {i}" }));
+                .Setup(x => x.GetPagedAsync(
+                    It.IsAny<Expression<Func<Product, bool>>>(),
+                    It.IsAny<Func<IQueryable<Product>, IOrderedQueryable<Product>>>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
+                .ReturnsAsync((
+                    Expression<Func<Product, bool>>? predicate,
+                    Func<IQueryable<Product>, IOrderedQueryable<Product>>? orderBy,
+                    int? page,
+                    int? size) =>
+                {
+                    var matched = predicate is null ? rows : rows.Where(predicate.Compile()).ToList();
+                    var ordered = orderBy is null ? matched.AsQueryable() : orderBy(matched.AsQueryable());
+                    var items = ordered
+                        .Skip(((page ?? 1) - 1) * (size ?? matched.Count))
+                        .Take(size ?? matched.Count)
+                        .ToList();
 
-            var tool = new BuscarProdutosTool(repository.Object);
-            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+                    return ((IReadOnlyList<Product>)items, matched.Count);
+                });
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "produto" });
-
-            var json = result?.ToString() ?? string.Empty;
-            Assert.Contains("\"mostrando\":20", json);
-            Assert.Contains("\"truncado\":true", json);
+            return repository;
         }
     }
 }

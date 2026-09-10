@@ -167,6 +167,7 @@ namespace EvangelionERPV2.AiModule.Application.Services
             "contas_a_receber" => "Consultando o financeiro do cliente...",
             "previsao_de_caixa" => "Projetando o caixa...",
             "estoque_baixo" => "Verificando o estoque...",
+            "produtos_mais_vendidos" => "Rankeando os produtos...",
             "criar_cliente" => "Preparando o cadastro do cliente...",
             "atualizar_cliente" => "Preparando a alteração do cliente...",
             "atualizar_produto" => "Preparando a alteração do produto...",

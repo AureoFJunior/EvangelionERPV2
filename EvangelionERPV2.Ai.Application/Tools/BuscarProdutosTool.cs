@@ -10,8 +10,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
     {
         private const int PageSize = AiJson.DefaultCap;
 
-        private const int FetchSize = PageSize + 1;
-
         private readonly IRepository<Product> _repository;
 
         public BuscarProdutosTool(IRepository<Product> repository) => _repository = repository;
@@ -19,27 +17,31 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public string Name => "buscar_produtos";
 
         public string Description =>
-            "Busca produtos do catálogo pelo nome ou SKU. Use quando precisar do preço, do estoque " +
-            "ou do identificador de um produto. Parâmetro: termo (texto parcial do nome ou SKU).";
+            "Lista ou busca produtos do catálogo. Use para o preço, o estoque ou o identificador de " +
+            "um produto. Parâmetros: termo (parte do nome ou SKU — deixe vazio para listar tudo) e " +
+            "pagina (1 é a primeira; use a próxima quando a resposta vier truncada).";
 
         public string RequiredPermission => "products.read";
 
         public bool RequiresConfirmation => false;
 
         public AIFunction Create(AiToolContext context) =>
-            AIFunctionFactory.Create(async (string termo) =>
+            AIFunctionFactory.Create(async (string? termo = null, int? pagina = null) =>
             {
+                // No termo lists the catalogue instead of refusing: "lista os produtos" is a question
+                // people actually ask, and a search tool that demands a needle cannot answer it.
                 var needle = (termo ?? string.Empty).Trim();
+                var page = Math.Max(1, pagina ?? 1);
 
-                if (needle.Length == 0)
-                    return "{\"erro\":\"informe um termo de busca\"}";
-
-                var products = await AiQuery.OrEmptyAsync(() => _repository.GetAllAsync(
-                    1,
-                    FetchSize,
+                var (products, total) = await AiQuery.OrEmptyPageAsync(() => _repository.GetPagedAsync(
                     x => x.EnterpriseId == context.EnterpriseId
                          && x.IsActive == true
-                         && (x.Name.Contains(needle) || (x.Sku != null && x.Sku.Contains(needle)))));
+                         && (needle == string.Empty
+                             || x.Name.Contains(needle)
+                             || (x.Sku != null && x.Sku.Contains(needle))),
+                    query => query.OrderBy(x => x.Name),
+                    page,
+                    PageSize));
 
                 var rows = products.Select(x => new
                 {
@@ -51,7 +53,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                     unidade = x.UnitOfMeasure,
                 }).ToList();
 
-                return AiJson.ForModel(rows, rows.Count);
+                return AiJson.ForPage(rows, total, page, PageSize);
             }, Name, Description);
     }
 }

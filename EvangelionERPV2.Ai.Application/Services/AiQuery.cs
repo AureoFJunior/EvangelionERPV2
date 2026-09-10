@@ -15,5 +15,20 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 return Array.Empty<T>();
             }
         }
+
+        /// <summary>Same for a paged read: nothing found is an empty page, not an error.</summary>
+        public static async Task<(IReadOnlyList<T> Items, int Total)> OrEmptyPageAsync<T>(
+            Func<Task<(IReadOnlyList<T> Items, int TotalItems)>> query)
+        {
+            try
+            {
+                var page = await query();
+                return (page.Items, page.TotalItems);
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return (Array.Empty<T>(), 0);
+            }
+        }
     }
 }

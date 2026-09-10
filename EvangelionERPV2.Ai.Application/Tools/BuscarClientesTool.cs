@@ -10,8 +10,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
     {
         private const int PageSize = AiJson.DefaultCap;
 
-        private const int FetchSize = PageSize + 1;
-
         private readonly IRepository<Customer> _repository;
 
         public BuscarClientesTool(IRepository<Customer> repository) => _repository = repository;
@@ -19,39 +17,43 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public string Name => "buscar_clientes";
 
         public string Description =>
-            "Busca clientes pelo nome ou documento (CPF/CNPJ). Use para descobrir o identificador " +
-            "de um cliente antes de consultar pedidos ou contas a receber dele. " +
-            "Parâmetro: termo (texto parcial do nome ou documento).";
+            "Lista ou busca clientes. Use para descobrir o identificador de um cliente antes de " +
+            "consultar pedidos ou contas a receber dele. Parâmetros: termo (parte do nome ou do " +
+            "CPF/CNPJ — deixe vazio para listar todos) e pagina (1 é a primeira; use a próxima " +
+            "quando a resposta vier truncada).";
 
         public string RequiredPermission => "customers.read";
 
         public bool RequiresConfirmation => false;
 
         public AIFunction Create(AiToolContext context) =>
-            AIFunctionFactory.Create(async (string termo) =>
+            AIFunctionFactory.Create(async (string? termo = null, int? pagina = null) =>
             {
+                // Empty termo lists rather than refuses — see BuscarProdutosTool for the reasoning.
                 var needle = (termo ?? string.Empty).Trim();
+                var page = Math.Max(1, pagina ?? 1);
 
-                if (needle.Length == 0)
-                    return "{\"erro\":\"informe um termo de busca\"}";
-
-                var customers = await AiQuery.OrEmptyAsync(() => _repository.GetAllAsync(
-                    1,
-                    FetchSize,
+                var (customers, total) = await AiQuery.OrEmptyPageAsync(() => _repository.GetPagedAsync(
                     x => x.EnterpriseId == context.EnterpriseId
                          && x.IsActive == true
-                         && (x.Name.Contains(needle) || (x.Document != null && x.Document.Contains(needle)))));
+                         && (needle == string.Empty
+                             || x.Name.Contains(needle)
+                             || (x.Document != null && x.Document.Contains(needle))),
+                    query => query.OrderBy(x => x.Name),
+                    page,
+                    PageSize));
 
                 var rows = customers.Select(x => new
                 {
                     id = x.Id,
                     nome = x.Name,
+                    telefone = x.PhoneNumber,
                     cidade = x.Municipio,
                     uf = x.Uf,
                     limiteCredito = x.CreditLimit,
                 }).ToList();
 
-                return AiJson.ForModel(rows, rows.Count);
+                return AiJson.ForPage(rows, total, page, PageSize);
             }, Name, Description);
     }
 }
