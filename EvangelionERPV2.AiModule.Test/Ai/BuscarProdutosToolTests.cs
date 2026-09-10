@@ -95,6 +95,36 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         /// <summary>
+        /// This solution soft-deletes (ProductService sets IsActive = false) and has no global
+        /// query filter, so every read filters by hand or quotes a deleted product's price.
+        /// </summary>
+        [Fact]
+        public async Task Invoking_DoesNotReturnSoftDeletedProducts()
+        {
+            var tenant = Guid.NewGuid();
+            var rows = new[]
+            {
+                new Product { Id = Guid.NewGuid(), EnterpriseId = tenant, Name = "Coca-Cola 2L", IsActive = true },
+                new Product { Id = Guid.NewGuid(), EnterpriseId = tenant, Name = "Coca-Cola 600ml", IsActive = false },
+            };
+            var repository = new Mock<IRepository<Product>>();
+            repository
+                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .ReturnsAsync((int? _, int? _, Expression<Func<Product, bool>> predicate) =>
+                    rows.Where(predicate.Compile()));
+
+            var tool = new BuscarProdutosTool(repository.Object);
+            var function = tool.Create(new AiToolContext(tenant, Guid.NewGuid()));
+
+            // Compiled in memory, so Contains is ordinal here where SQL Server's collation is not.
+            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "Coca" });
+
+            var json = result?.ToString() ?? string.Empty;
+            Assert.Contains("Coca-Cola 2L", json);
+            Assert.DoesNotContain("Coca-Cola 600ml", json);
+        }
+
+        /// <summary>
         /// The repository is read one row past the display cap specifically so ForModel can tell
         /// "exactly 20 matched" from "more than 20 matched". Without that extra row, total and
         /// mostrando are always equal and truncado can never be true.

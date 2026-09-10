@@ -41,7 +41,10 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 // combined with a wide diasAtras would load more than it needs. Upgrade path is a
                 // date-ordered, paged repository read once that pattern exists on Order.
                 var orders = await AiQuery.OrEmptyAsync(() => _repository.GetAllAsync(
+                    // IsActive == true, not just IsActive: the column is bool? and there is no
+                    // global soft-delete filter, so a cancelled order is otherwise counted as real.
                     x => x.EnterpriseId == context.EnterpriseId
+                         && x.IsActive == true
                          && x.CreatedAt >= window
                          && (customerId == Guid.Empty || x.CustomerId == customerId)));
 

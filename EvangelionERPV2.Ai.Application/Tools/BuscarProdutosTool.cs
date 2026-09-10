@@ -46,7 +46,10 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 var products = await AiQuery.OrEmptyAsync(() => _repository.GetAllAsync(
                     1,
                     FetchSize,
+                    // IsActive == true, not just IsActive: the column is bool? and there is no
+                    // global soft-delete filter, so a deleted product is otherwise quoted at price.
                     x => x.EnterpriseId == context.EnterpriseId
+                         && x.IsActive == true
                          && (x.Name.Contains(needle) || (x.Sku != null && x.Sku.Contains(needle)))));
 
                 var rows = products.Select(x => new

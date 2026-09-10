@@ -45,6 +45,34 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         /// <summary>
+        /// This solution soft-deletes (OrderService sets IsActive = false) and has no global query
+        /// filter, so every read filters by hand or counts cancelled orders as revenue.
+        /// </summary>
+        [Fact]
+        public async Task Invoking_DoesNotReturnSoftDeletedOrders()
+        {
+            var tenant = Guid.NewGuid();
+            var rows = new[]
+            {
+                new Order { Id = Guid.NewGuid(), EnterpriseId = tenant, TotalValue = 42m, CreatedAt = DateTime.UtcNow, IsActive = true },
+                new Order { Id = Guid.NewGuid(), EnterpriseId = tenant, TotalValue = 999m, CreatedAt = DateTime.UtcNow, IsActive = false },
+            };
+            var repository = new Mock<IRepository<Order>>();
+            repository
+                .Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>()))
+                .ReturnsAsync((Expression<Func<Order, bool>> predicate) => rows.Where(predicate.Compile()));
+
+            var tool = new ConsultarPedidosTool(repository.Object);
+            var function = tool.Create(new AiToolContext(tenant, Guid.NewGuid()));
+
+            var result = await function.InvokeAsync(new AIFunctionArguments());
+
+            var json = result?.ToString() ?? string.Empty;
+            Assert.Contains("\"total\":1", json);
+            Assert.DoesNotContain("999", json);
+        }
+
+        /// <summary>
         /// The real OrderRepository throws NotFoundDatabaseException on zero matches instead of
         /// returning an empty list. A period with no orders is a normal answer, not a failure.
         /// </summary>

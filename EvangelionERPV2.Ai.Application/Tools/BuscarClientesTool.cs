@@ -43,7 +43,10 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 var customers = await AiQuery.OrEmptyAsync(() => _repository.GetAllAsync(
                     1,
                     FetchSize,
+                    // IsActive == true, not just IsActive: the column is bool? and there is no
+                    // global soft-delete filter, so a deleted customer is otherwise listed as live.
                     x => x.EnterpriseId == context.EnterpriseId
+                         && x.IsActive == true
                          && (x.Name.Contains(needle) || (x.Document != null && x.Document.Contains(needle)))));
 
                 // Document is deliberately not returned: the model needs the id to chain a call,

@@ -79,6 +79,36 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         /// <summary>
+        /// This solution soft-deletes (CustomerService sets IsActive = false) and has no global
+        /// query filter, so every read filters by hand or lists deleted customers as live ones.
+        /// </summary>
+        [Fact]
+        public async Task Invoking_DoesNotReturnSoftDeletedCustomers()
+        {
+            var tenant = Guid.NewGuid();
+            var rows = new[]
+            {
+                new Customer { Id = Guid.NewGuid(), EnterpriseId = tenant, Name = "Padaria do Zé", IsActive = true },
+                new Customer { Id = Guid.NewGuid(), EnterpriseId = tenant, Name = "Padaria Encerrada", IsActive = false },
+            };
+            var repository = new Mock<IRepository<Customer>>();
+            repository
+                .Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Customer, bool>>>()))
+                .ReturnsAsync((int? _, int? _, Expression<Func<Customer, bool>> predicate) =>
+                    rows.Where(predicate.Compile()));
+
+            var tool = new BuscarClientesTool(repository.Object);
+            var function = tool.Create(new AiToolContext(tenant, Guid.NewGuid()));
+
+            // Compiled in memory, so Contains is ordinal here where SQL Server's collation is not.
+            var result = await function.InvokeAsync(new AIFunctionArguments { ["termo"] = "Padaria" });
+
+            var json = result?.ToString() ?? string.Empty;
+            Assert.Contains("Padaria do Zé", json);
+            Assert.DoesNotContain("Padaria Encerrada", json);
+        }
+
+        /// <summary>
         /// The repository is read one row past the display cap specifically so ForModel can tell
         /// "exactly 20 matched" from "more than 20 matched". Without that extra row, total and
         /// mostrando are always equal and truncado can never be true.
