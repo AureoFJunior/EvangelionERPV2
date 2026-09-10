@@ -49,6 +49,20 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         [Fact]
+        public async Task PrevisaoDeCaixa_WithNoArguments_UsesTheDocumentedDefaultHorizon()
+        {
+            var service = new Mock<ICashFlowForecastService>();
+            service
+                .Setup(x => x.GetForecastAsync(Tenant, It.IsAny<int>(), null))
+                .ReturnsAsync(new CashFlowForecastDTO());
+
+            var function = new PrevisaoDeCaixaTool(service.Object).Create(Context);
+            await function.InvokeAsync(new AIFunctionArguments());
+
+            service.Verify(x => x.GetForecastAsync(Tenant, 30, null), Times.Once);
+        }
+
+        [Fact]
         public async Task PrevisaoDeCaixa_ClampsAnAbsurdHorizon()
         {
             var service = new Mock<ICashFlowForecastService>();
@@ -85,9 +99,9 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 .ReturnsAsync(new SalesPerformanceDTO());
 
             var function = new ResumoDeVendasTool(service.Object).Create(Context);
-            // AIFunctionFactory requires nullable optional parameters to be present in the argument
-            // bag even when null; omitting the keys fails the invocation before the tool ever runs.
-            await function.InvokeAsync(new AIFunctionArguments { ["ano"] = null, ["mes"] = null });
+            // An empty bag is what a model that believes the description actually sends. The C#
+            // defaults are what make the emitted schema mark ano/mes optional.
+            await function.InvokeAsync(new AIFunctionArguments());
 
             var now = DateTime.UtcNow;
             service.Verify(x => x.GetPerformanceAsync(Tenant, now.Year, now.Month, It.IsAny<CancellationToken>()), Times.Once);
@@ -102,7 +116,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 .ThrowsAsync(new NotFoundDatabaseException());
 
             var function = new ResumoDeVendasTool(service.Object).Create(Context);
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["ano"] = null, ["mes"] = null });
+            var result = await function.InvokeAsync(new AIFunctionArguments());
 
             Assert.Contains("\"erro\"", result?.ToString() ?? string.Empty);
         }

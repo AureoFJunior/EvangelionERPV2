@@ -32,7 +32,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public bool RequiresConfirmation => false;
 
         public AIFunction Create(AiToolContext context) =>
-            AIFunctionFactory.Create(async (int? diasAtras, string? clienteId) =>
+            AIFunctionFactory.Create(async (int? diasAtras = null, string? clienteId = null) =>
             {
                 var window = DateTime.UtcNow.AddDays(-Math.Clamp(diasAtras ?? 30, 1, 365));
                 Guid.TryParse(clienteId, out var customerId);

@@ -36,7 +36,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var tool = new ConsultarPedidosTool(repository.Object);
             var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["diasAtras"] = 30, ["clienteId"] = null });
+            var result = await function.InvokeAsync(new AIFunctionArguments());
 
             var json = result?.ToString() ?? string.Empty;
             Assert.Contains("\"total\":1", json);
@@ -59,7 +59,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var tool = new ConsultarPedidosTool(repository.Object);
             var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
 
-            var result = await function.InvokeAsync(new AIFunctionArguments { ["diasAtras"] = 30, ["clienteId"] = null });
+            var result = await function.InvokeAsync(new AIFunctionArguments());
 
             Assert.Contains("\"total\":0", result?.ToString() ?? string.Empty);
         }

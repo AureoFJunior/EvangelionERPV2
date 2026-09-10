@@ -23,7 +23,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public bool RequiresConfirmation => false;
 
         public AIFunction Create(AiToolContext context) =>
-            AIFunctionFactory.Create(async (int? horizonteEmDias) =>
+            AIFunctionFactory.Create(async (int? horizonteEmDias = null) =>
             {
                 // Clamped rather than validated: a model that asks for 99999 days meant "muito
                 // tempo", and answering with 90 is more useful than refusing.

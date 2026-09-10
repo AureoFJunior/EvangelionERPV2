@@ -23,7 +23,7 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public bool RequiresConfirmation => false;
 
         public AIFunction Create(AiToolContext context) =>
-            AIFunctionFactory.Create(async (int? ano, int? mes) =>
+            AIFunctionFactory.Create(async (int? ano = null, int? mes = null) =>
             {
                 var now = DateTime.UtcNow;
                 var year = ano is >= 2000 and <= 2100 ? ano.Value : now.Year;
