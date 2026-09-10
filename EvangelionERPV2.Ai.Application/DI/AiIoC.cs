@@ -43,10 +43,19 @@ namespace EvangelionERPV2.AiModule.Application.DI
             services.AddScoped<IAiTool, PrevisaoDeCaixaTool>();
             services.AddScoped<IAiTool, EstoqueBaixoTool>();
 
+            services.AddScoped<IAiTool, CriarClienteTool>();
+            services.AddScoped<IAiTool, AtualizarClienteTool>();
+            services.AddScoped<IAiTool, AtualizarProdutoTool>();
+            services.AddScoped<IAiTool, CriarPedidoTool>();
+
             services.AddScoped<IAiToolRegistry>(sp =>
                 new AiToolRegistry(sp.GetServices<IAiTool>()));
 
+            services.AddScoped<IAiPendingActionService, AiPendingActionService>();
             services.AddScoped<IAiAgentService, AiAgentService>();
+
+            if (configuration.GetSection("AiSettings").GetValue<bool>("Enabled"))
+                services.AddHostedService<AiPendingActionExpiryWorker>();
         }
     }
 }

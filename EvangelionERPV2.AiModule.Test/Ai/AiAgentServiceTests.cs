@@ -257,6 +257,49 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal("Você tem 12 unidades.", result.Text);
         }
 
+
+        [Fact]
+        public async Task AWriteToolIsProposed_NotExecuted()
+        {
+            var ran = false;
+            var chat = new Mock<IChatClient>();
+            chat.SetupSequence(x => x.GetResponseAsync(
+                    It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(ToolCall("c1", "criar_cliente"))
+                .ReturnsAsync(Text("Precisa confirmar na tela."));
+
+            var registry = new Mock<IAiToolRegistry>();
+            registry.Setup(x => x.Build(It.IsAny<IReadOnlySet<string>>(), It.IsAny<AiToolContext>()))
+                .Returns(new[] { AIFunctionFactory.Create(() => { ran = true; return "{}"; }, "criar_cliente", "cria") });
+            registry.Setup(x => x.Find("criar_cliente")).Returns(WriteTool("criar_cliente"));
+
+            var card = new AiPendingActionCard(Guid.NewGuid(), "criar_cliente", "Cadastrar o cliente Ana", "{}", DateTime.UtcNow.AddMinutes(30));
+            var pending = new Mock<IAiPendingActionService>();
+            pending.Setup(x => x.ProposeAsync(
+                    It.IsAny<Guid>(), It.IsAny<IAiTool>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(card);
+
+            var service = BuildService(chat.Object, registry.Object, pendingActions: pending.Object);
+
+            var result = await service.RunTurnAsync(Request("cria a cliente Ana"), CancellationToken.None);
+
+            Assert.False(ran);
+            Assert.Single(result.PendingActions);
+            Assert.Equal("criar_cliente", result.PendingActions[0].ToolName);
+            pending.Verify(x => x.ProposeAsync(
+                It.IsAny<Guid>(), It.IsAny<IAiTool>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+                Times.Once);
+        }
+
+        private static IAiTool WriteTool(string name)
+        {
+            var tool = new Mock<IAiTool>();
+            tool.SetupGet(x => x.Name).Returns(name);
+            tool.SetupGet(x => x.RequiresConfirmation).Returns(true);
+            tool.SetupGet(x => x.RequiredPermission).Returns("customers.create");
+            return tool.Object;
+        }
+
         private static AiTurnRequest Request(string text) =>
             new(ConversationId, text, new HashSet<string> { "products.read" }, new AiToolContext(Tenant, Guid.NewGuid()));
 
@@ -310,7 +353,8 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Mock<IRepository<AiMessage>>? messages = null,
             List<AiMessage>? persisted = null,
             IAiProgressNotifier? notifier = null,
-            int timeoutSeconds = 120)
+            int timeoutSeconds = 120,
+            IAiPendingActionService? pendingActions = null)
         {
             messages ??= MessageRepository();
 
@@ -327,7 +371,10 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 TimeoutSeconds = timeoutSeconds,
             });
 
-            return new AiAgentService(chat, registry, settings, messages.Object, notifier ?? Mock.Of<IAiProgressNotifier>());
+            return new AiAgentService(
+                chat, registry, settings, messages.Object,
+                notifier ?? Mock.Of<IAiProgressNotifier>(),
+                pendingActions ?? Mock.Of<IAiPendingActionService>());
         }
 
         private static Mock<IChatClient> ChatThatNeverAnswers()

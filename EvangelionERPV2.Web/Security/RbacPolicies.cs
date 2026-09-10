@@ -203,6 +203,7 @@ namespace EvangelionERPV2.Web.Security
         public static class Ai
         {
             public const string Chat = "rbac:ai.chat";
+            public const string Act = "rbac:ai.act";
         }
 
         public static class Audit

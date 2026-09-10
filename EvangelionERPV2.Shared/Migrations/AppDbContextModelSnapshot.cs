@@ -111,6 +111,65 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("AiMessage");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.AiPendingAction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AiConversationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ArgumentsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("ConfirmedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("ExecutedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ResultJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("ToolName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AiConversationId", "Status");
+
+                    b.HasIndex("Status", "ExpiresAt");
+
+                    b.ToTable("AiPendingAction");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.AuditTrail", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2993,6 +3052,17 @@ namespace EvangelionERPV2.Shared.Migrations
                 {
                     b.HasOne("EvangelionERPV2.Shared.Entities.AiConversation", "AiConversation")
                         .WithMany("Messages")
+                        .HasForeignKey("AiConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AiConversation");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.AiPendingAction", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.AiConversation", "AiConversation")
+                        .WithMany()
                         .HasForeignKey("AiConversationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

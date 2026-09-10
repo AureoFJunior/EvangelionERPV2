@@ -19,19 +19,22 @@ namespace EvangelionERPV2.AiModule.Application.Services
         private readonly AiSettings _settings;
         private readonly IRepository<AiMessage> _messages;
         private readonly IAiProgressNotifier _notifier;
+        private readonly IAiPendingActionService _pendingActions;
 
         public AiAgentService(
             IChatClient chatClient,
             IAiToolRegistry registry,
             IOptions<AiSettings> settings,
             IRepository<AiMessage> messages,
-            IAiProgressNotifier notifier)
+            IAiProgressNotifier notifier,
+            IAiPendingActionService pendingActions)
         {
             _chatClient = chatClient;
             _registry = registry;
             _settings = settings.Value;
             _messages = messages;
             _notifier = notifier;
+            _pendingActions = pendingActions;
         }
 
         public async Task<AiTurnResult> RunTurnAsync(AiTurnRequest request, CancellationToken cancellation = default)
@@ -63,6 +66,7 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 ToolMode = ChatToolMode.Auto,
             };
             var toolsCalled = new List<string>();
+            var proposals = new List<AiPendingActionCard>();
             var promptTokens = 0;
             var completionTokens = 0;
 
@@ -79,7 +83,7 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 foreach (var chunk in AiTextChunker.Split(text))
                     await NotifyAsync(() => _notifier.ChunkAsync(request.Context.UserId, chunk));
 
-                return new AiTurnResult(text, toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
+                return new AiTurnResult(text, toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds, proposals);
             }
 
             try
@@ -106,6 +110,26 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     {
                         await NotifyAsync(() => _notifier.StatusAsync(request.Context.UserId, DescribeTool(call.Name)));
                         toolsCalled.Add(call.Name);
+
+                        var tool = _registry.Find(call.Name);
+                        if (tool?.RequiresConfirmation == true)
+                        {
+                            // The model never runs a write. It proposes one, and the human holding
+                            // the confirmation card is what stands between ERP free text and a
+                            // mutation. See the design doc, "Every write is confirmed by a human".
+                            var card = await _pendingActions.ProposeAsync(
+                                request.ConversationId,
+                                tool,
+                                call.Arguments is null
+                                    ? new Dictionary<string, object?>()
+                                    : new Dictionary<string, object?>(call.Arguments),
+                                budget.Token);
+
+                            proposals.Add(card);
+                            results.Add(new FunctionResultContent(call.CallId, ProposedJson(card)));
+                            continue;
+                        }
+
                         results.Add(new FunctionResultContent(call.CallId, await ExecuteAsync(tools, call, budget.Token)));
                     }
 
@@ -143,8 +167,25 @@ namespace EvangelionERPV2.AiModule.Application.Services
             "contas_a_receber" => "Consultando o financeiro do cliente...",
             "previsao_de_caixa" => "Projetando o caixa...",
             "estoque_baixo" => "Verificando o estoque...",
+            "criar_cliente" => "Preparando o cadastro do cliente...",
+            "atualizar_cliente" => "Preparando a alteração do cliente...",
+            "atualizar_produto" => "Preparando a alteração do produto...",
+            "criar_pedido" => "Preparando o pedido...",
             _ => "Consultando...",
         };
+
+        /// <summary>
+        /// What the model reads back after proposing a write. It says the action is waiting rather
+        /// than done, so the answer it writes does not claim something that has not happened.
+        /// </summary>
+        private static string ProposedJson(AiPendingActionCard card) =>
+            JsonSerializer.Serialize(new
+            {
+                status = "aguardando_confirmacao",
+                acaoId = card.Id,
+                resumo = card.Summary,
+                instrucao = "Diga que a ação está aguardando a confirmação da pessoa na tela. Não afirme que já foi feita.",
+            });
 
         private static async Task<string> ExecuteAsync(
             IReadOnlyList<AIFunction> tools, FunctionCallContent call, CancellationToken cancellation)

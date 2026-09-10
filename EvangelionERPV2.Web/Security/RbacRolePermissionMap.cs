@@ -126,6 +126,11 @@ namespace EvangelionERPV2.Web.Security
             // receivables, so it sits at the tier that already sees both.
             RbacPermissions.Dashboard.Read,
 
+            // Chatting to the agent is Supervisor; letting it propose a write is not. A proposal
+            // is a mutation a human is one tap from applying, so it starts where the other
+            // company-wide financial actions start.
+            RbacPermissions.Ai.Act,
+
             // Declaring a boleto paid and superseding one are financial assertions nothing else
             // verifies until CNAB retorno exists, so they start at Manager while issuing a boleto
             // stays at Supervisor.

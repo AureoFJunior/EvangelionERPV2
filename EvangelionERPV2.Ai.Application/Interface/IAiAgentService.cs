@@ -11,7 +11,8 @@ namespace EvangelionERPV2.AiModule.Application.Interface
         IReadOnlyList<string> ToolsCalled,
         int PromptTokens,
         int CompletionTokens,
-        long LatencyMs);
+        long LatencyMs,
+        IReadOnlyList<AiPendingActionCard> PendingActions);
 
     public interface IAiAgentService
     {

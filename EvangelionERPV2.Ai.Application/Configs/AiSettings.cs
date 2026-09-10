@@ -14,6 +14,12 @@ namespace EvangelionERPV2.AiModule.Application.Configs
 
         public int MessageRetentionDays { get; set; } = 90;
 
+        /// <summary>How long a proposed write stays confirmable. See <c>AiPendingAction</c>.</summary>
+        public int PendingActionTtlMinutes { get; set; } = 30;
+
+        /// <summary>How often the expiry sweep runs. Never below a minute.</summary>
+        public int PendingActionSweepIntervalMinutes { get; set; } = 10;
+
         public string? ApiKey { get; set; }
     }
 }

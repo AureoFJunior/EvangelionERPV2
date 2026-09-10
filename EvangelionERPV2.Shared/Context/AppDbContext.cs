@@ -86,6 +86,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<ForecastSimulationLog> ForecastSimulationLog { get; set; }
         public DbSet<AiConversation> AiConversation { get; set; }
         public DbSet<AiMessage> AiMessage { get; set; }
+        public DbSet<AiPendingAction> AiPendingAction { get; set; }
         public DbSet<RefreshToken> RefreshToken { get; set; }
         public DbSet<PasswordResetToken> PasswordResetToken { get; set; }
         public DbSet<User> User { get; set; }
@@ -436,6 +437,12 @@ namespace EvangelionERPV2.Shared.Context
                 .HasMany(conversation => conversation.Messages)
                 .WithOne(message => message.AiConversation)
                 .HasForeignKey(message => message.AiConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<AiPendingAction>()
+                .HasOne(action => action.AiConversation)
+                .WithMany()
+                .HasForeignKey(action => action.AiConversationId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<OpportunitySignal>()

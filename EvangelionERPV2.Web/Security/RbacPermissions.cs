@@ -10,6 +10,7 @@ namespace EvangelionERPV2.Web.Security
             Accounting.Export,
 
             Ai.Chat,
+            Ai.Act,
 
             Audit.Read,
             Audit.CleanupRetention,
@@ -155,6 +156,12 @@ namespace EvangelionERPV2.Web.Security
         public static class Ai
         {
             public const string Chat = "ai.chat";
+
+            /// <summary>
+            /// Lets the agent propose a write. The write itself still runs under the caller's own
+            /// permission for it, and only after the caller confirms the card.
+            /// </summary>
+            public const string Act = "ai.act";
         }
 
         public static class Audit
