@@ -66,6 +66,7 @@ Measured 2026-09-01, not remembered.
 | M29d | Receipt printer, drawer, scale, display | **Done 2026-08-28/29** — ESC/POS printer, drawer kick, scale, customer display, all optional so a till with nothing plugged in still sells | PDV `d59cfcb` … `98d13c1` |
 | M29e | Card authorization code + PIX manual; Stripe Connect PIX | **Code complete 2026-08-31, plan tasks 1–9.** No-PSP half (1–4), then `PdvCharge` + the charge endpoints + the signature-verified webhook (5–7), then the till's `IPaymentGateway` and PIX screen (8–9). **Task 10 — wiring it up and proving it against a running ERP — is not done, and is gated** on a real Stripe BR PIX account | `30aac13` … `fa67d97`; PDV `c686f9e` … `0415e4e` |
 | M29f | Backoffice screens for any of M29 | **Done 2026-08-31** — four new Supervisor-tier read endpoints plus the FrontV2 *Tills* screen | `8e3164c`, FrontV2 `57fd4e6` |
+| M30 | Agente do ERP, Rung 1 — read-only pt-BR chat agent over Ollama | **Code complete 2026-09-10; not yet run against a real model.** Eight permission-filtered read tools, a hand-driven tool-call loop, `POST /api/v1/ai/chat`, SignalR progress over `/aiHub`. Off by default (`AiSettings.Enabled`). Model choice (`qwen3:14b` vs `gpt-oss:20b`) undecided pending the ten-prompt comparison — see `docs/ai/README.md` | `6124a78`…`13ce7cf` |
 
 ## What M24–M28 added, and what they left open
 
