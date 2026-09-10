@@ -291,6 +291,40 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 Times.Once);
         }
 
+
+        [Fact]
+        public async Task AWriteWithUnusableArguments_IsCorrectedInsteadOfBecomingACard()
+        {
+            var chat = new Mock<IChatClient>();
+            chat.SetupSequence(x => x.GetResponseAsync(
+                    It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(ToolCall("c1", "atualizar_produto"))
+                .ReturnsAsync(Text("Preciso do id completo."));
+
+            var tool = new Mock<IAiTool>();
+            tool.SetupGet(x => x.Name).Returns("atualizar_produto");
+            tool.SetupGet(x => x.RequiresConfirmation).Returns(true);
+            tool.SetupGet(x => x.RequiredPermission).Returns("products.update");
+            tool.Setup(x => x.Validate(It.IsAny<IReadOnlyDictionary<string, object?>>()))
+                .Returns("produtoId inválido: use o id completo devolvido por buscar_produtos.");
+
+            var registry = new Mock<IAiToolRegistry>();
+            registry.Setup(x => x.Build(It.IsAny<IReadOnlySet<string>>(), It.IsAny<AiToolContext>()))
+                .Returns(Array.Empty<AIFunction>());
+            registry.Setup(x => x.Find("atualizar_produto")).Returns(tool.Object);
+
+            var pending = new Mock<IAiPendingActionService>();
+
+            var service = BuildService(chat.Object, registry.Object, pendingActions: pending.Object);
+
+            var result = await service.RunTurnAsync(Request("muda o preço"), CancellationToken.None);
+
+            Assert.Empty(result.PendingActions);
+            pending.Verify(x => x.ProposeAsync(
+                It.IsAny<Guid>(), It.IsAny<IAiTool>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+                Times.Never);
+        }
+
         private static IAiTool WriteTool(string name)
         {
             var tool = new Mock<IAiTool>();

@@ -7,6 +7,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.Extensions.AI;
 using Moq;
+using System.Text.Json;
 
 namespace EvangelionERPV2.AiModule.Test.Ai
 {
@@ -87,6 +88,110 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             Assert.Equal("Cadastrar o cliente Ana, telefone 11999990000", summary);
             Assert.True(tool.RequiresConfirmation);
+        }
+
+
+        [Theory]
+        [InlineData("5ecc3fd5")]                                   // the id the model truncated
+        [InlineData("Monster Rosa")]                               // the name instead of the id
+        [InlineData("")]
+        public void AtualizarProduto_RefusesAnIdThatIsNotAWholeGuid(string produtoId)
+        {
+            var tool = new AtualizarProdutoTool(
+                Mock.Of<IProductService<Product>>(), Mock.Of<IRepository<Product>>());
+
+            var invalid = tool.Validate(new Dictionary<string, object?>
+            {
+                ["produtoId"] = produtoId,
+                ["preco"] = 15m,
+            });
+
+            Assert.NotNull(invalid);
+            Assert.Contains("produtoId", invalid);
+        }
+
+        [Fact]
+        public void AtualizarProduto_AcceptsAWholeGuidWithSomethingToChange()
+        {
+            var tool = new AtualizarProdutoTool(
+                Mock.Of<IProductService<Product>>(), Mock.Of<IRepository<Product>>());
+
+            var invalid = tool.Validate(new Dictionary<string, object?>
+            {
+                ["produtoId"] = Guid.NewGuid().ToString(),
+                ["estoque"] = 30m,
+            });
+
+            Assert.Null(invalid);
+        }
+
+        [Fact]
+        public void AtualizarProduto_RefusesACallThatChangesNothing()
+        {
+            var tool = new AtualizarProdutoTool(
+                Mock.Of<IProductService<Product>>(), Mock.Of<IRepository<Product>>());
+
+            var invalid = tool.Validate(new Dictionary<string, object?> { ["produtoId"] = Guid.NewGuid().ToString() });
+
+            Assert.Equal("informe preco ou estoque.", invalid);
+        }
+
+        [Fact]
+        public void AtualizarCliente_RefusesATruncatedId()
+        {
+            var tool = new AtualizarClienteTool(
+                Mock.Of<ICustomerService<Customer>>(), Mock.Of<IRepository<Customer>>());
+
+            Assert.NotNull(tool.Validate(new Dictionary<string, object?> { ["clienteId"] = "c704eb28" }));
+        }
+
+        [Fact]
+        public void CriarCliente_RefusesAnEmptyName()
+        {
+            var tool = new CriarClienteTool(Mock.Of<ICustomerService<Customer>>());
+
+            Assert.Equal("informe o nome do cliente.", tool.Validate(new Dictionary<string, object?> { ["nome"] = "  " }));
+        }
+
+        [Fact]
+        public void CriarPedido_RefusesLinesWithATruncatedProductIdOrNoQuantity()
+        {
+            var tool = new CriarPedidoTool(
+                Mock.Of<IOrderService<Order>>(),
+                Mock.Of<IRepository<Product>>(),
+                Mock.Of<IRepository<Customer>>());
+
+            var truncated = tool.Validate(new Dictionary<string, object?>
+            {
+                ["clienteId"] = Guid.NewGuid().ToString(),
+                ["itens"] = JsonSerializer.SerializeToElement(new[] { new { produtoId = "5ecc3fd5", quantidade = 2 } }),
+            });
+
+            var zeroed = tool.Validate(new Dictionary<string, object?>
+            {
+                ["clienteId"] = Guid.NewGuid().ToString(),
+                ["itens"] = JsonSerializer.SerializeToElement(new[] { new { produtoId = Guid.NewGuid().ToString(), quantidade = 0 } }),
+            });
+
+            Assert.Contains("produtoId", truncated);
+            Assert.Contains("quantidade", zeroed);
+        }
+
+        [Fact]
+        public void CriarPedido_AcceptsAWellFormedOrder()
+        {
+            var tool = new CriarPedidoTool(
+                Mock.Of<IOrderService<Order>>(),
+                Mock.Of<IRepository<Product>>(),
+                Mock.Of<IRepository<Customer>>());
+
+            var invalid = tool.Validate(new Dictionary<string, object?>
+            {
+                ["clienteId"] = Guid.NewGuid().ToString(),
+                ["itens"] = JsonSerializer.SerializeToElement(new[] { new { produtoId = Guid.NewGuid().ToString(), quantidade = 3 } }),
+            });
+
+            Assert.Null(invalid);
         }
 
         private static async Task<string> Invoke(IAiTool tool, Dictionary<string, object?> arguments)

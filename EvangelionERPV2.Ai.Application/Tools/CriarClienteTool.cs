@@ -28,6 +28,9 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             + AiArguments.Suffix(arguments, "telefone", ", telefone ")
             + AiArguments.Suffix(arguments, "documento", ", documento ");
 
+        public string? Validate(IReadOnlyDictionary<string, object?> arguments) =>
+            AiArguments.Text(arguments, "nome").Length == 0 ? "informe o nome do cliente." : null;
+
         public AIFunction Create(AiToolContext context) =>
             AIFunctionFactory.Create(async (string nome, string? telefone = null, string? email = null, string? documento = null) =>
             {

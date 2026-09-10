@@ -35,6 +35,20 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             + AiArguments.Suffix(arguments, "preco", ": preço para R$ ")
             + AiArguments.Suffix(arguments, "estoque", ", estoque para ");
 
+        public string? Validate(IReadOnlyDictionary<string, object?> arguments)
+        {
+            if (AiArguments.Id(arguments, "produtoId") is null)
+                return "produtoId inválido: use o id completo devolvido por buscar_produtos, não o nome nem um pedaço do id.";
+
+            var price = AiArguments.Number(arguments, "preco");
+            var stock = AiArguments.Number(arguments, "estoque");
+
+            if (price is null && stock is null)
+                return "informe preco ou estoque.";
+
+            return price < 0 || stock < 0 ? "preço e estoque não podem ser negativos." : null;
+        }
+
         public AIFunction Create(AiToolContext context) =>
             AIFunctionFactory.Create(async (string produtoId, decimal? preco = null, decimal? estoque = null) =>
             {

@@ -52,6 +52,75 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                    + $"com {lines} item(ns). O pedido entra na fila e aparece na lista em seguida.";
         }
 
+        public string? Validate(IReadOnlyDictionary<string, object?> arguments)
+        {
+            if (AiArguments.Id(arguments, "clienteId") is null)
+                return "clienteId inválido: use o id completo devolvido por buscar_clientes, não o nome nem um pedaço do id.";
+
+            var items = ReadItems(arguments);
+            if (items.Count == 0)
+                return "informe pelo menos um item, cada um com produtoId e quantidade.";
+
+            if (items.Count > MaxItems)
+                return $"no máximo {MaxItems} itens por pedido.";
+
+            foreach (var (productId, quantity) in items)
+            {
+                if (productId is null)
+                    return "produtoId inválido: use o id completo devolvido por buscar_produtos.";
+
+                if (quantity is null or <= 0)
+                    return "quantidade deve ser maior que zero.";
+            }
+
+            return null;
+        }
+
+        /// <summary>The itens array as the model sent it, without trusting its shape.</summary>
+        private static List<(Guid? ProductId, decimal? Quantity)> ReadItems(IReadOnlyDictionary<string, object?> arguments)
+        {
+            var lines = new List<(Guid?, decimal?)>();
+
+            if (!arguments.TryGetValue("itens", out var value) || value is null)
+                return lines;
+
+            try
+            {
+                using var document = JsonDocument.Parse(
+                    value is JsonElement element ? element.GetRawText() : JsonSerializer.Serialize(value, AiJson.Options));
+
+                if (document.RootElement.ValueKind != JsonValueKind.Array)
+                    return lines;
+
+                foreach (var item in document.RootElement.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object)
+                    {
+                        lines.Add((null, null));
+                        continue;
+                    }
+
+                    var productId = item.TryGetProperty("produtoId", out var id)
+                                    && Guid.TryParse(id.ValueKind == JsonValueKind.String ? id.GetString() : id.ToString(), out var parsed)
+                                    && parsed != Guid.Empty
+                        ? parsed
+                        : (Guid?)null;
+
+                    var quantity = item.TryGetProperty("quantidade", out var q) && q.TryGetDecimal(out var amount)
+                        ? amount
+                        : (decimal?)null;
+
+                    lines.Add((productId, quantity));
+                }
+            }
+            catch (JsonException)
+            {
+                lines.Add((null, null));
+            }
+
+            return lines;
+        }
+
         public AIFunction Create(AiToolContext context) =>
             AIFunctionFactory.Create(async (string clienteId, ItemDoPedido[] itens) =>
             {

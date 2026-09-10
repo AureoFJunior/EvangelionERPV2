@@ -114,15 +114,32 @@ namespace EvangelionERPV2.AiModule.Application.Services
                         var tool = _registry.Find(call.Name);
                         if (tool?.RequiresConfirmation == true)
                         {
+                            var arguments = call.Arguments is null
+                                ? new Dictionary<string, object?>()
+                                : new Dictionary<string, object?>(call.Arguments);
+
+                            // Arguments that cannot work never become a card. The model is told why
+                            // and gets to fix it in this same turn — a truncated id is the common
+                            // one — instead of a human confirming a write that was always going to
+                            // fail at execution.
+                            var invalid = tool.Validate(arguments);
+                            if (invalid is not null)
+                            {
+                                Log.Logger.Information(
+                                    "AI write proposal rejected before the card. Tool={Tool}", call.Name);
+
+                                results.Add(new FunctionResultContent(call.CallId,
+                                    JsonSerializer.Serialize(new { erro = invalid })));
+                                continue;
+                            }
+
                             // The model never runs a write. It proposes one, and the human holding
                             // the confirmation card is what stands between ERP free text and a
                             // mutation. See the design doc, "Every write is confirmed by a human".
                             var card = await _pendingActions.ProposeAsync(
                                 request.ConversationId,
                                 tool,
-                                call.Arguments is null
-                                    ? new Dictionary<string, object?>()
-                                    : new Dictionary<string, object?>(call.Arguments),
+                                arguments,
                                 budget.Token);
 
                             proposals.Add(card);

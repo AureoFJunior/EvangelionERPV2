@@ -36,6 +36,11 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             + AiArguments.Suffix(arguments, "email", ", email para ")
             + AiArguments.Suffix(arguments, "limiteCredito", ", limite de crédito para R$ ");
 
+        public string? Validate(IReadOnlyDictionary<string, object?> arguments) =>
+            AiArguments.Id(arguments, "clienteId") is null
+                ? "clienteId inválido: use o id completo devolvido por buscar_clientes, não o nome nem um pedaço do id."
+                : null;
+
         public AIFunction Create(AiToolContext context) =>
             AIFunctionFactory.Create(async (string clienteId, string? telefone = null, string? email = null, decimal? limiteCredito = null) =>
             {

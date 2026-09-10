@@ -32,5 +32,13 @@ namespace EvangelionERPV2.AiModule.Application.Interface
         /// caller's words rather than the model's. Only writes need to say anything.
         /// </summary>
         string Summarize(IReadOnlyDictionary<string, object?> arguments) => Name;
+
+        /// <summary>
+        /// Why these arguments cannot work, or null when they can. Checked before a write becomes a
+        /// confirmation card, so the model gets the correction while it is still answering instead
+        /// of a human confirming something that was always going to fail. Cheap checks only — shape,
+        /// not existence; the tool re-checks everything when it actually runs.
+        /// </summary>
+        string? Validate(IReadOnlyDictionary<string, object?> arguments) => null;
     }
 }

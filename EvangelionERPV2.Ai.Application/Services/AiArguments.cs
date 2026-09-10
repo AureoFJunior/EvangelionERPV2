@@ -24,6 +24,24 @@ namespace EvangelionERPV2.AiModule.Application.Services
             };
         }
 
+        /// <summary>
+        /// The id under <paramref name="key"/>, or null when it is missing or not a full GUID.
+        /// Local models truncate ids — "5ecc3fd5" instead of the whole thing — often enough that
+        /// this check is the difference between a correction and a failed confirmation.
+        /// </summary>
+        public static Guid? Id(IReadOnlyDictionary<string, object?> arguments, string key) =>
+            Guid.TryParse(Text(arguments, key), out var id) && id != Guid.Empty ? id : null;
+
+        public static decimal? Number(IReadOnlyDictionary<string, object?> arguments, string key)
+        {
+            var text = Text(arguments, key);
+
+            return decimal.TryParse(text, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var value)
+                ? value
+                : null;
+        }
+
         /// <summary>The value prefixed by <paramref name="label"/>, or nothing when it is absent.</summary>
         public static string Suffix(IReadOnlyDictionary<string, object?> arguments, string key, string label)
         {
