@@ -35,7 +35,16 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             AIFunctionFactory.Create(async (int? diasAtras = null, string? clienteId = null) =>
             {
                 var window = DateTime.UtcNow.AddDays(-Math.Clamp(diasAtras ?? 30, 1, 365));
-                Guid.TryParse(clienteId, out var customerId);
+
+                // Absent means "todos os clientes". Present but unparseable means the model passed a
+                // name; dropping it silently would answer with every order in the window and let the
+                // model report them as that customer's. Same contract as contas_a_receber.
+                var customerId = Guid.Empty;
+                if (!string.IsNullOrWhiteSpace(clienteId)
+                    && (!Guid.TryParse(clienteId, out customerId) || customerId == Guid.Empty))
+                {
+                    return "{\"erro\":\"clienteId inválido. Use buscar_clientes para obter o id.\"}";
+                }
 
                 // ponytail: the date window bounds what gets loaded, so a very high-volume tenant
                 // combined with a wide diasAtras would load more than it needs. Upgrade path is a

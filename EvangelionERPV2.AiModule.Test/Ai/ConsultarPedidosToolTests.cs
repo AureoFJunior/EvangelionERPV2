@@ -45,6 +45,42 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         /// <summary>
+        /// A model that has only a name will pass the name. Guid.TryParse leaves Guid.Empty, the
+        /// customer predicate short-circuits and every order in the window comes back — which the
+        /// model then reports as that customer's. Wrong-and-confident is the worst answer here.
+        /// </summary>
+        [Fact]
+        public async Task Invoking_WithAnUnparseableCustomerId_ReturnsErrorRatherThanEveryOrder()
+        {
+            var repository = new Mock<IRepository<Order>>();
+
+            var tool = new ConsultarPedidosTool(repository.Object);
+            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+
+            var result = await function.InvokeAsync(new AIFunctionArguments { ["clienteId"] = "João" });
+
+            Assert.Contains("\"erro\"", result?.ToString() ?? string.Empty);
+            repository.Verify(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>()), Times.Never);
+        }
+
+        /// <summary>An absent clienteId still means every customer, not an error.</summary>
+        [Fact]
+        public async Task Invoking_WithNoCustomerId_StillListsEveryCustomersOrders()
+        {
+            var repository = new Mock<IRepository<Order>>();
+            repository
+                .Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>()))
+                .ReturnsAsync(new[] { new Order { Id = Guid.NewGuid(), TotalValue = 42m } });
+
+            var tool = new ConsultarPedidosTool(repository.Object);
+            var function = tool.Create(new AiToolContext(Guid.NewGuid(), Guid.NewGuid()));
+
+            var result = await function.InvokeAsync(new AIFunctionArguments());
+
+            Assert.Contains("\"total\":1", result?.ToString() ?? string.Empty);
+        }
+
+        /// <summary>
         /// This solution soft-deletes (OrderService sets IsActive = false) and has no global query
         /// filter, so every read filters by hand or counts cancelled orders as revenue.
         /// </summary>
