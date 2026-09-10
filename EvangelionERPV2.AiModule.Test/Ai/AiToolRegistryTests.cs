@@ -33,7 +33,8 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 Tool("previsao_de_caixa", "cashflow.forecast.read"),
             });
 
-            // A Supervisor: cashflow.forecast.read is Manager-and-above, never Supervisor.
+            // The caller holds only products.read; the forecast tool requires cashflow.forecast.read,
+            // so the registry hides it — as far as the model is concerned, that tool does not exist.
             var tools = registry.Build(new HashSet<string> { "products.read" }, Context);
 
             Assert.Single(tools);
