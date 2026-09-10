@@ -18,7 +18,8 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public string Description =>
             "Ficha financeira de um cliente: o que ele deve, o que está vencido e o histórico de " +
             "pagamento. Parâmetro: clienteId (o id devolvido por buscar_clientes). " +
-            "Chame buscar_clientes antes se você só tiver o nome.";
+            "Chame buscar_clientes antes se você só tiver o nome. " +
+            "É sempre de um cliente: para o total a receber da empresa use painel_do_dia.";
 
         public string RequiredPermission => "bills.read";
 

@@ -18,7 +18,20 @@ namespace EvangelionERPV2.AiModule.Application.DI
             services.AddSingleton<IChatClient>(serviceProvider =>
             {
                 var settings = serviceProvider.GetRequiredService<IOptions<AiSettings>>().Value;
-                return new OllamaSharp.OllamaApiClient(new Uri(settings.Endpoint), settings.Model);
+
+                // OllamaSharp's Uri constructor builds an HttpClient with the 100 s BuiltIn default,
+                // which cuts a turn short before AiSettings.TimeoutSeconds ever applies. Give the
+                // transport a longer leash than the turn budget so the budget stays the authority
+                // (and the diagnostics stay truthful); no budget means no transport deadline either.
+                var http = new HttpClient
+                {
+                    BaseAddress = new Uri(settings.Endpoint),
+                    Timeout = settings.TimeoutSeconds > 0
+                        ? TimeSpan.FromSeconds(settings.TimeoutSeconds + 15)
+                        : Timeout.InfiniteTimeSpan
+                };
+
+                return new OllamaSharp.OllamaApiClient(http, settings.Model);
             });
 
             services.AddScoped<IAiTool, BuscarProdutosTool>();

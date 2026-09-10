@@ -18,7 +18,8 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public string Description =>
             "Panorama do dia: recebimentos, pagamentos dos próximos 7 dias, estoque crítico, " +
             "pendências fiscais e lançamentos bancários não conciliados. Sem parâmetros. " +
-            "Use quando a pergunta for geral sobre a situação da empresa.";
+            "Use quando a pergunta for geral sobre a situação da empresa, incluindo " +
+            "\"quanto tenho a receber\" e \"quanto tenho a pagar\" no total, sem cliente específico.";
 
         public string RequiredPermission => "dashboard.read";
 
