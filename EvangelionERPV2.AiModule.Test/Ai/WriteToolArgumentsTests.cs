@@ -194,6 +194,57 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Null(invalid);
         }
 
+
+        [Fact]
+        public void AtualizarCliente_RefusesAnIdWithNothingToChange()
+        {
+            var tool = new AtualizarClienteTool(
+                Mock.Of<ICustomerService<Customer>>(), Mock.Of<IRepository<Customer>>());
+
+            var invalid = tool.Validate(new Dictionary<string, object?> { ["clienteId"] = Guid.NewGuid().ToString() });
+
+            Assert.Equal("informe telefone, email ou limiteCredito.", invalid);
+        }
+
+        [Fact]
+        public async Task AtualizarProduto_WithValuesTheProductAlreadyHas_DoesNotReportAChange()
+        {
+            var id = Guid.NewGuid();
+            var repository = new Mock<IRepository<Product>>();
+            repository.Setup(x => x.GetByIdAsync(id))
+                .ReturnsAsync(new Product { Id = id, EnterpriseId = Context.EnterpriseId, Name = "teste", DefaultValue = 12m, StorageQuantity = 7m });
+
+            var service = new Mock<IProductService<Product>>();
+            var tool = new AtualizarProdutoTool(service.Object, repository.Object);
+
+            // The model echoes the stock it just read alongside the price it was asked to change.
+            var result = await Invoke(tool, new() { ["produtoId"] = id.ToString(), ["preco"] = 12m, ["estoque"] = 7m });
+
+            Assert.Contains("nada para alterar", result);
+            service.Verify(x => x.UpdateAsync(It.IsAny<Product>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AtualizarProduto_AppliesTheFieldThatActuallyChanged()
+        {
+            var id = Guid.NewGuid();
+            var stored = new Product { Id = id, EnterpriseId = Context.EnterpriseId, Name = "teste", DefaultValue = 12m, StorageQuantity = 7m };
+            var repository = new Mock<IRepository<Product>>();
+            repository.Setup(x => x.GetByIdAsync(id)).ReturnsAsync(stored);
+
+            var service = new Mock<IProductService<Product>>();
+            service.Setup(x => x.UpdateAsync(It.IsAny<Product>())).ReturnsAsync((Product p) => p);
+
+            var tool = new AtualizarProdutoTool(service.Object, repository.Object);
+
+            var result = await Invoke(tool, new() { ["produtoId"] = id.ToString(), ["preco"] = 15m, ["estoque"] = 7m });
+
+            Assert.DoesNotContain("erro", result);
+            Assert.Equal(15m, stored.DefaultValue);
+            Assert.Equal(7m, stored.StorageQuantity);
+            service.Verify(x => x.UpdateAsync(It.IsAny<Product>()), Times.Once);
+        }
+
         private static async Task<string> Invoke(IAiTool tool, Dictionary<string, object?> arguments)
         {
             var value = await tool.Create(Context).InvokeAsync(new AIFunctionArguments(arguments));

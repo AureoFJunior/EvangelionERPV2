@@ -65,11 +65,23 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (product is null || product.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"produto não encontrado nesta empresa\"}";
 
-                if (preco is not null)
-                    product.DefaultValue = preco.Value;
+                var changed = false;
 
-                if (estoque is not null)
+                if (preco is not null && product.DefaultValue != preco.Value)
+                {
+                    product.DefaultValue = preco.Value;
+                    changed = true;
+                }
+
+                if (estoque is not null && product.StorageQuantity != estoque.Value)
+                {
                     product.StorageQuantity = estoque.Value;
+                    changed = true;
+                }
+
+                // See AtualizarClienteTool: an echoed value is not a change, and must not read as one.
+                if (!changed)
+                    return "{\"erro\":\"nada para alterar: o produto já está com esses valores\"}";
 
                 var updated = await _service.UpdateAsync(product);
 

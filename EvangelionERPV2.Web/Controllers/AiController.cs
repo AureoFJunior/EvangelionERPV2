@@ -197,6 +197,31 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
 
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]
+        [HttpGet("conversations/{conversationId:guid}/actions")]
+        [ProducesResponseType(typeof(IEnumerable<AiPendingActionDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> PendingActions(Guid conversationId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var userId = TryGetUserId();
+            if (userId is null)
+                return Unauthorized();
+
+            var conversation = await _conversations.GetByIdAsync(conversationId);
+            if (conversation is null || conversation.UserId != userId.Value || conversation.EnterpriseId != enterpriseId)
+                return NotFound();
+
+            // A proposal outlives the page that showed it: reloading used to hide a card that was
+            // still pending and still confirmable.
+            var pending = await _pendingActions.PendingAsync(conversationId);
+
+            return Ok(pending.Select(ToDto).ToList());
+        }
+
         [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Act)]
         [HttpPost("actions/{actionId:guid}/confirm")]
         [ProducesResponseType(typeof(AiActionOutcomeDTO), StatusCodes.Status200OK)]

@@ -36,10 +36,18 @@ namespace EvangelionERPV2.AiModule.Application.Tools
             + AiArguments.Suffix(arguments, "email", ", email para ")
             + AiArguments.Suffix(arguments, "limiteCredito", ", limite de crédito para R$ ");
 
-        public string? Validate(IReadOnlyDictionary<string, object?> arguments) =>
-            AiArguments.Id(arguments, "clienteId") is null
-                ? "clienteId inválido: use o id completo devolvido por buscar_clientes, não o nome nem um pedaço do id."
-                : null;
+        public string? Validate(IReadOnlyDictionary<string, object?> arguments)
+        {
+            if (AiArguments.Id(arguments, "clienteId") is null)
+                return "clienteId inválido: use o id completo devolvido por buscar_clientes, não o nome nem um pedaço do id.";
+
+            var nothingToChange = AiArguments.Text(arguments, "telefone").Length == 0
+                                  && AiArguments.Text(arguments, "email").Length == 0
+                                  && AiArguments.Number(arguments, "limiteCredito") is null;
+
+            // An id on its own used to reach the tool, change nothing and still answer "Feito.".
+            return nothingToChange ? "informe telefone, email ou limiteCredito." : null;
+        }
 
         public AIFunction Create(AiToolContext context) =>
             AIFunctionFactory.Create(async (string clienteId, string? telefone = null, string? email = null, decimal? limiteCredito = null) =>
@@ -51,14 +59,30 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (customer is null || customer.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"cliente não encontrado nesta empresa\"}";
 
-                if (!string.IsNullOrWhiteSpace(telefone))
+                var changed = false;
+
+                if (!string.IsNullOrWhiteSpace(telefone) && customer.PhoneNumber != telefone.Trim())
+                {
                     customer.PhoneNumber = telefone.Trim();
+                    changed = true;
+                }
 
-                if (!string.IsNullOrWhiteSpace(email))
+                if (!string.IsNullOrWhiteSpace(email) && customer.Email != email.Trim())
+                {
                     customer.Email = email.Trim();
+                    changed = true;
+                }
 
-                if (limiteCredito is not null)
+                if (limiteCredito is not null && customer.CreditLimit != limiteCredito)
+                {
                     customer.CreditLimit = limiteCredito;
+                    changed = true;
+                }
+
+                // The model tends to echo the values it just read alongside the one being changed.
+                // Writing nothing and reporting success is how "Feito." came to mean nothing happened.
+                if (!changed)
+                    return "{\"erro\":\"nada para alterar: o cliente já está com esses valores\"}";
 
                 var updated = _service.Update(customer);
 
