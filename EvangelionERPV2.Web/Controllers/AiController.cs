@@ -22,6 +22,7 @@ namespace EvangelionERPV2.Web.Controllers
     public class AiController : ControllerBase
     {
         private const int MaxChatRequestBodySizeInBytes = 16 * 1024;
+        private const int MaxAudioRequestBodySizeInBytes = 5 * 1024 * 1024;
         private const int MaxConversationsListed = 20;
         private const int PreviewLength = 80;
 
@@ -115,6 +116,12 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]
         [HttpPost("transcribe")]
+        // Without this MVC parses the form first: the body arrives here already drained, and the
+        // clip has been spooled to a temp file on the way.
+        [DisableFormValueModelBinding]
+        // Kestrel caps a request at 256 KB globally, which is less than a minute of audio. This
+        // raises it for this endpoint only, to the same number the settings advertise.
+        [RequestSizeLimit(MaxAudioRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(AiTranscriptDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
