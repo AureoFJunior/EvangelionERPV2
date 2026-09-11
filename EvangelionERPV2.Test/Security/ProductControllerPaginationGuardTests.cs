@@ -3,6 +3,7 @@ using AutoMapper;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
@@ -171,6 +172,15 @@ namespace EvangelionERPV2.Test.Security
                     IsActive = true
                 });
 
+            // Creating with stock posts the opening count as a movement, so the ledger accounts for
+            // the whole balance. Strict mocks have to expect it.
+            productService
+                .Setup(s => s.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
+                    new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
+
             productService
                 .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
                 .Callback<ProductPicture>(payload => capturedPayload = payload)
@@ -214,6 +224,15 @@ namespace EvangelionERPV2.Test.Security
             userRepository
                 .Setup(r => r.GetByIdAsync(callerId))
                 .ThrowsAsync(new NotFoundDatabaseException());
+
+            // Creating with stock posts the opening count as a movement, so the ledger accounts for
+            // the whole balance. Strict mocks have to expect it.
+            productService
+                .Setup(s => s.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
+                    new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
 
             productService
                 .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
@@ -264,6 +283,15 @@ namespace EvangelionERPV2.Test.Security
                     EnterpriseId = enterpriseFromUser,
                     IsActive = true
                 });
+
+            // Creating with stock posts the opening count as a movement, so the ledger accounts for
+            // the whole balance. Strict mocks have to expect it.
+            productService
+                .Setup(s => s.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
+                    new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
 
             productService
                 .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
@@ -351,6 +379,67 @@ namespace EvangelionERPV2.Test.Security
                 EnterpriseId = enterpriseId,
                 IsActive = true
             };
+        }
+
+        [Fact]
+        public async Task AddProduct_PostsTheOpeningCountAsAStockMovement()
+        {
+            // Creation used to assign StorageQuantity directly, so a new product carried stock the
+            // ledger had no row for — and real drift was then indistinguishable from that gap.
+            var enterpriseId = Guid.NewGuid();
+            var callerId = Guid.NewGuid();
+            var productRepository = new Mock<IRepository<Product>>(MockBehavior.Strict);
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
+            var productService = new Mock<IProductService<Product>>(MockBehavior.Strict);
+            var mapper = CreateMapper();
+            decimal? quantityAtPersist = null;
+            decimal? movedQuantity = null;
+            EnumStockMovementType? movementType = null;
+
+            userRepository
+                .Setup(r => r.GetByIdAsync(callerId))
+                .ReturnsAsync(new User { Id = callerId, EnterpriseId = enterpriseId, IsActive = true });
+
+            productService
+                .Setup(s => s.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .Callback<Guid, Guid, decimal, EnumStockMovementType, Guid?, bool>(
+                    (_, _, delta, type, _, _) => { movedQuantity = delta; movementType = type; })
+                .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
+                    new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
+
+            productService
+                .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
+                // Read at persist time: the controller returns this same instance and then stamps
+                // BalanceAfter onto it, so the value has to be captured before that happens.
+                .Callback<ProductPicture>(payload => quantityAtPersist = payload.Product.StorageQuantity)
+                .ReturnsAsync((ProductPicture payload) =>
+                {
+                    payload.Product.Id = Guid.NewGuid();
+                    return payload.Product;
+                });
+
+            var controller = CreateController(
+                productService.Object, productRepository.Object, userRepository.Object, mapper.Object, enterpriseId, callerId);
+
+            var result = await controller.AddProduct(new CreateProductRequestDTO
+            {
+                Name = "Opening stock product",
+                Description = "Description",
+                DefaultValue = 10,
+                StorageQuantity = 12,
+                UnitOfMeasure = "unit",
+                IsExternal = false,
+                IsService = false,
+                File = "base64-placeholder"
+            });
+
+            Assert.IsType<OkObjectResult>(result);
+            // Persisted at zero, then moved: the ledger accounts for the whole balance.
+            Assert.Equal(0, quantityAtPersist);
+            Assert.Equal(12, movedQuantity);
+            Assert.Equal(EnumStockMovementType.Adjustment, movementType);
         }
     }
 }

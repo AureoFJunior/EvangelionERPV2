@@ -2,6 +2,7 @@ using AutoMapper;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using EvangelionERPV2.Web.FluentValidator;
@@ -28,6 +29,14 @@ namespace EvangelionERPV2.Test.Security
             ProductPicture? captured = null;
 
             var productService = new Mock<IProductService<Product>>();
+            // Creation posts the opening count through the ledger, so this has to answer.
+            productService
+                .Setup(s => s.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
+                    new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
+
             productService
                 .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
                 .Callback<ProductPicture>(payload => captured = payload)
@@ -87,6 +96,14 @@ namespace EvangelionERPV2.Test.Security
             ProductPicture? captured = null;
 
             var productService = new Mock<IProductService<Product>>();
+            // Creation posts the opening count through the ledger, so this has to answer.
+            productService
+                .Setup(s => s.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
+                    new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
+
             productService
                 .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
                 .Callback<ProductPicture>(payload => captured = payload)

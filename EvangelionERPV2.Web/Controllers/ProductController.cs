@@ -204,7 +204,11 @@ namespace EvangelionERPV2.Web.Controllers
                         // Not GetValueOrDefault: an omitted cost stays unknown. Defaulting it to
                         // zero would make every margin report claim a 100% margin on this product.
                         CostPrice = await CanReadCostAsync() ? normalizedRequest.CostPrice : null,
-                        StorageQuantity = normalizedRequest.StorageQuantity.GetValueOrDefault(),
+                        // Zero here on purpose: the opening count is posted below as a movement, so
+                        // the ledger explains the whole balance. Assigning it here left every new
+                        // product with stock the ledger could not account for, which is why real
+                        // drift was indistinguishable from a normal opening balance.
+                        StorageQuantity = 0,
                         UnitOfMeasure = normalizedRequest.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty,
                         IsExternal = normalizedRequest.IsExternal.GetValueOrDefault(),
                         IsService = normalizedRequest.IsService.GetValueOrDefault(),
@@ -220,6 +224,19 @@ namespace EvangelionERPV2.Web.Controllers
                 Product createdProduct = await _productService.CreateAsync(product);
                 if (createdProduct == null)
                     return NoContent();
+
+                var openingQuantity = normalizedRequest.StorageQuantity.GetValueOrDefault();
+                if (openingQuantity > 0)
+                {
+                    var opening = await _productService.ApplyStockMovementAsync(
+                        createdProduct.Id,
+                        enterpriseId.Value,
+                        openingQuantity,
+                        EnumStockMovementType.Adjustment,
+                        referenceId: null);
+
+                    createdProduct.StorageQuantity = opening.BalanceAfter;
+                }
 
                 return Ok(await ToProductDtoAsync(createdProduct));
             }
