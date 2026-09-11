@@ -187,6 +187,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.Notificatio
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.NotificationModule.Test", "EvangelionERPV2.NotificationModule.Test\EvangelionERPV2.NotificationModule.Test.csproj", "{E8E8C57A-BFE1-446D-89AB-042F6BB45C60}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EvangelionERPV2.Worker.Notification", "EvangelionERPV2.Worker.Notification\EvangelionERPV2.Worker.Notification.csproj", "{453D9078-53F8-41D3-BCD2-B599C7081052}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -929,6 +931,18 @@ Global
 		{E8E8C57A-BFE1-446D-89AB-042F6BB45C60}.Release|x64.Build.0 = Release|Any CPU
 		{E8E8C57A-BFE1-446D-89AB-042F6BB45C60}.Release|x86.ActiveCfg = Release|Any CPU
 		{E8E8C57A-BFE1-446D-89AB-042F6BB45C60}.Release|x86.Build.0 = Release|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Debug|x64.Build.0 = Debug|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Debug|x86.Build.0 = Debug|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Release|Any CPU.Build.0 = Release|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Release|x64.ActiveCfg = Release|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Release|x64.Build.0 = Release|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Release|x86.ActiveCfg = Release|Any CPU
+		{453D9078-53F8-41D3-BCD2-B599C7081052}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

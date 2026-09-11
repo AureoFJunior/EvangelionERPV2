@@ -68,7 +68,7 @@ if (-not $NoBuild) {
 }
 
 if ($WithWorkers) {
-    $upArgs += @("sqlserver", "evangelionerpv2", "nginx", "worker_order", "worker_email")
+    $upArgs += @("sqlserver", "evangelionerpv2", "nginx", "worker_order", "worker_email", "worker_notification")
 }
 elseif ($WithOrderWorker) {
     $upArgs += @("sqlserver", "evangelionerpv2", "nginx", "worker_order")

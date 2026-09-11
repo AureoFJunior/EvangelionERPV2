@@ -195,6 +195,44 @@ services:
       evangelionerpv2:
         condition: service_started
 
+  worker_notification:
+    profiles:
+      - workers
+    image: ${WORKER_NOTIFICATION_IMAGE:-aureofjunior/evangelionerpv2-worker-notification:latest}
+    user: "${CONTAINER_USER:-1654:1654}"
+    build:
+      context: .
+      dockerfile: EvangelionERPV2.Worker.Notification/Dockerfile
+      args:
+        APP_UID: "${APP_UID:-1654}"
+    container_name: evangelionerpv2_worker_notification
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      HttpConfig__DefaultApiUrl: http://evangelionerpv2:8080/api/v1
+      Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
+      SelfAPIAuth: ${EVA_WORKER_SELF_API_AUTH:-evangelion/prd/selfapilogin:log}
+      # Same Redis as the API: the sweep leases it so only one replica runs a pass.
+      RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: ${AWS_EC2_METADATA_DISABLED:-false}
+      AWS_SDK_LOAD_CONFIG: ${AWS_SDK_LOAD_CONFIG:-1}
+      HOME: ${CONTAINER_HOME:-/home/app}
+      AWS_SHARED_CREDENTIALS_FILE: ${AWS_SHARED_CREDENTIALS_FILE:-/home/app/.aws/credentials}
+      AWS_CONFIG_FILE: ${AWS_CONFIG_FILE:-/home/app/.aws/config}
+    volumes:
+      - type: bind
+        source: ${AWS_CREDENTIALS_DIR:-./.docker/aws}
+        target: /home/app/.aws
+        read_only: true
+    networks:
+      - custom_network
+    depends_on:
+      evangelionerpv2:
+        condition: service_started
+
 networks:
   custom_network:
     driver: bridge

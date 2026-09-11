@@ -28,7 +28,8 @@ This repository is organized as a modular monolith:
 - `EvangelionERPV2.Web` hosts the API layer
 - each business context has its own `Application`, `Domain`, and `Infra` projects
 - `EvangelionERPV2.Shared` contains cross-cutting concerns and shared entities
-- background jobs run in `EvangelionERPV2.Worker.Email` and `EvangelionERPV2.Worker.Order`
+- background jobs run in `EvangelionERPV2.Worker.Email`, `EvangelionERPV2.Worker.Order` and
+  `EvangelionERPV2.Worker.Notification`
 
 Main modules currently present:
 
@@ -199,10 +200,18 @@ docker compose --env-file .env.local --profile localdb --profile proxy up -d --b
 5. Optional: include workers:
 
 ```powershell
-docker compose --env-file .env.local --profile localdb --profile workers up -d --build sqlserver evangelionerpv2 worker_order worker_email
+docker compose --env-file .env.local --profile localdb --profile workers up -d --build sqlserver evangelionerpv2 worker_order worker_email worker_notification
 ```
 
 Workers are profile-based. They do not start unless you pass `--profile workers`.
+
+- `worker_order` and `worker_email` consume RabbitMQ queues and send the scheduled broadcasts.
+- `worker_notification` runs the notification sweep: every 15 minutes it logs in with `SelfAPIAuth`
+  and calls `POST Notification/SweepAlerts`, which recomputes each tenant's daily-panel alerts and
+  pushes `NotificationsChanged` on `/orderHub` only when the set of firing alerts changed. It talks
+  to the API over HTTP and to Redis for its lease — no database, no broker — so it is the one worker
+  that needs neither RabbitMQ nor SQL Server. Only one replica runs a pass at a time; the lease key
+  is `eva:lease:notification-sweep`.
 
 6. Optional: start only `nginx` + `worker_order` (without `worker_email`):
 
@@ -304,7 +313,7 @@ What it does:
 
 Optional flags:
 
-- `-WithWorkers` includes `worker_order` and `worker_email`
+- `-WithWorkers` includes `worker_order`, `worker_email` and `worker_notification`
 - `-WithOrderWorker` includes only `worker_order` (with `sqlserver + evangelionerpv2 + nginx`)
 - `-NoBuild` skips image build
 - `-SkipIdentityCheck` skips the AWS STS check
