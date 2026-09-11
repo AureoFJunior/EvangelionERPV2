@@ -18,6 +18,11 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(AiController), nameof(AiController.Transcribe), RbacPermissions.Ai.Chat)]
         [InlineData(typeof(AiController), nameof(AiController.ConfirmAction), RbacPermissions.Ai.Act)]
         [InlineData(typeof(AiController), nameof(AiController.RejectAction), RbacPermissions.Ai.Act)]
+        [InlineData(typeof(NotificationController), nameof(NotificationController.Feed), RbacPermissions.Notifications.Read)]
+        [InlineData(typeof(NotificationController), nameof(NotificationController.MarkRead), RbacPermissions.Notifications.Read)]
+        [InlineData(typeof(NotificationController), nameof(NotificationController.MarkAllRead), RbacPermissions.Notifications.Read)]
+        [InlineData(typeof(NotificationController), nameof(NotificationController.Broadcast), RbacPermissions.Notifications.Broadcast)]
+        [InlineData(typeof(NotificationController), nameof(NotificationController.RemoveBroadcast), RbacPermissions.Notifications.Broadcast)]
         [InlineData(typeof(AuditTrailController), nameof(AuditTrailController.GetAuditTrails), RbacPermissions.Audit.Read)]
         [InlineData(typeof(AuditTrailController), nameof(AuditTrailController.GetAuditTrailsByFilter), RbacPermissions.Audit.Read)]
         [InlineData(typeof(AuditTrailController), nameof(AuditTrailController.GetAuditTrail), RbacPermissions.Audit.Read)]
@@ -165,6 +170,7 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(EmailController), nameof(EmailController.SendMonthlyBillingBroadcast))]
         [InlineData(typeof(EmailController), nameof(EmailController.SendWeeklyStockBroadcast))]
         [InlineData(typeof(OrderController), nameof(OrderController.InsertQueuedOrder))]
+        [InlineData(typeof(NotificationController), nameof(NotificationController.SweepAlerts))]
         public void BroadcastEndpoints_DeclareSelfApiMachinePolicy(Type controllerType, string actionName)
         {
             var method = controllerType.GetMethods().Single(x => x.Name == actionName);

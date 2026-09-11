@@ -12,6 +12,9 @@ namespace EvangelionERPV2.Web.Security
             Ai.Chat,
             Ai.Act,
 
+            Notifications.Read,
+            Notifications.Broadcast,
+
             Audit.Read,
             Audit.CleanupRetention,
 
@@ -162,6 +165,23 @@ namespace EvangelionERPV2.Web.Security
             /// permission for it, and only after the caller confirms the card.
             /// </summary>
             public const string Act = "ai.act";
+        }
+
+        public static class Notifications
+        {
+            /// <summary>
+            /// Employee tier. The feed is the bell every user carries; its *contents* are filtered
+            /// per item against the caller's own permissions, so being allowed to open it grants
+            /// nothing the caller could not already read elsewhere.
+            /// </summary>
+            public const string Read = "notifications.read";
+
+            /// <summary>
+            /// Admin only, alongside payroll and the fiscal certificate. A broadcast is an
+            /// unsolicited message to everyone in the company, carrying the company's authority,
+            /// with no document to check it against and no approval step.
+            /// </summary>
+            public const string Broadcast = "notifications.broadcast";
         }
 
         public static class Audit

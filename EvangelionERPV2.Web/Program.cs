@@ -5,6 +5,7 @@ using EvangelionERPV2.AiModule.Application.DI;
 using EvangelionERPV2.AiModule.Application.Interface;
 using EvangelionERPV2.AuditModule.Application.DI;
 using EvangelionERPV2.BillsModule.Application.DI;
+using EvangelionERPV2.NotificationModule.Application.DI;
 using EvangelionERPV2.CustomerModule.Application.DI;
 using EvangelionERPV2.EmployeeModule.Application.DI;
 using EvangelionERPV2.EmailModule.Application.DI;
@@ -408,6 +409,7 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     ProductIoC.Configure(builder.Services, builder.Configuration);
     OrderIoC.Configure(builder.Services, builder.Configuration);
     BillsIoC.Configure(builder.Services, builder.Configuration);
+    NotificationIoC.Configure(builder.Services, builder.Configuration);
     NFeIoC.Configure(builder.Services, builder.Configuration);
     CustomerIoC.Configure(builder.Services, builder.Configuration);
     EmployeeIoC.Configure(builder.Services, builder.Configuration);

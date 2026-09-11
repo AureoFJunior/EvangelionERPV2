@@ -206,6 +206,12 @@ namespace EvangelionERPV2.Web.Security
             public const string Act = "rbac:ai.act";
         }
 
+        public static class Notifications
+        {
+            public const string Read = "rbac:notifications.read";
+            public const string Broadcast = "rbac:notifications.broadcast";
+        }
+
         public static class Audit
         {
             public const string Read = "rbac:audit.read";

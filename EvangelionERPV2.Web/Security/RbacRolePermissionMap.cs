@@ -24,6 +24,10 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Pdv.OpenSession,
             RbacPermissions.Pdv.CloseSession,
             RbacPermissions.Pdv.ApplyDiscount,
+
+            // The bell itself, not its contents: every item is filtered against the caller's own
+            // permissions before it is returned.
+            RbacPermissions.Notifications.Read,
         ];
 
         private static readonly string[] SupervisorPermissions =
