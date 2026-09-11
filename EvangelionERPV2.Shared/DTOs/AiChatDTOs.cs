@@ -24,6 +24,14 @@ namespace EvangelionERPV2.Shared.DTOs
         public IReadOnlyList<AiPendingActionDTO> PendingActions { get; set; } = Array.Empty<AiPendingActionDTO>();
     }
 
+    /// <summary>What was said. There is no audio in this type, and none is kept anywhere.</summary>
+    public class AiTranscriptDTO
+    {
+        public string Text { get; set; } = string.Empty;
+
+        public long LatencyMs { get; set; }
+    }
+
     public class AiPendingActionDTO
     {
         public Guid Id { get; set; }

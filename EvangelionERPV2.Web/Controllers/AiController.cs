@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Serilog;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text.Json;
 
@@ -25,6 +27,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         private readonly IAiAgentService _agentService;
         private readonly IAiPendingActionService _pendingActions;
+        private readonly IServiceProvider _services;
         private readonly IRepository<AiConversation> _conversations;
         private readonly IRepository<AiMessage> _messages;
         private readonly IRepository<User> _users;
@@ -33,6 +36,7 @@ namespace EvangelionERPV2.Web.Controllers
         public AiController(
             IAiAgentService agentService,
             IAiPendingActionService pendingActions,
+            IServiceProvider services,
             IRepository<AiConversation> conversations,
             IRepository<AiMessage> messages,
             IRepository<User> users,
@@ -40,6 +44,7 @@ namespace EvangelionERPV2.Web.Controllers
         {
             _agentService = agentService;
             _pendingActions = pendingActions;
+            _services = services;
             _conversations = conversations;
             _messages = messages;
             _users = users;
@@ -99,6 +104,77 @@ namespace EvangelionERPV2.Web.Controllers
             });
         }
 
+
+
+        /// <summary>
+        /// One spoken utterance in, its text out. The audio is read straight off the request body
+        /// and forwarded to the transcription server — it is never bound as an <c>IFormFile</c>,
+        /// because ASP.NET Core spools anything over 64 KB of a bound file to a temp file on disk,
+        /// and this feature's promise is that no recording is ever written down.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]
+        [HttpPost("transcribe")]
+        [ProducesResponseType(typeof(AiTranscriptDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<IActionResult> Transcribe(CancellationToken cancellation)
+        {
+            if (!_settings.Enabled || !_settings.SpeechEnabled)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "O modo de voz está desativado.");
+
+            if (!TryGetEnterpriseId(out _) || TryGetUserId() is null)
+                return Unauthorized();
+
+            var speech = _services.GetService<IAiSpeechService>();
+            if (speech is null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "O modo de voz está desativado.");
+
+            if (!MultipartRequestHelper.IsMultipart(Request.ContentType, out var boundary))
+                return BadRequest("Envie o áudio como multipart/form-data.");
+
+            var reader = new MultipartReader(boundary, Request.Body);
+            var section = await reader.ReadNextSectionAsync(cancellation);
+
+            while (section is not null)
+            {
+                if (ContentDispositionHeaderValue.TryParse(section.ContentDisposition, out var disposition)
+                    && disposition.DispositionType.Equals("form-data")
+                    && !string.IsNullOrEmpty(disposition.FileName.Value))
+                {
+                    // Bounded before anything is read: a client that ignores the cap cannot make the
+                    // server hold an arbitrary amount of audio in memory either.
+                    await using var bounded = new BoundedReadStream(section.Body, _settings.MaxAudioBytes);
+
+                    var result = await speech.TranscribeAsync(
+                        bounded,
+                        section.ContentType ?? "application/octet-stream",
+                        disposition.FileName.Value.Trim('"'),
+                        cancellation);
+
+                    if (bounded.ExceededLimit)
+                        return StatusCode(StatusCodes.Status413PayloadTooLarge, "Áudio longo demais.");
+
+                    if (!result.Success)
+                        return StatusCode(StatusCodes.Status503ServiceUnavailable, result.Error);
+
+                    // Bytes and duration, never content: the content is someone's voice.
+                    Log.Logger.Information(
+                        "Speech transcribed. Bytes={Bytes} LatencyMs={LatencyMs} HasSpeech={HasSpeech}",
+                        bounded.BytesRead, result.Transcript.LatencyMs, result.Transcript.HasSpeech);
+
+                    return Ok(new AiTranscriptDTO
+                    {
+                        Text = result.Transcript.Text,
+                        LatencyMs = result.Transcript.LatencyMs,
+                    });
+                }
+
+                section = await reader.ReadNextSectionAsync(cancellation);
+            }
+
+            return BadRequest("Nenhum áudio foi enviado.");
+        }
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]
         [HttpGet("conversations")]
