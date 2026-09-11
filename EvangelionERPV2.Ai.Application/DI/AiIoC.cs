@@ -59,17 +59,15 @@ namespace EvangelionERPV2.AiModule.Application.DI
                 new AiToolRegistry(sp.GetServices<IAiTool>()));
 
             // Speech has its own client and its own timeout: a 30 s transcription budget has nothing
-            // to do with a 120 s agent turn, and registering it only when enabled keeps a machine
-            // without a Whisper server from holding a pointless client.
-            if (configuration.GetSection("AiSettings").GetValue<bool>("SpeechEnabled"))
+            // to do with a 120 s agent turn. Registered unconditionally — the service itself refuses
+            // when SpeechEnabled is false, which is cheaper than making every caller ask the
+            // container whether the feature exists.
+            services.AddHttpClient<IAiSpeechService, AiSpeechService>((serviceProvider, client) =>
             {
-                services.AddHttpClient<IAiSpeechService, AiSpeechService>((serviceProvider, client) =>
-                {
-                    var settings = serviceProvider.GetRequiredService<IOptions<AiSettings>>().Value;
-                    client.BaseAddress = new Uri(settings.SpeechEndpoint);
-                    client.Timeout = TimeSpan.FromSeconds(Math.Max(5, settings.SpeechTimeoutSeconds));
-                });
-            }
+                var settings = serviceProvider.GetRequiredService<IOptions<AiSettings>>().Value;
+                client.BaseAddress = new Uri(settings.SpeechEndpoint);
+                client.Timeout = TimeSpan.FromSeconds(Math.Max(5, settings.SpeechTimeoutSeconds));
+            });
 
             services.AddScoped<IAiPendingActionService, AiPendingActionService>();
             services.AddScoped<IAiAgentService, AiAgentService>();

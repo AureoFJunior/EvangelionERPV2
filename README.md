@@ -202,6 +202,46 @@ If images are already built locally:
 docker compose --env-file .env.local --profile localdb --profile proxy --profile workers up -d --no-build sqlserver evangelionerpv2 nginx worker_order
 ```
 
+7. Optional: the assistant's voice mode (`whisper`):
+
+```powershell
+docker compose --env-file .env.local --profile localdb --profile voice up -d --build sqlserver evangelionerpv2 whisper
+```
+
+`whisper` is the speech-to-text service the agent uses to hear a question. Like the workers it is
+profile-based and does not start unless you pass `--profile voice`. It also needs
+`EVA_AI_SPEECH_ENABLED=true` in `.env.local`; without it the API answers `503` on
+`POST /api/v1/ai/transcribe` instead of hanging.
+
+Audio is transcribed in flight and never stored — the container has no volume for it, the API
+streams the upload straight through, and only the transcript is kept.
+
+Useful knobs (all optional, defaults in `docker-compose.yml`):
+
+| Variable | Default | What it does |
+|---|---|---|
+| `EVA_AI_SPEECH_ENABLED` | `false` | Turns the voice endpoint on |
+| `EVA_AI_SPEECH_MODEL` | `Systran/faster-whisper-small` | Whisper model to load |
+| `EVA_AI_SPEECH_DEVICE` | `cpu` | `cuda` to put it on the GPU |
+| `WHISPER_HOST_PORT` | `9000` | Host port for the transcription service |
+
+The agent's *answers* come from Ollama, which runs **natively on the host** rather than in Compose
+(the GPU is the point, and this avoids the NVIDIA container toolkit). It must be reachable from the
+API container, which means binding beyond loopback:
+
+```bash
+OLLAMA_HOST=0.0.0.0:11434 OLLAMA_MODELS=/path/to/models ollama serve
+```
+
+If `/api/v1/ai/chat` times out, check reachability before suspecting the model:
+
+```bash
+docker exec evangelionerpv2_web bash -c 'exec 3<>/dev/tcp/host.docker.internal/11434'
+```
+
+A hang there is the host firewall (allow the docker bridge to `11434`); *connection refused* means
+Ollama is not running.
+
 ### Shortcut scripts (PowerShell)
 
 From repository root:

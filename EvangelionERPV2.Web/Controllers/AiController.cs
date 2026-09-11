@@ -28,7 +28,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         private readonly IAiAgentService _agentService;
         private readonly IAiPendingActionService _pendingActions;
-        private readonly IServiceProvider _services;
+        private readonly IAiSpeechService _speech;
         private readonly IRepository<AiConversation> _conversations;
         private readonly IRepository<AiMessage> _messages;
         private readonly IRepository<User> _users;
@@ -37,7 +37,7 @@ namespace EvangelionERPV2.Web.Controllers
         public AiController(
             IAiAgentService agentService,
             IAiPendingActionService pendingActions,
-            IServiceProvider services,
+            IAiSpeechService speech,
             IRepository<AiConversation> conversations,
             IRepository<AiMessage> messages,
             IRepository<User> users,
@@ -45,7 +45,7 @@ namespace EvangelionERPV2.Web.Controllers
         {
             _agentService = agentService;
             _pendingActions = pendingActions;
-            _services = services;
+            _speech = speech;
             _conversations = conversations;
             _messages = messages;
             _users = users;
@@ -134,9 +134,10 @@ namespace EvangelionERPV2.Web.Controllers
             if (!TryGetEnterpriseId(out _) || TryGetUserId() is null)
                 return Unauthorized();
 
-            var speech = _services.GetService<IAiSpeechService>();
-            if (speech is null)
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "O modo de voz está desativado.");
+            // Finding: an oversized clip used to be streamed to Whisper and only then refused, so the
+            // server paid for a transcription it was going to throw away.
+            if (Request.ContentLength > _settings.MaxAudioBytes)
+                return StatusCode(StatusCodes.Status413PayloadTooLarge, "Áudio longo demais.");
 
             if (!MultipartRequestHelper.IsMultipart(Request.ContentType, out var boundary))
                 return BadRequest("Envie o áudio como multipart/form-data.");
@@ -154,7 +155,7 @@ namespace EvangelionERPV2.Web.Controllers
                     // server hold an arbitrary amount of audio in memory either.
                     await using var bounded = new BoundedReadStream(section.Body, _settings.MaxAudioBytes);
 
-                    var result = await speech.TranscribeAsync(
+                    var result = await _speech.TranscribeAsync(
                         bounded,
                         section.ContentType ?? "application/octet-stream",
                         disposition.FileName.Value.Trim('"'),

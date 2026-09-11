@@ -194,7 +194,7 @@ namespace EvangelionERPV2.Test.Security
             var controller = new AiController(
                 _agentServiceMock.Object,
                 Mock.Of<IAiPendingActionService>(),
-                Mock.Of<IServiceProvider>(),
+                Mock.Of<IAiSpeechService>(),
                 _conversationsMock.Object,
                 Mock.Of<IRepository<AiMessage>>(),
                 _usersMock.Object,
