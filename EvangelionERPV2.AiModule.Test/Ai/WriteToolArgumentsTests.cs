@@ -226,6 +226,60 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Contains("mais de um produto começa com", prepared.Error);
         }
 
+
+        [Fact]
+        public async Task AtualizarProduto_AcceptsAWholeGuidThatPointsAtALiveProduct()
+        {
+            var id = Guid.NewGuid();
+            var tool = new AtualizarProdutoTool(
+                Mock.Of<IProductService<Product>>(), ProductsNamed((id, "Monster Rosa")));
+
+            var prepared = await tool.PrepareAsync(
+                new Dictionary<string, object?> { ["produtoId"] = id.ToString(), ["preco"] = 15m }, Context);
+
+            Assert.Null(prepared.Error);
+            Assert.Equal(id.ToString(), prepared.Arguments["produtoId"]);
+        }
+
+        [Fact]
+        public async Task AtualizarProduto_RefusesAWholeGuidForAProductThatIsNotLive()
+        {
+            // A soft-deleted product took this path all the way to a confirmation card and then
+            // failed at execution, because ApplyStockMovementAsync only updates WHERE IsActive = 1.
+            var tool = new AtualizarProdutoTool(
+                Mock.Of<IProductService<Product>>(), ProductsNamed());
+
+            var prepared = await tool.PrepareAsync(
+                new Dictionary<string, object?> { ["produtoId"] = Guid.NewGuid().ToString(), ["preco"] = 15m }, Context);
+
+            Assert.NotNull(prepared.Error);
+            Assert.Contains("nenhum produto ativo", prepared.Error);
+        }
+
+        [Fact]
+        public async Task AjustarEstoque_RefusesAWholeGuidForAProductThatIsNotLive()
+        {
+            var tool = new AjustarEstoqueTool(Mock.Of<IProductService<Product>>(), ProductsNamed());
+
+            var prepared = await tool.PrepareAsync(
+                new Dictionary<string, object?> { ["produtoId"] = Guid.NewGuid().ToString(), ["novoEstoque"] = 15m },
+                Context);
+
+            Assert.Contains("nenhum produto ativo", prepared.Error);
+        }
+
+        [Fact]
+        public async Task AtualizarCliente_RefusesAWholeGuidForACustomerThatIsNotLive()
+        {
+            var tool = new AtualizarClienteTool(Mock.Of<ICustomerService<Customer>>(), CustomersNamed());
+
+            var prepared = await tool.PrepareAsync(
+                new Dictionary<string, object?> { ["clienteId"] = Guid.NewGuid().ToString(), ["telefone"] = "51999998888" },
+                Context);
+
+            Assert.Contains("nenhum cliente ativo", prepared.Error);
+        }
+
         private static IRepository<Product> ProductsNamed(params (Guid Id, string Name)[] rows)
         {
             var repository = new Mock<IRepository<Product>>();

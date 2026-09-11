@@ -69,6 +69,10 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (customer is null || customer.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"cliente não encontrado nesta empresa\"}";
 
+                // See AtualizarProdutoTool: re-checked because the card outlives the proposal.
+                if (customer.IsActive != true)
+                    return "{\"erro\":\"este cliente está inativo e não pode ser alterado\"}";
+
                 var changed = false;
 
                 if (!string.IsNullOrWhiteSpace(telefone) && customer.PhoneNumber != telefone.Trim())

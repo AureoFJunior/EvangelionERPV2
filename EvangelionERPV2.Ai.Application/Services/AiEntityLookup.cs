@@ -38,7 +38,9 @@ namespace EvangelionERPV2.AiModule.Application.Services
                         1,
                         PrefixScanCap))).Items
                     .Select(x => (x.Id, x.Name))
-                    .ToList());
+                    .ToList(),
+                async id => (await AiQuery.OrEmptyAsync(() => repository.GetAllAsync(
+                        x => x.Id == id && x.EnterpriseId == enterpriseId && x.IsActive == true))).Count > 0);
 
         public static Task<AiLookupResult> CustomerAsync(
             IRepository<Customer> repository, string value, Guid enterpriseId) =>
@@ -58,7 +60,9 @@ namespace EvangelionERPV2.AiModule.Application.Services
                         1,
                         PrefixScanCap))).Items
                     .Select(x => (x.Id, x.Name))
-                    .ToList());
+                    .ToList(),
+                async id => (await AiQuery.OrEmptyAsync(() => repository.GetAllAsync(
+                        x => x.Id == id && x.EnterpriseId == enterpriseId && x.IsActive == true))).Count > 0);
 
         private static bool LooksLikeIdFragment(string text) =>
             text.Length >= MinimumPrefix
@@ -69,16 +73,23 @@ namespace EvangelionERPV2.AiModule.Application.Services
             string noun,
             string searchTool,
             Func<string, Task<List<(Guid Id, string Name)>>> search,
-            Func<Task<List<(Guid Id, string Name)>>> page)
+            Func<Task<List<(Guid Id, string Name)>>> page,
+            Func<Guid, Task<bool>> exists)
         {
             var text = (value ?? string.Empty).Trim();
 
             if (text.Length == 0)
                 return AiLookupResult.Failed($"informe o {noun}: o id completo ou o nome.");
 
-            // A whole GUID is taken as read; the tool checks that it exists when it runs.
+            // A whole GUID still has to point at a live row in this tenant. Taking it on trust let a
+            // soft-deleted product become a confirmation card that could only fail at execution:
+            // ApplyStockMovementAsync updates WHERE IsActive = 1, so the write matched nothing.
             if (Guid.TryParse(text, out var id) && id != Guid.Empty)
-                return AiLookupResult.Found(id);
+            {
+                return await exists(id)
+                    ? AiLookupResult.Found(id)
+                    : AiLookupResult.Failed($"nenhum {noun} ativo com esse id. Use {searchTool} para achar o correto.");
+            }
 
             // The model truncates ids as often as it sends names — "5ecc3fd5" for a whole GUID —
             // and that fragment matches no name, so it gets its own lookup.
