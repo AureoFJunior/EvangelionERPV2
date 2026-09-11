@@ -148,6 +148,22 @@ namespace EvangelionERPV2.Shared.Context
                 .HasForeignKey(log => log.EnterpriseId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Cascade down the tenant (retiring a company takes its broadcasts and their read rows
+            // with it), Restrict on both author and reader. Cascading from User as well would give
+            // SQL Server two paths into NotificationRead — User → NotificationRead directly, and
+            // User → Notification → NotificationRead — which it rejects outright at create time.
+            modelBuilder.Entity<Notification>()
+                .HasOne(notification => notification.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(notification => notification.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<NotificationRead>()
+                .HasOne(read => read.User)
+                .WithMany()
+                .HasForeignKey(read => read.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             modelBuilder.Entity<Email>()
                 .HasOne(email => email.Enterprise)
                 .WithMany()

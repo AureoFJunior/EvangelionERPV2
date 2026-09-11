@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EvangelionERPV2.Shared.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260911175714_AddNotification")]
+    [Migration("20260911180358_AddNotification")]
     partial class AddNotification
     {
         /// <inheritdoc />
@@ -3348,7 +3348,7 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasOne("EvangelionERPV2.Shared.Entities.User", "CreatedByUser")
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
@@ -3373,7 +3373,7 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Notification");

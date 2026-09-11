@@ -3345,7 +3345,7 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasOne("EvangelionERPV2.Shared.Entities.User", "CreatedByUser")
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("EvangelionERPV2.Shared.Entities.Enterprise", "Enterprise")
@@ -3370,7 +3370,7 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Notification");
