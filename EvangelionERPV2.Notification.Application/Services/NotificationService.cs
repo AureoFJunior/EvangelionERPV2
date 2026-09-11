@@ -63,7 +63,7 @@ namespace EvangelionERPV2.NotificationModule.Application.Services
             };
         }
 
-        public async Task<(IReadOnlyList<NotificationItemDTO> Alerts, string Fingerprint)> GetAlertsAsync(
+        public async Task<(IReadOnlyList<NotificationItemDTO> Alerts, string? Fingerprint)> GetAlertsAsync(
             Guid enterpriseId, CancellationToken cancellation = default)
         {
             try
@@ -84,7 +84,9 @@ namespace EvangelionERPV2.NotificationModule.Application.Services
                 Log.Logger.Error(
                     "Notification alerts unavailable. ErrorType={ErrorType}", ex.GetType().Name);
 
-                return (Array.Empty<NotificationItemDTO>(), string.Empty);
+                // Null, not empty: a panel that failed must not read as "the alerts cleared", which
+                // would push every browser in the company a change that did not happen.
+                return (Array.Empty<NotificationItemDTO>(), null);
             }
         }
 

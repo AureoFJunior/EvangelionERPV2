@@ -195,6 +195,13 @@ namespace EvangelionERPV2.Web.Controllers
                 try
                 {
                     var (_, fingerprint) = await _notificationService.GetAlertsAsync(enterprise.Id, cancellation);
+
+                    if (fingerprint is null)
+                    {
+                        result.EnterprisesFailed++;
+                        continue;
+                    }
+
                     var hash = Hash(fingerprint);
                     var key = AlertHashKeyPrefix + enterprise.Id;
 

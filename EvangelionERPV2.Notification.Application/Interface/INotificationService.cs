@@ -33,7 +33,11 @@ namespace EvangelionERPV2.NotificationModule.Application.Interface
         /// The alerts firing for one tenant, and their fingerprint. Used by the sweep to decide
         /// whether anything changed since last time.
         /// </summary>
-        Task<(IReadOnlyList<NotificationItemDTO> Alerts, string Fingerprint)> GetAlertsAsync(
+        /// <returns>
+        /// A null fingerprint means the panel could not be computed — which is not the same fact as
+        /// "no alerts are firing", and the sweep must not read it as the alerts having cleared.
+        /// </returns>
+        Task<(IReadOnlyList<NotificationItemDTO> Alerts, string? Fingerprint)> GetAlertsAsync(
             Guid enterpriseId, CancellationToken cancellation = default);
     }
 }

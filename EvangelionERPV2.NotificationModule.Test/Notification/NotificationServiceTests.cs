@@ -162,6 +162,33 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
         }
 
         [Fact]
+        public async Task APanelThatCannotBeComputed_ReadsAsUnknown_NotAsAlertsCleared()
+        {
+            var world = new World();
+            world.PanelService
+                .Setup(x => x.GetTodayAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("panel down"));
+
+            var (alerts, fingerprint) = await world.Service.GetAlertsAsync(Tenant);
+
+            // The sweep skips a null fingerprint. An empty one would mean "nothing is firing" and
+            // would push every browser in the company a change that never happened.
+            Assert.Empty(alerts);
+            Assert.Null(fingerprint);
+        }
+
+        [Fact]
+        public async Task AQuietTenant_HasAFingerprint_JustAnEmptyOne()
+        {
+            var world = new World();
+
+            var (alerts, fingerprint) = await world.Service.GetAlertsAsync(Tenant);
+
+            Assert.Empty(alerts);
+            Assert.Equal(string.Empty, fingerprint);
+        }
+
+        [Fact]
         public async Task AnEmptyTableThrowing_ReadsAsAnEmptyFeed()
         {
             var world = new World();
