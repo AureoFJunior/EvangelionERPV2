@@ -26,7 +26,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             Assert.Equal("Bom dia. Em que posso ajudar?", result.Text);
             Assert.Empty(result.ToolsCalled);
-            chat.Verify(x => x.GetResponseAsync(
+            chat.Verify(x => x.GetStreamingResponseAsync(
                 It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()),
                 Times.Once);
         }
@@ -35,10 +35,10 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         public async Task ATurnThatCallsATool_RunsItThenAnswers()
         {
             var chat = new Mock<IChatClient>();
-            chat.SetupSequence(x => x.GetResponseAsync(
+            chat.SetupSequence(x => x.GetStreamingResponseAsync(
                     It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(ToolCall("c1", "ferramenta_ok"))
-                .ReturnsAsync(Text("Você tem 12 unidades."));
+                .Returns(Stream(ToolCall("c1", "ferramenta_ok")))
+                .Returns(Stream(Text("Você tem 12 unidades.")));
 
             var service = BuildService(chat.Object, OneToolNamed("ferramenta_ok", () => "{\"total\":1}"));
 
@@ -56,7 +56,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             var result = await service.RunTurnAsync(Request("loop"), CancellationToken.None);
 
-            chat.Verify(x => x.GetResponseAsync(
+            chat.Verify(x => x.GetStreamingResponseAsync(
                 It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()),
                 Times.Exactly(3));
             Assert.Contains("não consegui", result.Text, StringComparison.OrdinalIgnoreCase);
@@ -66,10 +66,10 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         public async Task AToolThatThrows_BecomesAToolResultRatherThanAFailedTurn()
         {
             var chat = new Mock<IChatClient>();
-            chat.SetupSequence(x => x.GetResponseAsync(
+            chat.SetupSequence(x => x.GetStreamingResponseAsync(
                     It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(ToolCall("c1", "ferramenta_ruim"))
-                .ReturnsAsync(Text("Não consegui consultar isso agora."));
+                .Returns(Stream(ToolCall("c1", "ferramenta_ruim")))
+                .Returns(Stream(Text("Não consegui consultar isso agora.")));
 
             var service = BuildService(
                 chat.Object,
@@ -98,10 +98,10 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         {
             var chat = ChatReturning(Text("Olá."));
             List<ChatMessage>? sent = null;
-            chat.Setup(x => x.GetResponseAsync(
+            chat.Setup(x => x.GetStreamingResponseAsync(
                     It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
                 .Callback<IEnumerable<ChatMessage>, ChatOptions?, CancellationToken>((m, _, _) => sent = m.ToList())
-                .ReturnsAsync(Text("Olá."));
+                .Returns(Stream(Text("Olá.")));
 
             var result = await BuildService(chat.Object, NoTools()).RunTurnAsync(Request("oi"), CancellationToken.None);
 
@@ -245,10 +245,10 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             notifier.Setup(x => x.DoneAsync(It.IsAny<Guid>(), It.IsAny<Guid>())).ThrowsAsync(new InvalidOperationException("hub down"));
 
             var chat = new Mock<IChatClient>();
-            chat.SetupSequence(x => x.GetResponseAsync(
+            chat.SetupSequence(x => x.GetStreamingResponseAsync(
                     It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(ToolCall("c1", "ferramenta_ok"))
-                .ReturnsAsync(Text("Você tem 12 unidades."));
+                .Returns(Stream(ToolCall("c1", "ferramenta_ok")))
+                .Returns(Stream(Text("Você tem 12 unidades.")));
 
             var service = BuildService(chat.Object, OneToolNamed("ferramenta_ok", () => "{}"), notifier: notifier.Object);
 
@@ -263,10 +263,10 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         {
             var ran = false;
             var chat = new Mock<IChatClient>();
-            chat.SetupSequence(x => x.GetResponseAsync(
+            chat.SetupSequence(x => x.GetStreamingResponseAsync(
                     It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(ToolCall("c1", "criar_cliente"))
-                .ReturnsAsync(Text("Precisa confirmar na tela."));
+                .Returns(Stream(ToolCall("c1", "criar_cliente")))
+                .Returns(Stream(Text("Precisa confirmar na tela.")));
 
             var registry = new Mock<IAiToolRegistry>();
             registry.Setup(x => x.Build(It.IsAny<IReadOnlySet<string>>(), It.IsAny<AiToolContext>()))
@@ -296,10 +296,10 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         public async Task AWriteWithUnusableArguments_IsCorrectedInsteadOfBecomingACard()
         {
             var chat = new Mock<IChatClient>();
-            chat.SetupSequence(x => x.GetResponseAsync(
+            chat.SetupSequence(x => x.GetStreamingResponseAsync(
                     It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(ToolCall("c1", "atualizar_produto"))
-                .ReturnsAsync(Text("Preciso do id completo."));
+                .Returns(Stream(ToolCall("c1", "atualizar_produto")))
+                .Returns(Stream(Text("Preciso do id completo.")));
 
             var tool = new Mock<IAiTool>();
             tool.SetupGet(x => x.Name).Returns("atualizar_produto");
@@ -341,6 +341,71 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             return tool.Object;
         }
 
+
+        [Fact]
+        public async Task TheAnswerArrivesInPieces_WhileItIsStillBeingWritten()
+        {
+            // Voice mode speaks each piece as it lands. If the whole answer only shows up at the
+            // end, the first spoken word waits for the last generated one.
+            var chunks = new List<string>();
+            var notifier = new Mock<IAiProgressNotifier>();
+            notifier.Setup(x => x.ChunkAsync(It.IsAny<Guid>(), It.IsAny<string>()))
+                .Callback<Guid, string>((_, chunk) => chunks.Add(chunk))
+                .Returns(Task.CompletedTask);
+
+            var chat = new Mock<IChatClient>();
+            chat.Setup(x => x.GetStreamingResponseAsync(
+                    It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+                .Returns(() => Pieces("Você tem ", "nove mil ", "duzentos e vinte e seis reais."));
+
+            var result = await BuildService(chat.Object, NoTools(), notifier: notifier.Object)
+                .RunTurnAsync(Request("quanto tenho a receber?"), CancellationToken.None);
+
+            Assert.Equal("Você tem nove mil duzentos e vinte e seis reais.", result.Text);
+            Assert.Equal(3, chunks.Count);
+            Assert.Equal("Você tem ", chunks[0]);
+        }
+
+        [Fact]
+        public async Task AModelsThinkingNeverReachesTheClient()
+        {
+            // qwen3 streams its reasoning in a separate field. It is not the answer, and a speaker
+            // reading it aloud would be worse than useless.
+            var chunks = new List<string>();
+            var notifier = new Mock<IAiProgressNotifier>();
+            notifier.Setup(x => x.ChunkAsync(It.IsAny<Guid>(), It.IsAny<string>()))
+                .Callback<Guid, string>((_, chunk) => chunks.Add(chunk))
+                .Returns(Task.CompletedTask);
+
+            var chat = new Mock<IChatClient>();
+            chat.Setup(x => x.GetStreamingResponseAsync(
+                    It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+                .Returns(() => WithThinking("O usuário quer saber o total", "Você tem dois produtos."));
+
+            var result = await BuildService(chat.Object, NoTools(), notifier: notifier.Object)
+                .RunTurnAsync(Request("quantos produtos?"), CancellationToken.None);
+
+            Assert.DoesNotContain(chunks, chunk => chunk.Contains("usuário quer saber"));
+            Assert.Contains("dois produtos", result.Text);
+        }
+
+        private static async IAsyncEnumerable<ChatResponseUpdate> Pieces(params string[] parts)
+        {
+            foreach (var part in parts)
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, part);
+                await Task.Yield();
+            }
+        }
+
+        private static async IAsyncEnumerable<ChatResponseUpdate> WithThinking(string thinking, string answer)
+        {
+            // Anything that is not TextContent is not the answer.
+            yield return new ChatResponseUpdate(ChatRole.Assistant, new AIContent[] { new TextReasoningContent(thinking) });
+            await Task.Yield();
+            yield return new ChatResponseUpdate(ChatRole.Assistant, answer);
+        }
+
         private static AiTurnRequest Request(string text) =>
             new(ConversationId, text, new HashSet<string> { "products.read" }, new AiToolContext(Tenant, Guid.NewGuid()));
 
@@ -354,10 +419,31 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         private static Mock<IChatClient> ChatReturning(ChatResponse response)
         {
             var chat = new Mock<IChatClient>();
-            chat.Setup(x => x.GetResponseAsync(
+            chat.Setup(x => x.GetStreamingResponseAsync(
                     It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(response);
+                .Returns(() => Stream(response));
             return chat;
+        }
+
+        /// <summary>
+        /// The turn streams every iteration, so a stubbed client has to answer in updates. Folding a
+        /// whole <see cref="ChatResponse"/> back into updates keeps these tests written in terms of
+        /// the answer rather than the transport.
+        /// </summary>
+        private static async IAsyncEnumerable<ChatResponseUpdate> Stream(ChatResponse response)
+        {
+            foreach (var update in response.ToChatResponseUpdates())
+            {
+                yield return update;
+                await Task.Yield();
+            }
+        }
+
+        private static async IAsyncEnumerable<ChatResponseUpdate> NeverEnds(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token = default)
+        {
+            await Task.Delay(Timeout.Infinite, token);
+            yield break;
         }
 
         private static IAiToolRegistry NoTools()
@@ -421,13 +507,9 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         private static Mock<IChatClient> ChatThatNeverAnswers()
         {
             var chat = new Mock<IChatClient>();
-            chat.Setup(x => x.GetResponseAsync(
+            chat.Setup(x => x.GetStreamingResponseAsync(
                     It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
-                .Returns(async (IEnumerable<ChatMessage> _, ChatOptions? _, CancellationToken token) =>
-                {
-                    await Task.Delay(Timeout.Infinite, token);
-                    return Text("nunca");
-                });
+                .Returns((IEnumerable<ChatMessage> _, ChatOptions? _, CancellationToken token) => NeverEnds(token));
             return chat;
         }
     }

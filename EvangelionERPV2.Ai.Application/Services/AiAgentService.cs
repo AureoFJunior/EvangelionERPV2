@@ -74,14 +74,19 @@ namespace EvangelionERPV2.AiModule.Application.Services
             if (_settings.TimeoutSeconds > 0)
                 budget.CancelAfter(TimeSpan.FromSeconds(_settings.TimeoutSeconds));
 
-            async Task<AiTurnResult> FinishAsync(string text)
+            async Task<AiTurnResult> FinishAsync(string text, bool alreadyStreamed = false)
             {
                 stopwatch.Stop();
                 await PersistAsync(request.ConversationId, AiMessageRole.Assistant, text,
                     toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
 
-                foreach (var chunk in AiTextChunker.Split(text))
-                    await NotifyAsync(() => _notifier.ChunkAsync(request.Context.UserId, chunk));
+                // A streamed answer already reached the client word by word. Only text produced
+                // here — a timeout notice, a give-up line — still needs pushing.
+                if (!alreadyStreamed)
+                {
+                    foreach (var chunk in AiTextChunker.Split(text))
+                        await NotifyAsync(() => _notifier.ChunkAsync(request.Context.UserId, chunk));
+                }
 
                 return new AiTurnResult(text, toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds, proposals);
             }
@@ -90,7 +95,28 @@ namespace EvangelionERPV2.AiModule.Application.Services
             {
                 for (var iteration = 0; iteration < _settings.MaxToolIterations; iteration++)
                 {
-                    var response = await _chatClient.GetResponseAsync(messages, options, budget.Token);
+                    // Streamed, every iteration, single pass. Ollama 0.34 emits tool calls inside a
+                    // streamed response, so there is no need to choose between streaming and tools
+                    // — and no need to re-issue the final turn a second time just to stream it,
+                    // which would have paid for the answer twice.
+                    var updates = new List<ChatResponseUpdate>();
+                    var streamedText = false;
+
+                    await foreach (var update in _chatClient.GetStreamingResponseAsync(messages, options, budget.Token))
+                    {
+                        updates.Add(update);
+
+                        // Only the answer. A reasoning model's thinking is not content and must not
+                        // reach the screen, let alone a speaker.
+                        var delta = string.Concat(update.Contents.OfType<TextContent>().Select(part => part.Text));
+                        if (string.IsNullOrEmpty(delta))
+                            continue;
+
+                        streamedText = true;
+                        await NotifyAsync(() => _notifier.ChunkAsync(request.Context.UserId, delta));
+                    }
+
+                    var response = updates.ToChatResponse();
 
                     promptTokens += (int)(response.Usage?.InputTokenCount ?? 0);
                     completionTokens += (int)(response.Usage?.OutputTokenCount ?? 0);
@@ -103,7 +129,7 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     messages.AddMessages(response);
 
                     if (calls.Count == 0)
-                        return await FinishAsync(response.Text ?? string.Empty);
+                        return await FinishAsync(response.Text ?? string.Empty, streamedText);
 
                     var results = new List<AIContent>();
                     foreach (var call in calls)
