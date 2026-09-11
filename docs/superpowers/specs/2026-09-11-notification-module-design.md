@@ -249,7 +249,7 @@ language of the panel this mirrors.
 | `MarkAllRead` | POST | `notifications.read` | One read row per unread broadcast, in a single transaction |
 | `Broadcast` | POST | `notifications.broadcast` | Creates the row, pushes `NotificationsChanged` |
 | `Broadcast` | DELETE `{id}` | `notifications.broadcast` | Soft delete, pushes `NotificationsChanged` |
-| `SweepAlerts` | POST | `notifications.sweep` | Worker-facing; walks tenants and pushes where the alert set changed |
+| `SweepAlerts` | POST | `machine:self-api-broadcast` | Worker-facing; recomputes alerts and pushes where the set changed |
 
 ### DTOs
 
@@ -318,17 +318,27 @@ public static class Notifications
     // is exactly why it does not belong at Manager.
     public const string Broadcast = "notifications.broadcast";
 
-    // Admin only, and reached only by the worker's SelfAPIAuth identity. It computes
-    // every tenant's panel in one call, so it is the one endpoint here that crosses the
-    // tenant boundary by design.
-    public const string Sweep = "notifications.sweep";
 }
 ```
 
-All three are listed in `RbacPermissions.All`, which is the master list and also the
-Admin role's permission set. `Notifications.Read` is additionally appended to
+> **Built differently.** `notifications.sweep` was dropped. `SweepAlerts` carries
+> `RbacPolicies.Machine.SelfApiBroadcast` instead — the same gate the weekly stock and
+> monthly billing broadcasts already use, which is what actually confines the endpoint to
+> the worker's credential. A third permission that no policy evaluated would have been
+> decoration. The concern it existed for is still covered: posting a broadcast needs
+> `notifications.broadcast`, which the machine claim does not grant.
+>
+> **Also built differently.** The sweep runs inside a request, so
+> `AppDbContext.AmbientEnterpriseId` is the worker's own tenant and the tenant query filter
+> still applies — it sweeps the tenant the worker logged in as, exactly like
+> `SendWeeklyStockBroadcast` does today. Reaching every tenant means letting that filter
+> stand down for `self_api` tokens, which changes the isolation rule for three existing
+> endpoints too and belongs in its own commit with its own tests.
+
+Both remaining permissions are listed in `RbacPermissions.All`, which is the master list and also the
+Admin role's permission set. `Notifications.Read` is appended to
 `EmployeePermissions`, so Supervisor and Manager inherit it through the existing
-`..EmployeePermissions` spread. `Broadcast` and `Sweep` appear in no role array, which
+`..EmployeePermissions` spread. `Broadcast` appears in no role array, which
 is what leaves them reachable only through `All` — Admin.
 
 Three further points:
@@ -345,7 +355,8 @@ Three further points:
   communication authored by an admin, not data about a person. Auto alerts are counts
   and amounts, identical in kind to what `DashboardController.Today` already returns.
 
-New `[InlineData]` rows in `RbacControllerPolicyCoverageTests` for all six actions.
+New `[InlineData]` rows in `RbacControllerPolicyCoverageTests`: five in the permission
+theory, and `SweepAlerts` in `BroadcastEndpoints_DeclareSelfApiMachinePolicy`.
 
 ## Worker
 
@@ -387,7 +398,8 @@ For each active enterprise:
    tenant's group.
 
 **No database writes.** A tenant whose alert set has not changed since the last sweep
-costs one panel read and one Redis get.
+costs one panel read and one Redis get. "Each active enterprise" is what the tenant query
+filter lets the request see — see the RBAC note above.
 
 ```
 // ponytail: sequential per-tenant loop and a 15-minute floor. At ~50 tenants that is
@@ -452,7 +464,8 @@ test projects.
 - a failing pass releases the lease
 
 **Security:**
-- the six new `[InlineData]` rows in `RbacControllerPolicyCoverageTests`
+- the six new `[InlineData]` rows in `RbacControllerPolicyCoverageTests` (five permission
+  rows plus the machine-policy row for `SweepAlerts`)
 - a test asserting `NotificationItemDTO.RequiredPermission` is `[JsonIgnore]`, so a
   refactor cannot start serialising the permission gate to the client
 
