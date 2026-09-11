@@ -37,15 +37,31 @@ Two reasons, not one:
 |---|---|---|
 | `Enabled` | `false` | Off until turned on, same pattern as `OpportunityRadarSettings`. `POST /api/v1/ai/chat` answers 503 while it's off |
 | `Endpoint` | `http://localhost:11434` | From inside the container this is `http://host.docker.internal:11434` |
-| `Model` | `qwen3:14b` | See "Which model" below — undecided pending the ten-prompt run |
+| `Model` | `qwen3:14b` | Decided by the ten-prompt run below |
 | `MaxToolIterations` | `6` | Caps how many tool-call rounds one turn may take, so a model stuck in a loop fails fast instead of timing out |
 | `TimeoutSeconds` | `120` | Budget for the whole turn, tool rounds included. Enforced in `AiAgentService`; overrunning it ends the turn with a pt-BR message, not a 500. A non-positive value disables the budget (no time limit). |
 | `MessageRetentionDays` | `90` | Recorded for LGPD purposes; the sweep that enforces it is not built in Rung 1 |
+| `PendingActionTtlMinutes` | `30` | How long a proposed write stays confirmable. A card confirmed long after it was made is reasoning about a state that may no longer exist |
+| `PendingActionSweepIntervalMinutes` | `10` | How often past-TTL proposals are marked Expired. Bookkeeping only — confirm refuses them regardless |
 | `ApiKey` | `null` | Unused with Ollama. Exists so pointing this module at a hosted provider is a config change, not a config-*shape* change |
 
-`docker-compose.yml`'s `evangelionerpv2` service maps three env vars onto these keys:
+Voice adds a second group, all off unless `SpeechEnabled`:
+
+| Key | Default | Notes |
+|---|---|---|
+| `SpeechEnabled` | `false` | `POST /api/v1/ai/transcribe` answers 503 while it's off |
+| `SpeechEndpoint` | `http://localhost:9000` | From inside the container this is `http://whisper:8000` |
+| `SpeechModel` | `small` | Compose passes `Systran/faster-whisper-small` |
+| `SpeechLanguage` | `pt` | Handed to Whisper. Guessing costs accuracy on short clips |
+| `SpeechTimeoutSeconds` | `30` | Its own budget — transcription has nothing to do with a 120 s agent turn |
+| `MaxAudioSeconds` | `60` | Cap on one utterance; the client cuts the recording at the same number |
+| `MaxAudioBytes` | `5 MB` | Backstop on the upload. Also hardcoded as the endpoint's `[RequestSizeLimit]`, because an attribute needs a constant — raising one without the other does nothing |
+| `SilenceMsToEndTurn` | `1000` | How long silence must last before the client calls the sentence finished |
+
+`docker-compose.yml`'s `evangelionerpv2` service maps env vars onto these keys:
 `EVA_AI_ENABLED` → `AiSettings__Enabled`, `EVA_AI_ENDPOINT` → `AiSettings__Endpoint`,
-`EVA_AI_MODEL` → `AiSettings__Model`. To turn the agent on for a local run:
+`EVA_AI_MODEL` → `AiSettings__Model`, and for voice `EVA_AI_SPEECH_ENABLED`,
+`EVA_AI_SPEECH_ENDPOINT`, `EVA_AI_SPEECH_MODEL`. To turn the agent on for a local run:
 
 ```bash
 EVA_AI_ENABLED=true ./scripts/local-up.ps1
@@ -59,18 +75,36 @@ deprecated and must not be used** — `OllamaSharp` implements `IChatClient` dir
 outside `AiIoC` knows Ollama exists; swapping to a hosted provider (OpenAI, Anthropic, Azure
 OpenAI) is a different `IChatClient` registration in that one file and nothing else.
 
-### Tool calling and streaming don't combine on this path
+### Tool calling and streaming do combine, and the turn uses both
 
-`AiAgentService.RunTurnAsync` calls `_chatClient.GetResponseAsync` (not the streaming overload)
-because tool calling and token streaming cannot be combined through this client. Once a turn's
-final answer comes back with no more tool calls, `AiTextChunker.Split` cuts it into fixed-size
-pieces and the agent sends those over SignalR as `AiChunk` events. **This is not token streaming.**
-The status events (`AiStatus`, e.g. "Consultando produtos...") are real, sent as each tool call
-happens — but the answer text itself is only chunked after the model has finished generating it,
-not streamed as it generates. Anyone building a UI against `/aiHub` should not expect the chunk
-cadence to reflect model latency the way a true token stream would.
+An earlier version of this document said they could not, and that the answer was cut into
+fixed-size pieces by `AiTextChunker` only after the model had finished generating it. That was true
+of an older Ollama and is no longer true here. Checked against the running server (0.34) before the
+code changed:
 
-## The eight tools
+```
+{"message":{"content":"","thinking":" the"},"done":false}            <- streams
+{"message":{"tool_calls":[{"function":{"name":"buscar_produtos"...   <- and still calls tools
+```
+
+So `AiAgentService.RunTurnAsync` now calls `GetStreamingResponseAsync` on **every** iteration and
+folds the updates with `ToChatResponse()`. One pass: the answer reaches the client token by token as
+`AiChunk` events while it is being written. The alternative — letting the loop finish and then
+re-issuing the final turn as a stream — would have generated the same answer twice, which costs
+more than it saves for the short answers voice mode asks for.
+
+Two things that path has to get right, both covered by tests in `AiModule.Test`:
+
+- **Only `TextContent` is forwarded.** A reasoning model streams its thinking in a separate field;
+  it is not the answer and must never reach a screen, let alone a speaker.
+- **`AiTextChunker` still exists** for text the service writes itself — the timeout notice, the
+  give-up line — because those never passed through the model.
+
+Known limitation: text from an iteration that *ends in a tool call* is forwarded too. In practice
+this model puts its pre-tool prose in `thinking`, which is filtered, so nothing is emitted — but
+that is the model's habit rather than a guarantee.
+
+## The nineteen tools
 
 Every tool is behind `ai.chat` first (Supervisor tier and above — see `RbacRolePermissionMap.cs`),
 then behind its own `RequiredPermission`. `AiToolRegistry.Build` filters the tool list down to
@@ -78,19 +112,44 @@ what the calling user's granted permissions cover *before* the model ever sees a
 tool the caller may not use is not merely refused if invoked, it is never named to the model as
 existing.
 
+Writes carry a second gate on top: they need `ai.act` (Manager tier) as well as their own
+permission, and a write tool that the caller cannot use is removed from the list entirely.
+
+### Read
+
 | Tool (pt-BR) | Required permission | Tier floor | What it does |
 |---|---|---|---|
-| `buscar_produtos` | `products.read` | Supervisor | Product search |
-| `buscar_clientes` | `customers.read` | Supervisor | Customer search |
-| `consultar_pedidos` | `orders.read` | Employee (Supervisor via `ai.chat`) | Order lookup |
-| `resumo_de_vendas` | `sales.performance.read` | **Manager** | Monthly sales summary by seller, with goal and commission |
-| `painel_do_dia` | `dashboard.read` | **Manager** | The daily panel: receivables, payables due, critical stock, fiscal pending, unreconciled bank lines |
-| `contas_a_receber` | `bills.read` | Supervisor | A customer's receivables |
+| `buscar_produtos` | `products.read` | Supervisor | Lists or searches the catalogue; pages |
+| `buscar_clientes` | `customers.read` | Supervisor | Lists or searches customers; pages |
+| `consultar_pedidos` | `orders.read` | Employee (Supervisor via `ai.chat`) | Orders in a window, with the window's total and ticket médio |
+| `resumo_de_vendas` | `sales.performance.read` | **Manager** | Monthly sales by seller, with goal and commission |
+| `painel_do_dia` | `dashboard.read` | **Manager** | Receivables, payables due, critical stock, fiscal pending, unreconciled bank lines |
+| `contas_a_receber` | `bills.read` | Supervisor | One customer's receivables |
+| `contas_a_pagar` | `payable-bills.read` | **Manager** | What is due and what is overdue |
 | `previsao_de_caixa` | `cashflow.forecast.read` | Supervisor | Day-by-day cash projection |
-| `estoque_baixo` | `products.read` | Supervisor | Low-stock products |
+| `estoque_baixo` | `products.read` | Supervisor | Low-stock products and replenishment suggestions |
+| `produtos_mais_vendidos` | `products.read` | Supervisor | Best sellers by quantity and by revenue |
+| `melhores_clientes` | `customers.read` | Supervisor | Who buys most, by value and by order count |
+| `clientes_inadimplentes` | `bills.read` | Supervisor | Who is overdue, by how much and for how long |
+| `compras_pendentes` | `payable-bills.read` | **Manager** | Stock purchases that have not arrived yet |
 
-Tier floors are read directly from `EvangelionERPV2.Web/Security/RbacRolePermissionMap.cs`, current
-as of this task.
+### Write — every one of these needs `ai.act` and a confirmation
+
+| Tool (pt-BR) | Required permission | What it does |
+|---|---|---|
+| `criar_cliente` | `customers.create` | Registers a customer |
+| `atualizar_cliente` | `customers.update` | Changes phone, email or credit limit |
+| `atualizar_produto` | `products.update` | Changes the sale price. **Never stock** |
+| `criar_pedido` | `orders.create` | Queues an order |
+| `ajustar_estoque` | `products.update` | A counted correction, posted as an `Adjustment` movement |
+| `receber_compra` | `payable-bills.products.receive` | Books a purchase into stock as `Receipt` movements |
+
+Stock only ever moves through `ProductService.ApplyStockMovementAsync`, which writes the quantity
+and the ledger row together. `atualizar_produto` used to assign `StorageQuantity` directly; that
+left the scalar and the `StockMovement` history disagreeing and is why the rule now has two tools
+of its own.
+
+Tier floors are read directly from `EvangelionERPV2.Web/Security/RbacRolePermissionMap.cs`.
 
 ### Worked example: what a Supervisor can't ask
 
@@ -129,13 +188,17 @@ through `ai.chat`. This has been confirmed by reading `AiController.cs` and `AiA
 running `docker compose logs` to confirm nothing leaked in practice (Step 7 of the task brief) has
 not been done yet.
 
-## Which model — not decided yet
+## Which model — decided: `qwen3:14b`
 
-Two candidates, both fitting a 16 GB RTX 4080 SUPER: `qwen3:14b` and `gpt-oss:20b`.
-`AiSettings.Model` defaults to `qwen3:14b` today, but **that default has not been validated against
-either candidate and is not a decision** — it's just what has to go in the config file until one
-is chosen. The procedure below is how that choice gets made; the result table is intentionally
-empty until it's run.
+Two candidates were considered for a 16 GB RTX 4080 SUPER: `qwen3:14b` and `gpt-oss:20b`. The first
+was run against the prompts below and picked; the second was never loaded, because the run answered
+the question that mattered. `AiSettings.Model` defaults to `qwen3:14b` and that default is now a
+decision rather than a placeholder.
+
+The deciding result was chaining: asked "o cliente João está devendo alguma coisa?", the model
+called `buscar_clientes` first rather than inventing a `clienteId` for `contas_a_receber`. That is
+the failure a 14B model was expected to have, and it did not have it. `gpt-oss:20b` would cost
+13 GB of disk and a second eviction from VRAM to maybe beat a model that already passes.
 
 ### Procedure
 
@@ -159,25 +222,35 @@ empty until it's run.
    and a good agent declines instead of guessing.
 5. Set `AiSettings.Model` to whichever wins and record why, in one line, below.
 
-### Prompts and results (not yet run — fill in after Task 10b)
+### Prompts and results — run 2026-09-10 against `qwen3:14b`
 
-| # | Prompt | `qwen3:14b` tool(s) called | `qwen3:14b` correct? | `gpt-oss:20b` tool(s) called | `gpt-oss:20b` correct? |
-|---|---|---|---|---|---|
-| 1 | quantos produtos eu tenho com coca no nome? | | | | |
-| 2 | qual o preço do produto X? | | | | |
-| 3 | quanto vendi mês passado? | | | | |
-| 4 | como estamos hoje? | | | | |
-| 5 | quais clientes chamados João? | | | | |
-| 6 | o cliente [nome] está devendo alguma coisa? | | | | |
-| 7 | como fica meu caixa nos próximos 60 dias? | | | | |
-| 8 | o que eu preciso comprar? | | | | |
-| 9 | quantos pedidos nos últimos 7 dias? | | | | |
-| 10 | qual a capital da França? (must decline) | | | | |
+Every prompt below went through the live API, against the real database.
 
-Date run: _(not yet run)_. Model versions (`ollama list` output): _(not yet run)_.
+| # | Prompt | Tool(s) called | Correct? |
+|---|---|---|---|
+| 1 | quantos produtos eu tenho com coca no nome? | `buscar_produtos` | yes |
+| 2 | me acha o cliente João | `buscar_clientes` | yes |
+| 3 | quais foram os últimos pedidos? | `consultar_pedidos` | yes |
+| 4 | como foram minhas vendas este mês? | `resumo_de_vendas` | yes |
+| 5 | como está o dia hoje? | `painel_do_dia` | yes |
+| 6 | quanto eu tenho a receber? | *(none)* → `painel_do_dia` | **fixed** |
+| 7 | qual a previsão de caixa para os próximos 30 dias? | `previsao_de_caixa` | yes |
+| 8 | quais produtos estão com estoque baixo? | `estoque_baixo` | yes |
+| 9 | o cliente João está devendo alguma coisa? | `buscar_clientes` | yes — chained, no invented id |
+| 10 | qual a capital da França? | *(none)* | yes — refused and named its own scope |
 
-**Decision: undecided.** `AiSettings.Model` stays at the code default (`qwen3:14b`) until the run
-above happens and this line is replaced with the winner and a one-line reason.
+Row 6 was the only miss and it was ours, not the model's. "Quanto tenho a receber" pulled it to
+`contas_a_receber` by name; that tool is a per-customer file needing a `clienteId`, so it stalled
+and asked for a customer instead of falling back to `painel_do_dia`, which had the number. Fixed by
+editing two descriptions — no code — after which both aggregate questions route correctly.
+
+Later rounds found more of the same shape, all fixed by giving the agent tools it lacked rather than
+by prompting harder: who is overdue, what do I owe this week, which customer buys most, what is my
+ticket médio, and what did I buy that has not arrived. See the tool table above.
+
+The other lesson from running it: the model sends a **name** where an id belongs about as often as
+it sends the id, and when it does send an id it sometimes truncates it to the first block. Both are
+repaired server-side now (`AiEntityLookup`) rather than pushed back onto the person typing.
 
 ## Isolation checks — not yet run
 
@@ -192,11 +265,44 @@ exercised against a running instance yet:
   `AppDbContext` global query filter every other module uses, but that has not been observed
   against real cross-tenant data.
 
-## What Rung 2 adds
+## Rung 2 — shipped
 
-Rung 2 adds `AiPendingAction`, four write tools, confirm/reject endpoints, an expiry sweep on
-`LeasedScheduleWorker`, and an eval harvest that exports every confirmed or rejected action to
-`docs/ai/evals/*.jsonl`. None of it is built yet. Its design depends on how the model actually
-behaves in the ten-prompt run above — if tool choice is reliable, one confirmation card per action
-is enough; if arguments come out wrong often, the card needs to be editable before confirming,
-which is a different contract. That is why Rung 2 is written after this run, not before it.
+`AiPendingAction`, the write tools, the confirm/reject endpoints and the expiry sweep on
+`LeasedScheduleWorker` are all in place. The contract the ten-prompt run was meant to decide:
+
+**One card per action, not editable.** Tool choice proved reliable enough that a card showing what
+will happen, with confirm and discard, is sufficient. Arguments are repaired *before* the card
+exists — `IAiTool.PrepareAsync` resolves a name or a truncated id into a real one and refuses what
+it cannot repair, so the model gets the correction while it is still answering rather than a human
+confirming a write that was always going to fail.
+
+What running it taught, and what the code now guards:
+
+- A tool that refuses in its payload (`{"erro": ...}`) is **not** a success. Confirming used to
+  answer "Feito." for those, so a write that never happened read as done.
+- The model echoes values it just read alongside the one it was asked to change. A write that
+  changes nothing is refused rather than reported as a change.
+- A card outlives its proposal by up to `PendingActionTtlMinutes`, so every check is made again at
+  execution time: the row still exists, is still in this tenant, and is still active.
+- Voice never confirms a write. The card is read with the eyes and tapped with a finger.
+
+The eval harvest (`docs/ai/evals/*.jsonl`) is still not built; every confirmed or rejected action is
+already stored in `AiPendingAction` with its arguments, so it is an export away.
+
+## Voice
+
+The agent can be spoken to and answers out loud. Setup — the `whisper` service, the `voice` compose
+profile and `EVA_AI_SPEECH_ENABLED` — is in the root `README.md`; what matters here is the shape:
+
+- **Transcription is local.** A Whisper server beside Ollama, reached over HTTP, for the same reason
+  the model is local. The browser's own `SpeechRecognition` was rejected: Chrome streams the audio
+  to Google's servers, which contradicts the premise of the whole module.
+- **The device speaks.** `expo-speech` / `speechSynthesis`. The server never renders audio, so there
+  is no audio artifact to keep out of logs, disks and backups.
+- **The audio is never kept.** The endpoint reads the body with `MultipartReader` rather than binding
+  an `IFormFile`, because MVC spools a bound file over 64 KB to a temp file — that alone would break
+  the promise. The client deletes its clip in a `finally`, so a failed upload deletes it too. Only
+  the transcript is stored, in the same `AiMessage` a typed question produces.
+- **A spoken answer is a different answer.** A voice turn sets `spoken: true`, which adds one prompt
+  rule: one or two sentences, no tables, values said the way a person says them. Measured on the
+  same question, a typed answer ran 156 characters and a spoken one 80.

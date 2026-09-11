@@ -248,6 +248,37 @@ API container, which means binding beyond loopback:
 OLLAMA_HOST=0.0.0.0:11434 OLLAMA_MODELS=/path/to/models ollama serve
 ```
 
+Started by hand it dies with the terminal, the session, or a reboot — and the first symptom is the
+assistant answering "está indisponível" with nothing wrong in the API logs. A user unit keeps it up
+and restarts it if it falls over:
+
+```ini
+# ~/.config/systemd/user/ollama.service
+[Unit]
+Description=Ollama — local model server for the ERP agent
+After=network-online.target
+
+[Service]
+# Both matter: without OLLAMA_HOST it binds loopback and the container cannot reach it; without
+# OLLAMA_MODELS it starts with an empty model store and answers "model not found".
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+Environment="OLLAMA_MODELS=/path/to/models"
+ExecStart=/path/to/ollama serve
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now ollama.service
+```
+
+It starts on login. For a machine that should serve without anyone logged in, add
+`sudo loginctl enable-linger $USER`.
+
 If `/api/v1/ai/chat` times out, check reachability before suspecting the model:
 
 ```bash
