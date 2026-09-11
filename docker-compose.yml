@@ -54,6 +54,9 @@ services:
       AiSettings__Enabled: ${EVA_AI_ENABLED:-false}
       AiSettings__Endpoint: ${EVA_AI_ENDPOINT:-http://host.docker.internal:11434}
       AiSettings__Model: ${EVA_AI_MODEL:-qwen3:14b}
+      AiSettings__SpeechEnabled: ${EVA_AI_SPEECH_ENABLED:-false}
+      AiSettings__SpeechEndpoint: ${EVA_AI_SPEECH_ENDPOINT:-http://whisper:8000}
+      AiSettings__SpeechModel: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-small}
       AWS_PROFILE: ${AWS_PROFILE:-}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
@@ -71,6 +74,24 @@ services:
         read_only: true
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - custom_network
+
+  # Speech-to-text for the agent's voice mode. Profile-gated like the workers: off unless asked
+  # for. No volume for audio on purpose — a clip is transcribed in flight and never stored. The
+  # model cache is a named volume so a restart does not re-download the weights.
+  whisper:
+    profiles:
+      - voice
+    image: ${WHISPER_IMAGE:-fedirz/faster-whisper-server:latest-cpu}
+    container_name: evangelionerpv2_whisper
+    environment:
+      WHISPER__MODEL: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-small}
+      WHISPER__INFERENCE_DEVICE: ${EVA_AI_SPEECH_DEVICE:-cpu}
+    ports:
+      - "${WHISPER_HOST_PORT:-9000}:8000"
+    volumes:
+      - whisper_models:/root/.cache/huggingface
     networks:
       - custom_network
 
@@ -179,4 +200,5 @@ networks:
     driver: bridge
 
 volumes:
+  whisper_models:
   sqlserver_data:
