@@ -1,4 +1,4 @@
-using EvangelionERPV2.Shared.Auditing;
+﻿using EvangelionERPV2.Shared.Auditing;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using Microsoft.AspNetCore.Http;
@@ -87,6 +87,8 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<AiConversation> AiConversation { get; set; }
         public DbSet<AiMessage> AiMessage { get; set; }
         public DbSet<AiPendingAction> AiPendingAction { get; set; }
+        public DbSet<Notification> Notification { get; set; }
+        public DbSet<NotificationRead> NotificationRead { get; set; }
         public DbSet<RefreshToken> RefreshToken { get; set; }
         public DbSet<PasswordResetToken> PasswordResetToken { get; set; }
         public DbSet<User> User { get; set; }

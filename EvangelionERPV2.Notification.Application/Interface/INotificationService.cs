@@ -1,0 +1,39 @@
+using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
+
+namespace EvangelionERPV2.NotificationModule.Application.Interface
+{
+    public interface INotificationService
+    {
+        /// <summary>
+        /// Everything the bell renders for one user: the tenant's live broadcasts plus the alerts
+        /// the daily panel is firing right now.
+        /// </summary>
+        /// <remarks>
+        /// Every item comes back, each carrying its <c>RequiredPermission</c>. Filtering happens in
+        /// the Web layer, which is the only place that can evaluate a permission — and it strips the
+        /// field before responding. An Application project cannot reference `Web/Security` without
+        /// inverting the dependency.
+        /// </remarks>
+        Task<NotificationFeedDTO> GetFeedAsync(Guid enterpriseId, Guid userId, CancellationToken cancellation = default);
+
+        /// <summary>Idempotent: reading twice is one row, not two.</summary>
+        Task MarkReadAsync(Guid notificationId, Guid enterpriseId, Guid userId, CancellationToken cancellation = default);
+
+        /// <summary>One read row per unread broadcast, in one commit.</summary>
+        Task<int> MarkAllReadAsync(Guid enterpriseId, Guid userId, CancellationToken cancellation = default);
+
+        Task<Notification> BroadcastAsync(
+            Guid enterpriseId, Guid authorUserId, CreateBroadcastDTO broadcast, CancellationToken cancellation = default);
+
+        /// <summary>Soft delete, matching every other delete in the solution.</summary>
+        Task<bool> RemoveBroadcastAsync(Guid notificationId, Guid enterpriseId, CancellationToken cancellation = default);
+
+        /// <summary>
+        /// The alerts firing for one tenant, and their fingerprint. Used by the sweep to decide
+        /// whether anything changed since last time.
+        /// </summary>
+        Task<(IReadOnlyList<NotificationItemDTO> Alerts, string Fingerprint)> GetAlertsAsync(
+            Guid enterpriseId, CancellationToken cancellation = default);
+    }
+}
