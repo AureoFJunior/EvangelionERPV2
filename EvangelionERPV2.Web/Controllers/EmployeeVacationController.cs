@@ -85,7 +85,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Employee vacation accruals not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Employee vacation accruals not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -122,7 +122,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Employee not found while refreshing vacation accruals. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Employee not found while refreshing vacation accruals. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (InsertDatabaseException exdb)
@@ -163,7 +163,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Vacation accrual not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Vacation accrual not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (InsertDatabaseException exdb)
@@ -206,7 +206,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Vacation accrual not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Vacation accrual not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (InsertDatabaseException exdb)

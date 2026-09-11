@@ -80,7 +80,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -151,7 +151,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -353,7 +353,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -390,7 +390,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error("Order not found for refund. ErrorType={ErrorType}", ex.GetType().Name);
+                Log.Logger.Debug("Order not found for refund. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -429,7 +429,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)

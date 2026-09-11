@@ -135,7 +135,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Products not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Products not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)

@@ -85,7 +85,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Employee absences not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Employee absences not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -118,7 +118,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Employee absence not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Employee absence not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -215,7 +215,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Employee absence not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Employee absence not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -253,7 +253,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Employee absence not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Employee absence not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)

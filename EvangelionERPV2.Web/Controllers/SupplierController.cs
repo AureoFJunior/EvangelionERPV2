@@ -72,7 +72,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Suppliers not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Suppliers not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -106,7 +106,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Supplier not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Supplier not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -192,7 +192,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Supplier not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Supplier not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -231,7 +231,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Supplier not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Supplier not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)

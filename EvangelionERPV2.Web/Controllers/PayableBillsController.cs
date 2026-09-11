@@ -203,7 +203,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
+                Log.Logger.Debug("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -234,7 +234,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
+                Log.Logger.Debug("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -269,7 +269,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
+                Log.Logger.Debug("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -327,7 +327,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
+                Log.Logger.Debug("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)

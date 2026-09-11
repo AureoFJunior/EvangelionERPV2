@@ -161,7 +161,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Order not found for bill generation. OrderId={OrderId} ErrorType={ErrorType}", orderId, exnf.GetType().Name);
+                Log.Logger.Debug("Order not found for bill generation. OrderId={OrderId} ErrorType={ErrorType}", orderId, exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -195,7 +195,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Order not found for bill PDF generation. OrderId={OrderId} ErrorType={ErrorType}", orderId, exnf.GetType().Name);
+                Log.Logger.Debug("Order not found for bill PDF generation. OrderId={OrderId} ErrorType={ErrorType}", orderId, exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -289,7 +289,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Order not found for bill reissue. OrderId={OrderId} ErrorType={ErrorType}", orderId, exnf.GetType().Name);
+                Log.Logger.Debug("Order not found for bill reissue. OrderId={OrderId} ErrorType={ErrorType}", orderId, exnf.GetType().Name);
                 return NoContent();
             }
         }

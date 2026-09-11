@@ -81,7 +81,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -132,7 +132,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
