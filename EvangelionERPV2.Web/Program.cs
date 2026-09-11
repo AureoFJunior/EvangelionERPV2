@@ -332,26 +332,64 @@ static void SetupRequestLimits(WebApplicationBuilder builder)
 /// </summary>
 static async Task LogPendingMigrationsAsync(WebApplication app)
 {
-    try
-    {
-        using var scope = app.Services.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var pending = (await context.Database.GetPendingMigrationsAsync()).ToList();
+    // SQL Server accepts connections before it has finished attaching its databases, and EF reports
+    // a history table it cannot read as "every migration is pending" rather than throwing — so the
+    // catch below never fires and a merely slow database gets announced as an empty one. That is
+    // not a hypothetical: on 2026-09-11 this logged all 64 as missing against a database that had
+    // all 64 applied. Retrying while nothing at all looks applied is what tells the two apart.
+    const int attempts = 3;
+    var retryDelay = TimeSpan.FromSeconds(3);
 
-        if (pending.Count == 0)
-            Log.Logger.Information("Database schema is up to date, no pending migrations");
-        else
+    for (var attempt = 1; attempt <= attempts; attempt++)
+    {
+        try
+        {
+            using var scope = app.Services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var applied = (await context.Database.GetAppliedMigrationsAsync()).ToList();
+            var pending = (await context.Database.GetPendingMigrationsAsync()).ToList();
+
+            if (pending.Count == 0)
+            {
+                Log.Logger.Information("Database schema is up to date, no pending migrations");
+                return;
+            }
+
+            // Nothing applied at all, with migrations waiting, is a database that is not ready far
+            // more often than one that is genuinely blank. A real blank database still reports this
+            // on the last attempt, which is the honest answer for a first deploy.
+            if (applied.Count == 0 && attempt < attempts)
+            {
+                Log.Logger.Information(
+                    "No applied migrations visible yet, the database may still be starting. Retrying ({Attempt}/{Attempts})",
+                    attempt,
+                    attempts);
+
+                await Task.Delay(retryDelay);
+                continue;
+            }
+
             Log.Logger.Fatal(
                 "{Count} migration(s) have NOT been applied to this database: {PendingMigrations}. " +
                 "Requests touching the new tables will fail with 'Invalid column name' until they are",
                 pending.Count,
                 string.Join(", ", pending));
-    }
-    catch (Exception exception)
-    {
-        // A database that cannot be reached at boot is DatabaseHealthCheck's job to report, not
-        // a reason to take the process down here.
-        Log.Logger.Error("Could not read pending migrations at startup. ErrorType={ErrorType}", exception.GetType().Name);
+
+            return;
+        }
+        catch (Exception exception)
+        {
+            if (attempt == attempts)
+            {
+                // A database that cannot be reached at boot is DatabaseHealthCheck's job to report,
+                // not a reason to take the process down here.
+                Log.Logger.Error("Could not read pending migrations at startup. ErrorType={ErrorType}", exception.GetType().Name);
+                return;
+            }
+
+            await Task.Delay(retryDelay);
+        }
     }
 }
 
