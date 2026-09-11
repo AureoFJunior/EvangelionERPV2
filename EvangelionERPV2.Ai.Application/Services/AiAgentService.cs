@@ -55,7 +55,7 @@ namespace EvangelionERPV2.AiModule.Application.Services
             var tools = _registry.Build(request.GrantedPermissions, request.Context);
 
             var messages = await LoadHistoryAsync(request.ConversationId);
-            messages.Insert(0, new ChatMessage(ChatRole.System, AiSystemPrompt.Build(DateTime.UtcNow)));
+            messages.Insert(0, new ChatMessage(ChatRole.System, AiSystemPrompt.Build(DateTime.UtcNow, request.Spoken)));
             messages.Add(new ChatMessage(ChatRole.User, request.UserMessage));
 
             await PersistAsync(request.ConversationId, AiMessageRole.User, request.UserMessage);

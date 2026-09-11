@@ -4,7 +4,9 @@ namespace EvangelionERPV2.AiModule.Application.Interface
         Guid ConversationId,
         string UserMessage,
         IReadOnlySet<string> GrantedPermissions,
-        AiToolContext Context);
+        AiToolContext Context,
+        /// <summary>The answer is going to a speaker, so it is written to be heard.</summary>
+        bool Spoken = false);
 
     public sealed record AiTurnResult(
         string Text,

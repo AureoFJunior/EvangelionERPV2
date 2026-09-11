@@ -9,6 +9,9 @@ namespace EvangelionERPV2.Shared.DTOs
         [Required]
         [MaxLength(2000)]
         public string Message { get; set; } = string.Empty;
+
+        /// <summary>Set by voice mode: the answer will be spoken, so it is written to be heard.</summary>
+        public bool Spoken { get; set; }
     }
 
     public class AiChatResponseDTO

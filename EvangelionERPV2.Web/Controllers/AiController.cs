@@ -85,7 +85,8 @@ namespace EvangelionERPV2.Web.Controllers
                     conversation.Id,
                     request.Message,
                     granted,
-                    new AiToolContext(enterpriseId, userId.Value)),
+                    new AiToolContext(enterpriseId, userId.Value),
+                    request.Spoken),
                 cancellation);
 
             Log.Logger.Information(

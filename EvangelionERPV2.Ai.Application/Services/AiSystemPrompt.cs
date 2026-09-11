@@ -2,7 +2,24 @@ namespace EvangelionERPV2.AiModule.Application.Services
 {
     public static class AiSystemPrompt
     {
-        public static string Build(DateTime todayUtc) =>
+        /// <summary>
+        /// The extra rule a spoken turn gets. A markdown table read aloud is unusable, so an answer
+        /// that is going to a speaker is written to be heard rather than scanned.
+        /// </summary>
+        private const string SpokenRules = """
+
+            Esta resposta vai ser falada em voz alta:
+            - Responda em uma ou duas frases, no máximo.
+            - Nada de tabelas, listas ou marcação. Só frases.
+            - Diga os valores por extenso, do jeito que uma pessoa fala: "nove mil duzentos e vinte
+              e seis reais", não "R$ 9.226,24".
+            - Se a resposta completa for longa demais para ouvir, diga o essencial e ofereça o resto.
+            """;
+
+        public static string Build(DateTime todayUtc, bool spoken = false) =>
+            spoken ? BuildCore(todayUtc) + SpokenRules : BuildCore(todayUtc);
+
+        private static string BuildCore(DateTime todayUtc) =>
             $"""
             Você é o assistente do Evangelion ERP. Responde em português do Brasil, de forma curta e direta.
 
