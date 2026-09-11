@@ -1,6 +1,7 @@
 ﻿using EvangelionERPV2.Shared.Auditing;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
+using EvangelionERPV2.Shared.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -28,17 +29,36 @@ namespace EvangelionERPV2.Shared.Context
         /// known).
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Read through <see cref="IHttpContextAccessor"/> on purpose. That service is a singleton
         /// backed by an AsyncLocal, so even though EF caches the model — and with it the context
         /// instance the query filters closed over — the value resolved here is always the one
         /// belonging to the request executing the query, not the one that happened to build the
         /// model. TenantQueryFilterTests pins exactly that.
+        /// </para>
+        /// <para>
+        /// A self-API worker is the one authenticated caller that is not acting for a tenant. Its
+        /// token still carries its service account's enterprise — every token does, and
+        /// <c>ActiveTenantEnforcementMiddleware</c> requires one — but reading that as the ambient
+        /// tenant silently confined the scheduled jobs to whichever company the service account
+        /// happened to belong to, and those jobs are cross-tenant by definition. Every endpoint
+        /// behind <c>machine:self-api-broadcast</c> passes an explicit enterprise into each read
+        /// (the stock and monthly-billing emails, the queued order, the notification sweep), so the
+        /// ambient filter is not what keeps tenants apart there; standing it down restores the reach
+        /// those jobs were written to have. Only that claim does this, and it is minted only for a
+        /// machine login.
+        /// </para>
         /// </remarks>
         public Guid AmbientEnterpriseId
         {
             get
             {
-                var claimValue = _httpContextAccessor?.HttpContext?.User?.FindFirst(ClaimTypes.GroupSid)?.Value;
+                var user = _httpContextAccessor?.HttpContext?.User;
+
+                if (user?.HasClaim(MachineClaims.ClientType, MachineClaims.SelfApiValue) == true)
+                    return Guid.Empty;
+
+                var claimValue = user?.FindFirst(ClaimTypes.GroupSid)?.Value;
 
                 return Guid.TryParse(claimValue, out var enterpriseId) ? enterpriseId : Guid.Empty;
             }

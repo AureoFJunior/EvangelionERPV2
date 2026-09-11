@@ -171,11 +171,13 @@ namespace EvangelionERPV2.Web.Controllers
         /// broadcasts carry, so an interactive admin cannot drive it. It writes nothing: a tenant
         /// whose alerts are unchanged costs one panel read and one Redis get.
         ///
-        /// ponytail: the enterprise scan runs inside a request, so the tenant query filter still
-        /// applies and it reaches the tenant the worker logged in as — exactly what
-        /// <c>SendWeeklyStockBroadcast</c> does today. Sweeping every tenant from here needs
-        /// <c>AppDbContext.AmbientEnterpriseId</c> to stand down for self_api tokens, which is a
-        /// change to the isolation rule and belongs in its own commit with its own tests.
+        /// The enterprise scan reaches every tenant because <c>AppDbContext.AmbientEnterpriseId</c>
+        /// stands down for a self-API token — see the remarks there. Every read below still names
+        /// its enterprise: <c>GetAlertsAsync</c> is given one id at a time, and the panel behind it
+        /// filters on that id in every query.
+        ///
+        /// ponytail: sequential per-tenant loop on a 15-minute floor. At ~50 tenants that is
+        /// seconds; parallelise or shard the lease if the sweep ever outruns its slot.
         /// </remarks>
         [Authorize(Policy = RbacPolicies.Machine.SelfApiBroadcast)]
         [HttpPost]

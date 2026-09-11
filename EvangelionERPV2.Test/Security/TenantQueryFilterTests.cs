@@ -1,6 +1,7 @@
 using EvangelionERPV2.AuditModule.Application.Services;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -100,6 +101,44 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task AMachineToken_ReachesEveryTenant()
+        {
+            var harness = new TenantHarness();
+            await harness.SeedAsync();
+
+            // The scheduled jobs — stock and monthly-billing emails, the queued order, the
+            // notification sweep — are cross-tenant by definition, and every read behind them names
+            // its enterprise explicitly. Scoping them to the service account's own company is what
+            // made the weekly stock email reach exactly one of them.
+            harness.EnterMachineRequestFor(TenantA);
+            using var context = harness.CreateContext();
+
+            Assert.Equal(3, await context.Customer.CountAsync());
+        }
+
+        [Fact]
+        public async Task ASweepRunning_DoesNotWidenThePersonWhoAsksNext()
+        {
+            var harness = new TenantHarness();
+            await harness.SeedAsync();
+
+            // The hazard the whole file exists for, now with a second kind of caller: the sweep is
+            // the one request allowed past the filter, and EF's cached model closed over some
+            // context instance. If that reach outlived the request, the next person through would
+            // read every tenant's customers.
+            harness.EnterMachineRequestFor(TenantA);
+            using (var sweep = harness.CreateContext())
+            {
+                Assert.Equal(3, await sweep.Customer.CountAsync());
+            }
+
+            harness.EnterRequestFor(TenantB);
+            using var person = harness.CreateContext();
+
+            Assert.Equal(["B-Customer"], (await person.Customer.ToListAsync()).Select(x => x.Name));
+        }
+
+        [Fact]
         public async Task IgnoreQueryFilters_StillReachesEveryTenant()
         {
             var harness = new TenantHarness();
@@ -164,6 +203,17 @@ namespace EvangelionERPV2.Test.Security
                 {
                     User = new ClaimsPrincipal(new ClaimsIdentity(
                         [new Claim(ClaimTypes.GroupSid, enterpriseId.ToString())], "TestAuth"))
+                };
+
+            /// <summary>The same request, plus the claim <c>TokenService</c> mints for a machine login.</summary>
+            public void EnterMachineRequestFor(Guid enterpriseId) =>
+                _accessor.HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                        [
+                            new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
+                            new Claim(MachineClaims.ClientType, MachineClaims.SelfApiValue)
+                        ], "TestAuth"))
                 };
 
             public void LeaveRequest() => _accessor.HttpContext = null;

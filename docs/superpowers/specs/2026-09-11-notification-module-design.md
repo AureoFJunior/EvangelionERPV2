@@ -328,12 +328,16 @@ public static class Notifications
 > decoration. The concern it existed for is still covered: posting a broadcast needs
 > `notifications.broadcast`, which the machine claim does not grant.
 >
-> **Also built differently.** The sweep runs inside a request, so
-> `AppDbContext.AmbientEnterpriseId` is the worker's own tenant and the tenant query filter
-> still applies — it sweeps the tenant the worker logged in as, exactly like
-> `SendWeeklyStockBroadcast` does today. Reaching every tenant means letting that filter
-> stand down for `self_api` tokens, which changes the isolation rule for three existing
-> endpoints too and belongs in its own commit with its own tests.
+> **Cross-tenant reach, fixed at the source.** The sweep runs inside a request, where
+> `AppDbContext.AmbientEnterpriseId` used to resolve to the service account's own tenant —
+> which would have confined the sweep to one company, exactly as it was already confining
+> `SendWeeklyStockBroadcast` and `SendMonthlyBillingBroadcast`. The ambient tenant now
+> stands down for a `self_api` token. Safe because every endpoint behind
+> `machine:self-api-broadcast` passes an explicit enterprise into each read — the panel,
+> the stock report, the monthly billing report and the queued order all filter on their own
+> id — so the ambient filter was never what kept those apart. Pinned by two tests in
+> `TenantQueryFilterTests`: a machine token reaches every tenant, and a sweep does not widen
+> the person who asks next.
 
 Both remaining permissions are listed in `RbacPermissions.All`, which is the master list and also the
 Admin role's permission set. `Notifications.Read` is appended to
@@ -398,8 +402,7 @@ For each active enterprise:
    tenant's group.
 
 **No database writes.** A tenant whose alert set has not changed since the last sweep
-costs one panel read and one Redis get. "Each active enterprise" is what the tenant query
-filter lets the request see — see the RBAC note above.
+costs one panel read and one Redis get.
 
 ```
 // ponytail: sequential per-tenant loop and a 15-minute floor. At ~50 tenants that is
