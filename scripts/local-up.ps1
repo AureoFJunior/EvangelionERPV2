@@ -1,6 +1,7 @@
 param(
     [string]$EnvFile = ".env.local",
     [switch]$WithWorkers,
+    [switch]$WithVoice,
     [switch]$WithOrderWorker,
     [switch]$NoBuild,
     [switch]$SkipIdentityCheck
@@ -51,6 +52,11 @@ if (-not $SkipIdentityCheck) {
 $profiles = @("--profile", "proxy", "--profile", "localdb")
 if ($WithWorkers -or $WithOrderWorker) {
     $profiles += @("--profile", "workers")
+}
+# The profile list also drives the "down --remove-orphans" below. Leaving voice out of it meant
+# every local-up deleted a running whisper container as an orphan.
+if ($WithVoice) {
+    $profiles += @("--profile", "voice")
 }
 
 Write-Host "Stopping previous containers..."

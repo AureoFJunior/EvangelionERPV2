@@ -53,6 +53,8 @@ Main modules currently present:
 - JWT + Refresh Token + Google login
 - Redis cache
 - RabbitMQ integration (workers consume from broker)
+- AI assistant: a local model through Ollama (host-native), with an optional `whisper` service for
+  voice mode (`--profile voice`)
 - AWS Secrets Manager (with `plain:` fallback for local runs)
 - Docker + Docker Compose
 
@@ -151,6 +153,18 @@ If you started workers too:
 .\scripts\local-down.ps1 -WithWorkers
 ```
 
+To include the assistant's voice mode (the `whisper` speech-to-text service), pass `-WithVoice` to
+both scripts — see "the assistant's voice mode" below for what else it needs:
+
+```powershell
+.\scripts\local-up.ps1 -WithVoice
+.\scripts\local-down.ps1 -WithVoice
+```
+
+Pass the same switches to `local-down.ps1` that you passed to `local-up.ps1`. The scripts run
+`docker compose down --remove-orphans` against exactly the profiles named, so a service started
+under a profile you leave out is removed as an orphan.
+
 ### Prerequisites
 
 - Docker Desktop (or Docker Engine + Compose)
@@ -209,7 +223,8 @@ docker compose --env-file .env.local --profile localdb --profile voice up -d --b
 ```
 
 `whisper` is the speech-to-text service the agent uses to hear a question. Like the workers it is
-profile-based and does not start unless you pass `--profile voice`. It also needs
+profile-based and does not start unless you pass `--profile voice` (or `-WithVoice` to the
+shortcut scripts). It also needs
 `EVA_AI_SPEECH_ENABLED=true` in `.env.local`; without it the API answers `503` on
 `POST /api/v1/ai/transcribe` instead of hanging.
 
