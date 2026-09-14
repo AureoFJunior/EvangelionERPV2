@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Serilog;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Net.Sockets;
 
 namespace EvangelionERPV2.AiModule.Application.Services
 {
@@ -183,6 +184,22 @@ namespace EvangelionERPV2.AiModule.Application.Services
             {
                 Log.Logger.Warning("AI turn exceeded its budget. TimeoutSeconds={TimeoutSeconds}", _settings.TimeoutSeconds);
                 return await FinishAsync("A consulta demorou demais e foi interrompida. Tente perguntar de forma mais específica.");
+            }
+            // The model server's own failures: HttpClient reports its timeout as a TaskCanceledException
+            // with *neither* token cancelled, and a connection that dies mid-turn arrives as one too,
+            // wrapping an IOException over a SocketException. Neither matches the filter above, so both
+            // used to leave here as unhandled exceptions — a 500 and a stack trace for what is simply a
+            // model that did not answer. Observed 2026-09-14 on POST /ai/chat.
+            catch (Exception ex) when (
+                ex is HttpRequestException or IOException or SocketException
+                || (ex is OperationCanceledException && !cancellation.IsCancellationRequested))
+            {
+                Log.Logger.Error(
+                    "AI model server did not answer. ErrorType={ErrorType} Endpoint={Endpoint}",
+                    ex.GetType().Name,
+                    _settings.Endpoint);
+
+                return await FinishAsync("O assistente não conseguiu falar com o modelo. Tente de novo em instantes.");
             }
 
             return await FinishAsync("Não consegui concluir essa consulta. Tente perguntar de forma mais específica.");

@@ -27,6 +27,19 @@ namespace EvangelionERPV2.Web.Logging
             {
                 await _next(context);
             }
+            // A caller who hung up is not a fault. The browser aborting a long request — closing the
+            // assistant mid-answer, navigating away — used to be logged as an unhandled exception
+            // with a stack trace, which sends whoever reads the log looking for a bug that is not
+            // there. Nothing can be written to a socket that is already gone, so there is nothing to
+            // do but say so quietly.
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+            {
+                Log.Logger.Information(
+                    "Request abandoned by the caller. Method={Method}, Path={Path}, TraceId={TraceId}",
+                    context.Request.Method,
+                    context.Request.Path,
+                    context.TraceIdentifier);
+            }
             catch (Exception ex)
             {
                 LogException(ex, context, _environment);

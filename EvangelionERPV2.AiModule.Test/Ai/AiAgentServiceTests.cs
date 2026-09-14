@@ -8,6 +8,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using Moq;
 using System.Linq.Expressions;
+using System.Net.Sockets;
 
 namespace EvangelionERPV2.AiModule.Test.Ai
 {
@@ -186,6 +187,56 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             var assistant = Assert.Single(persisted, x => x.Role == AiMessageRole.Assistant);
             Assert.Contains("demorou demais", assistant.Content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Theory]
+        [MemberData(nameof(ModelServerFailures))]
+        public async Task AModelServerThatDoesNotAnswer_TellsTheUserInsteadOfThrowing(Exception failure)
+        {
+            // Observed 2026-09-14 on POST /ai/chat: TaskCanceledException -> IOException ->
+            // SocketException out of HttpClient, which matched no catch here and left as an
+            // unhandled 500. A model that did not answer is an outcome to report, not a crash.
+            var service = BuildService(ChatThatFailsWith(failure).Object, NoTools());
+
+            var result = await service.RunTurnAsync(Request("oi"), CancellationToken.None);
+
+            Assert.Contains("não conseguiu falar com o modelo", result.Text, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static TheoryData<Exception> ModelServerFailures() =>
+        [
+            // HttpClient's own timeout: cancelled, but by nobody's token.
+            new TaskCanceledException("timeout", new IOException("connection reset", new SocketException(104))),
+            new HttpRequestException("connection refused"),
+            new IOException("the response ended prematurely"),
+            new SocketException(111),
+        ];
+
+        [Fact]
+        public async Task AModelServerFailure_PersistsWhatTheUserWasTold()
+        {
+            var persisted = new List<AiMessage>();
+            var failure = new TaskCanceledException("timeout", new IOException("reset"));
+
+            await BuildService(ChatThatFailsWith(failure).Object, NoTools(), persisted: persisted)
+                .RunTurnAsync(Request("oi"), CancellationToken.None);
+
+            var assistant = Assert.Single(persisted, x => x.Role == AiMessageRole.Assistant);
+            Assert.Contains("não conseguiu falar com o modelo", assistant.Content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task ACallerWhoHangsUp_IsNotReportedAsAModelFailure()
+        {
+            // Nobody is waiting for this answer, and writing "tente de novo" into a conversation the
+            // user closed would be a message to nobody.
+            using var caller = new CancellationTokenSource();
+            await caller.CancelAsync();
+
+            var service = BuildService(ChatThatNeverAnswers().Object, NoTools());
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => service.RunTurnAsync(Request("oi"), caller.Token));
         }
 
         [Fact]
@@ -502,6 +553,25 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 chat, registry, settings, messages.Object,
                 notifier ?? Mock.Of<IAiProgressNotifier>(),
                 pendingActions ?? Mock.Of<IAiPendingActionService>());
+        }
+
+        private static Mock<IChatClient> ChatThatFailsWith(Exception failure)
+        {
+            var chat = new Mock<IChatClient>();
+            chat.Setup(x => x.GetStreamingResponseAsync(
+                    It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+                .Returns(() => Throwing(failure));
+            return chat;
+        }
+
+        private static async IAsyncEnumerable<ChatResponseUpdate> Throwing(Exception failure)
+        {
+            await Task.Yield();
+            throw failure;
+
+#pragma warning disable CS0162 // Unreachable, and required: an iterator needs a yield to be one.
+            yield break;
+#pragma warning restore CS0162
         }
 
         private static Mock<IChatClient> ChatThatNeverAnswers()
