@@ -356,8 +356,40 @@ microphone:
 | **`medium` int8 + VAD + prompt** | **14.0%** | **7/16** | **2.3 s** |
 
 `int8` is the whole reason `medium` is affordable here: it keeps the accuracy and gives back half
-the latency. The GPU is not an option — it is holding `qwen3:14b`, and Docker on this machine has no
-GPU access without the NVIDIA container toolkit, which this setup deliberately avoids.
+the latency. **That table is the CPU path.** With the GPU it changes completely — see below.
+
+#### Whisper on the GPU
+
+Compose cannot reach the card by default: `docker run --gpus all` answers *"failed to discover GPU
+vendor from CDI"* until the NVIDIA container toolkit is installed. It is a host change and needs
+root:
+
+```bash
+sudo pacman -S nvidia-container-toolkit          # it is in extra/ and cachyos-extra-znver4/
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi -L   # should list the card
+```
+
+Then add `-f docker-compose.gpu.yml` to any command that starts `whisper`:
+
+```bash
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.gpu.yml \
+  --profile localdb --profile proxy --profile workers --profile voice up -d
+```
+
+That override moves Whisper to `cuda` and to `large-v3` — the best Whisper there is for pt-BR, and
+on a 4080-class card quicker than `medium` is on CPU. It asks for `int8_float16` rather than
+`float16` because of what the LLM leaves behind: measured 2026-09-14 the card had **3.1 GB free**
+with `qwen3:14b` resident, `float16` `large-v3` wants ~3.1 GB of exactly that, and a model that only
+just fits is one that fails the day the context grows. `int8_float16` asks for roughly half.
+
+Ollama stays on the host and is not in that file. Both share one card, so watch `nvidia-smi` after
+switching: if the two together crowd the GPU, the lever is `EVA_AI_SPEECH_MODEL=Systran/faster-whisper-medium`,
+which needs about a gigabyte and is still far quicker there than on CPU.
+
+The numbers in the table above were measured on CPU and have not been re-measured on the GPU —
+nothing here has run against the card yet, because the toolkit is not installed.
 
 Two request-level settings come with it, both measured rather than assumed: `AiSettings__SpeechPrompt`
 is a list of this ERP's own terms (worth 13.5% → 10.9% on clean speech — without it "estoque crítico
