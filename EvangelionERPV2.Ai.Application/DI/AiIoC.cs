@@ -69,6 +69,16 @@ namespace EvangelionERPV2.AiModule.Application.DI
                 client.Timeout = TimeSpan.FromSeconds(Math.Max(5, settings.SpeechTimeoutSeconds));
             });
 
+            // Same arrangement as speech, and the same reason: its own endpoint, its own budget, and
+            // the service refuses when VoiceEnabled is false rather than being absent from the
+            // container. A synthesis that takes 20 s has already failed the listener.
+            services.AddHttpClient<IAiVoiceService, AiVoiceService>((serviceProvider, client) =>
+            {
+                var settings = serviceProvider.GetRequiredService<IOptions<AiSettings>>().Value;
+                client.BaseAddress = new Uri(settings.VoiceEndpoint);
+                client.Timeout = TimeSpan.FromSeconds(Math.Max(5, settings.VoiceTimeoutSeconds));
+            });
+
             services.AddScoped<IAiPendingActionService, AiPendingActionService>();
             services.AddScoped<IAiAgentService, AiAgentService>();
 

@@ -52,6 +52,33 @@ namespace EvangelionERPV2.AiModule.Application.Configs
         /// <summary>How long silence must last before the client calls the sentence finished.</summary>
         public int SilenceMsToEndTurn { get; set; } = 1000;
 
+        /// <summary>
+        /// Text-to-speech off by default, like every other half of voice. Off, the client keeps the
+        /// device's own voice — which is why the endpoint answers 503 instead of failing silently.
+        /// </summary>
+        public bool VoiceEnabled { get; set; } = false;
+
+        /// <summary>A local Piper server, OpenAI-shaped at <c>/v1/audio/speech</c>.</summary>
+        public string VoiceEndpoint { get; set; } = "http://localhost:9100";
+
+        /// <summary>The OpenAI-compatible model name the server expects; Piper ignores the value itself.</summary>
+        public string VoiceModel { get; set; } = "tts-1";
+
+        /// <summary>Which voice speaks. One choice for every platform, which is the point of this path.</summary>
+        public string VoiceName { get; set; } = "pt_BR-faber-medium";
+
+        /// <summary>mp3 or wav. mp3 is a third of the bytes over the wire for the same sentence.</summary>
+        public string VoiceFormat { get; set; } = "mp3";
+
+        public int VoiceTimeoutSeconds { get; set; } = 20;
+
+        /// <summary>
+        /// Backstop for a "sentence" that is really a paragraph. The client already splits an answer
+        /// into sentences, so a request anywhere near this cap means the splitter let something odd
+        /// through, not that a person wrote a long question.
+        /// </summary>
+        public int MaxSpeechChars { get; set; } = 600;
+
         #endregion
     }
 }

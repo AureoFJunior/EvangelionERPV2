@@ -70,7 +70,10 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 return AiTranscriptionResult.Ok(
                     new AiTranscript(text, _settings.SpeechModel, stopwatch.ElapsedMilliseconds));
             }
-            catch (OperationCanceledException)
+            // Only the caller hanging up is a cancellation. HttpClient reports its own timeout the
+            // same way, with no token of ours behind it, and rethrowing that 500s the endpoint over a
+            // slow Whisper instead of answering 503.
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
             {
                 throw;
             }

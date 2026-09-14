@@ -35,6 +35,17 @@ namespace EvangelionERPV2.Shared.DTOs
         public long LatencyMs { get; set; }
     }
 
+    /// <summary>
+    /// One sentence to be spoken. There is no response DTO to match it: the response is the audio
+    /// itself, streamed, and nothing about it is ever written down.
+    /// </summary>
+    public class AiSpeakRequestDTO
+    {
+        [Required]
+        [MaxLength(600)]
+        public string Text { get; set; } = string.Empty;
+    }
+
     public class AiPendingActionDTO
     {
         public Guid Id { get; set; }

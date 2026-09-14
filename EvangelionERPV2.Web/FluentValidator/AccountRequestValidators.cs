@@ -119,4 +119,24 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .When(x => !string.IsNullOrWhiteSpace(x.ProfilePicture));
         }
     }
+
+    public sealed class UpdateProfileRequestValidator : AbstractValidator<UserController.UpdateProfileRequest>
+    {
+        public UpdateProfileRequestValidator()
+        {
+            RuleFor(x => x.FirstName)
+                .NotEmpty().WithMessage("First name is required.")
+                .MaximumLength(100).WithMessage("First name is too long.");
+
+            RuleFor(x => x.LastName)
+                .NotEmpty().WithMessage("Last name is required.")
+                .MaximumLength(100).WithMessage("Last name is too long.");
+
+            // Optional, unlike the customer and supplier numbers: a person can have no phone, and
+            // an empty string is how they clear one. The 30-character ceiling matches the column.
+            RuleFor(x => x.PhoneNumber)
+                .MaximumLength(30).WithMessage("Phone is too long.")
+                .When(x => x.PhoneNumber != null);
+        }
+    }
 }

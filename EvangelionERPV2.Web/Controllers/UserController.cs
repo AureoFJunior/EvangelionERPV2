@@ -738,6 +738,15 @@ namespace EvangelionERPV2.Web.Controllers
             public string? ProfilePicture { get; set; }
         }
 
+        public sealed class UpdateProfileRequest
+        {
+            public string? FirstName { get; set; }
+            public string? LastName { get; set; }
+
+            /// <summary>Optional. An empty string clears the number; omitting it leaves it alone.</summary>
+            public string? PhoneNumber { get; set; }
+        }
+
         /// <summary>
         /// Update the current user's theme preference.
         /// </summary>
@@ -876,6 +885,77 @@ namespace EvangelionERPV2.Web.Controllers
                     return Forbid();
 
                 var updatedUser = await _userService.UpdateProfilePictureAsync(user, request?.ProfilePicture);
+                if (updatedUser == null)
+                    return NoContent();
+
+                return Ok(await ToUserDtoAsync(updatedUser));
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Update the current user's own name and contact number.
+        /// </summary>
+        /// <remarks>
+        /// Self-scoped on purpose: the id comes from the token, never from the body, so this cannot
+        /// be pointed at a colleague. Editing somebody else stays behind Users.Update on the users
+        /// screen. Only the three fields a person owns are writable — role, access level and email
+        /// are the enterprise's to set, which is why they are read-only on the profile screen.
+        /// </remarks>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
+        [HttpPut]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
+        {
+            try
+            {
+                if (request == null)
+                    return BadRequest("Profile is required.");
+
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+                // Repeated here rather than left to UpdateProfileRequestValidator: a name is what
+                // this endpoint writes, and a blank one would rename somebody to nothing if auto
+                // validation were ever turned off.
+                var firstName = request.FirstName?.Trim();
+                var lastName = request.LastName?.Trim();
+
+                if (string.IsNullOrEmpty(firstName) || string.IsNullOrEmpty(lastName))
+                    return BadRequest("First name and last name are required.");
+
+                if (firstName.Length > 100 || lastName.Length > 100 || (request.PhoneNumber?.Trim().Length ?? 0) > 30)
+                    return BadRequest("Profile field is too long.");
+
+                var userId = TryGetUserId();
+                if (!userId.HasValue)
+                    return Unauthorized();
+
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var user = await _userRepository.GetByIdAsync(userId.Value);
+                if (user == null || user.IsActive != true)
+                    return NotFound();
+
+                if (user.EnterpriseId != enterpriseId)
+                    return Forbid();
+
+                user.FirstName = firstName;
+                user.LastName = lastName;
+
+                // Null means "not sent" — a client updating only the name should not wipe the
+                // number. Empty string is a deliberate clear, and passes through.
+                if (request.PhoneNumber != null)
+                    user.PhoneNumber = request.PhoneNumber.Trim();
+
+                var updatedUser = _userService.Update(user);
                 if (updatedUser == null)
                     return NoContent();
 

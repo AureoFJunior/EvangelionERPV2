@@ -29,6 +29,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IAiAgentService _agentService;
         private readonly IAiPendingActionService _pendingActions;
         private readonly IAiSpeechService _speech;
+        private readonly IAiVoiceService _voice;
         private readonly IRepository<AiConversation> _conversations;
         private readonly IRepository<AiMessage> _messages;
         private readonly IRepository<User> _users;
@@ -38,6 +39,7 @@ namespace EvangelionERPV2.Web.Controllers
             IAiAgentService agentService,
             IAiPendingActionService pendingActions,
             IAiSpeechService speech,
+            IAiVoiceService voice,
             IRepository<AiConversation> conversations,
             IRepository<AiMessage> messages,
             IRepository<User> users,
@@ -46,6 +48,7 @@ namespace EvangelionERPV2.Web.Controllers
             _agentService = agentService;
             _pendingActions = pendingActions;
             _speech = speech;
+            _voice = voice;
             _conversations = conversations;
             _messages = messages;
             _users = users;
@@ -183,6 +186,58 @@ namespace EvangelionERPV2.Web.Controllers
             }
 
             return BadRequest("Nenhum áudio foi enviado.");
+        }
+
+        /// <summary>
+        /// Reads one sentence aloud, so every platform hears the same voice instead of whatever the
+        /// machine happens to have installed — on a Linux desktop without speech-dispatcher, that is
+        /// nothing at all.
+        /// </summary>
+        /// <remarks>
+        /// The audio is copied from the synthesis server to the response and exists nowhere else:
+        /// no byte array, no temp file, and deliberately no caching of any kind on this route. The
+        /// client calls this once per sentence, so the first word is heard while the rest of the
+        /// answer is still being rendered.
+        /// </remarks>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]
+        [HttpPost("speak")]
+        [RequestSizeLimit(MaxChatRequestBodySizeInBytes)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<IActionResult> Speak([FromBody] AiSpeakRequestDTO request, CancellationToken cancellation)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+            if (!_settings.Enabled || !_settings.VoiceEnabled)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "A voz do assistente está desativada.");
+
+            if (!TryGetEnterpriseId(out _) || TryGetUserId() is null)
+                return Unauthorized();
+
+            var text = request.Text?.Trim() ?? string.Empty;
+
+            if (text.Length == 0)
+                return BadRequest("Nada a falar.");
+
+            // Refused before the synthesis server is asked, the same way an oversized clip is.
+            if (text.Length > _settings.MaxSpeechChars)
+                return BadRequest("Texto longo demais para uma frase.");
+
+            var result = await _voice.SynthesizeAsync(text, cancellation);
+
+            if (!result.Success || result.Audio is null)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, result.Error);
+
+            // Explicitly uncacheable: an answer's audio sitting in a proxy or a browser cache is the
+            // stored artifact this whole path exists to avoid.
+            Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+            Response.Headers.Pragma = "no-cache";
+
+            // FileStreamResult copies the stream to the response and disposes it — which, here, also
+            // closes the upstream response. Never File(bytes, …): that is the buffer this avoids.
+            return new FileStreamResult(result.Audio, result.ContentType);
         }
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]

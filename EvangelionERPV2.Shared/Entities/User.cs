@@ -42,6 +42,18 @@ namespace EvangelionERPV2.Shared.Entities
         public short ActualTheme { get; set; }
         public string ProfilePicture { get; set; } = string.Empty;
 
+        /// <summary>
+        /// A contact number the user maintains themselves, in whatever shape they type it.
+        /// </summary>
+        /// <remarks>
+        /// Free text, like every other phone column here (Customer, Supplier, Employee). It is a
+        /// number somebody rings, not a key: normalising it would fight with extensions, country
+        /// prefixes and the "ramal 22" people actually enter. Empty by default — nobody has one
+        /// until they fill it in — and 30 characters, the same ceiling the other four use.
+        /// </remarks>
+        [MaxLength(30)]
+        public string PhoneNumber { get; set; } = string.Empty;
+
         [ForeignKey(nameof(Enterprise))]
         public Guid? EnterpriseId { get; set; }
         [JsonIgnore]

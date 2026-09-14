@@ -11,6 +11,9 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Email { get; set; } = string.Empty;
         public DateTime BirthDate { get; set; }
         public string? ProfilePicture { get; set; }
+
+        /// <summary>The user's own contact number, empty when they have not set one.</summary>
+        public string? PhoneNumber { get; set; }
         [JsonIgnore]
         public Enterprise? Enterprise { get; set; }
         public short ActualTheme { get; set; }

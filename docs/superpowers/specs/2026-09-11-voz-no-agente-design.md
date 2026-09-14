@@ -302,5 +302,17 @@ Tasks 1–6 are the backend and are useful on their own; 7–10 are the experien
    call doubles latency. The prompt rule is the cheap bet; measure before spending more.
 4. **Retention of the transcript.** 90 days is inherited from text. A spoken question is more likely
    to be careless — worth asking whether voice turns deserve a shorter window.
-5. **Where the session lives.** Inside the existing assistant sheet, or a dedicated full-screen
-   voice view like the apps this imitates? The second is a better experience and more work.
+5. ~~**Where the session lives.**~~ **Answered: inside the existing assistant sheet.** Voice mode
+   replaces the log and composer with an orb, a caption and a stop control, and leaving it costs
+   nothing because both modes write to the same thread. A dedicated full-screen view buys little
+   once the sheet is already the full height of the window on a phone. Built in
+   `components/ai/VoiceOrb.tsx`; see the FrontV2 spec at
+   `.specs/features/ai-assistant/spec.md` for the state-to-motion mapping and the consent rule
+   (the microphone does not open when voice mode does — the orb is the switch).
+
+   Two client facts found while building it, both worth carrying back here: the TTS decision above
+   means a browser with no voices installed (Firefox on Linux without speech-dispatcher) accepts an
+   utterance, says nothing, and never calls `onDone` — `speak()` needs a watchdog or the session
+   parks in `speaking` and stops listening. And voice mode must be gated on microphone
+   availability, not speech availability, or browsers that can hear perfectly well show no voice
+   control at all.

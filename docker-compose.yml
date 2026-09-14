@@ -57,6 +57,9 @@ services:
       AiSettings__SpeechEnabled: ${EVA_AI_SPEECH_ENABLED:-false}
       AiSettings__SpeechEndpoint: ${EVA_AI_SPEECH_ENDPOINT:-http://whisper:8000}
       AiSettings__SpeechModel: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-small}
+      AiSettings__VoiceEnabled: ${EVA_AI_VOICE_ENABLED:-false}
+      AiSettings__VoiceEndpoint: ${EVA_AI_VOICE_ENDPOINT:-http://piper:8000}
+      AiSettings__VoiceName: ${EVA_AI_VOICE_NAME:-pt_BR-faber-medium}
       AWS_PROFILE: ${AWS_PROFILE:-}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
@@ -92,6 +95,24 @@ services:
       - "${WHISPER_HOST_PORT:-9000}:8000"
     volumes:
       - whisper_models:/root/.cache/huggingface
+    networks:
+      - custom_network
+
+  # Text-to-speech, so the assistant sounds the same on every machine instead of using whatever
+  # voice the OS happens to have — on a Linux desktop without speech-dispatcher, that is none at
+  # all. Piper runs on CPU: the GPU is already holding the model the agent thinks with. The volume
+  # holds voices only; a rendered sentence is streamed to the browser and never written down.
+  piper:
+    profiles:
+      - voice
+    image: ${PIPER_IMAGE:-ghcr.io/matatonic/openedai-speech-min:latest}
+    container_name: evangelionerpv2_piper
+    environment:
+      TTS_HOME: /app/voices
+    ports:
+      - "${PIPER_HOST_PORT:-9100}:8000"
+    volumes:
+      - piper_voices:/app/voices
     networks:
       - custom_network
 
@@ -239,4 +260,5 @@ networks:
 
 volumes:
   whisper_models:
+  piper_voices:
   sqlserver_data:

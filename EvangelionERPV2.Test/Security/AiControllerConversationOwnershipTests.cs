@@ -195,6 +195,7 @@ namespace EvangelionERPV2.Test.Security
                 _agentServiceMock.Object,
                 Mock.Of<IAiPendingActionService>(),
                 Mock.Of<IAiSpeechService>(),
+                Mock.Of<IAiVoiceService>(),
                 _conversationsMock.Object,
                 Mock.Of<IRepository<AiMessage>>(),
                 _usersMock.Object,
