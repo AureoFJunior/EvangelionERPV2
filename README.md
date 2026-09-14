@@ -31,18 +31,28 @@ This repository is organized as a modular monolith:
 - background jobs run in `EvangelionERPV2.Worker.Email`, `EvangelionERPV2.Worker.Order` and
   `EvangelionERPV2.Worker.Notification`
 
-Main modules currently present:
+Main modules currently present (one `Application` project each, most with `Domain` and `Infra`
+alongside):
 
-- Bills
-- Boleto
+- Ai — the assistant: tools, the write-confirmation flow, speech in and out
+- Audit
+- Bills — receivables, boleto, dunning, the daily panel
 - Customer
 - Email
+- Employee — payroll, absences, vacations
 - Enterprise
 - NFe
-- Order
-- PayablesReceivables
+- Notification — the bell: admin broadcasts plus alerts projected from the daily panel
+- OpportunityRadar
+- Order — quotes and orders
+- Pdv — the till
 - Product
+- Reports
+- Supplier
 - User
+
+Surfaces without a module of their own live in the Web layer over one of the above: the dashboard,
+cash-flow forecast, bank reconciliation, payable bills and sales performance.
 
 ## Tech stack
 
@@ -50,7 +60,7 @@ Main modules currently present:
 - Entity Framework Core 10 (SQL Server)
 - Serilog
 - Prometheus metrics (`/metrics`)
-- SignalR (`/orderHub`)
+- SignalR — `/orderHub` (orders, and the notification bell) and `/aiHub` (the assistant's progress ticker)
 - JWT + Refresh Token + Google login
 - Redis cache
 - RabbitMQ integration (workers consume from broker)
@@ -97,9 +107,11 @@ Each module follows a consistent layering model:
 - `/metrics` requires an authenticated user with the metrics read permission
 - Swagger UI is available only in `Development`
 
-## Running with Docker Compose (single file)
+## Running with Docker Compose
 
-This project now uses a single compose file: `docker-compose.yml`.
+`docker-compose.yml` holds every service. One optional override sits beside it:
+`docker-compose.gpu.yml`, which moves Whisper onto the GPU and is only used when you pass it with
+`-f` (see "Whisper on the GPU").
 
 ### First run on a new machine (after cloning)
 
@@ -251,7 +263,9 @@ again. A restart policy does not help: those containers were removed, not stoppe
 ### Prerequisites
 
 - Docker Desktop (or Docker Engine + Compose)
-- available host ports (default: `8080`, `8082` and `14333`, depending on profiles)
+- available host ports, depending on the profiles you start: `8080` (API), `8082` (nginx, `proxy`),
+  `14333` (SQL Server, `localdb`), `9000` (whisper) and `9100` (piper), both `voice`. Ollama is on
+  the host at `11434`
 - AWS CLI configured locally (`aws configure`) with a profile that can read the `evangelion/dev/*` secrets
 
 ### Local environment
@@ -715,11 +729,24 @@ dotnet ef database update --project EvangelionERPV2.Shared --startup-project Eva
 
 ## Tests
 
+Seventeen test projects — one per module, plus `EvangelionERPV2.Test` for the cross-cutting rules
+(RBAC policy coverage, tenant query filters, workers, health checks).
+
 Run all tests in the solution:
 
 ```powershell
 dotnet test EvangelionERPV2.sln
 ```
+
+One module, which is what you want while working on it:
+
+```bash
+dotnet test EvangelionERPV2.AiModule.Test/EvangelionERPV2.AiModule.Test.csproj
+```
+
+`EvangelionERPV2.Test` is the one to run before merging anything that touches a controller or a
+permission: `RbacControllerPolicyCoverageTests` fails when a new action has no policy row, and
+`TenantQueryFilterTests` fails when tenant isolation changes shape.
 
 ## Important notes
 
