@@ -55,6 +55,27 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         [Fact]
+        public async Task Synthesizing_SendsTheFigureAsWords_NotAsDigits()
+        {
+            string? body = null;
+            var service = BuildService(request =>
+            {
+                body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return Audio(HttpStatusCode.OK, "audio/mpeg", RenderedSentence);
+            });
+
+            await service.SynthesizeAsync("Você tem 4 parcelas vencidas, somando R$ 9.226,24.");
+
+            using var payload = JsonDocument.Parse(body!);
+            var input = payload.RootElement.GetProperty("input").GetString();
+
+            // Piper reads what it is given: "R$ 9.226,24" comes out as symbols and digits, which is
+            // the one thing the listener called in to hear.
+            Assert.Contains("nove mil duzentos e vinte e seis reais e vinte e quatro centavos", input);
+            Assert.DoesNotContain("R$", input);
+        }
+
+        [Fact]
         public async Task Synthesizing_WhenTheServerAnswers200WithNoAudio_IsAFailure()
         {
             // Observed on 2026-09-14: Piper answers 200 with a bare 45-byte ID3 header when it cannot

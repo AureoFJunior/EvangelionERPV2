@@ -51,6 +51,11 @@ namespace EvangelionERPV2.AiModule.Application.Services
             var stopwatch = Stopwatch.StartNew();
             HttpResponseMessage? response = null;
 
+            // Figures become the words a person says before Piper ever sees them. The prompt asks the
+            // model for this too, but a figure is the point of most answers here and "usually" is not
+            // good enough for the one number the listener actually wanted.
+            var spoken = AiSpokenText.Normalize(text);
+
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/audio/speech")
@@ -58,7 +63,7 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     Content = JsonContent.Create(new
                     {
                         model = _settings.VoiceModel,
-                        input = text,
+                        input = spoken,
                         voice = _settings.VoiceName,
                         response_format = _settings.VoiceFormat,
                     }),
