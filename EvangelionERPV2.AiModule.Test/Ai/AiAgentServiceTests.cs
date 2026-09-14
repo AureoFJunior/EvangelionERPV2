@@ -240,6 +240,32 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         [Fact]
+        public async Task AModelThatAnswersWithNothing_StillLeavesASentenceBehind()
+        {
+            // Four empty assistant rows were found in the database on 2026-09-14. In the history they
+            // read as questions the assistant ignored, which is indistinguishable from a bug in the
+            // client — and gives the user nothing to act on.
+            var persisted = new List<AiMessage>();
+
+            var result = await BuildService(ChatReturning(Text(string.Empty)).Object, NoTools(), persisted: persisted)
+                .RunTurnAsync(Request("oi"), CancellationToken.None);
+
+            Assert.False(string.IsNullOrWhiteSpace(result.Text));
+
+            var assistant = Assert.Single(persisted, x => x.Role == AiMessageRole.Assistant);
+            Assert.False(string.IsNullOrWhiteSpace(assistant.Content));
+        }
+
+        [Fact]
+        public async Task AModelThatAnswersWithWhitespace_CountsAsNothing()
+        {
+            var result = await BuildService(ChatReturning(Text("   \n  ")).Object, NoTools())
+                .RunTurnAsync(Request("oi"), CancellationToken.None);
+
+            Assert.Contains("não consegui formular", result.Text, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public async Task ATurnWithZeroTimeoutSeconds_HasNoBudgetAndAnswersNormally()
         {
             var service = BuildService(ChatReturning(Text("Bom dia.")).Object, NoTools(), timeoutSeconds: 0);

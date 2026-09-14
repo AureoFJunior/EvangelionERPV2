@@ -130,7 +130,25 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     messages.AddMessages(response);
 
                     if (calls.Count == 0)
-                        return await FinishAsync(response.Text ?? string.Empty, streamedText);
+                    {
+                        var answer = response.Text ?? string.Empty;
+
+                        // A model that answers with nothing used to be persisted as an empty
+                        // assistant message, which reads in the history as a question the assistant
+                        // ignored — four of those in this database before it was caught. Whatever
+                        // went wrong, the turn has to leave a sentence behind.
+                        if (string.IsNullOrWhiteSpace(answer))
+                        {
+                            Log.Logger.Warning(
+                                "AI turn produced no answer. Iteration={Iteration} CompletionTokens={CompletionTokens}",
+                                iteration,
+                                completionTokens);
+
+                            return await FinishAsync("Não consegui formular uma resposta. Tente perguntar de outro jeito.");
+                        }
+
+                        return await FinishAsync(answer, streamedText);
+                    }
 
                     var results = new List<AIContent>();
                     foreach (var call in calls)

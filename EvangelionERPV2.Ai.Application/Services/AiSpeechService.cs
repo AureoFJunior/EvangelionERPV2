@@ -65,6 +65,22 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 var payload = await response.Content.ReadAsStringAsync(cancellation);
                 var text = ReadText(payload);
 
+                // Silence does not come back empty from Whisper; it comes back as one phrase repeated
+                // until the buffer runs out. Treated as speech it becomes a question the person never
+                // asked, costs a turn, and stays in their history. Treated as what it is, the client's
+                // existing "nothing was said" path simply does not send a turn.
+                if (AiTranscriptSanity.IsRepetitionLoop(text))
+                {
+                    Log.Logger.Information(
+                        "Discarded a transcript that was a repetition loop. Characters={Characters}", text.Length);
+
+                    text = string.Empty;
+                }
+                else
+                {
+                    text = AiTranscriptSanity.CollapseRepeatedSentences(text);
+                }
+
                 stopwatch.Stop();
 
                 return AiTranscriptionResult.Ok(

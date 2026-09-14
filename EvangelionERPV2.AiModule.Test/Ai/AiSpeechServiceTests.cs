@@ -34,6 +34,20 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         [Fact]
+        public async Task Transcribing_ARepetitionLoop_ComesBackAsNothingSaid()
+        {
+            // What Whisper returns for silence: one phrase until it runs out of room. Passed on, it
+            // becomes a question the person never asked and stays in their history as their words.
+            var loop = string.Concat(Enumerable.Repeat("O que é que é ", 48));
+            var service = BuildService(HttpStatusCode.OK, "{\"text\":\"" + loop + "\"}");
+
+            var result = await service.TranscribeAsync(Audio(), "audio/webm", "utterance.webm");
+
+            Assert.True(result.Success);
+            Assert.False(result.Transcript.HasSpeech);
+        }
+
+        [Fact]
         public async Task Transcribing_WhenTheServerRefuses_IsATypedFailureNotAnException()
         {
             var service = BuildService(HttpStatusCode.BadRequest, "nope");
