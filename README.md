@@ -433,6 +433,7 @@ Useful knobs (all optional, defaults in `docker-compose.yml`):
 | `EVA_AI_SPEECH_ENABLED` | `false` | Turns the voice endpoint on |
 | `EVA_AI_SPEECH_MODEL` | `Systran/faster-whisper-medium` | Whisper model. Drives both the server and the `model` the API sends with every clip — they must agree, or the per-request value silently wins |
 | `EVA_AI_SPEECH_COMPUTE_TYPE` | `int8` | Quantisation. `int8` is what makes `medium` affordable on CPU |
+| `EVA_AI_SPEECH_CPU_THREADS` | `8` | Physical cores, not threads. Measured on an 8-core 7800X3D: 4 → 2.33 s, 8 → 1.86 s, 16 → 2.28 s per clip, identical accuracy. Set it to your core count, not your thread count |
 | `EVA_AI_SPEECH_DEVICE` | `cpu` | `cuda` to put it on the GPU |
 | `WHISPER_HOST_PORT` | `9000` | Host port for the transcription service |
 | `EVA_AI_VOICE_ENABLED` | `false` | Turns `POST /api/v1/ai/speak` on; off keeps the device's voice |

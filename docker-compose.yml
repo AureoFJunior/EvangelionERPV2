@@ -101,6 +101,10 @@ services:
       # roughly small's speed, which is the only reason medium is affordable here at all — the GPU is
       # holding qwen3 and Docker has no access to it anyway.
       WHISPER__COMPUTE_TYPE: ${EVA_AI_SPEECH_COMPUTE_TYPE:-int8}
+      # Transcription is the step the user sits and waits through. Measured 2026-09-14 on this
+      # 8-core 7800X3D: 4 threads 2.33 s, 8 threads 1.86 s, 16 threads 2.28 s — physical cores help,
+      # hyperthreads fight each other. Accuracy is identical at all three, so this is free latency.
+      WHISPER__CPU_THREADS: ${EVA_AI_SPEECH_CPU_THREADS:-8}
     ports:
       - "${WHISPER_HOST_PORT:-9000}:8000"
     volumes:
