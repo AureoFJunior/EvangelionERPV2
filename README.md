@@ -258,6 +258,11 @@ ensure_voice_exists('pt_BR-jeff-medium', ['/app/voices'], '/app/voices', get_voi
 Without the model file Piper answers `200` with an empty MP3 rather than an error; the API detects
 that and answers 503 so the client falls back instead of playing silence.
 
+Both `whisper` and `piper` carry `restart: unless-stopped`. A synthesis or transcription process
+that dies is a transient fault, not a reason to take voice out of the product until somebody runs
+`docker start` by hand — and with the default policy nothing brings them back. Watch `RestartCount`
+on those containers if you want to know whether they are dying quietly.
+
 Audio is transcribed in flight and never stored — the container has no volume for it, the API
 streams the upload straight through, and only the transcript is kept.
 

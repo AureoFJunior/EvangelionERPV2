@@ -88,6 +88,10 @@ services:
       - voice
     image: ${WHISPER_IMAGE:-fedirz/faster-whisper-server:latest-cpu}
     container_name: evangelionerpv2_whisper
+    # Same reasoning as piper, and the stakes are higher: when synthesis dies the client can fall
+    # back to the device's voice, but there is no fallback for hearing. A dead transcription server
+    # means voice mode simply stops accepting speech.
+    restart: unless-stopped
     environment:
       WHISPER__MODEL: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-small}
       WHISPER__INFERENCE_DEVICE: ${EVA_AI_SPEECH_DEVICE:-cpu}
