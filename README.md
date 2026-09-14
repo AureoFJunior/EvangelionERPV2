@@ -166,6 +166,88 @@ Pass the same switches to `local-down.ps1` that you passed to `local-up.ps1`. Th
 `docker compose down --remove-orphans` against exactly the profiles named, so a service started
 under a profile you leave out is removed as an orphan.
 
+### Everything at once
+
+Every profile, every service — API, nginx, SQL Server, all three workers, and both voice services.
+Naming no services starts everything the enabled profiles contain:
+
+```bash
+docker compose --env-file .env.local \
+  --profile localdb --profile proxy --profile workers --profile voice \
+  up -d --build
+```
+
+PowerShell shortcut for the same thing:
+
+```powershell
+.\scripts\local-up.ps1 -WithWorkers -WithVoice
+```
+
+That brings up eight containers:
+
+| Service | Profile | Port (host) | Needs |
+|---|---|---|---|
+| `evangelionerpv2` | *(always)* | `8080` | SQL Server; Ollama on the host for the agent |
+| `nginx` | `proxy` | `8082` | the API |
+| `sqlserver` | `localdb` | `14333` | — |
+| `worker_order` | `workers` | — | the API, RabbitMQ |
+| `worker_email` | `workers` | — | the API, RabbitMQ |
+| `worker_notification` | `workers` | — | the API, Redis. No broker, no database |
+| `whisper` | `voice` | `9000` | — |
+| `piper` | `voice` | `9100` | its voice model in the `piper_voices` volume |
+
+Three things are **not** started by that command and the assistant is degraded or silent without
+them:
+
+1. **Ollama runs on the host**, not in Compose — see the section below. `systemctl --user status ollama`.
+2. **The feature flags are off by default.** In `.env.local`:
+
+```ini
+EVA_AI_ENABLED=true          # POST /api/v1/ai/chat, otherwise 503
+EVA_AI_SPEECH_ENABLED=true   # POST /api/v1/ai/transcribe (hearing), otherwise 503
+EVA_AI_VOICE_ENABLED=true    # POST /api/v1/ai/speak (speaking), otherwise 503
+EVA_AI_VOICE_NAME=pt_BR-jeff-medium
+```
+
+3. **Migrations never apply themselves.** Nothing in the app calls `Database.Migrate()`, so a
+   freshly built image against an older database answers 500 with `Invalid column name`:
+
+```bash
+./scripts/local-db-update.sh
+```
+
+On the very first voice run, download the pt-BR model into the volume (once per machine — the image
+ships English voices only):
+
+```bash
+docker exec evangelionerpv2_piper python3 -c "
+from piper.download import ensure_voice_exists, get_voices
+ensure_voice_exists('pt_BR-jeff-medium', ['/app/voices'], '/app/voices', get_voices('/app/voices'))"
+```
+
+Check the whole thing is actually up:
+
+```bash
+docker compose --env-file .env.local --profile localdb --profile proxy --profile workers --profile voice ps
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8082/health      # nginx -> API
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:9000/v1/models   # whisper
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:11434/api/tags   # ollama, on the host
+ollama ps                                                                   # model resident?
+```
+
+And stop everything, including the profile-gated services:
+
+```bash
+docker compose --env-file .env.local \
+  --profile localdb --profile proxy --profile workers --profile voice \
+  down --remove-orphans
+```
+
+**Pass the same profiles to every command.** `down --remove-orphans` deletes containers belonging to
+profiles you did not name, so a `down` without `--profile voice` silently removes `piper` and
+`whisper`, and voice then fails with `Name or service not known (piper:8000)` until they are started
+again. A restart policy does not help: those containers were removed, not stopped.
+
 ### Prerequisites
 
 - Docker Desktop (or Docker Engine + Compose)
@@ -232,11 +314,10 @@ docker compose --env-file .env.local --profile localdb --profile voice up -d --b
 ```
 
 `whisper` is the speech-to-text service the agent uses to hear a question, and `piper` is the
-text-to-speech service it answers with. Like the workers it is
-profile-based and does not start unless you pass `--profile voice` (or `-WithVoice` to the
-shortcut scripts). It also needs
-`EVA_AI_SPEECH_ENABLED=true` in `.env.local`; without it the API answers `503` on
-`POST /api/v1/ai/transcribe` instead of hanging.
+text-to-speech service it answers with. Like the workers they are profile-based and do not start
+unless you pass `--profile voice` (or `-WithVoice` to the shortcut scripts). They also need
+`EVA_AI_SPEECH_ENABLED=true` and `EVA_AI_VOICE_ENABLED=true` in `.env.local`; without those the API
+answers `503` on `POST /api/v1/ai/transcribe` and `POST /api/v1/ai/speak` instead of hanging.
 
 `piper` exists because the device's own voice is a different voice on every machine — and on a
 Linux desktop without `speech-dispatcher`, no voice at all: `speechSynthesis` accepts the utterance,
@@ -277,6 +358,9 @@ Useful knobs (all optional, defaults in `docker-compose.yml`):
 | `EVA_AI_VOICE_ENABLED` | `false` | Turns `POST /api/v1/ai/speak` on; off keeps the device's voice |
 | `EVA_AI_VOICE_NAME` | `pt_BR-jeff-medium` | Which Piper voice speaks. Must exist in `docker/piper/voice_to_speaker.yaml` |
 | `PIPER_HOST_PORT` | `9100` | Host port for the synthesis service |
+| `EVA_AI_ENABLED` | `false` | Turns the agent itself on; without it every `/api/v1/ai/*` route answers 503 |
+| `EVA_AI_ENDPOINT` | `http://host.docker.internal:11434` | Where the API looks for Ollama |
+| `EVA_AI_MODEL` | `qwen3:14b` | The model the agent thinks with |
 
 The agent's *answers* come from Ollama, which runs **natively on the host** rather than in Compose
 (the GPU is the point, and this avoids the NVIDIA container toolkit). It must be reachable from the
@@ -301,6 +385,12 @@ After=network-online.target
 # OLLAMA_MODELS it starts with an empty model store and answers "model not found".
 Environment="OLLAMA_HOST=0.0.0.0:11434"
 Environment="OLLAMA_MODELS=/path/to/models"
+# Keep the model resident. Ollama unloads after five minutes idle by default, so the first question
+# after any break paid a cold load of ~9.6 GB onto the GPU — and a client that gave up while that was
+# happening aborted the load itself, leaving the user with "O assistente está indisponível" and
+# nothing wrong in the API logs. Ollama logs that case as `499` with "client connection closed
+# before llama-server finished loading".
+Environment="OLLAMA_KEEP_ALIVE=-1"
 ExecStart=/path/to/ollama serve
 Restart=always
 RestartSec=3
