@@ -10,11 +10,11 @@
 # this file, no downloading anything, as long as the model is in the piper_voices volume.
 tts-1:
   # The ERP's own voice. One choice, every platform.
-  pt_BR-jeff-medium:
-    model: voices/pt_BR-jeff-medium.onnx
-    speaker: # default speaker
   pt_BR-faber-medium:
     model: voices/pt_BR-faber-medium.onnx
+    speaker: # default speaker
+  pt_BR-jeff-medium:
+    model: voices/pt_BR-jeff-medium.onnx
     speaker: # default speaker
   pt_BR-cadu-medium:
     model: voices/pt_BR-cadu-medium.onnx

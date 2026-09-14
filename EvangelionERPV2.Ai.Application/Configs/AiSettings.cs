@@ -65,7 +65,7 @@ namespace EvangelionERPV2.AiModule.Application.Configs
         public string VoiceModel { get; set; } = "tts-1";
 
         /// <summary>Which voice speaks. One choice for every platform, which is the point of this path.</summary>
-        public string VoiceName { get; set; } = "pt_BR-jeff-medium";
+        public string VoiceName { get; set; } = "pt_BR-faber-medium";
 
         /// <summary>mp3 or wav. mp3 is a third of the bytes over the wire for the same sentence.</summary>
         public string VoiceFormat { get; set; } = "mp3";

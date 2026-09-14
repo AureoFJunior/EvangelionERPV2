@@ -1,7 +1,7 @@
 # A voz vem do servidor — design
 
 **Status:** implemented on the backend 2026-09-14. Tasks 0–5 done. The voice is
-`pt_BR-jeff-medium`, chosen by listening (open question 1, answered). Verified end to end through
+`pt_BR-faber-medium`, chosen by listening (open question 1, answered). Verified end to end through
 `POST /api/v1/ai/speak`: 7.05 s of audio for one sentence, empty and over-cap text refused with 400,
 600 characters accepted, `no-store` on the response, no temp file in the container, and 429 at the
 configured ceiling. Written 2026-09-14.
@@ -285,8 +285,11 @@ Ordered so the tree stays green at every commit.
 
 ## Open questions
 
-1. ~~**Which pt-BR Piper voice.**~~ Answered: `pt_BR-jeff-medium`, after hearing one real answer.
-   `faber`, `cadu` and `edresson` are the alternatives if it ever needs revisiting.
+1. ~~**Which pt-BR Piper voice.**~~ Answered: `pt_BR-faber-medium`, after hearing the same sentence —
+   a figure read as currency — through all four. `jeff` was the first pick and was changed on a
+   second listen. All four pt-BR voices Piper publishes (`faber`, `jeff`, `cadu`, `edresson`) are
+   mapped in `docker/piper/voice_to_speaker.yaml` and downloaded into the `piper_voices` volume, so
+   revisiting this is `EVA_AI_VOICE_NAME` and a restart — nothing to edit, nothing to fetch.
 2. **Warm-up.** Synthesise a throwaway word on container start, or accept a slow first sentence?
 3. **Does the fallback deserve to be visible?** A one-line note in the call screen saying the
    device voice is in use is honest, and is also a thing nobody wants to see every day.

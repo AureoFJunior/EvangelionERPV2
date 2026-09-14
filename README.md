@@ -206,7 +206,7 @@ them:
 EVA_AI_ENABLED=true          # POST /api/v1/ai/chat, otherwise 503
 EVA_AI_SPEECH_ENABLED=true   # POST /api/v1/ai/transcribe (hearing), otherwise 503
 EVA_AI_VOICE_ENABLED=true    # POST /api/v1/ai/speak (speaking), otherwise 503
-EVA_AI_VOICE_NAME=pt_BR-jeff-medium
+EVA_AI_VOICE_NAME=pt_BR-faber-medium
 ```
 
 3. **Migrations never apply themselves.** Nothing in the app calls `Database.Migrate()`, so a
@@ -222,7 +222,7 @@ ships English voices only):
 ```bash
 docker exec evangelionerpv2_piper python3 -c "
 from piper.download import ensure_voice_exists, get_voices
-ensure_voice_exists('pt_BR-jeff-medium', ['/app/voices'], '/app/voices', get_voices('/app/voices'))"
+ensure_voice_exists('pt_BR-faber-medium', ['/app/voices'], '/app/voices', get_voices('/app/voices'))"
 ```
 
 Check the whole thing is actually up:
@@ -333,7 +333,7 @@ maps the name in `EVA_AI_VOICE_NAME` to a model file, and the model is downloade
 ```bash
 docker exec evangelionerpv2_piper python3 -c "
 from piper.download import ensure_voice_exists, get_voices
-ensure_voice_exists('pt_BR-jeff-medium', ['/app/voices'], '/app/voices', get_voices('/app/voices'))"
+ensure_voice_exists('pt_BR-faber-medium', ['/app/voices'], '/app/voices', get_voices('/app/voices'))"
 ```
 
 Without the model file Piper answers `200` with an empty MP3 rather than an error; the API detects
@@ -356,7 +356,7 @@ Useful knobs (all optional, defaults in `docker-compose.yml`):
 | `EVA_AI_SPEECH_DEVICE` | `cpu` | `cuda` to put it on the GPU |
 | `WHISPER_HOST_PORT` | `9000` | Host port for the transcription service |
 | `EVA_AI_VOICE_ENABLED` | `false` | Turns `POST /api/v1/ai/speak` on; off keeps the device's voice |
-| `EVA_AI_VOICE_NAME` | `pt_BR-jeff-medium` | Which Piper voice speaks. Must exist in `docker/piper/voice_to_speaker.yaml` |
+| `EVA_AI_VOICE_NAME` | `pt_BR-faber-medium` | Which Piper voice speaks. Must exist in `docker/piper/voice_to_speaker.yaml` |
 | `PIPER_HOST_PORT` | `9100` | Host port for the synthesis service |
 | `EVA_AI_ENABLED` | `false` | Turns the agent itself on; without it every `/api/v1/ai/*` route answers 503 |
 | `EVA_AI_ENDPOINT` | `http://host.docker.internal:11434` | Where the API looks for Ollama |
