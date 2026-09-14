@@ -56,7 +56,9 @@ services:
       AiSettings__Model: ${EVA_AI_MODEL:-qwen3:14b}
       AiSettings__SpeechEnabled: ${EVA_AI_SPEECH_ENABLED:-false}
       AiSettings__SpeechEndpoint: ${EVA_AI_SPEECH_ENDPOINT:-http://whisper:8000}
-      AiSettings__SpeechModel: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-small}
+      # One variable drives both, and it has to: the API sends `model` with every clip, so a value
+      # here that disagrees with WHISPER__MODEL silently overrides the server's own default.
+      AiSettings__SpeechModel: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-medium}
       AiSettings__VoiceEnabled: ${EVA_AI_VOICE_ENABLED:-false}
       AiSettings__VoiceEndpoint: ${EVA_AI_VOICE_ENDPOINT:-http://piper:8000}
       AiSettings__VoiceName: ${EVA_AI_VOICE_NAME:-pt_BR-faber-medium}
@@ -93,8 +95,12 @@ services:
     # means voice mode simply stops accepting speech.
     restart: unless-stopped
     environment:
-      WHISPER__MODEL: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-small}
+      WHISPER__MODEL: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-medium}
       WHISPER__INFERENCE_DEVICE: ${EVA_AI_SPEECH_DEVICE:-cpu}
+      # int8 on CPU. Measured 2026-09-14 on noisy speech: medium at int8 keeps medium's accuracy at
+      # roughly small's speed, which is the only reason medium is affordable here at all — the GPU is
+      # holding qwen3 and Docker has no access to it anyway.
+      WHISPER__COMPUTE_TYPE: ${EVA_AI_SPEECH_COMPUTE_TYPE:-int8}
     ports:
       - "${WHISPER_HOST_PORT:-9000}:8000"
     volumes:

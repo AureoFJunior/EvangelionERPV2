@@ -344,6 +344,28 @@ that dies is a transient fault, not a reason to take voice out of the product un
 `docker start` by hand — and with the default policy nothing brings them back. Watch `RestartCount`
 on those containers if you want to know whether they are dying quietly.
 
+**Why `medium` at `int8`.** Measured 2026-09-14 against sixteen synthesised pt-BR sentences of this
+system's own vocabulary, scored by word error rate, with noise mixed in to stand in for a real
+microphone:
+
+| Config | Noisy WER | Exact | Per clip |
+|---|---|---|---|
+| `small`, no prompt (the old default) | 22.1% | 5/16 | 1.4 s |
+| `small` + VAD + vocabulary prompt | 20.8% | 4/16 | 1.5 s |
+| `medium` float + VAD + prompt | 14.7% | 7/16 | 4.4 s |
+| **`medium` int8 + VAD + prompt** | **14.0%** | **7/16** | **2.3 s** |
+
+`int8` is the whole reason `medium` is affordable here: it keeps the accuracy and gives back half
+the latency. The GPU is not an option — it is holding `qwen3:14b`, and Docker on this machine has no
+GPU access without the NVIDIA container toolkit, which this setup deliberately avoids.
+
+Two request-level settings come with it, both measured rather than assumed: `AiSettings__SpeechPrompt`
+is a list of this ERP's own terms (worth 13.5% → 10.9% on clean speech — without it "estoque crítico
+hoje" came back as "toque, que de cor"), and `AiSettings__SpeechVadFilter` drops silence before
+Whisper sees it. The VAD filter buys no accuracy on speech; it is there because Whisper answers a
+*silent* clip with one phrase repeated until it runs out of room, which is how a 667-character
+question nobody asked reached the conversation history.
+
 Audio is transcribed in flight and never stored — the container has no volume for it, the API
 streams the upload straight through, and only the transcript is kept.
 
@@ -352,7 +374,8 @@ Useful knobs (all optional, defaults in `docker-compose.yml`):
 | Variable | Default | What it does |
 |---|---|---|
 | `EVA_AI_SPEECH_ENABLED` | `false` | Turns the voice endpoint on |
-| `EVA_AI_SPEECH_MODEL` | `Systran/faster-whisper-small` | Whisper model to load |
+| `EVA_AI_SPEECH_MODEL` | `Systran/faster-whisper-medium` | Whisper model. Drives both the server and the `model` the API sends with every clip — they must agree, or the per-request value silently wins |
+| `EVA_AI_SPEECH_COMPUTE_TYPE` | `int8` | Quantisation. `int8` is what makes `medium` affordable on CPU |
 | `EVA_AI_SPEECH_DEVICE` | `cpu` | `cuda` to put it on the GPU |
 | `WHISPER_HOST_PORT` | `9000` | Host port for the transcription service |
 | `EVA_AI_VOICE_ENABLED` | `false` | Turns `POST /api/v1/ai/speak` on; off keeps the device's voice |

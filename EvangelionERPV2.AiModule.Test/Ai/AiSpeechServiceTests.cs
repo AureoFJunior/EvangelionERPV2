@@ -34,6 +34,42 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         [Fact]
+        public async Task Transcribing_AsksForTheVadFilterAndTheVocabularyHint()
+        {
+            string? body = null;
+            var service = BuildService(
+                request =>
+                {
+                    body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Respond(HttpStatusCode.OK, "{\"text\":\"oi\"}");
+                });
+
+            await service.TranscribeAsync(Audio(), "audio/webm", "utterance.webm");
+
+            // Measured 2026-09-14 on noisy clips: without the prompt, this system's own words come
+            // back as nonsense — "estoque crítico hoje" as "toque, que de cor".
+            Assert.Contains("vad_filter", body);
+            Assert.Contains("estoque crítico", body);
+        }
+
+        [Fact]
+        public async Task Transcribing_WithTheVadFilterOff_DoesNotAskForIt()
+        {
+            string? body = null;
+            var service = BuildService(
+                request =>
+                {
+                    body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Respond(HttpStatusCode.OK, "{\"text\":\"oi\"}");
+                },
+                vadFilter: false);
+
+            await service.TranscribeAsync(Audio(), "audio/webm", "utterance.webm");
+
+            Assert.DoesNotContain("vad_filter", body);
+        }
+
+        [Fact]
         public async Task Transcribing_ARepetitionLoop_ComesBackAsNothingSaid()
         {
             // What Whisper returns for silence: one phrase until it runs out of room. Passed on, it
@@ -113,7 +149,9 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             BuildService(_ => Respond(status, payload));
 
         private static AiSpeechService BuildService(
-            Func<HttpRequestMessage, HttpResponseMessage> handler, bool speechEnabled = true)
+            Func<HttpRequestMessage, HttpResponseMessage> handler,
+            bool speechEnabled = true,
+            bool vadFilter = true)
         {
             var client = new HttpClient(new StubHandler(handler))
             {
@@ -125,6 +163,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 SpeechEnabled = speechEnabled,
                 SpeechModel = "Systran/faster-whisper-small",
                 SpeechLanguage = "pt",
+                SpeechVadFilter = vadFilter,
             });
 
             return new AiSpeechService(client, settings);

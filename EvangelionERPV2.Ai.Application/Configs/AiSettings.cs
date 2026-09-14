@@ -33,12 +33,42 @@ namespace EvangelionERPV2.AiModule.Application.Configs
         /// <summary>A local Whisper server. Same shape as <see cref="Endpoint"/>: nothing leaves the machine.</summary>
         public string SpeechEndpoint { get; set; } = "http://localhost:9000";
 
-        public string SpeechModel { get; set; } = "small";
+        /// <summary>
+        /// Sent with every clip, so it overrides whatever the server was started with. Measured
+        /// 2026-09-14 on noisy speech: medium halves the errors of small (14.0% against 22.1% word
+        /// error) and, quantised to int8, costs 2.3 s against 1.4 s per utterance.
+        /// </summary>
+        public string SpeechModel { get; set; } = "Systran/faster-whisper-medium";
 
         /// <summary>ISO code handed to Whisper. Guessing costs accuracy on short clips.</summary>
         public string SpeechLanguage { get; set; } = "pt";
 
         public int SpeechTimeoutSeconds { get; set; } = 30;
+
+        /// <summary>
+        /// Drops the silence before Whisper ever sees it. Fed a quiet clip, Whisper does not answer
+        /// "nothing was said" — it answers with one phrase repeated until it runs out of room, which
+        /// is how a 667-character question nobody asked reached the conversation history.
+        /// </summary>
+        /// <remarks>
+        /// It buys no accuracy on speech — measured at 22.1% against 20.8% word error on noisy
+        /// clips, inside the noise. It is here for the hallucination, not the transcript.
+        /// </remarks>
+        public bool SpeechVadFilter { get; set; } = true;
+
+        /// <summary>
+        /// Vocabulary hint, sent with every clip. Whisper weights its guesses toward words it has
+        /// just been shown, and this ERP's words are exactly the ones a general model gets wrong:
+        /// measured on noisy clips, "estoque crítico hoje" came back as "toque, que de cor".
+        /// </summary>
+        /// <remarks>
+        /// Worth 13.5% → 10.9% word error on clean speech on its own. Keep it to terms this system
+        /// actually uses — a long prompt of unrelated words pulls guesses the wrong way.
+        /// </remarks>
+        public string SpeechPrompt { get; set; } =
+            "Sistema ERP. Termos: estoque crítico, contas a pagar, contas a receber, parcelas vencidas, "
+            + "faturamento, nota fiscal, pedido, cliente, fornecedor, produto, painel do dia, "
+            + "fluxo de caixa, inadimplentes, boleto, orçamento, estorno.";
 
         /// <summary>Hard cap on one utterance. Also the client's cut-off while recording.</summary>
         public int MaxAudioSeconds { get; set; } = 60;

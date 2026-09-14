@@ -52,6 +52,15 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 // timings, nothing that could be mistaken for a recording of the utterance.
                 content.Add(new StringContent("json"), "response_format");
 
+                // Both measured rather than assumed — see AiSettings. The prompt is what stops this
+                // system's own vocabulary coming back as nonsense; the VAD filter is what stops
+                // silence coming back as a question.
+                if (_settings.SpeechVadFilter)
+                    content.Add(new StringContent("true"), "vad_filter");
+
+                if (!string.IsNullOrWhiteSpace(_settings.SpeechPrompt))
+                    content.Add(new StringContent(_settings.SpeechPrompt), "prompt");
+
                 using var response = await _client.PostAsync("/v1/audio/transcriptions", content, cancellation);
 
                 if (!response.IsSuccessStatusCode)
