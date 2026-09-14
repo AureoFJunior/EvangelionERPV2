@@ -60,7 +60,7 @@ Voice adds a second group, all off unless `SpeechEnabled`:
 | `VoiceEnabled` | `false` | `POST /api/v1/ai/speak` answers 503 while it's off, and the client keeps the device's voice |
 | `VoiceEndpoint` | `http://localhost:9100` | From inside the container this is `http://piper:8000` |
 | `VoiceModel` | `tts-1` | The OpenAI-compatible model name; Piper ignores the value |
-| `VoiceName` | `pt_BR-faber-medium` | Which voice speaks. Must exist in `docker/piper/voice_to_speaker.yaml` |
+| `VoiceName` | `pt_BR-jeff-medium` | Which voice speaks. Must exist in `docker/piper/voice_to_speaker.yaml` |
 | `VoiceFormat` | `mp3` | `wav` also works; mp3 is a third of the bytes for the same sentence |
 | `VoiceTimeoutSeconds` | `20` | A synthesis that takes 20 s has already failed the listener |
 | `MaxSpeechChars` | `600` | Backstop for a "sentence" that is really a paragraph. The client splits an answer before sending |

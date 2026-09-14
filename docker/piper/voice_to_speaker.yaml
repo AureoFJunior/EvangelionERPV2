@@ -5,12 +5,12 @@
 # The .onnx files themselves are downloaded into the piper_voices volume on first use — they are
 # tens of megabytes of binary and have no business in git.
 #
-# AiSettings.VoiceName picks the entry. pt_BR-faber-medium is the default; pt_BR-edresson-low is
-# the other pt-BR voice Piper publishes, and is worth a listen before settling.
+# AiSettings.VoiceName picks the entry. pt_BR-jeff-medium is the voice, chosen by listening.
+# Piper also publishes pt_BR-faber-medium, pt_BR-cadu-medium and pt_BR-edresson-low.
 tts-1:
   # The ERP's own voice. One choice, every platform.
-  pt_BR-faber-medium:
-    model: voices/pt_BR-faber-medium.onnx
+  pt_BR-jeff-medium:
+    model: voices/pt_BR-jeff-medium.onnx
     speaker: # default speaker
   some_other_voice_name_you_want:
     model: voices/choose your own model.onnx

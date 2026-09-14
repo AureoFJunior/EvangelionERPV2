@@ -49,7 +49,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             using var payload = JsonDocument.Parse(body!);
             Assert.Equal("tts-1", payload.RootElement.GetProperty("model").GetString());
-            Assert.Equal("pt_BR-faber-medium", payload.RootElement.GetProperty("voice").GetString());
+            Assert.Equal("pt_BR-jeff-medium", payload.RootElement.GetProperty("voice").GetString());
             Assert.Equal("mp3", payload.RootElement.GetProperty("response_format").GetString());
             Assert.Equal("Bom dia.", payload.RootElement.GetProperty("input").GetString());
         }
@@ -226,7 +226,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             {
                 VoiceEnabled = voiceEnabled,
                 VoiceModel = "tts-1",
-                VoiceName = "pt_BR-faber-medium",
+                VoiceName = "pt_BR-jeff-medium",
                 VoiceFormat = "mp3",
             });
 

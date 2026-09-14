@@ -1,8 +1,10 @@
 # A voz vem do servidor — design
 
-**Status:** implemented on the backend 2026-09-14. Tasks 1–4 done; task 5's voice is installed and
-verified end to end against Piper, and still wants a human's ears (see Open questions 1).
-Written 2026-09-14.
+**Status:** implemented on the backend 2026-09-14. Tasks 1–5 done. The voice is
+`pt_BR-jeff-medium`, chosen by listening (open question 1, answered). Verified end to end through
+`POST /api/v1/ai/speak`: 7.05 s of audio for one sentence, empty and over-cap text refused with 400,
+600 characters accepted, `no-store` on the response, no temp file in the container, and 429 at the
+configured ceiling. Written 2026-09-14.
 
 **Built differently:** the spec has the service hand back the response stream untouched. It now
 reads the first 256 bytes before doing so, because Piper answers **200 with a 45-byte ID3 header and
@@ -239,8 +241,8 @@ Ordered so the tree stays green at every commit.
 
 ## Open questions
 
-1. **Which pt-BR Piper voice.** `faber` is the common choice; `edresson` exists. Decide by reading
-   one real answer — a figure, a date and a customer name — through each.
+1. ~~**Which pt-BR Piper voice.**~~ Answered: `pt_BR-jeff-medium`, after hearing one real answer.
+   `faber`, `cadu` and `edresson` are the alternatives if it ever needs revisiting.
 2. **Warm-up.** Synthesise a throwaway word on container start, or accept a slow first sentence?
 3. **Does the fallback deserve to be visible?** A one-line note in the call screen saying the
    device voice is in use is honest, and is also a thing nobody wants to see every day.

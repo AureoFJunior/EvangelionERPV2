@@ -59,7 +59,7 @@ services:
       AiSettings__SpeechModel: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-small}
       AiSettings__VoiceEnabled: ${EVA_AI_VOICE_ENABLED:-false}
       AiSettings__VoiceEndpoint: ${EVA_AI_VOICE_ENDPOINT:-http://piper:8000}
-      AiSettings__VoiceName: ${EVA_AI_VOICE_NAME:-pt_BR-faber-medium}
+      AiSettings__VoiceName: ${EVA_AI_VOICE_NAME:-pt_BR-jeff-medium}
       AWS_PROFILE: ${AWS_PROFILE:-}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
