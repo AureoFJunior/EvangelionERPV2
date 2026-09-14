@@ -1,6 +1,6 @@
 # A voz vem do servidor — design
 
-**Status:** implemented on the backend 2026-09-14. Tasks 1–5 done. The voice is
+**Status:** implemented on the backend 2026-09-14. Tasks 0–5 done. The voice is
 `pt_BR-jeff-medium`, chosen by listening (open question 1, answered). Verified end to end through
 `POST /api/v1/ai/speak`: 7.05 s of audio for one sentence, empty and over-cap text refused with 400,
 600 characters accepted, `no-store` on the response, no temp file in the container, and 429 at the
@@ -177,6 +177,8 @@ voice output reaches `ai.chat` like the rest of the assistant.
     profiles: [voice]
     image: ${PIPER_IMAGE:-ghcr.io/matatonic/openedai-speech-min:latest}
     container_name: evangelionerpv2_piper
+    # Not optional — see "A dead Piper is permanent silence" below.
+    restart: unless-stopped
     environment:
       TTS_HOME: /app/voices
     ports:
@@ -190,14 +192,50 @@ voice output reaches `ai.chat` like the rest of the assistant.
 plus `EVA_AI_VOICE_ENABLED`, `EVA_AI_VOICE_ENDPOINT` and `EVA_AI_VOICE_NAME` in `.env.local`,
 mirroring the speech ones, and `AiSettings__Voice*` on the web service.
 
-**FrontV2** — already built, and works against this endpoint the moment it exists. See
-`.specs/features/ai-assistant/spec.md`: `erpService.synthesizeSpeech()`, the server-first path in
-`utils/speech.ts`, and the per-session demotion to the device voice.
+**FrontV2** — built and working against this endpoint. See `.specs/features/ai-assistant/spec.md`:
+`erpService.synthesizeSpeech()`, the server-first path in `utils/speech.ts`, the expiring demotion
+to the device voice, and the "Test the voice" control that makes a broken deployment one press to
+find instead of a conversation.
+
+### A dead Piper is permanent silence
+
+**Observed 2026-09-14, and the reason this section exists.** The container served four requests and
+then exited with code 255 — not OOM-killed, nothing in its own logs, uvicorn's last line a normal
+`200 OK`. The service is declared with the default `restart: no`, so nothing brought it back. From
+that moment `POST /ai/speak` answered 503 "O serviço de voz está indisponível", and the assistant
+stopped talking. It took a browser trace to find, because everything upstream looked healthy and the
+client had already failed over.
+
+Two things follow, one on each side:
+
+- **`restart: unless-stopped` on the service.** A synthesis process that dies is a transient fault,
+  not a reason to take voice out of the product until somebody runs `docker start` by hand. This is
+  the whole fix on the backend side and it is one line.
+- **The client retries rather than giving up.** The demotion described above was originally for the
+  rest of the session, which turned a container crash into silence until the page was reloaded — on
+  a machine whose device voice is nothing at all, that is silence full stop. It now expires after a
+  minute, so a restarted Piper is picked up on the next sentence without the user doing anything.
+
+Neither half is sufficient alone: without the restart policy the retry has nothing to find, and
+without the retry a restarted container is ignored for as long as the page stays open.
+
+**Worth knowing why it died, separately.** Exit 255 with an empty log is not diagnosed, only
+survived. If it recurs, `docker events` and the container's stderr around the fourth request are
+where to look; the suspicion is the image's own worker handling rather than resource pressure, since
+the host had 12 GB free and `OOMKilled` was false.
 
 ## Tasks
 
 Ordered so the tree stays green at every commit.
 
+0. **`restart: unless-stopped` on the `piper` service.** Done. See "A dead Piper is permanent
+   silence".
+   *Verify:* **not** `docker kill` — Docker treats that as a manual stop and deliberately declines to
+   restart, so it proves nothing (observed: `restarts=0`, container left exited). Kill the server
+   *inside* the container instead, which is how it actually died: find the `python speech.py` pid
+   under `/proc` and `docker exec evangelionerpv2_piper sh -lc 'kill -9 <pid>'`. Measured
+   2026-09-14: `RestartCount` 0 → 1, status back to `running` unaided, and a sentence synthesised
+   0.64 s later with no manual `docker start`.
 1. **Settings and DI.** The `Voice*` fields, `AiIoC` behind `VoiceEnabled`, the Compose service.
    *Verify:* `dotnet build`; the stack starts with voice disabled and logs nothing new.
 2. **`IAiVoiceService` + `AiVoiceService`.**
@@ -229,7 +267,13 @@ Ordered so the tree stays green at every commit.
   scenario that shows it.
 - **The fallback masking a broken deployment.** A demoted client sounds slightly different and
   nobody files a bug. The endpoint failing should be visible in logs, and the client says which
-  voice it is using in the call screen.
+  voice it is using in the call screen. This one stopped being hypothetical on the day it was
+  written: Piper died, the client failed over exactly as designed, and the only visible symptom was
+  an assistant that had gone quiet. A restart policy plus an expiring demotion is the answer;
+  see above.
+- **Piper exiting on its own.** Once, at exit 255, with no log and no memory pressure. Undiagnosed,
+  now survivable. If it becomes regular it is worth a proper look rather than a longer restart
+  policy.
 
 ## Non-goals
 

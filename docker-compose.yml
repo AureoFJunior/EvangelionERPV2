@@ -107,6 +107,12 @@ services:
       - voice
     image: ${PIPER_IMAGE:-ghcr.io/matatonic/openedai-speech-min:latest}
     container_name: evangelionerpv2_piper
+    # Observed 2026-09-14: the container served four requests and exited 255 with an empty log, and
+    # the default `restart: no` left it down. Every later sentence answered 503 and the assistant
+    # simply went quiet — on a machine whose device voice is nothing at all, that is silence full
+    # stop. A synthesis process that dies is a transient fault, not a reason to take voice out of
+    # the product until somebody runs `docker start` by hand.
+    restart: unless-stopped
     environment:
       TTS_HOME: /app/voices
     ports:
