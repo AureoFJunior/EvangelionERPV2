@@ -77,6 +77,13 @@ else {
     $upArgs += @("sqlserver", "evangelionerpv2", "nginx")
 }
 
+# Naming services means every service has to be named. -WithVoice used to add the profile and stop
+# there, which kept the orphan sweep above from deleting whisper and piper but never actually
+# started them — so the shortcut brought up an assistant that could neither hear nor speak.
+if ($WithVoice) {
+    $upArgs += @("whisper", "piper")
+}
+
 Write-Host "Starting containers..."
 docker compose @upArgs
 

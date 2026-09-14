@@ -189,7 +189,16 @@ docker compose --env-file .env.local \
   up -d --build
 ```
 
-PowerShell shortcut for the same thing:
+On a machine where Docker can reach the GPU, add the override and Whisper runs on the card instead
+(see "Whisper on the GPU"):
+
+```bash
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.gpu.yml \
+  --profile localdb --profile proxy --profile workers --profile voice \
+  up -d --build
+```
+
+PowerShell shortcut for the same thing, minus the GPU override:
 
 ```powershell
 .\scripts\local-up.ps1 -WithWorkers -WithVoice
@@ -228,8 +237,10 @@ EVA_AI_VOICE_NAME=pt_BR-faber-medium
 ./scripts/local-db-update.sh
 ```
 
-On the very first voice run, download the pt-BR model into the volume (once per machine — the image
-ships English voices only):
+First voice run on a machine downloads two models, once each, and they are cached in volumes
+afterwards. Whisper pulls its own on the first transcription — **1.5 GB** for `medium`, into
+`whisper_models` — so the first spoken question is slow and the ones after it are not. Piper's pt-BR
+voice is not in its image at all (it ships English only) and has to be fetched by hand:
 
 ```bash
 docker exec evangelionerpv2_piper python3 -c "
