@@ -113,6 +113,9 @@ services:
       - "${PIPER_HOST_PORT:-9100}:8000"
     volumes:
       - piper_voices:/app/voices
+      # The pt-BR mapping: the image ships English voices only, and a mapping edited inside a
+      # running container dies with it.
+      - ./docker/piper/voice_to_speaker.yaml:/app/config/voice_to_speaker.yaml:ro
     networks:
       - custom_network
 

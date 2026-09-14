@@ -1,6 +1,15 @@
 # A voz vem do servidor — design
 
-**Status:** design, not yet implemented. Written 2026-09-14.
+**Status:** implemented on the backend 2026-09-14. Tasks 1–4 done; task 5's voice is installed and
+verified end to end against Piper, and still wants a human's ears (see Open questions 1).
+Written 2026-09-14.
+
+**Built differently:** the spec has the service hand back the response stream untouched. It now
+reads the first 256 bytes before doing so, because Piper answers **200 with a 45-byte ID3 header and
+no audio** when the voice file is missing — observed on 2026-09-14, and the response is chunked, so
+there is no Content-Length to check instead. Passing that on would have played silence and looked
+like success, and the client would never have fallen back: the exact failure this document was
+written to remove. The probed bytes are put back in front of the stream; nothing else is buffered.
 **Supersedes one decision in:** `2026-09-11-voz-no-agente-design.md` — *"The device speaks; the
 server never renders audio"*, and the non-goal *"No server-side TTS"*.
 **Leaves untouched:** everything else in that document. Transcription still runs locally, audio of

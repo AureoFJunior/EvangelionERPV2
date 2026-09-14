@@ -15,10 +15,16 @@ namespace EvangelionERPV2.AiModule.Test.Ai
     /// </summary>
     public class AiVoiceServiceTests
     {
+        /// <summary>
+        /// Stands in for a rendered sentence. Deliberately larger than the service's emptiness
+        /// probe: a 14-byte "mp3" is not a small sentence, it is a broken one.
+        /// </summary>
+        private static readonly string RenderedSentence = string.Concat(Enumerable.Repeat("0123456789", 400));
+
         [Fact]
         public async Task Synthesizing_ReturnsTheAudioAndItsContentType()
         {
-            var service = BuildService(_ => Audio(HttpStatusCode.OK, "audio/mpeg", "fake-mp3-bytes"));
+            var service = BuildService(_ => Audio(HttpStatusCode.OK, "audio/mpeg", RenderedSentence));
 
             var result = await service.SynthesizeAsync("Você tem 4 parcelas vencidas.");
 
@@ -26,7 +32,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal("audio/mpeg", result.ContentType);
 
             await using var stream = result.Audio!;
-            Assert.Equal("fake-mp3-bytes", await new StreamReader(stream).ReadToEndAsync());
+            Assert.Equal(RenderedSentence, await new StreamReader(stream).ReadToEndAsync());
         }
 
         [Fact]
@@ -36,7 +42,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var service = BuildService(request =>
             {
                 body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-                return Audio(HttpStatusCode.OK, "audio/mpeg", "bytes");
+                return Audio(HttpStatusCode.OK, "audio/mpeg", RenderedSentence);
             });
 
             await service.SynthesizeAsync("Bom dia.");
@@ -46,6 +52,34 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal("pt_BR-faber-medium", payload.RootElement.GetProperty("voice").GetString());
             Assert.Equal("mp3", payload.RootElement.GetProperty("response_format").GetString());
             Assert.Equal("Bom dia.", payload.RootElement.GetProperty("input").GetString());
+        }
+
+        [Fact]
+        public async Task Synthesizing_WhenTheServerAnswers200WithNoAudio_IsAFailure()
+        {
+            // Observed on 2026-09-14: Piper answers 200 with a bare 45-byte ID3 header when it cannot
+            // load the voice. Reporting that as success plays silence and the client never falls back
+            // to the device's voice — the exact failure this whole path exists to remove.
+            var service = BuildService(_ => Audio(HttpStatusCode.OK, "audio/mpeg", new string('\0', 45)));
+
+            var result = await service.SynthesizeAsync("Bom dia.");
+
+            Assert.False(result.Success);
+            Assert.Null(result.Audio);
+        }
+
+        [Fact]
+        public async Task Synthesizing_HandsOverEveryByte_IncludingTheOnesItLookedAt()
+        {
+            // The emptiness check reads the first bytes, so this pins that it puts them back: a
+            // sentence missing its first 256 bytes is a sentence that starts mid-word.
+            var body = string.Concat(Enumerable.Repeat("0123456789", 100));
+            var service = BuildService(_ => Audio(HttpStatusCode.OK, "audio/mpeg", body));
+
+            var result = await service.SynthesizeAsync("Bom dia.");
+
+            await using var stream = result.Audio!;
+            Assert.Equal(body, await new StreamReader(stream).ReadToEndAsync());
         }
 
         [Fact]
@@ -93,7 +127,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             using var cancellation = new CancellationTokenSource();
             await cancellation.CancelAsync();
 
-            var service = BuildService(_ => Audio(HttpStatusCode.OK, "audio/mpeg", "bytes"));
+            var service = BuildService(_ => Audio(HttpStatusCode.OK, "audio/mpeg", RenderedSentence));
 
             // A listener who hung up is not a failure to report — it is a turn nobody is waiting for.
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -105,7 +139,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         {
             var called = false;
             var service = BuildService(
-                _ => { called = true; return Audio(HttpStatusCode.OK, "audio/mpeg", "bytes"); },
+                _ => { called = true; return Audio(HttpStatusCode.OK, "audio/mpeg", RenderedSentence); },
                 voiceEnabled: false);
 
             var result = await service.SynthesizeAsync("Bom dia.");
@@ -121,7 +155,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var service = BuildService(_ =>
             {
                 called = true;
-                return Audio(HttpStatusCode.OK, "audio/mpeg", "bytes");
+                return Audio(HttpStatusCode.OK, "audio/mpeg", RenderedSentence);
             });
 
             var result = await service.SynthesizeAsync("   ");
@@ -133,9 +167,10 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Synthesizing_DoesNotReadTheAudioBeforeHandingItOver()
         {
-            // The whole point of the path: the bytes are still upstream when the controller gets the
-            // stream. A service that buffered them here is one refactor away from caching them.
-            var body = new WatchedStream("fake-mp3-bytes");
+            // The whole point of the path: the answer is still upstream when the controller gets the
+            // stream. The emptiness probe reads the first bytes and nothing more — a service that
+            // pulled the whole sentence here is one refactor away from caching it.
+            var body = new WatchedStream(RenderedSentence);
             var content = new StreamContent(body);
             content.Headers.ContentType = MediaTypeHeaderValue.Parse("audio/mpeg");
 
@@ -144,12 +179,14 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var result = await service.SynthesizeAsync("Bom dia.");
 
             Assert.True(result.Success);
-            Assert.False(body.WasRead);
+            Assert.True(body.BytesRead <= 256, $"read {body.BytesRead} bytes before handing over");
+            Assert.True(body.BytesRead < RenderedSentence.Length);
 
             await using var stream = result.Audio!;
-            await new StreamReader(stream).ReadToEndAsync();
+            var delivered = await new StreamReader(stream).ReadToEndAsync();
 
-            Assert.True(body.WasRead);
+            // And every byte still arrives, probe included.
+            Assert.Equal(RenderedSentence, delivered);
         }
 
         [Fact]
@@ -157,7 +194,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         {
             // The stream outlives the method that created it, so it carries the response with it.
             // Without that the connection leaks on every sentence the assistant speaks.
-            var body = new WatchedStream("fake-mp3-bytes");
+            var body = new WatchedStream(RenderedSentence);
             var content = new StreamContent(body);
             content.Headers.ContentType = MediaTypeHeaderValue.Parse("audio/mpeg");
 
@@ -209,20 +246,22 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             {
             }
 
-            public bool WasRead { get; private set; }
+            public int BytesRead { get; private set; }
 
             public bool WasDisposed { get; private set; }
 
+            /// <summary>
+            /// Counted here only. <see cref="MemoryStream.ReadAsync(Memory{byte}, CancellationToken)"/>
+            /// forwards to this overload for an array-backed buffer, so counting in both overrides
+            /// tallies every byte twice — which is how this test first "found" a read that never
+            /// happened.
+            /// </summary>
             public override int Read(byte[] buffer, int offset, int count)
             {
-                WasRead = true;
-                return base.Read(buffer, offset, count);
-            }
+                var read = base.Read(buffer, offset, count);
+                BytesRead += read;
 
-            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-            {
-                WasRead = true;
-                return base.ReadAsync(buffer, cancellationToken);
+                return read;
             }
 
             protected override void Dispose(bool disposing)

@@ -57,6 +57,13 @@ Voice adds a second group, all off unless `SpeechEnabled`:
 | `MaxAudioSeconds` | `60` | Cap on one utterance; the client cuts the recording at the same number |
 | `MaxAudioBytes` | `5 MB` | Backstop on the upload. Also hardcoded as the endpoint's `[RequestSizeLimit]`, because an attribute needs a constant — raising one without the other does nothing |
 | `SilenceMsToEndTurn` | `1000` | How long silence must last before the client calls the sentence finished |
+| `VoiceEnabled` | `false` | `POST /api/v1/ai/speak` answers 503 while it's off, and the client keeps the device's voice |
+| `VoiceEndpoint` | `http://localhost:9100` | From inside the container this is `http://piper:8000` |
+| `VoiceModel` | `tts-1` | The OpenAI-compatible model name; Piper ignores the value |
+| `VoiceName` | `pt_BR-faber-medium` | Which voice speaks. Must exist in `docker/piper/voice_to_speaker.yaml` |
+| `VoiceFormat` | `mp3` | `wav` also works; mp3 is a third of the bytes for the same sentence |
+| `VoiceTimeoutSeconds` | `20` | A synthesis that takes 20 s has already failed the listener |
+| `MaxSpeechChars` | `600` | Backstop for a "sentence" that is really a paragraph. The client splits an answer before sending |
 
 `docker-compose.yml`'s `evangelionerpv2` service maps env vars onto these keys:
 `EVA_AI_ENABLED` → `AiSettings__Enabled`, `EVA_AI_ENDPOINT` → `AiSettings__Endpoint`,
@@ -297,8 +304,18 @@ profile and `EVA_AI_SPEECH_ENABLED` — is in the root `README.md`; what matters
 - **Transcription is local.** A Whisper server beside Ollama, reached over HTTP, for the same reason
   the model is local. The browser's own `SpeechRecognition` was rejected: Chrome streams the audio
   to Google's servers, which contradicts the premise of the whole module.
-- **The device speaks.** `expo-speech` / `speechSynthesis`. The server never renders audio, so there
-  is no audio artifact to keep out of logs, disks and backups.
+- **The server speaks, the device is the fallback.** A Piper server beside Whisper renders each
+  sentence, so the assistant sounds the same on every machine. This overturned an earlier decision
+  (`docs/superpowers/specs/2026-09-14-voz-do-servidor-design.md`): the device's own voice is a
+  different voice per platform, and on a Linux desktop without `speech-dispatcher` it is no voice at
+  all — `speechSynthesis` reports zero voices, says nothing, and never fires `onDone`. The client
+  still falls back to the device when the endpoint is off or unreachable, once per session.
+- **The answer's audio is streamed, never stored.** `POST /ai/speak` copies the synthesis response
+  straight to the response body — no `byte[]`, no temp file, and deliberately no cache of any kind on
+  that route, because a cached answer is exactly the artifact being avoided. Logs carry the character
+  count and the latency, never the text and never the bytes. Output audio is a machine reading text
+  the database already holds, so the rule here is hygiene rather than the hard constraint on the
+  upload path — input audio is someone's voice.
 - **The audio is never kept.** The endpoint reads the body with `MultipartReader` rather than binding
   an `IFormFile`, because MVC spools a bound file over 64 KB to a temp file — that alone would break
   the promise. The client deletes its clip in a `finally`, so a failed upload deletes it too. Only

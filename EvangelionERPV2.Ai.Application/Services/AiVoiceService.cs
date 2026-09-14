@@ -19,6 +19,18 @@ namespace EvangelionERPV2.AiModule.Application.Services
     /// </remarks>
     public sealed class AiVoiceService : IAiVoiceService
     {
+        /// <summary>
+        /// How much of the answer is looked at before it is handed over. Small on purpose: this is a
+        /// sanity check on the first bytes, not a buffer of the audio.
+        /// </summary>
+        private const int SilenceProbeBytes = 256;
+
+        /// <summary>
+        /// Below this, whatever came back is a container with no sound in it. A bare ID3 header is
+        /// 45 bytes; a real sentence is tens of kilobytes.
+        /// </summary>
+        private const int MinimumAudibleBytes = 128;
+
         private readonly HttpClient _client;
         private readonly AiSettings _settings;
 
@@ -67,6 +79,27 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 var audio = await response.Content.ReadAsStreamAsync(cancellation);
                 var contentType = response.Content.Headers.ContentType?.MediaType ?? DefaultContentType();
 
+                // Piper answers 200 with an empty container when it cannot load the voice — a 45-byte
+                // MP3 that is nothing but an ID3 header. Passing that on would play silence and look
+                // like success, which is precisely the failure this whole path exists to remove: the
+                // client would never fall back to the device's voice. The response is chunked, so
+                // there is no Content-Length to check and the first few bytes have to be read.
+                var probe = new byte[SilenceProbeBytes];
+                var probed = await audio.ReadAtLeastAsync(probe, probe.Length, throwOnEndOfStream: false, cancellation);
+
+                if (probed < MinimumAudibleBytes)
+                {
+                    Log.Logger.Warning(
+                        "Speech synthesis returned no audible audio. Bytes={Bytes} Voice={Voice}",
+                        probed,
+                        _settings.VoiceName);
+
+                    await audio.DisposeAsync();
+                    response.Dispose();
+
+                    return AiVoiceResult.Failed("Não consegui gerar o áudio da resposta.");
+                }
+
                 stopwatch.Stop();
 
                 Log.Logger.Information(
@@ -76,8 +109,12 @@ namespace EvangelionERPV2.AiModule.Application.Services
 
                 // The stream outlives this method, so the response has to as well — disposing it here
                 // would close the connection under the caller mid-sentence.
+                // The probed bytes are put back in front of the rest, so the caller still sees one
+                // continuous stream and nothing was consumed by the check.
                 return AiVoiceResult.Ok(
-                    new ResponseOwnedStream(audio, response), contentType, stopwatch.ElapsedMilliseconds);
+                    new ResponseOwnedStream(new PrefixedStream(probe, probed, audio), response),
+                    contentType,
+                    stopwatch.ElapsedMilliseconds);
             }
             // Only the caller hanging up is a cancellation. HttpClient reports its *own* timeout as a
             // TaskCanceledException too, with no token of ours behind it — rethrowing that would 500
@@ -103,6 +140,90 @@ namespace EvangelionERPV2.AiModule.Application.Services
             _settings.VoiceFormat.Equals("wav", StringComparison.OrdinalIgnoreCase)
                 ? "audio/wav"
                 : "audio/mpeg";
+
+        /// <summary>
+        /// The bytes already read, then the rest of the stream. Read-forward only, which is all the
+        /// response body is.
+        /// </summary>
+        private sealed class PrefixedStream : Stream
+        {
+            private readonly byte[] _prefix;
+            private readonly int _prefixLength;
+            private readonly Stream _rest;
+            private int _prefixPosition;
+
+            public PrefixedStream(byte[] prefix, int prefixLength, Stream rest)
+            {
+                _prefix = prefix;
+                _prefixLength = prefixLength;
+                _rest = rest;
+            }
+
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+
+            public override long Position
+            {
+                get => throw new NotSupportedException();
+                set => throw new NotSupportedException();
+            }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                var fromPrefix = ReadPrefix(buffer.AsSpan(offset, count));
+
+                return fromPrefix > 0 ? fromPrefix : _rest.Read(buffer, offset, count);
+            }
+
+            public override async ValueTask<int> ReadAsync(
+                Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                var fromPrefix = ReadPrefix(buffer.Span);
+
+                return fromPrefix > 0 ? fromPrefix : await _rest.ReadAsync(buffer, cancellationToken);
+            }
+
+            public override Task<int> ReadAsync(
+                byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+                ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+            private int ReadPrefix(Span<byte> destination)
+            {
+                var remaining = _prefixLength - _prefixPosition;
+                if (remaining <= 0 || destination.Length == 0)
+                    return 0;
+
+                var count = Math.Min(remaining, destination.Length);
+                _prefix.AsSpan(_prefixPosition, count).CopyTo(destination);
+                _prefixPosition += count;
+
+                return count;
+            }
+
+            public override void Flush() => _rest.Flush();
+
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+            public override void SetLength(long value) => throw new NotSupportedException();
+
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing)
+                    _rest.Dispose();
+
+                base.Dispose(disposing);
+            }
+
+            public override async ValueTask DisposeAsync()
+            {
+                await _rest.DisposeAsync();
+                await base.DisposeAsync();
+            }
+        }
 
         /// <summary>
         /// The body stream plus the response it belongs to, disposed together. Without this the

@@ -54,8 +54,8 @@ Main modules currently present:
 - JWT + Refresh Token + Google login
 - Redis cache
 - RabbitMQ integration (workers consume from broker)
-- AI assistant: a local model through Ollama (host-native), with an optional `whisper` service for
-  voice mode (`--profile voice`)
+- AI assistant: a local model through Ollama (host-native), with optional `whisper` (hearing) and
+  `piper` (speaking) services for voice mode (`--profile voice`)
 - AWS Secrets Manager (with `plain:` fallback for local runs)
 - Docker + Docker Compose
 
@@ -154,7 +154,7 @@ If you started workers too:
 .\scripts\local-down.ps1 -WithWorkers
 ```
 
-To include the assistant's voice mode (the `whisper` speech-to-text service), pass `-WithVoice` to
+To include the assistant's voice mode (the `whisper` and `piper` services), pass `-WithVoice` to
 both scripts — see "the assistant's voice mode" below for what else it needs:
 
 ```powershell
@@ -225,17 +225,38 @@ If images are already built locally:
 docker compose --env-file .env.local --profile localdb --profile proxy --profile workers up -d --no-build sqlserver evangelionerpv2 nginx worker_order
 ```
 
-7. Optional: the assistant's voice mode (`whisper`):
+7. Optional: the assistant's voice mode (`whisper` + `piper`):
 
 ```powershell
-docker compose --env-file .env.local --profile localdb --profile voice up -d --build sqlserver evangelionerpv2 whisper
+docker compose --env-file .env.local --profile localdb --profile voice up -d --build sqlserver evangelionerpv2 whisper piper
 ```
 
-`whisper` is the speech-to-text service the agent uses to hear a question. Like the workers it is
+`whisper` is the speech-to-text service the agent uses to hear a question, and `piper` is the
+text-to-speech service it answers with. Like the workers it is
 profile-based and does not start unless you pass `--profile voice` (or `-WithVoice` to the
 shortcut scripts). It also needs
 `EVA_AI_SPEECH_ENABLED=true` in `.env.local`; without it the API answers `503` on
 `POST /api/v1/ai/transcribe` instead of hanging.
+
+`piper` exists because the device's own voice is a different voice on every machine — and on a
+Linux desktop without `speech-dispatcher`, no voice at all: `speechSynthesis` accepts the utterance,
+says nothing, and never fires `onDone`. With `piper` running and `EVA_AI_VOICE_ENABLED=true`, the
+client asks `POST /api/v1/ai/speak` for each sentence and every platform hears the same voice; with
+it off, or if the container is down, the client falls back to the device for the rest of the
+session. The rendered audio is streamed through the API and never written to disk or cached.
+
+The pt-BR voice is not in the image, which ships English voices only. `docker/piper/voice_to_speaker.yaml`
+maps the name in `EVA_AI_VOICE_NAME` to a model file, and the model is downloaded into the
+`piper_voices` volume on first use:
+
+```bash
+docker exec evangelionerpv2_piper python3 -c "
+from piper.download import ensure_voice_exists, get_voices
+ensure_voice_exists('pt_BR-faber-medium', ['/app/voices'], '/app/voices', get_voices('/app/voices'))"
+```
+
+Without the model file Piper answers `200` with an empty MP3 rather than an error; the API detects
+that and answers 503 so the client falls back instead of playing silence.
 
 Audio is transcribed in flight and never stored — the container has no volume for it, the API
 streams the upload straight through, and only the transcript is kept.
@@ -248,6 +269,9 @@ Useful knobs (all optional, defaults in `docker-compose.yml`):
 | `EVA_AI_SPEECH_MODEL` | `Systran/faster-whisper-small` | Whisper model to load |
 | `EVA_AI_SPEECH_DEVICE` | `cpu` | `cuda` to put it on the GPU |
 | `WHISPER_HOST_PORT` | `9000` | Host port for the transcription service |
+| `EVA_AI_VOICE_ENABLED` | `false` | Turns `POST /api/v1/ai/speak` on; off keeps the device's voice |
+| `EVA_AI_VOICE_NAME` | `pt_BR-faber-medium` | Which Piper voice speaks. Must exist in `docker/piper/voice_to_speaker.yaml` |
+| `PIPER_HOST_PORT` | `9100` | Host port for the synthesis service |
 
 The agent's *answers* come from Ollama, which runs **natively on the host** rather than in Compose
 (the GPU is the point, and this avoids the NVIDIA container toolkit). It must be reachable from the
