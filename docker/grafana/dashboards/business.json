@@ -139,7 +139,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 8
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -191,7 +191,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 8
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -243,7 +243,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 24
       },
       "fieldConfig": {
         "defaults": {
@@ -295,7 +295,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 24
       },
       "fieldConfig": {
         "defaults": {
@@ -331,6 +331,121 @@
           "range": true,
           "instant": false,
           "legendFormat": "enterprise {{enterprise_id}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Queue depth",
+      "description": "Work waiting in the queue. Depth above zero with a flat consume rate is the WorkerStalled alert - the failure liveness cannot see, because an idle queue and a stuck consumer both show a rate of zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "evangelion_queue_depth",
+          "legendFormat": "{{queue}}",
+          "editorMode": "code",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Dead-letter queue depth",
+      "description": "Nothing consumes this queue. Anything here is lost until somebody redrives it by hand, so any non-zero value is worth looking at - see docs/messaging/ for why messages land here.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "evangelion_dlq_depth",
+          "legendFormat": "{{queue}}",
+          "editorMode": "code",
+          "range": true
         }
       ]
     }

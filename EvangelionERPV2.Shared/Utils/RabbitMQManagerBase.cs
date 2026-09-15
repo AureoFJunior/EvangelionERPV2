@@ -31,6 +31,28 @@ namespace EvangelionERPV2.Shared.Utils
             "Messages consumed from a queue, by outcome",
             new CounterConfiguration { LabelNames = ["queue", "result"] });
 
+        /// <summary>
+        /// Depth of the work queue and of its dead-letter queue. These are the only signals that can
+        /// tell an idle worker from a stalled one, and the only way the dead-letter queue stops being
+        /// invisible - nothing consumes it, so without a gauge a message that lands there is gone
+        /// with no trace anywhere.
+        /// <para>
+        /// Read with a passive declare, which does not create anything. Note the ceiling: a passive
+        /// declare against a queue that does not exist closes the channel, so this is only safe
+        /// because <see cref="SetupChannel"/> declared both on this same channel at startup. If the
+        /// queues are ever deleted underneath a running worker, this is not what breaks first.
+        /// </para>
+        /// </summary>
+        private static readonly Gauge QueueDepth = Metrics.CreateGauge(
+            "evangelion_queue_depth",
+            "Messages waiting in the work queue",
+            new GaugeConfiguration { LabelNames = ["queue"] });
+
+        private static readonly Gauge DlqDepth = Metrics.CreateGauge(
+            "evangelion_dlq_depth",
+            "Messages sitting in the dead-letter queue, which nothing consumes",
+            new GaugeConfiguration { LabelNames = ["queue"] });
+
         private static readonly Histogram MessageDuration = Metrics.CreateHistogram(
             "evangelion_worker_message_duration_seconds",
             "Time spent in the message handler",
@@ -156,6 +178,11 @@ namespace EvangelionERPV2.Shared.Utils
                     mandatory: true,
                     basicProperties: new BasicProperties()
                     {
+                        // Durable queue plus a transient message is not durable. Without this the
+                        // broker holds the message in memory only and discards the lot on restart,
+                        // which is exactly the case the queue exists to survive. DeliveryMode
+                        // defaults to 0 on a new BasicProperties, so this has to be said out loud.
+                        Persistent = true,
                         MessageId = Guid.NewGuid().ToString("N"),
                         Headers = new Dictionary<string, object?>
                         {
@@ -197,6 +224,7 @@ namespace EvangelionERPV2.Shared.Utils
                 throw new ArgumentNullException(nameof(processMessageAsync));
 
             Log.Logger.Information("Starting Dequeue and Process");
+            await RefreshQueueDepthsAsync(cancellationToken);
             var consumer = new AsyncEventingBasicConsumer(_channel);
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             CancellationTokenRegistration cancellationRegistration = default;
@@ -329,6 +357,9 @@ namespace EvangelionERPV2.Shared.Utils
                 mandatory: true,
                 basicProperties: new BasicProperties
                 {
+                    // Same reasoning as the first publish. Missing here it would mean a message
+                    // becomes less durable every time it is retried - the opposite of the intent.
+                    Persistent = true,
                     MessageId = eventArgs.BasicProperties?.MessageId ?? Guid.NewGuid().ToString("N"),
                     Headers = headers
                 },
@@ -351,6 +382,30 @@ namespace EvangelionERPV2.Shared.Utils
                 return new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
 
             return new Dictionary<string, object?>(sourceHeaders, StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Refreshes both depth gauges. Called on each dequeue pass rather than on a timer of its
+        /// own: the worker already polls, so this costs one extra round trip on a path that is
+        /// nowhere near saturated, and it needs no second schedule to reason about.
+        /// </summary>
+        private async Task RefreshQueueDepthsAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                var main = await _channel.QueueDeclarePassiveAsync(_channelSettings.QueueName, cancellationToken);
+                QueueDepth.WithLabels(_channelSettings.QueueName).Set(main.MessageCount);
+
+                var dlq = await _channel.QueueDeclarePassiveAsync(_channelSettings.QueueNameDLQ, cancellationToken);
+                DlqDepth.WithLabels(_channelSettings.QueueNameDLQ).Set(dlq.MessageCount);
+            }
+            catch (Exception exception)
+            {
+                // Never fail a dequeue because a gauge could not be read.
+                Log.Logger.Warning(
+                    "Could not read queue depths. ErrorType={ErrorType}",
+                    GetSafeExceptionType(exception));
+            }
         }
 
         private static int GetRetryCount(IReadOnlyBasicProperties? basicProperties)

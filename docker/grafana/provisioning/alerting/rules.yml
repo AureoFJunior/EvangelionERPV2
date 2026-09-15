@@ -187,6 +187,75 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [1] }
 
+      - uid: eva-worker-stalled
+        title: WorkerStalled
+        condition: B
+        for: 15m
+        # No data means no worker is publishing, which is the `workers` profile being off.
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: A queue has work waiting and nothing is consuming it.
+          description: >-
+            Depth above zero while the consume rate is flat. This is the failure liveness cannot see:
+            the worker is up, healthy and processing nothing. It needed evangelion_queue_depth to be
+            expressible at all - a rate of zero on its own is indistinguishable from an idle queue.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: evangelion-prometheus
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              range: false
+              expr: (sum by (queue) (evangelion_queue_depth) > 0) and (sum by (queue) (rate(evangelion_worker_messages_total[15m])) == 0)
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: eva-dlq-not-empty
+        title: DeadLetterQueueNotEmpty
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: Messages are sitting in a dead-letter queue.
+          description: >-
+            Nothing in this system consumes the DLQ, so anything here is lost until somebody redrives
+            it by hand. Above zero is always worth looking at - see docs/messaging/ for why messages
+            land here after twelve seconds.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: evangelion-prometheus
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              range: false
+              expr: max by (queue) (evangelion_dlq_depth)
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
       - uid: eva-worker-failing
         title: WorkerFailing
         condition: B
