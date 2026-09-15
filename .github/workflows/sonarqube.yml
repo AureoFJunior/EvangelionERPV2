@@ -2,9 +2,11 @@ name: SonarCloud analysis
 
 on:
   push:
-    branches: [ "develop", "release" ]
+    # main included deliberately: it is the default branch, and without it SonarCloud's main-branch
+    # baseline never updates from the branch everything merges into.
+    branches: [ "main", "develop", "release" ]
   pull_request:
-    branches: [ "develop", "release" ]
+    branches: [ "main", "develop", "release" ]
   workflow_dispatch:
 
 
@@ -23,7 +25,7 @@ jobs:
       with:
         persist-credentials: false
         # SonarCloud needs full history (blame/SCM info) and the PR base branch
-        # (develop/release) to compute new code; a shallow clone breaks both.
+        # to compute new code; a shallow clone breaks both.
         fetch-depth: 0
 
     # Step 2: Install .NET SDK
@@ -32,16 +34,55 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    # Step 3: Build the project
-    - name: Build the project
-      run: dotnet build --configuration Release
+    # Step 3: The scanner is a Java program, whatever language it is pointed at.
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
 
-    # Step 4: SonarCloud analysis
+    - name: Cache SonarCloud packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.sonar/cache
+        key: ${{ runner.os }}-sonar
+        restore-keys: ${{ runner.os }}-sonar
+
+    - name: Install the scanner for .NET
+      run: dotnet tool install --global dotnet-sonarscanner
+
+    # Step 4: SonarCloud analysis.
+    #
+    # This used to call SonarSource/sonarcloud-github-action, which runs the *CLI* scanner. For a
+    # .NET solution that is close to a no-op: C# analysis requires the MSBuild integration, so the
+    # scanner has to wrap the build - begin, build, test, end. Whatever the dashboard reported
+    # before, it was not a measurement of the C# in this repository.
+    #
+    # Coverage is imported from coverlet, which is already installed in every test project and was
+    # simply never collected.
     - name: Analyze with SonarCloud
-      uses: SonarSource/sonarcloud-github-action@v5
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      with:
-        args: >
-          -Dsonar.projectKey=AureoFJunior_EvangelionERPV2 -Dsonar.organization=aureofjunior-1 -Dsonar.host.url=https://sonarcloud.io
+      run: |
+        dotnet sonarscanner begin \
+          /k:"AureoFJunior_EvangelionERPV2" \
+          /o:"aureofjunior-1" \
+          /d:sonar.host.url="https://sonarcloud.io" \
+          /d:sonar.token="$SONAR_TOKEN" \
+          /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml" \
+          /d:sonar.exclusions="**/Migrations/**,**/obj/**,**/bin/**,docker/grafana/dashboards/**" \
+          /d:sonar.qualitygate.wait=true
+
+        dotnet build EvangelionERPV2.sln -c Release
+
+        dotnet test EvangelionERPV2.sln -c Release --no-build \
+          --collect:"XPlat Code Coverage;Format=opencover"
+
+        dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+
+# Exclusions, because each one is a decision and not a default:
+#   Migrations/**                    EF-generated; scoring it measures the tool, not this code.
+#   docker/grafana/dashboards/**     Panel definitions, which Sonar reads as duplicated code.
+# Test projects stay *in* the analysis - their own quality matters - and Sonar already keeps them
+# out of the coverage denominator by itself.

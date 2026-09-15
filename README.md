@@ -103,15 +103,31 @@ Each module follows a consistent layering model:
 - Request logging middleware tracks: endpoint, caller, body, response time, status code
 - JWT bearer authentication is enabled globally
 - IP rate limiting via `AspNetCoreRateLimit`; public traffic should enter through nginx or another trusted proxy that sets `X-Real-IP`
-- `/health` is public for liveness probes
-- `/metrics` requires an authenticated user with the metrics read permission
+- `/health` is public for liveness probes, and its results are also published as
+  `evangelion_health_check_status` so a dependency going down can raise an alert
+- `/metrics` on 8080 requires an authenticated user with the metrics read permission. nginx answers
+  404 for it: scraping happens on the internal network, so leaving the public route open would mean
+  one relaxed RBAC policy is the whole distance to a public metrics endpoint
+- The API and all three workers also serve the same registry on **port 9101, unauthenticated and
+  never published** — no host port mapping, no security-group rule. Prometheus scrapes that. The
+  alternative was a never-expiring Supervisor token in a scraper's config file
+- Metrics carry an `enterprise_id` label on the opportunity-radar gauges, so treat them as
+  confidential. Never label a metric with a user id, email, CPF/CNPJ or document number: a
+  time-series database cannot honour a per-subject deletion request
 - Swagger UI is available only in `Development`
 
 ## Running with Docker Compose
 
-`docker-compose.yml` holds every service. One optional override sits beside it:
-`docker-compose.gpu.yml`, which moves Whisper onto the GPU and is only used when you pass it with
-`-f` (see "Whisper on the GPU").
+`docker-compose.yml` holds every service. Two optional files sit beside it, each used only when you
+name it with `-f`:
+
+- `docker-compose.gpu.yml` — moves Whisper onto the GPU (see "Whisper on the GPU").
+- `docker-compose.observability.yml` — Prometheus and Grafana (see "Metrics, dashboards and alerts").
+
+The observability stack is a separate file rather than a compose profile on purpose. Its
+`GRAFANA_ADMIN_PASSWORD` uses `${VAR:?}` so compose refuses to run without it, and compose
+interpolates the whole file before profiles select anything — inside `docker-compose.yml` that would
+break every plain `docker compose` command for anyone who has never heard of Grafana.
 
 ### First run on a new machine (after cloning)
 
@@ -524,14 +540,66 @@ Use one of the following according to your runtime mode:
 - EC2 without nginx: `http://<EC2_PUBLIC_IP>:5000/api/v1`
 - Frontend running inside the same Docker network: `http://evangelionerpv2:8080/api/v1`
 
-## Grafana Cloud metrics (Option A: direct scrape)
+## Metrics, dashboards and alerts
 
-Use Grafana Cloud to scrape the API endpoint directly:
+Prometheus and Grafana run beside the API from `docker-compose.observability.yml`. Everything is
+provisioned from files in `docker/` — datasource, dashboards and alert rules — so a fresh clone gets
+the same dashboards with no clicking. Edits made in the Grafana UI are overwritten on restart, which
+is the point: a dashboard that exists only in somebody's browser is not a dashboard.
 
-1. Expose `https://<your-domain-or-alb>/metrics`.
-2. In Grafana Cloud scrape job, configure the target URL `/metrics`.
-3. Configure the scrape job to send an authorization token for an account with metrics read access.
-4. Keep access restricted at network level (security group / WAF / allowlist) when possible.
+```bash
+# .env.local must set GRAFANA_ADMIN_PASSWORD — there is no default, deliberately
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d prometheus grafana
+```
+
+| | URL | Auth |
+|---|---|---|
+| Grafana | http://localhost:3000 | admin / `GRAFANA_ADMIN_PASSWORD` |
+| Prometheus | http://127.0.0.1:9090 | none — and that is why it is bound to loopback |
+
+Prometheus has no login of any kind, so it is published on `127.0.0.1` only, unlike every other
+service in this project. `--web.enable-lifecycle` is deliberately off: it exposes an unauthenticated
+`POST /-/reload`. The config lives in git; reloading it is a `compose restart`.
+
+Dashboards, in `docker/grafana/dashboards/`:
+
+- **API overview** — rate, errors and duration by controller, plus the two facts that explain most
+  incidents here: a dependency that is down, and a database behind the branch.
+- **.NET runtime** — CPU, working set next to managed heap, GC, thread-pool queue.
+- **Business and workers** — bills emailed without a PDF, queue throughput and failures, radar rates.
+
+Alerts are Grafana's own (no Alertmanager): ApiDown, DependencyUnhealthy, PendingMigrations,
+HighErrorRate, LatencyP95, WorkerFailing. They fire and appear under Alerting, but **nothing is sent
+anywhere until you configure a contact point** — Grafana's default needs SMTP credentials this repo
+does not carry. That is a deliberate stopping point.
+
+### Grafana Cloud (production)
+
+Grafana Cloud's free tier stores **10 000 active series, keeps 14 days, and allows 3 users**. This
+API alone does not fit: `http_request_duration_seconds` costs 19 series per label combination
+(16 buckets, `+Inf`, `_sum`, `_count`) across 184 controller actions, which is 14 000–24 000 series
+before anything else is counted.
+
+So do not point Grafana Cloud at the raw endpoint. Keep full detail in the local Prometheus, which is
+free and unlimited, and ship a filtered stream: `docker/prometheus/prometheus.yml` carries a
+commented `remote_write` block with the keep-list, paired with the recording rule in
+`docker/prometheus/rules/` that pre-aggregates latency by controller instead of by action. That lands
+near 2 000 series. Per-action detail stays local, which is where anyone debugging is sitting anyway.
+
+Use a **write-only (MetricsPublisher) token** from AWS Secrets Manager. A leaked write token poisons
+data; a leaked read token exfiltrates every tenant's numbers.
+
+The older approach — Grafana Cloud scraping `https://<alb>/metrics` with a bearer token — still works
+and needs no infra change, but it puts `/metrics` on the public ALB and needs a long-lived Supervisor
+token. Prefer the agent.
+
+### Not built yet
+
+- Exporters for SQL Server, Redis and RabbitMQ. Until those exist, "is it the app or the database"
+  is not answerable from a dashboard, and queue *depth* is unknown — which is why the worker alert
+  fires on failures rather than on a stalled queue.
+- The ECS path: a Prometheus agent sidecar with `remote_write`. The task definitions are
+  `cpu 256 / memory 512`, too small to hold one; budget 1024 MB before adding it.
 
 ## RabbitMQ note
 
