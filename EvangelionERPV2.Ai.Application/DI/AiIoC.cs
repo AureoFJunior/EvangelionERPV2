@@ -80,6 +80,7 @@ namespace EvangelionERPV2.AiModule.Application.DI
             });
 
             services.AddScoped<IAiPendingActionService, AiPendingActionService>();
+            services.AddScoped<IAiRetentionService, AiRetentionService>();
             services.AddScoped<IAiAgentService, AiAgentService>();
 
             if (configuration.GetSection("AiSettings").GetValue<bool>("Enabled"))

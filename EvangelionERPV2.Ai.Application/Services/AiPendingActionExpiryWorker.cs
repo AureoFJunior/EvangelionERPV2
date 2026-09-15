@@ -8,10 +8,15 @@ using Serilog;
 namespace EvangelionERPV2.AiModule.Application.Services
 {
     /// <summary>
-    /// Marks proposals nobody answered as Expired, on one replica at a time. Bookkeeping only —
-    /// <see cref="IAiPendingActionService.ConfirmAsync"/> already refuses a past-TTL action, so a
-    /// pass that never runs cannot let a stale write through.
+    /// Two housekeeping jobs on one schedule and one lease: expiring proposals nobody answered, and
+    /// deleting conversations past their retention window.
     /// </summary>
+    /// <remarks>
+    /// The expiry half is bookkeeping — <see cref="IAiPendingActionService.ConfirmAsync"/> already
+    /// refuses a past-TTL action, so a pass that never runs cannot let a stale write through. The
+    /// retention half is not: nothing else deletes a conversation, and a conversation holds personal
+    /// data. See <see cref="AiRetentionService"/>.
+    /// </remarks>
     public sealed class AiPendingActionExpiryWorker : LeasedScheduleWorker
     {
         private readonly IServiceScopeFactory _scopeFactory;
@@ -40,6 +45,11 @@ namespace EvangelionERPV2.AiModule.Application.Services
             var expired = await service.SweepExpiredAsync(stoppingToken);
             if (expired > 0)
                 Log.Logger.Information("AI expiry sweep marked {Expired} pending action(s) as expired.", expired);
+
+            var retention = scope.ServiceProvider.GetRequiredService<IAiRetentionService>();
+            var purged = await retention.PurgeAsync(stoppingToken);
+            if (purged > 0)
+                Log.Logger.Information("AI retention sweep deleted {Purged} conversation(s) past the window.", purged);
         }
     }
 }
