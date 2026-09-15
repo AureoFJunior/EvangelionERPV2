@@ -54,9 +54,25 @@ remote_write:
       username: 2783965
       password_file: /run/secrets/grafana_cloud_token
     write_relabel_configs:
+      # Tenant-identifying series stay on this machine. The opportunity-radar gauges are labelled
+      # with enterprise_id, and remote_write sends data to a third party - so per-tenant acceptance,
+      # implementation and margin-uplift rates would leave the host and land in an account whose
+      # read access is governed by Grafana's user model, not by this application's RBAC.
+      # Dropped BEFORE the keep rule below, which would otherwise match them via evangelion_.*.
+      # They remain available in the local TSDB, which is where the radar is actually analysed.
+      - source_labels: [__name__]
+        regex: 'evangelion_opportunity_.*'
+        action: drop
+
       # Anchored implicitly by Prometheus, so "http_request_duration_seconds:.*" matches the
       # recording rule and NOT http_request_duration_seconds_bucket - the colon is what keeps the
       # 14 000-series raw histogram out. Do not "simplify" this to an underscore.
       - source_labels: [__name__]
         regex: 'up|http_request_duration_seconds:.*|http_requests:.*|evangelion_.*|dotnet_.*|process_.*|system_runtime_dotnet_thread_pool_.*|system_runtime_dotnet_monitor_lock_contentions'
         action: keep
+
+      # Belt and braces: if a tenant-labelled series is ever added under a different name, the label
+      # itself still does not leave. Dropping the label would silently merge distinct series, so
+      # this is a last line of defence and not a substitute for the drop rule above.
+      - regex: 'enterprise_id'
+        action: labeldrop

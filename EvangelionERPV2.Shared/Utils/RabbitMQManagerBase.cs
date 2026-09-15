@@ -100,6 +100,10 @@ namespace EvangelionERPV2.Shared.Utils
             };
             ApplyRabbitMqUriIfConfigured(factory, _kmsProvider.GetKMSKey(rabbitMQSettings.Value.Uri));
 
+            // After the URI has been applied, not before: this has to see the connection that will
+            // actually be made, whichever way it was configured.
+            EnsureTransportIsSecure(factory.Ssl?.Enabled ?? false, CurrentEnvironmentName());
+
             _connection = factory.CreateConnectionAsync().GetAwaiter().GetResult();
 
             // Publisher confirms. Without them BasicPublishAsync returns as soon as the bytes are
@@ -157,23 +161,26 @@ namespace EvangelionERPV2.Shared.Utils
         }
 
         /// <summary>
-        /// Refuses a plaintext broker URI outside Development.
+        /// Refuses a cleartext broker connection outside Development.
         /// <para>
-        /// Production was already on <c>amqps</c> when this was written - but only because the
-        /// secret happened to say so. Nothing required it, nothing warned, and one edit to
-        /// <c>evangelion/prd/rabbitmq</c> during an incident would have downgraded every AMQP login
-        /// and every serialized Order and e-mail payload to cleartext with no signal at all.
+        /// Checks the factory's resolved TLS state rather than the URI scheme, because the scheme is
+        /// only one of two ways in. An earlier version of this guard inspected the scheme string and
+        /// was therefore dead whenever no URI was configured at all: the factory then falls back to
+        /// HostName/Port, <see cref="ResolveRabbitMqPort"/> defaults to 5672, and the connection went
+        /// out in cleartext with the check never running. Verified against RabbitMQ.Client 7.2.1 -
+        /// an amqps URI sets Ssl.Enabled true and port 5671, amqp and the host/port path leave it
+        /// false - so Ssl.Enabled is the one signal that cannot be bypassed by configuration shape.
         /// </para>
         /// <para>
-        /// Failing closed here means a bad URI stops the process instead of quietly publishing
-        /// customer data in the open. That is the intended trade: an outage is visible and
-        /// recoverable in minutes, cleartext PII on the wire is neither.
+        /// Failing closed means a misconfiguration stops the process instead of quietly publishing
+        /// customer data in the open. An outage is visible and fixed in minutes; cleartext PII on
+        /// the wire is neither.
         /// </para>
         /// </summary>
-        /// <exception cref="InvalidOperationException">The URI is plaintext amqp outside Development.</exception>
-        public static void EnsureSchemeIsAllowed(string scheme, string? environmentName)
+        /// <exception cref="InvalidOperationException">TLS is off outside Development.</exception>
+        public static void EnsureTransportIsSecure(bool tlsEnabled, string? environmentName)
         {
-            if (!scheme.Equals("amqp", StringComparison.OrdinalIgnoreCase))
+            if (tlsEnabled)
                 return;
 
             // Development only, and only when it says so explicitly. An unset environment is
@@ -181,12 +188,12 @@ namespace EvangelionERPV2.Shared.Utils
             if (string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase))
             {
                 Log.Logger.Warning(
-                    "RabbitMQ is configured over plaintext amqp. Allowed only because the environment is Development.");
+                    "RabbitMQ is connecting without TLS. Allowed only because the environment is Development.");
                 return;
             }
 
             throw new InvalidOperationException(
-                "RabbitMQ is configured over plaintext amqp outside Development. Use amqps (port 5671): " +
+                "RabbitMQ is configured without TLS outside Development. Use an amqps:// URI (port 5671): " +
                 "the broker login and every queued message would otherwise cross the network in cleartext.");
         }
 
@@ -204,7 +211,6 @@ namespace EvangelionERPV2.Shared.Utils
                 (rabbitMqUri.Scheme.Equals("amqp", StringComparison.OrdinalIgnoreCase) ||
                  rabbitMqUri.Scheme.Equals("amqps", StringComparison.OrdinalIgnoreCase)))
             {
-                EnsureSchemeIsAllowed(rabbitMqUri.Scheme, CurrentEnvironmentName());
                 factory.Uri = rabbitMqUri;
                 return;
             }
