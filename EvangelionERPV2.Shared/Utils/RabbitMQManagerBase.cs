@@ -114,6 +114,44 @@ namespace EvangelionERPV2.Shared.Utils
             return port > 0 ? port : 5672;
         }
 
+        /// <summary>
+        /// Refuses a plaintext broker URI outside Development.
+        /// <para>
+        /// Production was already on <c>amqps</c> when this was written - but only because the
+        /// secret happened to say so. Nothing required it, nothing warned, and one edit to
+        /// <c>evangelion/prd/rabbitmq</c> during an incident would have downgraded every AMQP login
+        /// and every serialized Order and e-mail payload to cleartext with no signal at all.
+        /// </para>
+        /// <para>
+        /// Failing closed here means a bad URI stops the process instead of quietly publishing
+        /// customer data in the open. That is the intended trade: an outage is visible and
+        /// recoverable in minutes, cleartext PII on the wire is neither.
+        /// </para>
+        /// </summary>
+        /// <exception cref="InvalidOperationException">The URI is plaintext amqp outside Development.</exception>
+        public static void EnsureSchemeIsAllowed(string scheme, string? environmentName)
+        {
+            if (!scheme.Equals("amqp", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            // Development only, and only when it says so explicitly. An unset environment is
+            // treated as production: the safe reading of "I do not know where I am".
+            if (string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase))
+            {
+                Log.Logger.Warning(
+                    "RabbitMQ is configured over plaintext amqp. Allowed only because the environment is Development.");
+                return;
+            }
+
+            throw new InvalidOperationException(
+                "RabbitMQ is configured over plaintext amqp outside Development. Use amqps (port 5671): " +
+                "the broker login and every queued message would otherwise cross the network in cleartext.");
+        }
+
+        private static string? CurrentEnvironmentName()
+            => Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+               ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
+
         private static void ApplyRabbitMqUriIfConfigured(ConnectionFactory factory, string? rawUri)
         {
             if (string.IsNullOrWhiteSpace(rawUri))
@@ -124,6 +162,7 @@ namespace EvangelionERPV2.Shared.Utils
                 (rabbitMqUri.Scheme.Equals("amqp", StringComparison.OrdinalIgnoreCase) ||
                  rabbitMqUri.Scheme.Equals("amqps", StringComparison.OrdinalIgnoreCase)))
             {
+                EnsureSchemeIsAllowed(rabbitMqUri.Scheme, CurrentEnvironmentName());
                 factory.Uri = rabbitMqUri;
                 return;
             }
