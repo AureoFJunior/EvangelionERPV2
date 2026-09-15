@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using System.Text.Json.Serialization;
 using EvangelionERPV2.Shared.Interfaces;
 using EvangelionERPV2.Shared.Entities.RabbitMQ;
+using Prometheus;
 
 namespace EvangelionERPV2.Shared.Utils
 {
@@ -14,6 +15,34 @@ namespace EvangelionERPV2.Shared.Utils
     where TChannelSettings : class, IBaseChannelSettings
     {
         private const int MaxProcessingRetries = 3;
+
+        /// <summary>
+        /// Every worker's consume path comes through this class, so counting here covers all of
+        /// them at once instead of once per worker. The failure it exists for is the quiet one: a
+        /// consumer that is up, healthy and processing nothing. Liveness cannot see that - only a
+        /// rate that has gone to zero can.
+        /// <para>
+        /// Labelled by queue, which is bounded and already named in configuration. Never by message
+        /// id or payload: that is how a metrics database dies of cardinality.
+        /// </para>
+        /// </summary>
+        private static readonly Counter MessagesProcessed = Metrics.CreateCounter(
+            "evangelion_worker_messages_total",
+            "Messages consumed from a queue, by outcome",
+            new CounterConfiguration { LabelNames = ["queue", "result"] });
+
+        private static readonly Histogram MessageDuration = Metrics.CreateHistogram(
+            "evangelion_worker_message_duration_seconds",
+            "Time spent in the message handler",
+            new HistogramConfiguration
+            {
+                LabelNames = ["queue"],
+                // A worker message is not an HTTP request: the Order worker calls back into the API
+                // and the Email worker renders a PDF, so the interesting range runs to minutes, not
+                // to the 32s the default HTTP buckets top out at.
+                Buckets = Histogram.ExponentialBuckets(0.05, 2, 12)
+            });
+
         private readonly IConnection _connection;
         private readonly IChannel _channel;
         private readonly JsonSerializerOptions _jsonOptions;
@@ -186,13 +215,20 @@ namespace EvangelionERPV2.Shared.Utils
                     if (resultObject is null)
                         throw new InvalidOperationException("Failed to deserialize message payload.");
 
-                    await processMessageAsync(resultObject);
+                    using (MessageDuration.WithLabels(_channelSettings.QueueName).NewTimer())
+                        await processMessageAsync(resultObject);
+
+                    MessagesProcessed.WithLabels(_channelSettings.QueueName, "ok").Inc();
                     await TryCancelConsumerAsync(ea.ConsumerTag);
                     await _channel.BasicAckAsync(ea.DeliveryTag, false);
                     tcs.TrySetResult(true);
                 }
                 catch (Exception ex)
                 {
+                    // Counted before the retry decision: a message that succeeds on its third
+                    // attempt still cost two failures, and a failure rate that only counts final
+                    // give-ups hides a queue that is limping.
+                    MessagesProcessed.WithLabels(_channelSettings.QueueName, "failed").Inc();
                     await TryCancelConsumerAsync(ea.ConsumerTag);
 
                     try
