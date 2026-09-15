@@ -33,6 +33,11 @@ services:
       # exist makes Docker create a directory in its place, and Prometheus then fails to read the
       # password in a way that reads as a config bug. Mounting the directory means a missing token
       # is just a missing file: remote_write warns and retries, the local TSDB carries on.
+      #
+      # The token file must be READABLE BY UID 65534 - this image runs as nobody, not as you. A
+      # `chmod 600` file owned by your user gives "permission denied" on every push, which reads
+      # exactly like a rejected credential and is not. Either 644, or keep 600 and chown it to
+      # 65534. On ECS the question does not arise: the platform injects the secret itself.
       - ./.secrets:/run/secrets:ro
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
