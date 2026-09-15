@@ -14,8 +14,12 @@ groups:
       # Error ratio as one series so the alert and the panel cannot disagree about how it is
       # computed. 5xx only: a 4xx is the caller's problem, and counting 429 here would turn the rate
       # limiter doing its job into an incident.
+      # `or vector(0)` matters: with no 5xx at all, sum(rate(...)) returns an EMPTY vector, not
+      # zero, and empty divided by anything is empty - so the rule produced no series whenever the
+      # API was healthy. A panel then reads "No data" exactly when everything is fine, which is
+      # indistinguishable from a broken dashboard. A healthy system should draw a flat zero.
       - record: http_requests:error_ratio5m
         expr: |
-          sum(rate(http_requests_received_total{code=~"5.."}[5m]))
+          (sum(rate(http_requests_received_total{code=~"5.."}[5m])) or vector(0))
             /
           clamp_min(sum(rate(http_requests_received_total[5m])), 0.001)
