@@ -39,20 +39,24 @@ scrape_configs:
 # http_request_duration_seconds is 19 series per label combination (16 buckets, +Inf, _sum, _count)
 # across 184 controller actions. So the raw stream does not fit and must not be sent raw.
 #
-# Uncomment and fill in to ship. The keep list is deliberately narrow: the pre-aggregated recording
-# rule instead of the raw histogram, everything this project emits itself, and the runtime counters.
-# That lands around 2 000 series. Per-action detail stays in this local TSDB, which is where anyone
-# actually debugging is sitting.
+# The keep list below is deliberately narrow: the pre-aggregated recording rules instead of the raw
+# histogram, everything this project emits itself, and the runtime counters. That lands near 2 000
+# series. Per-action detail stays in this local TSDB, which is where anyone debugging is sitting.
 #
-# The token must be a write-only (MetricsPublisher) key from AWS Secrets Manager. A leaked write
-# token poisons data; a leaked read token exfiltrates every tenant's numbers.
-#
-# remote_write:
-#   - url: ${GRAFANA_CLOUD_PROM_URL}
-#     basic_auth:
-#       username: ${GRAFANA_CLOUD_USER}
-#       password_file: /run/secrets/grafana_cloud_token
-#     write_relabel_configs:
-#       - source_labels: [__name__]
-#         regex: 'http_request_duration_seconds:.*|http_requests_received_total|up|evangelion_.*|dotnet_.*|process_.*'
-#         action: keep
+# The credential is an access-policy token scoped to metrics:write and nothing else - not the
+# set:alloy-data-write bundle the Grafana wizard offers, which also grants logs, traces and profiles
+# write plus fleet-management read. It is read from a FILE, never inlined here: a token in this file
+# is a token in git. On ECS the file comes from the task definition's `secrets` block reading
+# evangelion/prd/grafana-cloud; locally, write it to the path below by hand.
+remote_write:
+  - url: https://prometheus-prod-40-prod-sa-east-1.grafana.net/api/prom/push
+    basic_auth:
+      username: 2783965
+      password_file: /run/secrets/grafana_cloud_token
+    write_relabel_configs:
+      # Anchored implicitly by Prometheus, so "http_request_duration_seconds:.*" matches the
+      # recording rule and NOT http_request_duration_seconds_bucket - the colon is what keeps the
+      # 14 000-series raw histogram out. Do not "simplify" this to an underscore.
+      - source_labels: [__name__]
+        regex: 'up|http_request_duration_seconds:.*|http_requests:.*|evangelion_.*|dotnet_.*|process_.*|system_runtime_dotnet_thread_pool_.*|system_runtime_dotnet_monitor_lock_contentions'
+        action: keep

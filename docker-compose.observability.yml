@@ -29,6 +29,11 @@ services:
     volumes:
       - ./docker/prometheus:/etc/prometheus:ro
       - prometheus_data:/prometheus
+      # The DIRECTORY is mounted, not the token file itself. Bind-mounting a file that does not
+      # exist makes Docker create a directory in its place, and Prometheus then fails to read the
+      # password in a way that reads as a config bug. Mounting the directory means a missing token
+      # is just a missing file: remote_write warns and retries, the local TSDB carries on.
+      - ./.secrets:/run/secrets:ro
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
       interval: 30s

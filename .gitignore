@@ -381,3 +381,9 @@ AGENT.MD
 # Working docs for the in-flight agent work: not for this repo.
 docs/superpowers/plans/2026-09-09-agente-do-erp-rung1.md
 docs/superpowers/specs/2026-09-09-agente-do-erp-design.md
+
+# Bind-mounted into the Prometheus container as /run/secrets. Holds the Grafana Cloud
+# remote_write token, which must never be committed - the directory is tracked only so the
+# bind mount has something to attach to.
+.secrets/*
+!.secrets/.gitkeep
