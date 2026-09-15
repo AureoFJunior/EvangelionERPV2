@@ -196,25 +196,33 @@ under a profile you leave out is removed as an orphan.
 
 ### Everything at once
 
-Every profile, every service — API, nginx, SQL Server, all three workers, and both voice services.
-Naming no services starts everything the enabled profiles contain:
+Every profile, every service — API, nginx, SQL Server, all three workers, both voice services, and
+the metrics stack. Naming no services starts everything the enabled profiles contain:
 
 ```bash
 docker compose --env-file .env.local \
+  -f docker-compose.yml -f docker-compose.observability.yml \
   --profile localdb --profile proxy --profile workers --profile voice \
   up -d --build
 ```
 
+Prometheus and Grafana are in a second file rather than a profile, so **they only exist for a compose
+command that names that file** — `-f` on the `up`, and on the `down` too (see "Stop and cleanup", it
+is the one way to lose your stored metrics history). `.env.local` must set `GRAFANA_ADMIN_PASSWORD`
+or compose refuses to start at all; that is deliberate, and there is no default.
+
+Drop both `-f` flags to run everything except the metrics stack.
+
 With `COMPOSE_FILE` set in `.env.local` (see "Whisper on the GPU") that same command runs Whisper on
 the card — nothing extra to type.
 
-PowerShell shortcut:
+PowerShell shortcut, which handles the file wiring for you:
 
 ```powershell
-.\scripts\local-up.ps1 -WithWorkers -WithVoice
+.\scripts\local-up.ps1 -WithWorkers -WithVoice -WithObservability
 ```
 
-That brings up eight containers:
+That brings up ten containers:
 
 | Service | Profile | Port (host) | Needs |
 |---|---|---|---|
@@ -226,6 +234,8 @@ That brings up eight containers:
 | `worker_notification` | `workers` | — | the API, Redis. No broker, no database |
 | `whisper` | `voice` | `9000` | — |
 | `piper` | `voice` | `9100` | its voice model in the `piper_voices` volume |
+| `prometheus` | *(own file)* | `9090`, **loopback only** | nothing; scrapes the API and workers on `:9101` |
+| `grafana` | *(own file)* | `3000` | Prometheus; `GRAFANA_ADMIN_PASSWORD` |
 
 Three things are **not** started by that command and the assistant is degraded or silent without
 them:
@@ -493,9 +503,18 @@ Optional flags:
 
 - `-WithWorkers` includes `worker_order`, `worker_email` and `worker_notification`
 - `-WithOrderWorker` includes only `worker_order` (with `sqlserver + evangelionerpv2 + nginx`)
+- `-WithVoice` includes `whisper` and `piper`
+- `-WithObservability` includes `prometheus` and `grafana` — this one also adds
+  `docker-compose.observability.yml` to the `down` in step 2, which is what stops that `down` from
+  deleting a running metrics stack as an orphan. Needs `GRAFANA_ADMIN_PASSWORD` in the env file.
 - `-NoBuild` skips image build
 - `-SkipIdentityCheck` skips the AWS STS check
 - `-EnvFile <path>` uses a different env file
+
+**Pass the same flags to both scripts.** Step 2 above is a `down --remove-orphans`, and compose
+deletes containers it was not told about — so a `local-up.ps1` without `-WithVoice` removes a running
+whisper, and without `-WithObservability` removes Prometheus and Grafana along with the metrics
+they had stored.
 
 Stop shortcut:
 
@@ -503,6 +522,7 @@ Stop shortcut:
 .\scripts\local-down.ps1
 .\scripts\local-down.ps1 -WithWorkers
 .\scripts\local-down.ps1 -WithOrderWorker
+.\scripts\local-down.ps1 -WithWorkers -WithVoice -WithObservability   # everything
 ```
 
 ### EC2 environment
@@ -621,8 +641,11 @@ not — it speaks only HTTP to the API and Redis for its lease.
 
 ## Stop and cleanup
 
+Tear down everything the "Everything at once" command started — same files, same profiles:
+
 ```bash
 docker compose --env-file .env.local \
+  -f docker-compose.yml -f docker-compose.observability.yml \
   --profile localdb --profile proxy --profile workers --profile voice \
   down --remove-orphans
 ```
