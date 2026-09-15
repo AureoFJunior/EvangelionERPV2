@@ -557,6 +557,9 @@ docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d p
 | Grafana | http://localhost:3000 | admin / `GRAFANA_ADMIN_PASSWORD` |
 | Prometheus | http://127.0.0.1:9090 | none — and that is why it is bound to loopback |
 
+Verified on Grafana 12.0.0: the datasource, all three dashboards and all six alert rules provision
+from these files with no manual step, and every rule evaluates `health=ok`.
+
 Prometheus has no login of any kind, so it is published on `127.0.0.1` only, unlike every other
 service in this project. `--web.enable-lifecycle` is deliberately off: it exposes an unauthenticated
 `POST /-/reload`. The config lives in git; reloading it is a `compose restart`.
@@ -625,6 +628,25 @@ docker compose --env-file .env.local \
 you leave out, so a `down` without `--profile voice` removes `piper` and `whisper` — and voice then
 fails with `Name or service not known (piper:8000)` until they are started again. A restart policy
 does not help: they were removed, not stopped.
+
+**The same applies to the observability stack, and a profile cannot save it.** Prometheus and Grafana
+live in their own compose file, and compose only knows a service exists if its file is named — so a
+`down --remove-orphans`, or the one `local-up.ps1` runs before it starts anything, deletes them as
+orphans. Name the file, or use the switch:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml \
+  --profile localdb --profile proxy --profile workers --profile voice \
+  down --remove-orphans
+```
+
+```powershell
+.\scripts\local-up.ps1   -WithObservability    # also starts prometheus + grafana
+.\scripts\local-down.ps1 -WithObservability
+```
+
+Losing Prometheus loses its stored history with it, since the volume goes when the container is
+removed as an orphan.
 
 Check what is left:
 

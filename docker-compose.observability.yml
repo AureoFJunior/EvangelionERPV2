@@ -39,7 +39,10 @@ services:
       - custom_network
 
   grafana:
-    image: ${GRAFANA_IMAGE:-grafana/grafana:11.5.1}
+    # 12.0.0 and not 11.x: this exact provisioning was boot-verified against it - datasource, three
+    # dashboards and all six alert rules load with health=ok. Nothing here uses a 12-only feature,
+    # so an older tag would probably work too; this is the one that was actually tested.
+    image: ${GRAFANA_IMAGE:-grafana/grafana:12.0.0}
     container_name: evangelionerpv2_grafana
     environment:
       # `:?` and no default on purpose. A shipped default password on a dashboard that reads every

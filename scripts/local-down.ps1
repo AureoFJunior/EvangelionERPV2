@@ -2,6 +2,7 @@ param(
     [string]$EnvFile = ".env.local",
     [switch]$WithWorkers,
     [switch]$WithVoice,
+    [switch]$WithObservability,
     [switch]$WithOrderWorker
 )
 
@@ -17,6 +18,13 @@ if (-not (Test-Path $envPath)) {
 
 Set-Location $repoRoot
 
+# Prometheus and Grafana are in their own compose file; compose only knows they exist if it is
+# named, so without this they survive a down and then get deleted as orphans by the next local-up.
+$files = @()
+if ($WithObservability) {
+    $files = @("-f", "docker-compose.yml", "-f", "docker-compose.observability.yml")
+}
+
 $profiles = @("--profile", "proxy", "--profile", "localdb")
 if ($WithWorkers -or $WithOrderWorker) {
     $profiles += @("--profile", "workers")
@@ -27,5 +35,5 @@ if ($WithVoice) {
     $profiles += @("--profile", "voice")
 }
 
-docker compose --env-file $envPath @profiles down --remove-orphans
+docker compose @files --env-file $envPath @profiles down --remove-orphans
 Write-Host "Stopped."

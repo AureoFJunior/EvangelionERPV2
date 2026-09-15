@@ -2,6 +2,7 @@ param(
     [string]$EnvFile = ".env.local",
     [switch]$WithWorkers,
     [switch]$WithVoice,
+    [switch]$WithObservability,
     [switch]$WithOrderWorker,
     [switch]$NoBuild,
     [switch]$SkipIdentityCheck
@@ -49,6 +50,15 @@ if (-not $SkipIdentityCheck) {
     aws @awsArgs | Out-Null
 }
 
+# Prometheus and Grafana live in their own compose file, not a profile, so the profile list below
+# cannot protect them from the orphan sweep - compose only knows a service exists if its file is
+# named. Without this, every local-up would delete a running monitoring stack, which is the same
+# trap voice hit and the reason the comment below exists.
+$files = @()
+if ($WithObservability) {
+    $files = @("-f", "docker-compose.yml", "-f", "docker-compose.observability.yml")
+}
+
 $profiles = @("--profile", "proxy", "--profile", "localdb")
 if ($WithWorkers -or $WithOrderWorker) {
     $profiles += @("--profile", "workers")
@@ -60,9 +70,9 @@ if ($WithVoice) {
 }
 
 Write-Host "Stopping previous containers..."
-docker compose --env-file $envPath @profiles down --remove-orphans
+docker compose @files --env-file $envPath @profiles down --remove-orphans
 
-$upArgs = @("--env-file", $envPath) + $profiles + @("up", "-d")
+$upArgs = $files + @("--env-file", $envPath) + $profiles + @("up", "-d")
 if (-not $NoBuild) {
     $upArgs += "--build"
 }
@@ -82,6 +92,13 @@ else {
 # started them — so the shortcut brought up an assistant that could neither hear nor speak.
 if ($WithVoice) {
     $upArgs += @("whisper", "piper")
+}
+
+# Same reasoning as voice: naming services means every service has to be named, or the stack is
+# protected from the orphan sweep and then never started. Needs GRAFANA_ADMIN_PASSWORD in the env
+# file - compose refuses outright without it, by design.
+if ($WithObservability) {
+    $upArgs += @("prometheus", "grafana")
 }
 
 Write-Host "Starting containers..."
