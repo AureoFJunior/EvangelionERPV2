@@ -53,6 +53,16 @@ namespace EvangelionERPV2.Shared.Utils
             "Messages sitting in the dead-letter queue, which nothing consumes",
             new GaugeConfiguration { LabelNames = ["queue"] });
 
+        /// <summary>
+        /// Messages the broker accepted but could not route to any queue, handed back because every
+        /// publish sets <c>mandatory: true</c>. Previously these were returned and discarded with
+        /// nothing listening, so a misrouted publish looked identical to a successful one.
+        /// </summary>
+        private static readonly Counter UnroutableMessages = Metrics.CreateCounter(
+            "evangelion_publish_unroutable_total",
+            "Messages returned by the broker as unroutable",
+            new CounterConfiguration { LabelNames = ["queue"] });
+
         private static readonly Histogram MessageDuration = Metrics.CreateHistogram(
             "evangelion_worker_message_duration_seconds",
             "Time spent in the message handler",
@@ -91,7 +101,39 @@ namespace EvangelionERPV2.Shared.Utils
             ApplyRabbitMqUriIfConfigured(factory, _kmsProvider.GetKMSKey(rabbitMQSettings.Value.Uri));
 
             _connection = factory.CreateConnectionAsync().GetAwaiter().GetResult();
-            _channel = _connection.CreateChannelAsync().GetAwaiter().GetResult();
+
+            // Publisher confirms. Without them BasicPublishAsync returns as soon as the bytes are
+            // written to the socket, so InsertOrderInQueue logged success and the API answered 200
+            // for messages the broker may never have stored - a lost order with no error anywhere.
+            // With tracking on, the publish awaits the broker's ack and throws on a nack, and both
+            // EnqueueAsync and InsertOrderInQueue already rethrow, so the failure now reaches the
+            // caller instead of being invented away.
+            //
+            // The cost is real and intended: publishing is slower because it now waits for the
+            // broker to answer. That is the price of knowing the message exists.
+            _channel = _connection.CreateChannelAsync(
+                new CreateChannelOptions(
+                    publisherConfirmationsEnabled: true,
+                    publisherConfirmationTrackingEnabled: true,
+                    outstandingPublisherConfirmationsRateLimiter: null,
+                    consumerDispatchConcurrency: null))
+                .GetAwaiter().GetResult();
+
+            // Every publish here sets mandatory: true, which asks the broker to hand back a message
+            // it cannot route. Nothing was listening, so those came back and were dropped in
+            // silence. A return is not an exception - the broker accepted the message and then
+            // found nowhere to put it - so it is counted and logged rather than thrown.
+            _channel.BasicReturnAsync += (_, returned) =>
+            {
+                UnroutableMessages.WithLabels(_channelSettings.QueueName).Inc();
+                Log.Logger.Error(
+                    "Broker returned an unroutable message. Exchange={Exchange} RoutingKey={RoutingKey} Reply={ReplyCode} {ReplyText}",
+                    returned.Exchange,
+                    returned.RoutingKey,
+                    returned.ReplyCode,
+                    returned.ReplyText);
+                return Task.CompletedTask;
+            };
 
             SetupChannel();
 
