@@ -7,10 +7,11 @@
     "business"
   ],
   "timezone": "browser",
-  "editable": false,
-  "schemaVersion": 39,
+  "editable": true,
+  "schemaVersion": 41,
   "version": 1,
   "refresh": "30s",
+  "graphTooltip": 0,
   "time": {
     "from": "now-6h",
     "to": "now"
@@ -31,6 +32,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -40,23 +42,65 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -70,6 +114,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "{{reason}}"
         }
       ]
@@ -83,6 +128,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -92,23 +138,65 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -122,6 +210,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "{{queue}} - {{result}}"
         }
       ]
@@ -129,12 +218,205 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Worker handler time, p95",
-      "description": "Separates a slow consumer from a deep queue. Queue depth itself needs a RabbitMQ exporter, which is not wired up yet.",
+      "title": "Queue depth",
+      "description": "Work waiting in the queue. Depth above zero with a flat consume rate is the WorkerStalled alert - the failure liveness cannot see.",
       "datasource": {
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc",
+          "hideZeros": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "evangelion_queue_depth",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series",
+          "legendFormat": "{{queue}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Dead-letter queue depth",
+      "description": "Nothing consumes this queue. Anything here is lost until somebody redrives it by hand, so any non-zero value is worth looking at.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "pluginVersion": "12.0.0",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc",
+          "hideZeros": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "evangelion_dlq_depth",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series",
+          "legendFormat": "{{queue}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Worker handler time, p95",
+      "description": "Separates a slow consumer from a deep queue.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -144,23 +426,65 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -174,12 +498,13 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "{{queue}}"
         }
       ]
     },
     {
-      "id": 4,
+      "id": 6,
       "type": "timeseries",
       "title": "Opportunities generated per hour",
       "description": "",
@@ -187,6 +512,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -196,23 +522,65 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -226,19 +594,21 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "{{type}}"
         }
       ]
     },
     {
-      "id": 5,
+      "id": 7,
       "type": "timeseries",
       "title": "Radar acceptance rate",
-      "description": "The only id-shaped label allowed anywhere in these metrics. Never add customer, user or document ids - a time-series database cannot honour a deletion request.",
+      "description": "The only id-shaped label allowed anywhere in these metrics. These series stay on this machine - remote_write drops them.",
       "datasource": {
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -248,23 +618,65 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -278,12 +690,13 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "enterprise {{enterprise_id}}"
         }
       ]
     },
     {
-      "id": 6,
+      "id": 8,
       "type": "timeseries",
       "title": "Radar implementation rate",
       "description": "",
@@ -291,6 +704,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -300,23 +714,65 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -330,122 +786,8 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "enterprise {{enterprise_id}}"
-        }
-      ]
-    },
-    {
-      "id": 7,
-      "type": "timeseries",
-      "title": "Queue depth",
-      "description": "Work waiting in the queue. Depth above zero with a flat consume rate is the WorkerStalled alert - the failure liveness cannot see, because an idle queue and a stuck consumer both show a rate of zero.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "evangelion-prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "evangelion-prometheus"
-          },
-          "expr": "evangelion_queue_depth",
-          "legendFormat": "{{queue}}",
-          "editorMode": "code",
-          "range": true
-        }
-      ]
-    },
-    {
-      "id": 8,
-      "type": "timeseries",
-      "title": "Dead-letter queue depth",
-      "description": "Nothing consumes this queue. Anything here is lost until somebody redrives it by hand, so any non-zero value is worth looking at - see docs/messaging/ for why messages land here.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "evangelion-prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "showPoints": "never"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "evangelion-prometheus"
-          },
-          "expr": "evangelion_dlq_depth",
-          "legendFormat": "{{queue}}",
-          "editorMode": "code",
-          "range": true
         }
       ]
     }

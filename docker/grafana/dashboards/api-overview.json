@@ -7,10 +7,11 @@
     "api"
   ],
   "timezone": "browser",
-  "editable": false,
-  "schemaVersion": 39,
+  "editable": true,
+  "schemaVersion": 41,
   "version": 1,
   "refresh": "30s",
+  "graphTooltip": 0,
   "time": {
     "from": "now-6h",
     "to": "now"
@@ -31,6 +32,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 5,
         "w": 6,
@@ -41,6 +43,9 @@
         "defaults": {
           "unit": "short",
           "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -67,7 +72,11 @@
         },
         "colorMode": "background",
         "graphMode": "none",
+        "justifyMode": "auto",
         "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
         "text": {
           "titleSize": 14,
           "valueSize": 40
@@ -83,7 +92,8 @@
           "expr": "max(evangelion_pending_migrations)",
           "editorMode": "code",
           "range": false,
-          "instant": true
+          "instant": true,
+          "format": "time_series"
         }
       ]
     },
@@ -96,6 +106,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 5,
         "w": 10,
@@ -126,7 +137,19 @@
                 }
               }
             }
-          ]
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -140,7 +163,11 @@
         },
         "colorMode": "background",
         "graphMode": "none",
+        "justifyMode": "auto",
         "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
         "text": {
           "titleSize": 14,
           "valueSize": 24
@@ -157,6 +184,7 @@
           "editorMode": "code",
           "range": false,
           "instant": true,
+          "format": "time_series",
           "legendFormat": "{{check}}"
         }
       ]
@@ -170,6 +198,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 5,
         "w": 4,
@@ -195,7 +224,19 @@
                 }
               }
             }
-          ]
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -209,7 +250,11 @@
         },
         "colorMode": "background",
         "graphMode": "none",
+        "justifyMode": "auto",
         "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
         "text": {
           "titleSize": 14,
           "valueSize": 24
@@ -225,7 +270,8 @@
           "expr": "min(up{job=\"api\"})",
           "editorMode": "code",
           "range": false,
-          "instant": true
+          "instant": true,
+          "format": "time_series"
         }
       ]
     },
@@ -238,6 +284,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 5,
         "w": 4,
@@ -247,7 +294,19 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "mappings": []
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -261,7 +320,11 @@
         },
         "colorMode": "background",
         "graphMode": "none",
+        "justifyMode": "auto",
         "textMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
         "text": {
           "titleSize": 14,
           "valueSize": 40
@@ -277,7 +340,8 @@
           "expr": "time() - max(process_start_time_seconds{job=\"api\"})",
           "editorMode": "code",
           "range": false,
-          "instant": true
+          "instant": true,
+          "format": "time_series"
         }
       ]
     },
@@ -290,6 +354,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -299,23 +364,65 @@
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -329,6 +436,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "{{controller}}"
         }
       ]
@@ -342,6 +450,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -351,23 +460,65 @@
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -381,6 +532,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "{{code}}"
         }
       ]
@@ -394,6 +546,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -403,10 +556,50 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           },
           "max": 0.1
         },
@@ -414,13 +607,15 @@
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -434,6 +629,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "5xx / all"
         }
       ]
@@ -447,6 +643,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -456,23 +653,65 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -486,6 +725,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "p50"
         },
         {
@@ -498,6 +738,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "p95"
         },
         {
@@ -510,6 +751,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "p99"
         }
       ]
@@ -523,6 +765,7 @@
         "type": "prometheus",
         "uid": "evangelion-prometheus"
       },
+      "pluginVersion": "12.0.0",
       "gridPos": {
         "h": 8,
         "w": 24,
@@ -532,23 +775,65 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
             "lineWidth": 1,
             "fillOpacity": 8,
-            "showPoints": "never"
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "insertNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
+          "showLegend": true,
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hideZeros": false
         }
       },
       "targets": [
@@ -562,6 +847,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
+          "format": "time_series",
           "legendFormat": "{{controller}}"
         }
       ]
