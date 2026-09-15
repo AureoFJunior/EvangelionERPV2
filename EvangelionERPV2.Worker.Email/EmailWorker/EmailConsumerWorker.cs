@@ -21,51 +21,82 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
             _configuration = configuration;
         }
 
+        /// <summary>
+        /// One consumer for the worker's lifetime. This was a loop that served a single message and
+        /// then slept five seconds, capping the email queue near 0.2 messages a second regardless of
+        /// depth. The delay that remains is a reconnect backoff, not a poll interval.
+        /// </summary>
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                while (!stoppingToken.IsCancellationRequested)
+                try
                 {
-                    using (var scope = _serviceScopeFactory.CreateScope())
+                    using var scope = _serviceScopeFactory.CreateScope();
+                    var rabbitMQManager = scope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
+
+                    Log.Logger.Information("Email Consumer Worker consuming from {Time}", DateTime.UtcNow);
+
+                    await rabbitMQManager.ConsumeAsync<string>(async rawMessage =>
                     {
-                        try
-                        {
-                            var rabbitMQManager = scope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
-                            await rabbitMQManager.DequeueAndProcessAsync<string>(async rawMessage =>
-                            {
-                                if (string.IsNullOrWhiteSpace(rawMessage))
-                                    throw new InvalidOperationException("Email Consumer Worker received an empty message payload.");
+                        if (string.IsNullOrWhiteSpace(rawMessage))
+                            throw new InvalidOperationException("Email Consumer Worker received an empty message payload.");
 
-                                var user = await GetAPIToken(scope, stoppingToken);
+                        var token = await GetCachedApiTokenAsync(scope, stoppingToken);
+                        if (string.IsNullOrWhiteSpace(token))
+                            throw new InvalidOperationException("Email Consumer Worker could not obtain an API token.");
 
-                                Log.Logger.Information($"Sending Email at: {DateTime.UtcNow}");
+                        var sentEmail = await SharedFunctions.PostAsync<object>("Email/SendQueuedEmail", rawMessage, token, cancellationToken: stoppingToken);
+                        if (sentEmail == null)
+                            throw new InvalidOperationException("Email Consumer Worker failed to send email through API.");
+                    }, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Log.Logger.Error("Email Consumer Worker error. ErrorType={ErrorType}", ex.GetType().Name);
 
-                                if (user == null || string.IsNullOrWhiteSpace(user.Token))
-                                    throw new InvalidOperationException("Email Consumer Worker could not obtain an API token.");
-
-                                var sentEmail = await SharedFunctions.PostAsync<object>("Email/SendQueuedEmail", rawMessage, user.Token, cancellationToken: stoppingToken);
-                                if (sentEmail == null)
-                                    throw new InvalidOperationException("Email Consumer Worker failed to send email through API.");
-                            }, stoppingToken);
-
-                            Log.Logger.Information($"Email Consumer Worker running at: {DateTime.UtcNow}");
-                        }
-                        catch (Exception ex)
-                        {
-                            Log.Logger.Error("Email Consumer Worker error. ErrorType={ErrorType}", ex.GetType().Name);
-                        }
-                        finally
-                        {
-                            // Delay before the next loop iteration
-                            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-                        }
-                    }
+                    try { await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken); }
+                    catch (OperationCanceledException) { break; }
                 }
             }
-            catch (Exception ex)
+        }
+
+        /// <summary>
+        /// Caches the self-API token rather than logging in per message. User/LogInto is rate
+        /// limited to 100 a minute, which becomes the ceiling the moment the consumer is able to
+        /// drain faster than that.
+        /// </summary>
+        private static readonly SemaphoreSlim TokenLock = new(1, 1);
+        private static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(5);
+        private string? _cachedToken;
+        private DateTime _cachedTokenExpiresAt = DateTime.MinValue;
+
+        private async Task<string?> GetCachedApiTokenAsync(IServiceScope scope, CancellationToken cancellationToken)
+        {
+            if (_cachedToken is not null && DateTime.UtcNow < _cachedTokenExpiresAt)
+                return _cachedToken;
+
+            await TokenLock.WaitAsync(cancellationToken);
+            try
             {
-                Log.Logger.Error("Email Consumer scope error. ErrorType={ErrorType}", ex.GetType().Name);
+                if (_cachedToken is not null && DateTime.UtcNow < _cachedTokenExpiresAt)
+                    return _cachedToken;
+
+                var user = await GetAPIToken(scope, cancellationToken);
+                if (user is null || string.IsNullOrWhiteSpace(user.Token))
+                    return null;
+
+                _cachedToken = user.Token;
+                _cachedTokenExpiresAt = DateTime.UtcNow.Add(TokenLifetime);
+                return _cachedToken;
+            }
+            finally
+            {
+                TokenLock.Release();
             }
         }
 

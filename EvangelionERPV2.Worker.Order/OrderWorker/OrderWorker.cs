@@ -21,50 +21,96 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
             _configuration = configuration;
         }
 
+        /// <summary>
+        /// One consumer for the worker's lifetime.
+        /// <para>
+        /// This used to be a loop: take a single message, tear the consumer down, sleep two
+        /// seconds, repeat - which capped the queue at roughly 0.4 messages a second no matter how
+        /// deep it was. The remaining delay below is a RECONNECT BACKOFF, not a poll interval; it
+        /// runs only when the consumer has fallen over.
+        /// </para>
+        /// </summary>
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    using var scope = _serviceScopeFactory.CreateScope();
+                    var rabbitMQManager = scope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
+                    var kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
+                    var key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+
+                    Log.Logger.Information("Order Worker consuming from {Time}", DateTime.UtcNow);
+
+                    await rabbitMQManager.ConsumeAsync<Order>(async order =>
+                    {
+                        var token = await GetCachedApiTokenAsync(key, stoppingToken);
+                        if (string.IsNullOrWhiteSpace(token))
+                            throw new InvalidOperationException("Order Worker could not obtain an API token.");
+
+                        var request = MapQueuedOrderToCreateRequest(order);
+                        var createdOrder = await SharedFunctions.PostAsync<object>("Order/InsertQueuedOrder", request, token, cancellationToken: stoppingToken);
+                        if (createdOrder == null)
+                            throw new InvalidOperationException("Order Worker failed to persist order through API.");
+                    }, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Log.Logger.Error("Order Worker with error. ErrorType={ErrorType}", ex.GetType().Name);
+
+                    try { await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken); }
+                    catch (OperationCanceledException) { break; }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Caches the self-API token instead of logging in for every message.
+        /// <para>
+        /// Once the consumer stopped serving one message at a time, the per-message
+        /// <c>User/LogInto</c> became the next ceiling rather than the queue: that endpoint is rate
+        /// limited to 100 a minute, so a queue draining faster than that would have answered 429 and
+        /// failed every order. The lock keeps a burst of concurrent handlers from all logging in at
+        /// once on a cold cache.
+        /// </para>
+        /// <para>
+        /// The lifetime is deliberately shorter than the token's own: an expired token surfaces as a
+        /// failed message that the retry ladder replays, which is survivable, whereas holding one
+        /// too long would fail every message in flight at the same moment.
+        /// </para>
+        /// </summary>
+        private static readonly SemaphoreSlim TokenLock = new(1, 1);
+        private static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(5);
+        private string? _cachedToken;
+        private DateTime _cachedTokenExpiresAt = DateTime.MinValue;
+
+        private async Task<string?> GetCachedApiTokenAsync(string key, CancellationToken cancellationToken)
+        {
+            if (_cachedToken is not null && DateTime.UtcNow < _cachedTokenExpiresAt)
+                return _cachedToken;
+
+            await TokenLock.WaitAsync(cancellationToken);
             try
             {
-                while (!stoppingToken.IsCancellationRequested)
-                {
-                    try
-                    {
-                        using (var messageScope = _serviceScopeFactory.CreateScope())
-                        {
-                            var scopedRabbitMQ = messageScope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
-                            var kmsProvider = messageScope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-                            var key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+                if (_cachedToken is not null && DateTime.UtcNow < _cachedTokenExpiresAt)
+                    return _cachedToken;
 
-                            await scopedRabbitMQ.DequeueAndProcessAsync<Order>(async order =>
-                            {
-                                Log.Logger.Information($"Creating Order at: {DateTime.UtcNow}");
+                var user = await GetAPIToken(key, cancellationToken);
+                if (user is null || string.IsNullOrWhiteSpace(user.Token))
+                    return null;
 
-                                var user = await GetAPIToken(key, stoppingToken);
-                                if (user == null || string.IsNullOrWhiteSpace(user.Token))
-                                    throw new InvalidOperationException("Order Worker could not obtain an API token.");
-
-                                var request = MapQueuedOrderToCreateRequest(order);
-                                var createdOrder = await SharedFunctions.PostAsync<object>("Order/InsertQueuedOrder", request, user.Token, cancellationToken: stoppingToken);
-                                if (createdOrder == null)
-                                    throw new InvalidOperationException("Order Worker failed to persist order through API.");
-                            }, stoppingToken);
-
-                            Log.Logger.Information($"Order Worker running at: {DateTime.UtcNow}");
-                        }
-
-                        await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Logger.Error("Order Worker with error. ErrorType={ErrorType}", ex.GetType().Name);
-                        await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
-
-                    }
-                }   
+                _cachedToken = user.Token;
+                _cachedTokenExpiresAt = DateTime.UtcNow.Add(TokenLifetime);
+                return _cachedToken;
             }
-            catch (Exception ex)
+            finally
             {
-                Log.Logger.Error("Order Worker scope with error. ErrorType={ErrorType}", ex.GetType().Name);
+                TokenLock.Release();
             }
         }
 

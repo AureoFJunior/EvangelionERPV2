@@ -18,6 +18,14 @@ namespace EvangelionERPV2.Shared.Utils
         private const int MaxProcessingRetries = 3;
 
         /// <summary>
+        /// Unacknowledged messages the broker may keep in flight per consumer. 20 is a working
+        /// figure, not a tuned one: large enough that the consumer is never idle waiting for a
+        /// delivery, small enough that a consumer dying does not strand a large batch for the
+        /// redelivery timeout. Tune it against evangelion_worker_message_duration_seconds.
+        /// </summary>
+        private const ushort PrefetchCount = 20;
+
+        /// <summary>
         /// Every worker's consume path comes through this class, so counting here covers all of
         /// them at once instead of once per worker. The failure it exists for is the quiet one: a
         /// consumer that is up, healthy and processing nothing. Liveness cannot see that - only a
@@ -257,7 +265,11 @@ namespace EvangelionERPV2.Shared.Utils
                 _channel.QueueDeclareAsync(_channelSettings.QueueName, true, false, false, queueArgs).GetAwaiter().GetResult();
                 _channel.QueueBindAsync(_channelSettings.QueueName, _channelSettings.ExchangeName, _channelSettings.RoutingKey).GetAwaiter().GetResult();
 
-                _channel.BasicQosAsync(0, 1, false).GetAwaiter().GetResult();
+                // Prefetch, not 1. With a long-lived consumer (ConsumeAsync) the broker keeps this
+                // many messages in flight, so the consumer never waits a network round trip between
+                // messages. Combined with ConsumerDispatchConcurrency on the connection this is what
+                // takes the drain rate from ~0.4/s to the handler's own speed.
+                _channel.BasicQosAsync(0, PrefetchCount, false).GetAwaiter().GetResult();
             }
             catch (OperationInterruptedException ex) when (ex.ShutdownReason?.ReplyCode == 406)
             {
@@ -320,6 +332,116 @@ namespace EvangelionERPV2.Shared.Utils
                     "Error publishing message. ErrorType={ErrorType}",
                     GetSafeExceptionType(ex));
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Registers ONE consumer and keeps it for the caller's lifetime, processing messages as
+        /// they arrive until the token is cancelled.
+        /// <para>
+        /// This replaces the loop the workers used to run:
+        /// <c>DequeueAndProcessAsync</c> served a single message, tore the consumer down, and the
+        /// worker then slept two to five seconds before doing it again. That capped every queue at
+        /// roughly 0.4 messages a second regardless of load - a full declare/consume/cancel round
+        /// trip plus a sleep for each message - and it was the reason a modest burst could not be
+        /// drained. Here the consumer is registered once, the broker pushes up to
+        /// <see cref="PrefetchCount"/> messages ahead, and throughput becomes whatever the handler
+        /// itself can manage.
+        /// </para>
+        /// <para>
+        /// Handlers may now run CONCURRENTLY, because the connection sets ConsumerDispatchConcurrency
+        /// above one. A handler that was safe only because it was called one at a time is no longer
+        /// safe here.
+        /// </para>
+        /// </summary>
+        public async Task ConsumeAsync<T>(Func<T, Task> processMessageAsync, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(processMessageAsync);
+
+            Log.Logger.Information(
+                "Starting long-lived consumer on {Queue} with prefetch {Prefetch}",
+                _channelSettings.QueueName,
+                PrefetchCount);
+
+            var consumer = new AsyncEventingBasicConsumer(_channel);
+            consumer.ReceivedAsync += (_, ea) => HandleDeliveryAsync(ea, processMessageAsync);
+
+            var consumerTag = await _channel.BasicConsumeAsync(
+                queue: _channelSettings.QueueName,
+                autoAck: false,
+                consumer: consumer,
+                cancellationToken: cancellationToken);
+
+            try
+            {
+                // The consumer runs on the client's dispatch threads; this loop only keeps the
+                // method alive and refreshes the depth gauges, which no longer have a per-message
+                // dequeue call to hang off.
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    await RefreshQueueDepthsAsync(cancellationToken);
+                    await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Shutdown, not a fault.
+            }
+            finally
+            {
+                try
+                {
+                    await _channel.BasicCancelAsync(consumerTag, false, CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    Log.Logger.Warning(
+                        "Could not cancel consumer cleanly on shutdown. ErrorType={ErrorType}",
+                        GetSafeExceptionType(exception));
+                }
+            }
+        }
+
+        /// <summary>
+        /// One delivery: deserialize, hand to the caller, acknowledge. On failure it counts the
+        /// attempt, then either reschedules a retry or nacks the message to the dead-letter queue.
+        /// Shared by <see cref="ConsumeAsync"/> and the single-message DequeueAndProcessAsync so the
+        /// two cannot drift apart on acknowledgement or retry behaviour.
+        /// </summary>
+        private async Task HandleDeliveryAsync<T>(BasicDeliverEventArgs ea, Func<T, Task> processMessageAsync)
+        {
+            try
+            {
+                var message = Encoding.UTF8.GetString(ea.Body.ToArray());
+                var resultObject = JsonSerializer.Deserialize<T>(message, _jsonOptions)
+                    ?? throw new InvalidOperationException("Failed to deserialize message payload.");
+
+                using (MessageDuration.WithLabels(_channelSettings.QueueName).NewTimer())
+                    await processMessageAsync(resultObject);
+
+                MessagesProcessed.WithLabels(_channelSettings.QueueName, "ok").Inc();
+                await _channel.BasicAckAsync(ea.DeliveryTag, false);
+            }
+            catch (Exception ex)
+            {
+                // Counted before the retry decision: a message that succeeds on its third attempt
+                // still cost two failures, and a rate that only counts final give-ups hides a queue
+                // that is limping.
+                MessagesProcessed.WithLabels(_channelSettings.QueueName, "failed").Inc();
+
+                try
+                {
+                    if (await TryScheduleRetryAsync(ea, ex))
+                        return;
+
+                    await _channel.BasicNackAsync(ea.DeliveryTag, false, false);
+                }
+                catch (Exception nackException)
+                {
+                    Log.Logger.Error(
+                        "Error nacking message. ErrorType={ErrorType}",
+                        GetSafeExceptionType(nackException));
+                }
             }
         }
 
