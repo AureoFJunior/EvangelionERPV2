@@ -21,7 +21,10 @@ services:
     # with "Could not load library libcudnn_ops_infer.so.8", the container restarts, and the caller
     # waits out a reboot instead of getting a transcript. Observed 2026-09-14 — and `restart:
     # unless-stopped` hides it as a slow response rather than a crash.
-    image: ${WHISPER_IMAGE:-fedirz/faster-whisper-server:latest-cuda}
+    # Its own variable, deliberately not WHISPER_IMAGE: that one is set to the CPU build in the base
+    # file, and inheriting it here would point the GPU at an image with no cuDNN — the crash this
+    # comment exists to prevent.
+    image: ${WHISPER_CUDA_IMAGE:-fedirz/faster-whisper-server:latest-cuda}
     environment:
       # large-v3 is the best Whisper there is for pt-BR, and on a 4080 it is far quicker than medium
       # on CPU. int8_float16 rather than float16 because of what is left after qwen3:14b: measured

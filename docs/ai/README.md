@@ -51,7 +51,9 @@ Voice adds a second group, all off unless `SpeechEnabled`:
 |---|---|---|
 | `SpeechEnabled` | `false` | `POST /api/v1/ai/transcribe` answers 503 while it's off |
 | `SpeechEndpoint` | `http://localhost:9000` | From inside the container this is `http://whisper:8000` |
-| `SpeechModel` | `small` | Compose passes `Systran/faster-whisper-small` |
+| `SpeechModel` | `Systran/faster-whisper-medium` | Sent with every clip, so it overrides whatever the server was started with — the two must agree. The GPU override raises both to `large-v3` |
+| `SpeechVadFilter` | `true` | Drops silence before Whisper sees it. Not for accuracy: Whisper answers a *silent* clip with one phrase repeated until it runs out of room |
+| `SpeechPrompt` | ERP vocabulary | A hint sent with every clip. Measured 13.5% → 10.9% word error on clean speech; without it "estoque crítico hoje" came back as "toque, que de cor" |
 | `SpeechLanguage` | `pt` | Handed to Whisper. Guessing costs accuracy on short clips |
 | `SpeechTimeoutSeconds` | `30` | Its own budget — transcription has nothing to do with a 120 s agent turn |
 | `MaxAudioSeconds` | `60` | Cap on one utterance; the client cuts the recording at the same number |

@@ -401,7 +401,12 @@ accuracy, but because Whisper answers a *silent* clip with one phrase repeated u
 room.
 
 Audio is transcribed in flight and never stored: no volume for it, the upload is streamed straight
-through, and only the transcript is kept. Both containers carry `restart: unless-stopped`.
+through, and only the transcript is kept.
+
+Both containers carry `restart: unless-stopped` and a healthcheck, so `docker ps` shows `(healthy)`
+once they are serving. The healthcheck catches a container that is up but not answering; it does
+**not** catch a process that crashes and is restarted fast enough to answer the next probe — for
+that, `RestartCount` is still the tell.
 
 The agent's *answers* come from Ollama, which runs **natively on the host** rather than in Compose
 (the GPU is the point, and this avoids the NVIDIA container toolkit). It must be reachable from the

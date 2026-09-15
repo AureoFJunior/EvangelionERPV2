@@ -111,6 +111,15 @@ services:
       WHISPER__TTL: ${EVA_AI_SPEECH_TTL:--1}
     ports:
       - "${WHISPER_HOST_PORT:-9000}:8000"
+    # Without this a crash loop reads as "running": the process dies, the restart policy brings it
+    # back, and the only symptom is a transcription that takes a very long time. Unhealthy says it
+    # out loud in `docker ps`.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/models', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
     volumes:
       - whisper_models:/root/.cache/huggingface
     networks:
@@ -135,6 +144,12 @@ services:
       TTS_HOME: /app/voices
     ports:
       - "${PIPER_HOST_PORT:-9100}:8000"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/models', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
     volumes:
       - piper_voices:/app/voices
       # The pt-BR mapping: the image ships English voices only, and a mapping edited inside a
