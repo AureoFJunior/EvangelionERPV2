@@ -1,0 +1,338 @@
+{
+  "uid": "eva-business",
+  "title": "Business and workers",
+  "description": "The signals that are invisible in HTTP metrics: bills that went out without their PDF, queues that are failing, and what the opportunity radar is producing.",
+  "tags": [
+    "evangelion",
+    "business"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Bill emails sent with no PDF",
+      "description": "Nothing else sees this: the mail sends, the request answers 200, nothing retries.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "increase(evangelion_bill_email_missing_pdf_total[1h])",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Worker messages per second",
+      "description": "Counted per attempt, so a message that succeeds on its third try still shows two failures.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "sum by (queue, result) (rate(evangelion_worker_messages_total[5m]))",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{queue}} - {{result}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Worker handler time, p95",
+      "description": "Separates a slow consumer from a deep queue. Queue depth itself needs a RabbitMQ exporter, which is not wired up yet.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (queue, le) (rate(evangelion_worker_message_duration_seconds_bucket[5m])))",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{queue}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Opportunities generated per hour",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "increase(evangelion_opportunity_generated_total[1h])",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{type}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Radar acceptance rate",
+      "description": "The only id-shaped label allowed anywhere in these metrics. Never add customer, user or document ids - a time-series database cannot honour a deletion request.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "evangelion_opportunity_acceptance_rate",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "enterprise {{enterprise_id}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Radar implementation rate",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "evangelion_opportunity_implementation_rate",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "enterprise {{enterprise_id}}"
+        }
+      ]
+    }
+  ]
+}

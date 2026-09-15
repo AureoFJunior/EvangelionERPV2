@@ -1,0 +1,21 @@
+groups:
+  # Pre-aggregates the request histogram from 184 controller actions down to 26 controllers. Two
+  # reasons: the dashboard panels stop re-computing it on every refresh, and it is the series that
+  # can be shipped to a Grafana Cloud free tier that only holds 10 000 (see prometheus.yml).
+  - name: evangelion_http_aggregates
+    interval: 30s
+    rules:
+      - record: http_request_duration_seconds:by_controller
+        expr: sum by (controller, code, le) (rate(http_request_duration_seconds_bucket[5m]))
+
+      - record: http_requests:rate5m
+        expr: sum by (controller, code) (rate(http_requests_received_total[5m]))
+
+      # Error ratio as one series so the alert and the panel cannot disagree about how it is
+      # computed. 5xx only: a 4xx is the caller's problem, and counting 429 here would turn the rate
+      # limiter doing its job into an incident.
+      - record: http_requests:error_ratio5m
+        expr: |
+          sum(rate(http_requests_received_total{code=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(http_requests_received_total[5m])), 0.001)

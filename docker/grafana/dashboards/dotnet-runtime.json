@@ -1,0 +1,362 @@
+{
+  "uid": "eva-dotnet-runtime",
+  "title": ".NET runtime",
+  "description": "Is the API leaking, garbage-collecting, or starved of threads. Working set next to managed heap is the pair that tells a leak from a limit.",
+  "tags": [
+    "evangelion",
+    "runtime"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "CPU cores used",
+      "description": "Seconds of CPU per second, so 1.0 is one full core.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "rate(process_cpu_seconds_total[5m])",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Memory",
+      "description": "Working set climbing while the managed heap is flat is unmanaged memory or fragmentation, not a normal object leak. The container limit is 512 MB in ECS today - add it as a constant line if that changes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "process_working_set_bytes",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "working set - {{service}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "dotnet_total_memory_bytes",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "managed heap - {{service}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "GC collections per second",
+      "description": "Gen 2 rate rising is the one that matters; gen 0 churn is normal.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "rate(dotnet_collection_count_total[5m])",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "gen {{generation}} - {{service}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Thread pool",
+      "description": "A queue length that does not return to zero is thread-pool starvation, which usually means blocking on async somewhere.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "system_runtime_dotnet_thread_pool_queue_length",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "queue length - {{service}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "system_runtime_dotnet_thread_pool_thread_count",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "threads - {{service}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Lock contention per second",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "rate(system_runtime_dotnet_monitor_lock_contentions[5m])",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Requests in progress",
+      "description": "Climbing with no matching throughput is requests piling up behind something.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evangelion-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evangelion-prometheus"
+          },
+          "expr": "sum by (service) (http_requests_in_progress)",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{service}}"
+        }
+      ]
+    }
+  ]
+}

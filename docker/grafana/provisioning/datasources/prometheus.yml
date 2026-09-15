@@ -1,0 +1,15 @@
+apiVersion: 1
+
+# Provisioned from this file and never from the UI: a datasource added by hand can carry an inline
+# password into a dashboard JSON export, and from there into git.
+datasources:
+  - name: Prometheus
+    uid: evangelion-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Matches prometheus.yml. Grafana uses it to pick sane step sizes.
+      timeInterval: 15s
