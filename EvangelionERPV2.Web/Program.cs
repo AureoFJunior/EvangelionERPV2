@@ -168,7 +168,13 @@ try
     // same network, which is the boundary that already holds the connection string. It is a real
     // narrowing and not a free lunch - some series carry an enterprise_id label - so if that
     // network ever stops being a boundary, this has to be revisited.
-    app.UseMetricServer(port: 9101);
+    // KestrelMetricServer, NOT app.UseMetricServer(port: 9101). The latter looks like it opens a
+    // second listener and does not: it registers the metrics middleware filtered to that port, so
+    // the port still has to be bound by something else. Shipped that way it left 9101 refusing
+    // connections while the app looked perfectly healthy - verified against 8.2.1 in a container,
+    // where only :::8080 was ever listening. This binds *:9101 for real, and is what the three
+    // workers already do.
+    new KestrelMetricServer(port: 9101).Start();
     app.MapHub<OrderHub>("/orderHub", options =>
     {
         options.Transports =
