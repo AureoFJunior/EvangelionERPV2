@@ -801,3 +801,61 @@ permission: `RbacControllerPolicyCoverageTests` fails when a new action has no p
 - Sensitive settings are resolved via AWS Secrets Manager in local and non-local environments.
 - `plain:` is still supported by `AWSKMSKeyProvider` for fallback/debug scenarios.
 - If Swagger is not available, confirm `ASPNETCORE_ENVIRONMENT=Development`.
+
+## Load testing with k6
+
+The rig lives in `perf/` and drives the API through nginx. It is untracked work in progress — see
+`perf/README.md` and `docs/performance/SPEC-stress-test.md` for the scenarios and what each measures.
+
+### 1. Bring the stack up with the rate limit raised
+
+Every request in a run arrives from one address, and nginx overwrites `X-Real-IP` with the real peer,
+so the general 300/min rule is hit at roughly 5 requests a second — the limiter, not the API, becomes
+what you measure. `docker-compose.perf.yml` raises it for the API container only:
+
+```bash
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.perf.yml \
+  up -d evangelionerpv2
+```
+
+**Do not use that override for the `rate_limit_guard` scenario** — that one exists to prove the
+limiter still works, so it needs the normal limit.
+
+### 2. Seed the data
+
+```bash
+python3 perf/seed.py                 # 500 customers, 1000 products, 5000 orders
+python3 perf/seed.py --users-only    # just the four perf.* accounts, one per access level
+```
+
+Credentials are written to `perf/.env.perf`, which is git-ignored. `run.sh` sources it and passes
+`ADMIN_*`, `MANAGER_*`, `SUPERVISOR_*`, `EMPLOYEE_*` and `PDV_*` into the container.
+
+### 3. Run a scenario
+
+```bash
+./perf/run.sh <scenario> <level>
+
+./perf/run.sh read_light smoke
+./perf/run.sh write_mixed load
+./perf/run.sh rate_limit_guard smoke     # WITHOUT the perf override, see above
+```
+
+| Scenarios | Levels (VUs × duration) |
+|---|---|
+| `read_light`, `read_heavy`, `write_mixed`, `rbac_denied`, `pdv_sync`, `rate_limit_guard` | `smoke` 1 VU/60s · `baseline` 10 VUs/6m · `load` 50 VUs/12m · `stress` 300 VUs/15m · `soak` 30 VUs/1h |
+
+Results land in `perf/results/<timestamp>-<scenario>-<level>/` as `k6.log` plus `resources.csv`
+(`docker stats` sampled every 5s). Every scenario shares a floor of no 5xx and under 1% failures.
+
+### What the rig does not cover
+
+`write_mixed` drives `Order/InsertOrder`, which persists directly and **never publishes to RabbitMQ**.
+The queue path is `Order/AddOrder` → `InsertOrderInQueue` → the broker, and no scenario exercises it —
+so the message pipeline is currently unmeasured under load. Note also that a queue scenario would
+need its own status thresholds: since publisher confirms were enabled, a broker nack surfaces as a
+500, which the shared `no 5xx` floor would read as a failure.
+
+While a run is in flight, the Grafana dashboards at `http://localhost:3000` show the same window from
+the API's side — `resources.csv` is the container view, Prometheus is the application view.
+

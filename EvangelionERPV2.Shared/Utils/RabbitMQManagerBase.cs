@@ -1,5 +1,6 @@
 ﻿using RabbitMQ.Client.Events;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Exceptions;
 using System.Text;
 using System.Text.Json;
 using Serilog;
@@ -257,6 +258,26 @@ namespace EvangelionERPV2.Shared.Utils
                 _channel.QueueBindAsync(_channelSettings.QueueName, _channelSettings.ExchangeName, _channelSettings.RoutingKey).GetAwaiter().GetResult();
 
                 _channel.BasicQosAsync(0, 1, false).GetAwaiter().GetResult();
+            }
+            catch (OperationInterruptedException ex) when (ex.ShutdownReason?.ReplyCode == 406)
+            {
+                // 406 PRECONDITION_FAILED on a declare means the queue already exists with
+                // DIFFERENT arguments. Queue arguments are immutable, so this is not something the
+                // application can fix at runtime and retrying will fail identically for ever.
+                //
+                // Without naming it, this surfaces as "OperationInterruptedException" and a failing
+                // health check, which says nothing about the cause. It happens in exactly one
+                // situation worth calling out: the queue was created by an older build - for
+                // instance when x-message-ttl was removed from this method - and still carries the
+                // old arguments.
+                Log.Logger.Error(
+                    "Queue '{Queue}' already exists with different arguments, so it cannot be declared. " +
+                    "Queue arguments are immutable: drain and delete the queue (and '{Dlq}') on the broker, " +
+                    "then restart - it will be recreated with the current arguments. Broker said: {ReplyText}",
+                    _channelSettings.QueueName,
+                    _channelSettings.QueueNameDLQ,
+                    ex.ShutdownReason?.ReplyText);
+                throw;
             }
             catch (Exception ex)
             {
