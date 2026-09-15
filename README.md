@@ -189,16 +189,10 @@ docker compose --env-file .env.local \
   up -d --build
 ```
 
-On a machine where Docker can reach the GPU, add the override and Whisper runs on the card instead
-(see "Whisper on the GPU"):
+With `COMPOSE_FILE` set in `.env.local` (see "Whisper on the GPU") that same command runs Whisper on
+the card — nothing extra to type.
 
-```bash
-docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.gpu.yml \
-  --profile localdb --profile proxy --profile workers --profile voice \
-  up -d --build
-```
-
-PowerShell shortcut for the same thing, minus the GPU override:
+PowerShell shortcut:
 
 ```powershell
 .\scripts\local-up.ps1 -WithWorkers -WithVoice
@@ -313,47 +307,28 @@ docker compose --env-file .env.local --profile localdb --profile workers up -d -
 Workers are profile-based. They do not start unless you pass `--profile workers`.
 
 - `worker_order` and `worker_email` consume RabbitMQ queues and send the scheduled broadcasts.
-- `worker_notification` runs the notification sweep: every 15 minutes it logs in with `SelfAPIAuth`
-  and calls `POST Notification/SweepAlerts`, which recomputes each tenant's daily-panel alerts and
-  pushes `NotificationsChanged` on `/orderHub` only when the set of firing alerts changed. It talks
-  to the API over HTTP and to Redis for its lease — no database, no broker — so it is the one worker
-  that needs neither RabbitMQ nor SQL Server. Only one replica runs a pass at a time; the lease key
-  is `eva:lease:notification-sweep`.
+- `worker_notification` calls `POST Notification/SweepAlerts` every 15 minutes, which recomputes each
+  tenant's alerts and pushes `NotificationsChanged` on `/orderHub` only when the firing set changed.
+  HTTP to the API plus Redis for its lease — no broker, no database.
 
-6. Optional: start only `nginx` + `worker_order` (without `worker_email`):
+6. Any subset works — name the services you want, and add `--no-build` to skip the build.
 
-```powershell
-docker compose --env-file .env.local --profile localdb --profile proxy --profile workers up -d --build sqlserver evangelionerpv2 nginx worker_order
-```
+7. Optional: the assistant's voice mode (`whisper` hears, `piper` speaks):
 
-If images are already built locally:
-
-```powershell
-docker compose --env-file .env.local --profile localdb --profile proxy --profile workers up -d --no-build sqlserver evangelionerpv2 nginx worker_order
-```
-
-7. Optional: the assistant's voice mode (`whisper` + `piper`):
-
-```powershell
+```bash
 docker compose --env-file .env.local --profile localdb --profile voice up -d --build sqlserver evangelionerpv2 whisper piper
 ```
 
-`whisper` is the speech-to-text service the agent uses to hear a question, and `piper` is the
-text-to-speech service it answers with. Like the workers they are profile-based and do not start
-unless you pass `--profile voice` (or `-WithVoice` to the shortcut scripts). They also need
-`EVA_AI_SPEECH_ENABLED=true` and `EVA_AI_VOICE_ENABLED=true` in `.env.local`; without those the API
-answers `503` on `POST /api/v1/ai/transcribe` and `POST /api/v1/ai/speak` instead of hanging.
+Both are profile-gated (`--profile voice`, or `-WithVoice` on the scripts) and both need flags in
+`.env.local`: `EVA_AI_SPEECH_ENABLED=true` and `EVA_AI_VOICE_ENABLED=true`. Without them the API
+answers 503 on `/ai/transcribe` and `/ai/speak`.
 
-`piper` exists because the device's own voice is a different voice on every machine — and on a
-Linux desktop without `speech-dispatcher`, no voice at all: `speechSynthesis` accepts the utterance,
-says nothing, and never fires `onDone`. With `piper` running and `EVA_AI_VOICE_ENABLED=true`, the
-client asks `POST /api/v1/ai/speak` for each sentence and every platform hears the same voice; with
-it off, or if the container is down, the client falls back to the device for the rest of the
-session. The rendered audio is streamed through the API and never written to disk or cached.
+`piper` exists because the device's own voice differs on every machine, and on a Linux desktop
+without `speech-dispatcher` there is none at all. With it running, every platform hears the same
+voice; if it is down the client falls back to the device. Audio is streamed both ways and never
+written to disk.
 
-The pt-BR voice is not in the image, which ships English voices only. `docker/piper/voice_to_speaker.yaml`
-maps the name in `EVA_AI_VOICE_NAME` to a model file, and the model is downloaded into the
-`piper_voices` volume on first use:
+The pt-BR voice is not in the image (it ships English only). Once per machine:
 
 ```bash
 docker exec evangelionerpv2_piper python3 -c "
@@ -361,95 +336,72 @@ from piper.download import ensure_voice_exists, get_voices
 ensure_voice_exists('pt_BR-faber-medium', ['/app/voices'], '/app/voices', get_voices('/app/voices'))"
 ```
 
-Without the model file Piper answers `200` with an empty MP3 rather than an error; the API detects
-that and answers 503 so the client falls back instead of playing silence.
-
-Both `whisper` and `piper` carry `restart: unless-stopped`. A synthesis or transcription process
-that dies is a transient fault, not a reason to take voice out of the product until somebody runs
-`docker start` by hand — and with the default policy nothing brings them back. Watch `RestartCount`
-on those containers if you want to know whether they are dying quietly.
-
-**Why `medium` at `int8`.** Measured 2026-09-14 against sixteen synthesised pt-BR sentences of this
-system's own vocabulary, scored by word error rate, with noise mixed in to stand in for a real
-microphone:
-
-| Config | Noisy WER | Exact | Per clip |
-|---|---|---|---|
-| `small`, no prompt (the old default) | 22.1% | 5/16 | 1.4 s |
-| `small` + VAD + vocabulary prompt | 20.8% | 4/16 | 1.5 s |
-| `medium` float + VAD + prompt | 14.7% | 7/16 | 4.4 s |
-| **`medium` int8 + VAD + prompt** | **14.0%** | **7/16** | **2.3 s** |
-
-`int8` is the whole reason `medium` is affordable here: it keeps the accuracy and gives back half
-the latency. **That table is the CPU path.** With the GPU it changes completely — see below.
+Without the model Piper answers 200 with an empty MP3; the API detects that and answers 503 so the
+client falls back rather than playing silence.
 
 #### Whisper on the GPU
 
-Compose cannot reach the card by default: `docker run --gpus all` answers *"failed to discover GPU
-vendor from CDI"* until the NVIDIA container toolkit is installed. It is a host change and needs
-root:
+Worth doing — it is 6× faster and more accurate. Measured against sixteen synthesised pt-BR
+sentences of this system's vocabulary, with noise mixed in to stand in for a microphone:
+
+| Config | WER | Exact | Per clip | 9 s question |
+|---|---|---|---|---|
+| `small` on CPU (the original default) | 22.1% | 5/16 | 1.4 s | — |
+| `medium` int8 on CPU | 14.0% | 7/16 | 1.9 s | 2.9 s |
+| **`large-v3` int8_float16 on GPU** | **11.5%** | **8/16** | **0.29 s** | **0.45 s** |
+
+One-time host setup (needs root):
 
 ```bash
-sudo pacman -S nvidia-container-toolkit          # it is in extra/ and cachyos-extra-znver4/
+sudo pacman -S nvidia-container-toolkit
 sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi -L   # should list the card
 ```
 
-**Install the toolkit first.** Without it the override still starts the container — `deploy` is
-advisory outside swarm — but with `cuda` in its environment and no card behind it. The process then
-dies mid-transcription (`Could not load library libcudnn_ops_infer.so.8`), the restart policy brings
-it back, and the symptom is not an error but a very slow "entendendo" while the caller waits out a
-reboot. If transcription suddenly crawls, check `docker inspect -f '{{.RestartCount}}' evangelionerpv2_whisper`
-before blaming the model.
+Then add this to `.env.local` so every compose command uses the GPU override without `-f`:
 
-Then add `-f docker-compose.gpu.yml` to any command that starts `whisper`:
-
-```bash
-docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.gpu.yml \
-  --profile localdb --profile proxy --profile workers --profile voice up -d
+```ini
+COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
 ```
 
-That override moves Whisper to `cuda` and to `large-v3` — the best Whisper there is for pt-BR, and
-on a 4080-class card quicker than `medium` is on CPU. It asks for `int8_float16` rather than
-`float16` because of what the LLM leaves behind: measured 2026-09-14 the card had **3.1 GB free**
-with `qwen3:14b` resident, `float16` `large-v3` wants ~3.1 GB of exactly that, and a model that only
-just fits is one that fails the day the context grows. `int8_float16` asks for roughly half.
+`.env.local` is gitignored, so this stays on the machines that have a card.
 
-Ollama stays on the host and is not in that file. Both share one card, so watch `nvidia-smi` after
-switching: if the two together crowd the GPU, the lever is `EVA_AI_SPEECH_MODEL=Systran/faster-whisper-medium`,
-which needs about a gigabyte and is still far quicker there than on CPU.
+**Do not apply the override without the toolkit.** The container starts anyway (`deploy` is advisory
+outside swarm) with `cuda` set and no card behind it, then dies mid-transcription with
+`Could not load library libcudnn_ops_infer.so.8`. The restart policy brings it back, so it looks
+like a slow "entendendo" rather than a crash — `docker inspect -f '{{.RestartCount}}' evangelionerpv2_whisper`
+is the tell.
 
-The numbers in the table above were measured on CPU and have not been re-measured on the GPU —
-nothing here has run against the card yet, because the toolkit is not installed.
-
-Two request-level settings come with it, both measured rather than assumed: `AiSettings__SpeechPrompt`
-is a list of this ERP's own terms (worth 13.5% → 10.9% on clean speech — without it "estoque crítico
-hoje" came back as "toque, que de cor"), and `AiSettings__SpeechVadFilter` drops silence before
-Whisper sees it. The VAD filter buys no accuracy on speech; it is there because Whisper answers a
-*silent* clip with one phrase repeated until it runs out of room, which is how a 667-character
-question nobody asked reached the conversation history.
-
-Audio is transcribed in flight and never stored — the container has no volume for it, the API
-streams the upload straight through, and only the transcript is kept.
+Ollama and Whisper share the one card: `qwen3:14b` holds ~9.6 GB and `large-v3` at `int8_float16`
+about 1.3 GB, leaving ~2.3 GB free. If that gets tight, `EVA_AI_SPEECH_MODEL=Systran/faster-whisper-medium`
+is the lever.
 
 Useful knobs (all optional, defaults in `docker-compose.yml`):
 
 | Variable | Default | What it does |
 |---|---|---|
-| `EVA_AI_SPEECH_ENABLED` | `false` | Turns the voice endpoint on |
-| `EVA_AI_SPEECH_MODEL` | `Systran/faster-whisper-medium` | Whisper model. Drives both the server and the `model` the API sends with every clip — they must agree, or the per-request value silently wins |
-| `EVA_AI_SPEECH_COMPUTE_TYPE` | `int8` | Quantisation. `int8` is what makes `medium` affordable on CPU |
-| `EVA_AI_SPEECH_TTL` | `-1` | Seconds before the model is unloaded; `-1` never. The default 300 made the first question after any pause pay a 1.8 s load |
-| `EVA_AI_SPEECH_CPU_THREADS` | `8` | Physical cores, not threads. Measured on an 8-core 7800X3D: 4 → 2.33 s, 8 → 1.86 s, 16 → 2.28 s per clip, identical accuracy. Set it to your core count, not your thread count |
-| `EVA_AI_SPEECH_DEVICE` | `cpu` | `cuda` to put it on the GPU |
-| `WHISPER_HOST_PORT` | `9000` | Host port for the transcription service |
-| `EVA_AI_VOICE_ENABLED` | `false` | Turns `POST /api/v1/ai/speak` on; off keeps the device's voice |
-| `EVA_AI_VOICE_NAME` | `pt_BR-faber-medium` | Which Piper voice speaks. Must exist in `docker/piper/voice_to_speaker.yaml` |
-| `PIPER_HOST_PORT` | `9100` | Host port for the synthesis service |
-| `EVA_AI_ENABLED` | `false` | Turns the agent itself on; without it every `/api/v1/ai/*` route answers 503 |
+| `EVA_AI_ENABLED` | `false` | The agent itself; without it every `/api/v1/ai/*` route answers 503 |
 | `EVA_AI_ENDPOINT` | `http://host.docker.internal:11434` | Where the API looks for Ollama |
 | `EVA_AI_MODEL` | `qwen3:14b` | The model the agent thinks with |
+| `EVA_AI_SPEECH_ENABLED` | `false` | Hearing: `POST /ai/transcribe` |
+| `EVA_AI_SPEECH_MODEL` | `Systran/faster-whisper-medium` | Drives the server *and* the `model` the API sends per clip — they must agree, or the per-request value wins |
+| `EVA_AI_SPEECH_COMPUTE_TYPE` | `int8` | Quantisation. What makes `medium` affordable on CPU |
+| `EVA_AI_SPEECH_CPU_THREADS` | `8` | Physical cores, not threads: 4 → 2.33 s, 8 → 1.86 s, 16 → 2.28 s on an 8-core 7800X3D |
+| `EVA_AI_SPEECH_TTL` | `-1` | Never unload. The default 300 s made the first question after a pause pay a 1.8 s load |
+| `WHISPER_HOST_PORT` | `9000` | Host port |
+| `EVA_AI_VOICE_ENABLED` | `false` | Speaking: `POST /ai/speak` |
+| `EVA_AI_VOICE_NAME` | `pt_BR-faber-medium` | Must exist in `docker/piper/voice_to_speaker.yaml` |
+| `PIPER_HOST_PORT` | `9100` | Host port |
+
+Two settings live in `AiSettings` rather than compose: `SpeechPrompt`, a list of this ERP's terms
+sent with every clip (13.5% → 10.9% WER on clean speech; without it "estoque crítico hoje" came back
+as "toque, que de cor"), and `SpeechVadFilter`, which drops silence before Whisper sees it — not for
+accuracy, but because Whisper answers a *silent* clip with one phrase repeated until it runs out of
+room.
+
+Audio is transcribed in flight and never stored: no volume for it, the upload is streamed straight
+through, and only the transcript is kept. Both containers carry `restart: unless-stopped`.
 
 The agent's *answers* come from Ollama, which runs **natively on the host** rather than in Compose
 (the GPU is the point, and this avoids the NVIDIA container toolkit). It must be reachable from the
@@ -474,11 +426,8 @@ After=network-online.target
 # OLLAMA_MODELS it starts with an empty model store and answers "model not found".
 Environment="OLLAMA_HOST=0.0.0.0:11434"
 Environment="OLLAMA_MODELS=/path/to/models"
-# Keep the model resident. Ollama unloads after five minutes idle by default, so the first question
-# after any break paid a cold load of ~9.6 GB onto the GPU — and a client that gave up while that was
-# happening aborted the load itself, leaving the user with "O assistente está indisponível" and
-# nothing wrong in the API logs. Ollama logs that case as `499` with "client connection closed
-# before llama-server finished loading".
+# Never unload. The default is five minutes, so the first question after a break paid a ~9.6 GB cold
+# load — and a client that gave up meanwhile aborted the load itself, which Ollama logs as a 499.
 Environment="OLLAMA_KEEP_ALIVE=-1"
 ExecStart=/path/to/ollama serve
 Restart=always
@@ -561,14 +510,6 @@ docker compose --env-file .env.ec2 --profile proxy up -d --no-build evangelioner
 docker compose --env-file .env.ec2 --profile workers up -d --no-build
 ```
 
-### If you run commands from `EvangelionERPV2.Web`
-
-Use parent paths:
-
-```powershell
-docker compose --env-file ..\.env.local -f ..\docker-compose.yml --profile localdb up -d --build sqlserver evangelionerpv2
-```
-
 ## Frontend base URLs
 
 Use one of the following according to your runtime mode:
@@ -591,87 +532,49 @@ Use Grafana Cloud to scrape the API endpoint directly:
 
 `docker-compose.yml` does not start a RabbitMQ container.
 
-When `--profile workers` is enabled, workers expect a reachable broker configured through AWS Secrets Manager references or environment values.
-For local runs, `.env.local` should use the `evangelion/dev/rabbitmq-*` AWS secret references shown in `.env.local.example`.
+`worker_order` and `worker_email` expect a reachable broker, configured through the
+`evangelion/dev/rabbitmq-*` secret references in `.env.local.example`. `worker_notification` does
+not — it speaks only HTTP to the API and Redis for its lease.
 
 ## Stop and cleanup
 
-Stop default services from project root:
-
-```powershell
-docker compose --env-file .env.local --profile localdb down
+```bash
+docker compose --env-file .env.local \
+  --profile localdb --profile proxy --profile workers --profile voice \
+  down --remove-orphans
 ```
 
-or:
-
 ```powershell
-.\scripts\local-down.ps1
+.\scripts\local-down.ps1 -WithWorkers -WithVoice
 ```
 
-Stop everything including profile services (`workers` and `proxy`) and remove orphans:
+**Name every profile you started.** `down --remove-orphans` deletes containers belonging to profiles
+you leave out, so a `down` without `--profile voice` removes `piper` and `whisper` — and voice then
+fails with `Name or service not known (piper:8000)` until they are started again. A restart policy
+does not help: they were removed, not stopped.
 
-```powershell
-docker compose --env-file .env.local --profile localdb --profile workers --profile proxy down --remove-orphans
-```
+Check what is left:
 
-If you run commands from `EvangelionERPV2.Web`:
-
-```powershell
-docker compose --env-file ..\.env.local -f ..\docker-compose.yml --profile localdb --profile workers --profile proxy down --remove-orphans
-```
-
-Check what is still running:
-
-```powershell
-docker ps
+```bash
 docker compose --env-file .env.local ps
-```
-
-If a worker container still appears in Docker Desktop after `down`, force remove it:
-
-```powershell
-docker rm -f evangelionerpv2_worker_order evangelionerpv2_worker_email
 docker ps
 ```
 
 ## Troubleshooting workers
 
-### Error: `Failed to resolve AWS credentials`
+### `Failed to resolve AWS credentials`
 
-Cause:
+The container is resolving `evangelion/dev/*` secrets with no usable AWS identity. Same error
+whether it surfaces at startup or on the login endpoint.
 
-- services are trying to resolve `evangelion/dev/*` secrets, but container has no usable AWS identity.
+1. Check the host can reach AWS at all: `aws sts get-caller-identity`.
+2. Confirm `.env.local` has `AWS_CREDENTIALS_DIR` pointing at a real `.aws` folder, `AWS_PROFILE`
+   naming a profile that exists in its `credentials` file, and `EVA_AWS_SECRET_NAME=AWSCredentials`.
+   Compose mounts that folder at `/home/app/.aws` and sets `AWS_SHARED_CREDENTIALS_FILE` /
+   `AWS_CONFIG_FILE` for the non-root container.
+3. Recreate rather than restart — a cached container keeps the old environment:
 
-Fix:
-
-- confirm `.env.local` has a valid `AWS_CREDENTIALS_DIR` path
-- confirm the profile exists in `<AWS_CREDENTIALS_DIR>/credentials` (default `profile = default`)
-- compose mounts that folder at `/home/app/.aws` and sets `AWS_SHARED_CREDENTIALS_FILE` / `AWS_CONFIG_FILE` for non-root containers
-- check AWS access from host: `aws sts get-caller-identity`
-
-### Error on login API: `Failed to resolve AWS credentials`
-
-Cause:
-
-- container started without AWS profile/credentials-file mapping.
-
-Fix:
-
-1. Confirm `.env.local` includes:
-   - `EVA_CONN_STR=plain:Server=sqlserver,1433;...;TrustServerCertificate=True;Encrypt=False`
-   - `EVA_AWS_SECRET_NAME=AWSCredentials`
-   - `AWS_CREDENTIALS_DIR=.../.aws`
-   - `AWS_PROFILE=default`
-2. Rebuild web + nginx:
-
-```powershell
-docker compose --env-file .env.local --profile localdb --profile proxy up -d --build sqlserver evangelionerpv2 nginx
-```
-
-3. If old containers are still cached, recreate them:
-
-```powershell
-docker compose --env-file .env.local --profile localdb --profile proxy down --remove-orphans
+```bash
 docker compose --env-file .env.local --profile localdb --profile proxy up -d --build --force-recreate sqlserver evangelionerpv2 nginx
 ```
 
