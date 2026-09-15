@@ -46,6 +46,26 @@ using Microsoft.Net.Http.Headers;
 var builder = WebApplication.CreateBuilder(args);
 const string DefaultCorsPolicyName = "DefaultCorsPolicy";
 
+// prometheus-net connects its Meter adapter to every System.Diagnostics.Metrics instrument in the
+// process, and two of those meters are pure cost here.
+//
+// Microsoft.AspNetCore.* publishes http_server_request_duration labelled with http_route - a second
+// request histogram measuring exactly what UseHttpMetrics already measures, at ~19 series per route.
+// Across this API's 184 controller actions that is thousands of duplicate series, and it grows with
+// the codebase. Private.InternalDiagnostics.* is msquic internals nobody here reads.
+//
+// Measured on 8.2.1 with three routes: 262 series down to 166, the per-route duplication gone, and
+// the metrics the dashboards actually query all intact. It takes ~45s AFTER the first request for
+// these to finish appearing, so a scrape taken seconds after boot understates them - which is why
+// the count check in the observability docs says to use a process that has been up a minute.
+//
+// The Kestrel and hosting *EventCounters* (current_connections, request_queue_length and friends)
+// come from a different adapter, are fixed-cardinality, and are deliberately kept.
+Metrics.ConfigureMeterAdapter(options =>
+    options.InstrumentFilterPredicate = instrument =>
+        !instrument.Meter.Name.StartsWith("Microsoft.AspNetCore")
+        && !instrument.Meter.Name.StartsWith("Private.InternalDiagnostics"));
+
 // Add services to the container.
 
 #region Services

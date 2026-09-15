@@ -592,6 +592,13 @@ near 2 000 series. Per-action detail stays local, which is where anyone debuggin
 Use a **write-only (MetricsPublisher) token** from AWS Secrets Manager. A leaked write token poisons
 data; a leaked read token exfiltrates every tenant's numbers.
 
+`Program.cs` filters the prometheus-net Meter adapter so ASP.NET Core's own
+`http_server_request_duration` — a second request histogram, labelled `http_route`, measuring what
+`UseHttpMetrics` already measures — is not published. Left on, it costs roughly 19 series per route
+and grows with the codebase. Count active series against a process that has been serving for a
+minute, not one that just booted: these adapters connect lazily and a scrape taken seconds after the
+first request understates the total by more than half.
+
 The older approach — Grafana Cloud scraping `https://<alb>/metrics` with a bearer token — still works
 and needs no infra change, but it puts `/metrics` on the public ALB and needs a long-lived Supervisor
 token. Prefer the agent.
