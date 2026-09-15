@@ -27,6 +27,7 @@ using EvangelionERPV2.UserModule.Application.DI;
 using EvangelionERPV2.Web.FluentValidator;
 using EvangelionERPV2.Web.Logging;
 using EvangelionERPV2.Web.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using EvangelionERPV2.Web.Security;
 using EvangelionERPV2.Web.Services;
 using FluentValidation;
@@ -136,6 +137,18 @@ try
     app.UseAuthorization();
 
     app.MapMetrics("/metrics").RequireAuthorization(RbacPolicies.Metrics.Read);
+
+    // Same registry, second door, no auth on it. Prometheus scrapes every 15 seconds for ever and
+    // the tokens this API issues expire, so the alternative was a never-expiring Supervisor token
+    // sitting in a scraper's config file - a credential that can read every business endpoint,
+    // handed out so that something can read a counter.
+    //
+    // 9101 is never published: no host port in docker-compose.yml, no security group rule on ECS
+    // (the agent sidecar shares the task's network namespace). The readers are containers on the
+    // same network, which is the boundary that already holds the connection string. It is a real
+    // narrowing and not a free lunch - some series carry an enterprise_id label - so if that
+    // network ever stops being a boundary, this has to be revisited.
+    app.UseMetricServer(port: 9101);
     app.MapHub<OrderHub>("/orderHub", options =>
     {
         options.Transports =
@@ -400,6 +413,15 @@ static void SetupHealthCheck(WebApplicationBuilder builder)
         .AddCheck<DatabaseHealthCheck>("sqlserver")
         .AddCheck<RedisHealthCheck>("redis")
         .AddCheck<RabbitMqHealthCheck>("rabbitmq");
+
+    // Publishes the same results as series, so a dependency going down can raise an alert instead
+    // of waiting for somebody to think of opening /health. The host drives the timer itself.
+    builder.Services.AddSingleton<IHealthCheckPublisher, PrometheusHealthPublisher>();
+    builder.Services.Configure<HealthCheckPublisherOptions>(options =>
+    {
+        options.Period = TimeSpan.FromSeconds(30);
+        options.Delay = TimeSpan.FromSeconds(10);
+    });
 }
 
 static void ConfigureIoC(WebApplicationBuilder builder)

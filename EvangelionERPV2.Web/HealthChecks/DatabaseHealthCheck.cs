@@ -1,6 +1,7 @@
 using EvangelionERPV2.Shared.Context;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Prometheus;
 
 namespace EvangelionERPV2.Web.HealthChecks
 {
@@ -16,6 +17,16 @@ namespace EvangelionERPV2.Web.HealthChecks
         /// always says healthy, and the orchestrator has its own, longer timeout.
         /// </summary>
         private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// The count this check already has in hand, exported so it can be alerted on. A non-zero
+        /// value explains a wave of 500s faster than any latency panel, and the probe recomputes it
+        /// every time it runs — so unlike the startup log, this stays true after somebody applies
+        /// them without restarting anything.
+        /// </summary>
+        private static readonly Gauge PendingMigrations = Metrics.CreateGauge(
+            "evangelion_pending_migrations",
+            "Migrations committed to the branch but not applied to this database");
 
         private readonly AppDbContext _context;
 
@@ -58,6 +69,7 @@ namespace EvangelionERPV2.Web.HealthChecks
                     return HealthCheckResult.Unhealthy("Database is not reachable.");
 
                 var pending = (await _context.Database.GetPendingMigrationsAsync(timeout.Token)).ToList();
+                PendingMigrations.Set(pending.Count);
                 return DescribePendingMigrations(pending);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
