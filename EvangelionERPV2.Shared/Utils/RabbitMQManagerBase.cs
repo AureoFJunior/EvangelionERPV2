@@ -227,8 +227,23 @@ namespace EvangelionERPV2.Shared.Utils
                     { "x-queue-type", "classic" },
                     { "x-dead-letter-exchange", _channelSettings.ExchangeNameDLQ},
                     { "x-dead-letter-routing-key", _channelSettings.RoutingKeyDLQ},
-                    { "x-message-ttl", 12000},
-                    { "x-max-retries", 3}
+
+                    // There is no x-message-ttl here any more, and that is the point. It used to be
+                    // 12000 - twelve seconds of sitting in the queue before the broker dead-lettered
+                    // the message into a queue nothing reads. A work queue's job is to hold work
+                    // until someone does it; a deploy, a restart or a backlog of six messages was
+                    // enough to drain it into a black hole, silently. Do not reintroduce it.
+                    //
+                    // Bounded by length instead, which is the honest version of the same intent:
+                    // when the queue is full the broker REJECTS the publish rather than discarding
+                    // something already accepted. That reaches the caller as an exception because
+                    // publisher confirms are on - back-pressure the publisher can see, instead of
+                    // silent loss it cannot.
+                    { "x-max-length", 100_000 },
+                    { "x-overflow", "reject-publish" }
+
+                    // x-max-retries is gone too: it is not a RabbitMQ queue argument and never did
+                    // anything. Retries are counted in the x-retry-count header by TryScheduleRetryAsync.
                 };
 
                 _channel.ExchangeDeclareAsync(_channelSettings.ExchangeName, "topic").GetAwaiter().GetResult();
