@@ -1,3 +1,4 @@
+using EvangelionERPV2.Shared.Utils;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Caching.Distributed;
 using System.Linq.Expressions;
@@ -504,6 +505,72 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
             // ...but keeps what makes it worth caching.
             Assert.Contains(SellerId.ToString(), written);
             Assert.Contains("1000", written);
+        }
+
+        /// <summary>
+        /// The drift guard.
+        /// <para>
+        /// "What has been received" is now defined twice: once in ReceivableResolver, and once as a
+        /// SQL expression inside GetPerformanceAsync, because aggregating in the database is what
+        /// stopped the endpoint running out of memory on a real month. Two definitions of money can
+        /// disagree, and this is what stops them.
+        /// </para>
+        /// <para>
+        /// Every combination of refund, payday and bill state goes through the query, and the
+        /// expected total is computed by the resolver itself. Change one side alone and this fails.
+        /// </para>
+        /// </summary>
+        [Theory]
+        // refunded, hasPayday, bill status, bill paid, bill amount
+        [InlineData(false, false, null, null, null)]
+        [InlineData(false, true, null, null, null)]
+        [InlineData(true, true, null, null, null)]
+        [InlineData(false, false, BillStatus.Paid, 700.0, 900.0)]
+        [InlineData(false, false, BillStatus.Paid, 0.0, 900.0)]
+        [InlineData(false, false, BillStatus.Paid, 0.0, 0.0)]
+        [InlineData(false, true, BillStatus.Registered, null, 900.0)]
+        [InlineData(false, false, BillStatus.Registered, null, 0.0)]
+        [InlineData(true, true, BillStatus.Paid, 700.0, 900.0)]
+        public async Task TheQueryAndTheResolver_AgreeOnWhatWasReceived(
+            bool refunded, bool hasPayday, BillStatus? billStatus, double? billPaid, double? billAmount)
+        {
+            const decimal total = 1000m;
+            var order = Sale(total, payday: hasPayday ? new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc) : null, refunded: refunded);
+
+            var bills = billStatus.HasValue
+                ? new[]
+                {
+                    new Bill
+                    {
+                        Id = Guid.NewGuid(),
+                        OrderId = order.Id,
+                        Status = billStatus.Value,
+                        PaidAmount = billPaid.HasValue ? (decimal)billPaid.Value : null,
+                        Amount = billAmount.HasValue ? (decimal)billAmount.Value : 0m,
+                        IsActive = true,
+                        CreatedAt = new DateTime(2026, 8, 11, 0, 0, 0, DateTimeKind.Utc)
+                    }
+                }
+                : Array.Empty<Bill>();
+
+            Given([order], bills, commissionRate: null, target: null);
+
+            var performance = await BuildService().GetPerformanceAsync(EnterpriseId, 2026, 8);
+
+            // What the C# rule says, computed independently of the query.
+            var expectedReceived = ReceivableResolver.ResolveReceivedAmount(
+                total,
+                ReceivableResolver.IsOrderRefunded(order.RefundedAt, order.Status),
+                hasPayday,
+                billStatus,
+                billPaid.HasValue ? (decimal)billPaid.Value : null,
+                billAmount.HasValue ? (decimal)billAmount.Value : null);
+
+            var expectedSold = refunded ? 0m : total;
+
+            Assert.Equal(expectedReceived, performance.Enterprise.ReceivedAmount);
+            Assert.Equal(expectedSold, performance.Enterprise.SoldAmount);
+            Assert.Equal(refunded ? 0 : 1, performance.Enterprise.OrderCount);
         }
     }
 }

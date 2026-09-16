@@ -260,54 +260,91 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             // One query instead of three loads.
             //
-            // This used to read the whole month of Order entities, then every Bill whose OrderId was
-            // in that set (an IN clause thousands of ids long), then every User in the tenant - and
-            // aggregate all of it in C#. Each concurrent caller paid for its own full copy, which is
-            // why the process reached 13 GiB and 851% CPU under load while answering in over 30
-            // seconds.
+            // Aggregated in SQL, one row per seller, instead of reading the month into memory.
             //
-            // Now the join and the "latest live bill per order" pick happen in SQL, and only the
-            // columns the money rules actually read come back. The rules themselves stay in
-            // ReceivableResolver - restating them in SQL would give money two definitions that can
-            // drift apart.
+            // The first rewrite of this method already stopped materialising whole entities and cut
+            // the response from 1,681ms to 25ms - but it still called ToListAsync() on every order
+            // in the month and grouped in C#, so memory stayed proportional to the month. That only
+            // showed up once the data was realistic: at 5,081 orders it looked solved, and at
+            // 200,001 orders twenty concurrent callers took the process to OutOfMemoryException.
+            // Narrowing the row reduced the constant; it did not remove the growth.
+            //
+            // So the money rule is now expressed in the query. That is the thing this method spent
+            // two revisions avoiding, because it gives "what has been received" a second definition
+            // that can drift from ReceivableResolver. The guard is a test that runs the same matrix
+            // of refund, payday and bill states through both and asserts they agree - if either
+            // side changes alone, it fails. Keep that test.
             //
             // CreatedAt, not PaymentScheduledDate: a seller's month is when they closed the sale,
             // not when the customer agreed to pay for it.
-            var rows = await (
-                from order in _context.Set<Order>().AsNoTracking()
-                where order.IsActive == true
-                      && order.EnterpriseId == enterpriseId
-                      && order.CreatedAt >= periodStart
-                      && order.CreatedAt < periodEnd
-                join user in _context.Set<User>().AsNoTracking()
-                    on order.UserId equals user.Id into userJoin
-                from user in userJoin.DefaultIfEmpty()
-                    // Bill carries no EnterpriseId - it is tenant-scoped through Order, so it is
-                    // joined by order rather than by tenant. Newest non-cancelled bill wins, which
-                    // is what SelectLiveBillsByOrder did in memory.
-                let bill = _context.Set<Bill>().AsNoTracking()
-                    .Where(candidate => candidate.IsActive == true
-                                        && candidate.OrderId == order.Id
-                                        && candidate.Status != BillStatus.Cancelled)
-                    .OrderByDescending(candidate => candidate.CreatedAt)
-                    .FirstOrDefault()
-                select new PerformanceRow(
-                    order.UserId,
-                    order.TotalValue,
-                    order.Status,
-                    order.RefundedAt,
-                    order.Payday.HasValue,
-                    user != null,
-                    user != null && user.IsActive == true,
-                    user != null && user.IsServiceAccount,
-                    user != null ? user.FirstName : null,
-                    user != null ? user.LastName : null,
-                    user != null ? user.UserName : null,
-                    user != null ? user.CommissionRate : null,
-                    bill != null ? bill.Status : (BillStatus?)null,
-                    bill != null ? bill.PaidAmount : null,
-                    bill != null ? bill.Amount : (decimal?)null))
+            var settled = from order in _context.Set<Order>().AsNoTracking()
+                          where order.IsActive == true
+                                && order.EnterpriseId == enterpriseId
+                                && order.CreatedAt >= periodStart
+                                && order.CreatedAt < periodEnd
+                                // ReceivableResolver.IsOrderRefunded, in the query. A refunded order
+                                // contributes nothing to sold, received or the count.
+                                && order.RefundedAt == null
+                                && order.Status != (int)EnumOrderStatus.Refund
+                          let bill = _context.Set<Bill>().AsNoTracking()
+                              .Where(candidate => candidate.IsActive == true
+                                                  && candidate.OrderId == order.Id
+                                                  && candidate.Status != BillStatus.Cancelled)
+                              .OrderByDescending(candidate => candidate.CreatedAt)
+                              .FirstOrDefault()
+                          select new
+                          {
+                              order.UserId,
+                              order.TotalValue,
+                              // ReceivableResolver.ResolveReceivedAmount for a non-refunded order:
+                              // no bill means the money arrived only if there is a payday; a bill
+                              // means it arrived only if that bill is paid, and then the paid amount
+                              // wins over the billed amount, which wins over the order total.
+                              Received = bill == null
+                                  ? (order.Payday != null ? order.TotalValue : 0m)
+                                  : (bill.Status == BillStatus.Paid
+                                      ? (bill.PaidAmount > 0m
+                                          ? bill.PaidAmount.Value
+                                          : (bill.Amount > 0m ? bill.Amount : order.TotalValue))
+                                      : 0m)
+                          };
+
+            // Per seller. Rows come back one per user, not one per order.
+            var perSeller = await settled
+                .Where(row => row.UserId != null)
+                .GroupBy(row => row.UserId!.Value)
+                .Select(group => new SellerTotals(
+                    group.Key,
+                    group.Sum(row => row.TotalValue),
+                    group.Sum(row => row.Received),
+                    group.Count()))
                 .ToListAsync(cancellation);
+
+            // The company's own row, over every order in the month - including those with no user
+            // behind them, which the queued path creates, and those belonging to service accounts.
+            // Not the sum of the rows above, deliberately.
+            var enterpriseTotals = await settled
+                .GroupBy(_ => 1)
+                .Select(group => new SellerTotals(
+                    null,
+                    group.Sum(row => row.TotalValue),
+                    group.Sum(row => row.Received),
+                    group.Count()))
+                .FirstOrDefaultAsync(cancellation)
+                ?? new SellerTotals(null, 0m, 0m, 0);
+
+            // The sellers themselves: one small read of the tenant's users, not one row per order.
+            var users = await _context.Set<User>().AsNoTracking()
+                .Where(user => user.EnterpriseId == enterpriseId)
+                .Select(user => new SellerIdentity(
+                    user.Id,
+                    user.FirstName,
+                    user.LastName,
+                    user.UserName,
+                    user.CommissionRate,
+                    user.IsActive == true,
+                    user.IsServiceAccount))
+                .ToDictionaryAsync(user => user.Id, cancellation);
 
             var goals = (await _salesGoalRepository.GetAllAsync(goal =>
                     goal.IsActive == true
@@ -323,37 +360,30 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             // A service account is dropped, not shown under its user id. Its orders still count in the
             // company's row below, which is built from every order rather than from the sum of
-            // these — the money was real, the seller was not a person.
+            // these - the money was real, the seller was not a person.
             //
             // Dropped on the *user*, not on the order: an order with a UserId nobody can resolve is
-            // a different problem (a deleted user) and still deserves a row, which is what the id
-            // fallback in ResolveSellerName is for.
-            var sellerRows = rows
-                .Where(row => row.UserId.HasValue && !row.IsServiceAccount)
-                .GroupBy(row => row.UserId!.Value)
-                .Select(group =>
+            // a different problem (a deleted user) and still deserves a row, which is why an
+            // unresolved id falls back to the id itself as the name.
+            var sellerRows = perSeller
+                .Where(totals => !(users.TryGetValue(totals.UserId!.Value, out var account) && account.IsServiceAccount))
+                .Select(totals =>
                 {
-                    // A seller is "known" only when the user exists, is active and is a person -
-                    // exactly the set the old sellers dictionary held. Anything else falls back to
-                    // the id, which is what an order left behind by a deleted user looked like
-                    // before and still does.
-                    var first = group.First();
-                    var known = first.UserFound && first.SellerIsActive && !first.IsServiceAccount;
+                    var found = users.TryGetValue(totals.UserId!.Value, out var seller);
+                    var known = found && seller!.IsActive && !seller.IsServiceAccount;
 
                     return BuildRow(
-                        group.Key,
-                        known ? ResolveSellerName(first) : group.Key.ToString(),
-                        group,
-                        goalByUser.TryGetValue(group.Key, out var target) ? target : null,
-                        known ? first.CommissionRate : null);
+                        totals.UserId,
+                        known ? ResolveSellerName(seller!) : totals.UserId!.Value.ToString(),
+                        totals,
+                        goalByUser.TryGetValue(totals.UserId!.Value, out var target) ? target : null,
+                        known ? seller!.CommissionRate : null);
                 })
                 .OrderByDescending(row => row.SoldAmount)
                 .ThenBy(row => row.SellerName)
                 .ToList();
 
-            // The company's own row, not the sum of the rows above: an order created through the
-            // queued path has no user behind it and belongs to the company's number alone.
-            var enterpriseRow = BuildRow(null, string.Empty, rows, enterpriseGoal, null);
+            var enterpriseRow = BuildRow(null, string.Empty, enterpriseTotals, enterpriseGoal, null);
 
             return new SalesPerformanceDTO
             {
@@ -455,43 +485,30 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         }
 
         /// <summary>
-        /// One row from already-filtered projection rows. Same arithmetic as before; it simply no
-        /// longer needs whole entities or a dictionary of bills to do it, because the live bill
-        /// travelled with each row out of SQL.
+        /// Builds one row from totals the database already added up. The arithmetic left here is
+        /// only what depends on the seller rather than on the orders - attainment against a target,
+        /// and commission on what was received.
         /// </summary>
         private static SalesPerformanceRowDTO BuildRow(
             Guid? userId,
             string sellerName,
-            IEnumerable<PerformanceRow> rows,
+            SellerTotals totals,
             decimal? target,
             decimal? commissionRate)
         {
-            var orderList = rows
-                .Where(row => !ReceivableResolver.IsOrderRefunded(row.RefundedAt, row.Status))
-                .ToList();
-
-            var sold = orderList.Sum(row => row.TotalValue);
-            var received = orderList.Sum(row => ReceivableResolver.ResolveReceivedAmount(
-                row.TotalValue,
-                ReceivableResolver.IsOrderRefunded(row.RefundedAt, row.Status),
-                row.HasPayday,
-                row.BillStatus,
-                row.BillPaidAmount,
-                row.BillAmount));
-
             return new SalesPerformanceRowDTO
             {
                 UserId = userId,
                 SellerName = sellerName,
-                SoldAmount = Round(sold),
-                ReceivedAmount = Round(received),
-                OrderCount = orderList.Count,
+                SoldAmount = Round(totals.Sold),
+                ReceivedAmount = Round(totals.Received),
+                OrderCount = totals.OrderCount,
                 TargetAmount = target,
                 // Null rather than zero without a target: "no target set" and "missed the target
                 // entirely" are different things and the screen colours them differently.
-                AttainmentPercent = target is > 0 ? Round(sold / target.Value * 100m) : null,
+                AttainmentPercent = target is > 0 ? Round(totals.Sold / target.Value * 100m) : null,
                 CommissionRate = commissionRate,
-                CommissionAmount = commissionRate.HasValue ? Round(received * commissionRate.Value) : null
+                CommissionAmount = commissionRate.HasValue ? Round(totals.Received * commissionRate.Value) : null
             };
         }
 
@@ -508,33 +525,29 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             return string.IsNullOrWhiteSpace(name) ? seller.UserName : name;
         }
 
-        private static string ResolveSellerName(PerformanceRow row)
+        private static string ResolveSellerName(SellerIdentity seller)
         {
-            var name = $"{row.FirstName} {row.LastName}".Trim();
-            return string.IsNullOrWhiteSpace(name) ? (row.UserName ?? string.Empty) : name;
+            var name = $"{seller.FirstName} {seller.LastName}".Trim();
+            return string.IsNullOrWhiteSpace(name) ? (seller.UserName ?? string.Empty) : name;
         }
 
         /// <summary>
-        /// Only the columns the monthly aggregate reads. Deliberately not an entity: the point of
-        /// this type is that a month of sales costs a few fields per order instead of two full
-        /// object graphs.
+        /// One seller's month, already summed by the database. The whole point of this type is that
+        /// the service holds one of these per seller rather than one row per order.
         /// </summary>
-        private sealed record PerformanceRow(
-            Guid? UserId,
-            decimal TotalValue,
-            int Status,
-            DateTime? RefundedAt,
-            bool HasPayday,
-            bool UserFound,
-            bool SellerIsActive,
-            bool IsServiceAccount,
+        private sealed record SellerTotals(Guid? UserId, decimal Sold, decimal Received, int OrderCount);
+
+        /// <summary>
+        /// Who a seller is. Read once for the tenant, not once per order.
+        /// </summary>
+        private sealed record SellerIdentity(
+            Guid Id,
             string? FirstName,
             string? LastName,
             string? UserName,
             decimal? CommissionRate,
-            BillStatus? BillStatus,
-            decimal? BillPaidAmount,
-            decimal? BillAmount);
+            bool IsActive,
+            bool IsServiceAccount);
 
         private static void AssertCompetencia(int year, int month)
         {
