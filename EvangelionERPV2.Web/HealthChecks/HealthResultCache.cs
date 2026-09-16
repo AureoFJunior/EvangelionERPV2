@@ -19,6 +19,13 @@ namespace EvangelionERPV2.Web.HealthChecks
     /// single-flight lock matters as much as the TTL - without it, a burst arriving on a cold cache
     /// would all miss together and every one of them would run the checks.
     /// </para>
+    /// <para>
+    /// That bound is also what makes it safe to whitelist /health from the per-IP rate limiter,
+    /// which the settings now do. Before caching, whitelisting would have removed the only thing
+    /// capping the work; measured after, a call costs about 1 ms and 300 concurrent callers still
+    /// produce a single execution. A probe that can be rate limited is a probe that will eventually
+    /// report a healthy container as dead.
+    /// </para>
     /// </summary>
     public sealed class HealthResultCache : IDisposable
     {
