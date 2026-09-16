@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Caching.Distributed;
 using System.Linq.Expressions;
 using EvangelionERPV2.OrderModule.Application.Services;
@@ -39,8 +40,16 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         // returned values would hide the query these tests exist to cover.
         private readonly RecordingCache _cache = new();
 
+        // Cache switched ON for tests even though it ships off: the RecordingCache always misses,
+        // so the query is still what runs, while the keys it would write are captured. Testing with
+        // it off would leave the tenant-scoping unasserted.
+        private static IConfiguration CacheConfig(bool enabled) =>
+            new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["SalesPerformance:CacheEnabled"] = enabled ? "true" : "false" })
+                .Build();
+
         private SalesPerformanceService BuildService() =>
-            new(_context, _cache, _orders.Object, _bills.Object, _users.Object, _goals.Object);
+            new(_context, _cache, CacheConfig(true), _orders.Object, _bills.Object, _users.Object, _goals.Object);
 
         private void Given(IEnumerable<Order> orders, IEnumerable<Bill> bills, decimal? commissionRate, decimal? target)
         {
@@ -448,7 +457,7 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         {
             Given([Sale(1000m, payday: new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc))], [], commissionRate: 0.05m, target: null);
 
-            var service = new SalesPerformanceService(_context, new ThrowingCache(), _orders.Object, _bills.Object, _users.Object, _goals.Object);
+            var service = new SalesPerformanceService(_context, new ThrowingCache(), CacheConfig(true), _orders.Object, _bills.Object, _users.Object, _goals.Object);
 
             var performance = await service.GetPerformanceAsync(EnterpriseId, 2026, 8);
 

@@ -8,6 +8,7 @@ using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using EvangelionERPV2.Shared.Utils;
 
@@ -39,6 +40,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// </summary>
         private readonly AppDbContext _context;
         private readonly IDistributedCache _cache;
+        private readonly bool _cacheEnabled;
 
         private const string CacheKeyPrefix = "SalesPerformance:";
         private static readonly JsonSerializerOptions CacheSerializerOptions = new(JsonSerializerDefaults.Web);
@@ -60,6 +62,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         public SalesPerformanceService(
             AppDbContext context,
             IDistributedCache cache,
+            IConfiguration configuration,
             IRepository<Order> orderRepository,
             IRepository<Bill> billRepository,
             IRepository<User> userRepository,
@@ -67,6 +70,19 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         {
             _context = context;
             _cache = cache;
+
+            // Off unless switched on, and that default is a measurement rather than caution.
+            //
+            // Measured 2026-09-16 against the dev stack: the aggregate itself answers in 25ms, and a
+            // CACHE HIT costs about 148ms - Redis is Upstash, roughly 25ms away, and a read is
+            // several round trips. Caching a 25ms query behind a 148ms cache is a straight loss.
+            //
+            // It becomes the right trade on two conditions, both of which hold in production and
+            // neither of which holds here: Redis in the same region, where a hit is sub-millisecond,
+            // and a dataset where the aggregate is no longer cheap - this ran against ~5 000 orders,
+            // not the millions a real tenant-year holds. Turn it on there, and check the same two
+            // numbers before believing it helps.
+            _cacheEnabled = configuration.GetValue<bool?>("SalesPerformance:CacheEnabled") ?? false;
             _orderRepository = orderRepository;
             _billRepository = billRepository;
             _userRepository = userRepository;
@@ -104,13 +120,17 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             // same month - the entry is keyed by exactly the arguments that determine the answer.
             var cacheKey = $"{CacheKeyPrefix}{enterpriseId}:{year}:{month:D2}";
 
-            var cached = await ReadCacheAsync(cacheKey);
-            if (cached != null)
-                return cached;
+            if (_cacheEnabled)
+            {
+                var cached = await ReadCacheAsync(cacheKey);
+                if (cached != null)
+                    return cached;
+            }
 
             var performance = await BuildPerformanceAsync(enterpriseId, year, month, cancellation);
 
-            await WriteCacheAsync(cacheKey, performance, IsClosedMonth(year, month) ? ClosedMonthCacheTtl : CurrentMonthCacheTtl);
+            if (_cacheEnabled)
+                await WriteCacheAsync(cacheKey, performance, IsClosedMonth(year, month) ? ClosedMonthCacheTtl : CurrentMonthCacheTtl);
 
             return performance;
         }
