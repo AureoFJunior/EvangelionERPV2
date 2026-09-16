@@ -37,6 +37,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Mvc.Versioning;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Http.Timeouts;
+using System.Threading.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Microsoft.OpenApi;
@@ -116,6 +119,7 @@ try
     });
 
     AddRequestRateLimit(builder);
+    AddOverloadProtection(builder);
     builder.Services.AddSignalR();
     #endregion
 
@@ -148,6 +152,12 @@ try
     app.UseRouting();
 
     app.UseIpRateLimiting();
+
+    // Order matters: the IP limiter above answers "is this caller asking too often", this answers
+    // "is the server already doing all it can". A caller inside its quota still gets shed when the
+    // process is saturated, which is the point.
+    app.UseRequestTimeouts();
+    app.UseRateLimiter();
 
     app.UseCors(DefaultCorsPolicyName);
 
@@ -523,6 +533,76 @@ static void AddRequestRateLimit(WebApplicationBuilder builder)
     builder.Services.Configure<IpRateLimitPolicies>(builder.Configuration.GetSection("IpRateLimitPolicies"));
     builder.Services.AddInMemoryRateLimiting();
     builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
+}
+
+/// <summary>
+/// Bounds how much work the process will accept at once, so overload sheds instead of queueing.
+/// <para>
+/// Measured 2026-09-15 under a heavy read mix: with nothing bounding intake the API accepted
+/// everything offered, latency went from ~200ms straight past 32 seconds (the top histogram bucket),
+/// the working set grew from 1.7 GiB to 13 GiB, and the load generator sat at 4.7% CPU because it
+/// was simply waiting. That is not running out of capacity, it is queueing without limit - a client
+/// that has already given up is still holding a request the server is still working on.
+/// </para>
+/// <para>
+/// A rejected request is a better answer than one served after half a minute: the caller learns
+/// immediately, retries are cheap, and the queue never becomes the thing that kills the process.
+/// Both numbers are configuration because the right value depends on the hardware, and the defaults
+/// here are deliberately generous - this is a backstop against collapse, not a throughput knob.
+/// </para>
+/// </summary>
+static void AddOverloadProtection(WebApplicationBuilder builder)
+{
+    var section = builder.Configuration.GetSection("OverloadProtection");
+
+    var permits = section.GetValue<int?>("MaxConcurrentRequests") ?? 400;
+    var queue = section.GetValue<int?>("QueueLimit") ?? 200;
+    var timeoutSeconds = section.GetValue<int?>("RequestTimeoutSeconds") ?? 30;
+
+    builder.Services.AddRequestTimeouts(options =>
+    {
+        // Nothing should take half a minute. Without this a request has no upper bound at all and
+        // can hold a thread and a connection long after the client has gone.
+        options.DefaultPolicy = new RequestTimeoutPolicy
+        {
+            Timeout = TimeSpan.FromSeconds(timeoutSeconds),
+            TimeoutStatusCode = StatusCodes.Status503ServiceUnavailable
+        };
+    });
+
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status503ServiceUnavailable;
+
+        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        {
+            // Health and metrics must answer while the API is shedding: an orchestrator that cannot
+            // reach /health during overload will kill a container that is defending itself, and a
+            // scrape that fails takes away the graph showing why.
+            var path = context.Request.Path;
+            if (path.StartsWithSegments("/health") || path.StartsWithSegments("/metrics"))
+                return RateLimitPartition.GetNoLimiter("exempt");
+
+            return RateLimitPartition.GetConcurrencyLimiter("global", _ => new ConcurrencyLimiterOptions
+            {
+                PermitLimit = permits,
+                QueueLimit = queue,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            });
+        });
+
+        options.OnRejected = (context, _) =>
+        {
+            // Tell the caller it is worth trying again; a 503 with no hint reads as a fault.
+            context.HttpContext.Response.Headers.RetryAfter = "1";
+            Log.Logger.Warning(
+                "Shedding request under load. Path={Path} Permits={Permits} Queue={Queue}",
+                context.HttpContext.Request.Path.Value,
+                permits,
+                queue);
+            return ValueTask.CompletedTask;
+        };
+    });
 }
 
 static void ApplySecurityHeaders(IHeaderDictionary headers)

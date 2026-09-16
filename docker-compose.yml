@@ -70,6 +70,14 @@ services:
       HOME: ${CONTAINER_HOME:-/home/app}
       AWS_SHARED_CREDENTIALS_FILE: ${AWS_SHARED_CREDENTIALS_FILE:-/home/app/.aws/credentials}
       AWS_CONFIG_FILE: ${AWS_CONFIG_FILE:-/home/app/.aws/config}
+    # .NET sizes its GC heaps against the memory it can see. With no limit the container sees the
+    # whole host - 30 GiB here - and under load on 2026-09-15 the working set grew to 13 GiB and did
+    # not come back at idle. That is the GC behaving correctly against a wrong number.
+    #
+    # A limit also makes the local container behave like the ECS task, where memory is capped and
+    # exceeding it is an OOM kill rather than a slow machine. Better to meet that ceiling here.
+    mem_limit: ${WEB_MEM_LIMIT:-2g}
+    memswap_limit: ${WEB_MEM_LIMIT:-2g}
     ports:
       - "${WEB_HOST_PORT:-5000}:8080"
     volumes:
