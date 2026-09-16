@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Distributed;
 using System.Linq.Expressions;
 using EvangelionERPV2.OrderModule.Application.Services;
 using EvangelionERPV2.Shared.Auditing;
@@ -33,8 +34,13 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         // which means they exercise the actual query rather than a mock of it.
         private AppDbContext _context = null!;
 
+        // A recording cache: tests stay deterministic because every read misses, while the keys
+        // written are captured so the tenant-scoping can be asserted. A cache that actually
+        // returned values would hide the query these tests exist to cover.
+        private readonly RecordingCache _cache = new();
+
         private SalesPerformanceService BuildService() =>
-            new(_context, _orders.Object, _bills.Object, _users.Object, _goals.Object);
+            new(_context, _cache, _orders.Object, _bills.Object, _users.Object, _goals.Object);
 
         private void Given(IEnumerable<Order> orders, IEnumerable<Bill> bills, decimal? commissionRate, decimal? target)
         {
@@ -84,6 +90,25 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
             }
 
             _context.SaveChanges();
+        }
+
+        private sealed class RecordingCache : IDistributedCache
+        {
+            public List<string> WrittenKeys { get; } = [];
+
+            public byte[]? Get(string key) => null;
+            public Task<byte[]?> GetAsync(string key, CancellationToken token = default) => Task.FromResult<byte[]?>(null);
+            public void Refresh(string key) { }
+            public Task RefreshAsync(string key, CancellationToken token = default) => Task.CompletedTask;
+            public void Remove(string key) { }
+            public Task RemoveAsync(string key, CancellationToken token = default) => Task.CompletedTask;
+            public void Set(string key, byte[] value, DistributedCacheEntryOptions options) => WrittenKeys.Add(key);
+
+            public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
+            {
+                WrittenKeys.Add(key);
+                return Task.CompletedTask;
+            }
         }
 
         private sealed class NoopAuditTrailEntryFactory : IAuditTrailEntryFactory
@@ -377,6 +402,69 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
             // existed must not keep the account visible on the metas screen.
             Assert.Equal(2, goals.Count);
             Assert.DoesNotContain(goals, goal => goal.UserId == robotId);
+        }
+
+        /// <summary>
+        /// The cache key has to carry the tenant. Keyed on year and month alone, the first
+        /// enterprise to ask for a month would have its sellers, their names and their commissions
+        /// served to every other enterprise asking for the same month.
+        /// </summary>
+        [Fact]
+        public async Task CacheKey_IsScopedToTheTenant()
+        {
+            Given([Sale(1000m)], [], commissionRate: 0.05m, target: null);
+
+            var otherEnterprise = Guid.NewGuid();
+            var service = BuildService();
+
+            await service.GetPerformanceAsync(EnterpriseId, 2026, 8);
+            await service.GetPerformanceAsync(otherEnterprise, 2026, 8);
+
+            Assert.Equal(2, _cache.WrittenKeys.Count);
+            Assert.Contains(_cache.WrittenKeys, key => key.Contains(EnterpriseId.ToString()));
+            Assert.Contains(_cache.WrittenKeys, key => key.Contains(otherEnterprise.ToString()));
+            // Two tenants, two different keys - never one shared entry.
+            Assert.Equal(2, _cache.WrittenKeys.Distinct().Count());
+        }
+
+        [Fact]
+        public async Task CacheKey_SeparatesCompetencias()
+        {
+            Given([Sale(1000m)], [], commissionRate: null, target: null);
+
+            var service = BuildService();
+            await service.GetPerformanceAsync(EnterpriseId, 2026, 8);
+            await service.GetPerformanceAsync(EnterpriseId, 2026, 9);
+
+            Assert.Equal(2, _cache.WrittenKeys.Distinct().Count());
+        }
+
+        /// <summary>
+        /// A cache that cannot be reached must not take the report down with it - the numbers are
+        /// still computable, they are just not free.
+        /// </summary>
+        [Fact]
+        public async Task ABrokenCache_DoesNotFailTheReport()
+        {
+            Given([Sale(1000m, payday: new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc))], [], commissionRate: 0.05m, target: null);
+
+            var service = new SalesPerformanceService(_context, new ThrowingCache(), _orders.Object, _bills.Object, _users.Object, _goals.Object);
+
+            var performance = await service.GetPerformanceAsync(EnterpriseId, 2026, 8);
+
+            Assert.Equal(1000m, performance.Enterprise.SoldAmount);
+        }
+
+        private sealed class ThrowingCache : IDistributedCache
+        {
+            public byte[]? Get(string key) => throw new InvalidOperationException("cache down");
+            public Task<byte[]?> GetAsync(string key, CancellationToken token = default) => throw new InvalidOperationException("cache down");
+            public void Refresh(string key) => throw new InvalidOperationException("cache down");
+            public Task RefreshAsync(string key, CancellationToken token = default) => throw new InvalidOperationException("cache down");
+            public void Remove(string key) => throw new InvalidOperationException("cache down");
+            public Task RemoveAsync(string key, CancellationToken token = default) => throw new InvalidOperationException("cache down");
+            public void Set(string key, byte[] value, DistributedCacheEntryOptions options) => throw new InvalidOperationException("cache down");
+            public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default) => throw new InvalidOperationException("cache down");
         }
     }
 }

@@ -1,3 +1,4 @@
+using Serilog;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
@@ -6,6 +7,8 @@ using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using System.Text.Json;
 using EvangelionERPV2.Shared.Utils;
 
 namespace EvangelionERPV2.OrderModule.Application.Services
@@ -35,6 +38,19 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// process under load and made it the slowest path in the API at 1.68s p95.
         /// </summary>
         private readonly AppDbContext _context;
+        private readonly IDistributedCache _cache;
+
+        private const string CacheKeyPrefix = "SalesPerformance:";
+        private static readonly JsonSerializerOptions CacheSerializerOptions = new(JsonSerializerDefaults.Web);
+
+        /// <summary>
+        /// A closed month cannot change - its orders are in the past - so it is cached for long
+        /// enough to be free on every later read. The month in progress changes with every sale, so
+        /// it gets a short window that still absorbs a dashboard being refreshed by a room full of
+        /// people without serving anything visibly stale.
+        /// </summary>
+        private static readonly TimeSpan ClosedMonthCacheTtl = TimeSpan.FromHours(12);
+        private static readonly TimeSpan CurrentMonthCacheTtl = TimeSpan.FromSeconds(30);
 
         private readonly IRepository<Order> _orderRepository;
         private readonly IRepository<Bill> _billRepository;
@@ -43,12 +59,14 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
         public SalesPerformanceService(
             AppDbContext context,
+            IDistributedCache cache,
             IRepository<Order> orderRepository,
             IRepository<Bill> billRepository,
             IRepository<User> userRepository,
             IRepository<SalesGoal> salesGoalRepository)
         {
             _context = context;
+            _cache = cache;
             _orderRepository = orderRepository;
             _billRepository = billRepository;
             _userRepository = userRepository;
@@ -80,6 +98,64 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         public async Task<SalesPerformanceDTO> GetPerformanceAsync(Guid enterpriseId, int year, int month, CancellationToken cancellation = default)
         {
             AssertCompetencia(year, month);
+
+            // The enterprise id is in the key, not merely in the value. A cache key that omitted it
+            // would serve one tenant's commissions to another the moment two of them asked for the
+            // same month - the entry is keyed by exactly the arguments that determine the answer.
+            var cacheKey = $"{CacheKeyPrefix}{enterpriseId}:{year}:{month:D2}";
+
+            var cached = await ReadCacheAsync(cacheKey);
+            if (cached != null)
+                return cached;
+
+            var performance = await BuildPerformanceAsync(enterpriseId, year, month, cancellation);
+
+            await WriteCacheAsync(cacheKey, performance, IsClosedMonth(year, month) ? ClosedMonthCacheTtl : CurrentMonthCacheTtl);
+
+            return performance;
+        }
+
+        private static bool IsClosedMonth(int year, int month)
+        {
+            var now = DateTime.UtcNow;
+            return year < now.Year || (year == now.Year && month < now.Month);
+        }
+
+        private async Task<SalesPerformanceDTO?> ReadCacheAsync(string key)
+        {
+            try
+            {
+                var cachedValue = await _cache.GetStringAsync(key);
+                if (string.IsNullOrWhiteSpace(cachedValue))
+                    return null;
+
+                return JsonSerializer.Deserialize<SalesPerformanceDTO>(cachedValue, CacheSerializerOptions);
+            }
+            catch (Exception ex)
+            {
+                // A cache that is down must not take the report with it.
+                Log.Logger.Warning("Sales performance cache read failed. ErrorType={ErrorType}", ex.GetType().Name);
+                return null;
+            }
+        }
+
+        private async Task WriteCacheAsync(string key, SalesPerformanceDTO performance, TimeSpan ttl)
+        {
+            try
+            {
+                await _cache.SetStringAsync(
+                    key,
+                    JsonSerializer.Serialize(performance, CacheSerializerOptions),
+                    new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl });
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning("Sales performance cache write failed. ErrorType={ErrorType}", ex.GetType().Name);
+            }
+        }
+
+        private async Task<SalesPerformanceDTO> BuildPerformanceAsync(Guid enterpriseId, int year, int month, CancellationToken cancellation)
+        {
 
             // Not named `from`/`to`: those are query-expression keywords and the LINQ below is in
             // query syntax.
