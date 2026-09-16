@@ -1,3 +1,7 @@
+using EvangelionERPV2.Shared.Auditing;
+using EvangelionERPV2.Shared.Context;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using System.Linq.Expressions;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.BillsModule.Application.Services;
@@ -217,7 +221,25 @@ namespace EvangelionERPV2.BillsModule.Test
                 .Setup(x => x.GetReplenishmentSuggestionsAsync(It.IsAny<Guid>(), It.IsAny<ReplenishmentSuggestionRequestDTO>()))
                 .ReturnsAsync([]);
 
+            // Receivables and payables are read through the context now: the panel projects the few
+            // columns it counts instead of materialising whole Bill and PayableBill entities. These
+            // tests seed a real in-memory context so they exercise that query rather than a mock.
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase($"daily-panel-tests-{Guid.NewGuid():N}")
+                .Options;
+
+            var context = new AppDbContext(options, httpContextAccessor: null, auditTrailEntryFactory: new NoopAuditTrailEntryFactory());
+            context.Database.EnsureCreated();
+
+            foreach (var bill in bills ?? [])
+                context.Set<Bill>().Add(bill);
+            foreach (var payable in payables ?? [])
+                context.Set<PayableBill>().Add(payable);
+
+            context.SaveChanges();
+
             return new DailyPanelService(
+                context,
                 Repo(bills ?? []).Object,
                 Repo(payables ?? []).Object,
                 Repo(nfeDocuments ?? []).Object,
@@ -225,6 +247,18 @@ namespace EvangelionERPV2.BillsModule.Test
                 Repo(bankLines ?? []).Object,
                 payableBillService.Object,
                 new NullDistributedCache());
+        }
+
+        private sealed class NoopAuditTrailEntryFactory : IAuditTrailEntryFactory
+        {
+            public IReadOnlyCollection<AuditTrail> Create(
+                IEnumerable<EntityEntry<BaseEntity>> entries,
+                Guid? userId,
+                Guid? enterpriseId,
+                DateTime changedAt)
+            {
+                return Array.Empty<AuditTrail>();
+            }
         }
 
         private static Mock<IRepository<TEntity>> Repo<TEntity>(List<TEntity> records)

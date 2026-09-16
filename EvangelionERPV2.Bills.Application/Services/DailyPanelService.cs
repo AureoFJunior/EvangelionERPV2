@@ -1,3 +1,5 @@
+using EvangelionERPV2.Shared.Context;
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
@@ -28,6 +30,13 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
+        /// <summary>
+        /// Read side for the panel's counts and sums. The repositories hand back whole entities,
+        /// and every builder below only ever needed a few columns to add them up - the same shape
+        /// that made SalesPerformance the most expensive endpoint in the API.
+        /// </summary>
+        private readonly AppDbContext _context;
+
         private readonly IRepository<Bill> _billRepository;
         private readonly IRepository<PayableBill> _payableBillRepository;
         private readonly IRepository<NFeDocument> _nfeDocumentRepository;
@@ -37,6 +46,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly IDistributedCache _cache;
 
         public DailyPanelService(
+            AppDbContext context,
             IRepository<Bill> billRepository,
             IRepository<PayableBill> payableBillRepository,
             IRepository<NFeDocument> nfeDocumentRepository,
@@ -45,6 +55,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             IPayableBillService payableBillService,
             IDistributedCache cache)
         {
+            _context = context;
             _billRepository = billRepository;
             _payableBillRepository = payableBillRepository;
             _nfeDocumentRepository = nfeDocumentRepository;
@@ -81,15 +92,25 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             //
             // Registered is exactly the open set: Paid and Cancelled are excluded here, and Overdue
             // is never persisted — it is derived below from the same clock Bill.StatusAsOf uses.
-            var liveBills = ReceivableResolver.SelectLiveBillsByOrder(
-                await _billRepository.GetAllAsync(
-                    x => x.Order != null
-                         && x.Order.EnterpriseId == enterpriseId
-                         && x.Order.IsActive == true
-                         && x.Order.RefundedAt == null
-                         && x.Order.Status != (int)EnumOrderStatus.Refund
-                         && (x.IsActive == null || x.IsActive == true)
-                         && x.Status == BillStatus.Registered));
+            // Four columns, not whole Bill entities. The "newest live bill per order" pick and the
+            // due-date bucketing stay in C# - they are the rule, and restating them in SQL would
+            // give the panel a second definition to drift from.
+            var candidates = await _context.Set<Bill>().AsNoTracking()
+                .Where(x => x.Order != null
+                            && x.Order.EnterpriseId == enterpriseId
+                            && x.Order.IsActive == true
+                            && x.Order.RefundedAt == null
+                            && x.Order.Status != (int)EnumOrderStatus.Refund
+                            && (x.IsActive == null || x.IsActive == true)
+                            && x.Status == BillStatus.Registered)
+                .Select(x => new ReceivableSlice(x.OrderId, x.Amount, x.DueDate, x.CreatedAt))
+                .ToListAsync();
+
+            // Same rule as ReceivableResolver.SelectLiveBillsByOrder: newest per order wins. The
+            // status filter above already excludes Cancelled.
+            var liveBills = candidates
+                .GroupBy(slice => slice.OrderId)
+                .ToDictionary(group => group.Key, group => group.OrderByDescending(slice => slice.CreatedAt).First());
 
             var panel = new DailyPanelReceivablesDTO();
 
@@ -117,13 +138,15 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             var horizon = today.AddDays(PayablesHorizonInDays);
 
-            var payables = await _payableBillRepository.GetAllAsync(
-                x => x.EnterpriseId == enterpriseId
-                     && x.IsActive == true
-                     && !x.IsPaid
-                     && x.RefundedAt == null
-                     && x.Amount > 0
-                     && x.DueDate < horizon);
+            var payables = await _context.Set<PayableBill>().AsNoTracking()
+                .Where(x => x.EnterpriseId == enterpriseId
+                            && x.IsActive == true
+                            && !x.IsPaid
+                            && x.RefundedAt == null
+                            && x.Amount > 0
+                            && x.DueDate < horizon)
+                .Select(x => new PayableSlice(x.Amount, x.DueDate))
+                .ToListAsync();
 
             var panel = new DailyPanelPayablesDTO();
 
@@ -265,5 +288,13 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 Log.Logger.Warning("Daily panel stock cache write failed. ErrorType={ErrorType}", ex.GetType().Name);
             }
         }
+
+        /// <summary>
+        /// Only the columns the receivable buckets read. Not an entity on purpose: the panel used
+        /// to materialise every open Bill just to count them.
+        /// </summary>
+        private sealed record ReceivableSlice(Guid OrderId, decimal Amount, DateTime DueDate, DateTime CreatedAt);
+
+        private sealed record PayableSlice(decimal Amount, DateTime DueDate);
     }
 }
