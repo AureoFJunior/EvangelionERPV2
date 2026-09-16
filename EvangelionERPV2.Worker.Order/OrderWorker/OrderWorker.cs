@@ -87,26 +87,32 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
         private static readonly SemaphoreSlim TokenLock = new(1, 1);
         private static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(5);
         private string? _cachedToken;
-        private DateTime _cachedTokenExpiresAt = DateTime.MinValue;
+
+        // Ticks in a long, read with Interlocked: handlers now run concurrently, and the fast path
+        // below reads both fields outside the lock. A DateTime field is not guaranteed to be read
+        // atomically, so a torn read could accept an expired token or reject a live one.
+        private long _cachedTokenExpiresAtTicks;
 
         private async Task<string?> GetCachedApiTokenAsync(string key, CancellationToken cancellationToken)
         {
-            if (_cachedToken is not null && DateTime.UtcNow < _cachedTokenExpiresAt)
-                return _cachedToken;
+            var cached = Volatile.Read(ref _cachedToken);
+            if (cached is not null && DateTime.UtcNow.Ticks < Interlocked.Read(ref _cachedTokenExpiresAtTicks))
+                return cached;
 
             await TokenLock.WaitAsync(cancellationToken);
             try
             {
-                if (_cachedToken is not null && DateTime.UtcNow < _cachedTokenExpiresAt)
-                    return _cachedToken;
+                cached = Volatile.Read(ref _cachedToken);
+                if (cached is not null && DateTime.UtcNow.Ticks < Interlocked.Read(ref _cachedTokenExpiresAtTicks))
+                    return cached;
 
                 var user = await GetAPIToken(key, cancellationToken);
                 if (user is null || string.IsNullOrWhiteSpace(user.Token))
                     return null;
 
-                _cachedToken = user.Token;
-                _cachedTokenExpiresAt = DateTime.UtcNow.Add(TokenLifetime);
-                return _cachedToken;
+                Volatile.Write(ref _cachedToken, user.Token);
+                Interlocked.Exchange(ref _cachedTokenExpiresAtTicks, DateTime.UtcNow.Add(TokenLifetime).Ticks);
+                return user.Token;
             }
             finally
             {

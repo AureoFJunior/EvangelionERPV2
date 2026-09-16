@@ -104,6 +104,7 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         private sealed class RecordingCache : IDistributedCache
         {
             public List<string> WrittenKeys { get; } = [];
+            public List<string> WrittenValues { get; } = [];
 
             public byte[]? Get(string key) => null;
             public Task<byte[]?> GetAsync(string key, CancellationToken token = default) => Task.FromResult<byte[]?>(null);
@@ -111,11 +112,16 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
             public Task RefreshAsync(string key, CancellationToken token = default) => Task.CompletedTask;
             public void Remove(string key) { }
             public Task RemoveAsync(string key, CancellationToken token = default) => Task.CompletedTask;
-            public void Set(string key, byte[] value, DistributedCacheEntryOptions options) => WrittenKeys.Add(key);
+            public void Set(string key, byte[] value, DistributedCacheEntryOptions options)
+            {
+                WrittenKeys.Add(key);
+                WrittenValues.Add(System.Text.Encoding.UTF8.GetString(value));
+            }
 
             public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
             {
                 WrittenKeys.Add(key);
+                WrittenValues.Add(System.Text.Encoding.UTF8.GetString(value));
                 return Task.CompletedTask;
             }
         }
@@ -474,6 +480,30 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
             public Task RemoveAsync(string key, CancellationToken token = default) => throw new InvalidOperationException("cache down");
             public void Set(string key, byte[] value, DistributedCacheEntryOptions options) => throw new InvalidOperationException("cache down");
             public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default) => throw new InvalidOperationException("cache down");
+        }
+
+        /// <summary>
+        /// Redis is a third-party service here, so a seller's name must not be written to it. The
+        /// numbers may go - keyed by user id they are pseudonymous - but the name is personal data
+        /// and stays in the process.
+        /// </summary>
+        [Fact]
+        public async Task CachedPayload_CarriesNoSellerNames()
+        {
+            Given([Sale(1000m, payday: new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc))], [], commissionRate: 0.05m, target: null);
+
+            var performance = await BuildService().GetPerformanceAsync(EnterpriseId, 2026, 8);
+
+            // The caller still sees the name.
+            Assert.Equal("Rei Ayanami", performance.Sellers.Single().SellerName);
+
+            // The cache does not.
+            var written = Assert.Single(_cache.WrittenValues);
+            Assert.DoesNotContain("Rei", written);
+            Assert.DoesNotContain("Ayanami", written);
+            // ...but keeps what makes it worth caching.
+            Assert.Contains(SellerId.ToString(), written);
+            Assert.Contains("1000", written);
         }
     }
 }

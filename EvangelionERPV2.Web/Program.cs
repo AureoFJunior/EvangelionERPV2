@@ -202,7 +202,21 @@ try
     }).RequireAuthorization(RbacPolicies.Ai.Chat);
 
     app.MapControllers();
-    app.MapHealthChecks("/health").AllowAnonymous();
+    // Served from HealthResultCache rather than MapHealthChecks: the endpoint is anonymous and
+    // exempt from the overload limiter, so without caching every caller ran a SQL connect, a
+    // migrations read, a Redis round trip and a broker probe. Same response shape as before -
+    // plain status text, 503 only when Unhealthy.
+    app.MapGet("/health", async (HealthResultCache cache, HttpContext context) =>
+    {
+        var report = await cache.GetAsync(context.RequestAborted);
+
+        context.Response.StatusCode = report.Status == HealthStatus.Unhealthy
+            ? StatusCodes.Status503ServiceUnavailable
+            : StatusCodes.Status200OK;
+        context.Response.ContentType = "text/plain";
+
+        await context.Response.WriteAsync(report.Status.ToString(), context.RequestAborted);
+    }).AllowAnonymous();
 
     SharedFunctions.Initialize(app.Services);
 
@@ -452,6 +466,7 @@ static void SetupHealthCheck(WebApplicationBuilder builder)
 
     // Publishes the same results as series, so a dependency going down can raise an alert instead
     // of waiting for somebody to think of opening /health. The host drives the timer itself.
+    builder.Services.AddSingleton<HealthResultCache>();
     builder.Services.AddSingleton<IHealthCheckPublisher, PrometheusHealthPublisher>();
     builder.Services.Configure<HealthCheckPublisherOptions>(options =>
     {

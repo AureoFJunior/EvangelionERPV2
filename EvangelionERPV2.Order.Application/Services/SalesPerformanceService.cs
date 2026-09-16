@@ -124,13 +124,13 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             {
                 var cached = await ReadCacheAsync(cacheKey);
                 if (cached != null)
-                    return cached;
+                    return await RehydrateSellerNamesAsync(cached, enterpriseId, cancellation);
             }
 
             var performance = await BuildPerformanceAsync(enterpriseId, year, month, cancellation);
 
             if (_cacheEnabled)
-                await WriteCacheAsync(cacheKey, performance, IsClosedMonth(year, month) ? ClosedMonthCacheTtl : CurrentMonthCacheTtl);
+                await WriteCacheAsync(cacheKey, Pseudonymise(performance), IsClosedMonth(year, month) ? ClosedMonthCacheTtl : CurrentMonthCacheTtl);
 
             return performance;
         }
@@ -139,6 +139,82 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         {
             var now = DateTime.UtcNow;
             return year < now.Year || (year == now.Year && month < now.Month);
+        }
+
+        /// <summary>
+        /// Strips seller names before anything is written to the cache.
+        /// <para>
+        /// The cache is Redis, and in this deployment Redis is a third-party service outside the
+        /// application's own trust boundary. A seller's name is personal data; their commission is
+        /// pay. Keyed by user id alone, a cache entry that escaped says "this id sold this much" -
+        /// pseudonymous, and worth far less to whoever reads it. The names never leave the process.
+        /// </para>
+        /// <para>
+        /// The row still carries UserId, which is what <see cref="RehydrateSellerNamesAsync"/> uses
+        /// to put the names back from the database on the way out - a handful of rows, unlike the
+        /// month of orders the cache exists to avoid recomputing.
+        /// </para>
+        /// </summary>
+        private static SalesPerformanceDTO Pseudonymise(SalesPerformanceDTO performance)
+        {
+            return new SalesPerformanceDTO
+            {
+                Year = performance.Year,
+                Month = performance.Month,
+                Enterprise = performance.Enterprise,
+                Sellers = performance.Sellers
+                    .Select(row => new SalesPerformanceRowDTO
+                    {
+                        UserId = row.UserId,
+                        SellerName = string.Empty,
+                        SoldAmount = row.SoldAmount,
+                        ReceivedAmount = row.ReceivedAmount,
+                        OrderCount = row.OrderCount,
+                        TargetAmount = row.TargetAmount,
+                        AttainmentPercent = row.AttainmentPercent,
+                        CommissionRate = row.CommissionRate,
+                        CommissionAmount = row.CommissionAmount
+                    })
+                    .ToList()
+            };
+        }
+
+        /// <summary>
+        /// Puts the seller names back on a cached result. One small query keyed by the ids already
+        /// in the payload; a row whose user has since been removed keeps the id as its name, which
+        /// is what the uncached path does too.
+        /// </summary>
+        private async Task<SalesPerformanceDTO> RehydrateSellerNamesAsync(
+            SalesPerformanceDTO cached,
+            Guid enterpriseId,
+            CancellationToken cancellation)
+        {
+            var ids = cached.Sellers.Where(row => row.UserId.HasValue).Select(row => row.UserId!.Value).ToList();
+            if (ids.Count == 0)
+                return cached;
+
+            var names = await _context.Set<User>().AsNoTracking()
+                .Where(user => user.EnterpriseId == enterpriseId
+                               && user.IsActive == true
+                               && !user.IsServiceAccount
+                               && ids.Contains(user.Id))
+                .Select(user => new { user.Id, user.FirstName, user.LastName, user.UserName })
+                .ToDictionaryAsync(user => user.Id, cancellation);
+
+            foreach (var row in cached.Sellers)
+            {
+                if (row.UserId.HasValue && names.TryGetValue(row.UserId.Value, out var user))
+                {
+                    var name = $"{user.FirstName} {user.LastName}".Trim();
+                    row.SellerName = string.IsNullOrWhiteSpace(name) ? user.UserName : name;
+                }
+                else
+                {
+                    row.SellerName = row.UserId?.ToString() ?? string.Empty;
+                }
+            }
+
+            return cached;
         }
 
         private async Task<SalesPerformanceDTO?> ReadCacheAsync(string key)
