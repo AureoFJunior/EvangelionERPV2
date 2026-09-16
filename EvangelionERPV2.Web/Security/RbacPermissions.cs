@@ -6,6 +6,7 @@ namespace EvangelionERPV2.Web.Security
         [
             Metrics.Read,
             Health.Read,
+            Messaging.Redrive,
 
             Accounting.Export,
 
@@ -140,6 +141,16 @@ namespace EvangelionERPV2.Web.Security
         public static class Metrics
         {
             public const string Read = "metrics.read";
+        }
+
+        /// <summary>
+        /// Replaying dead-lettered messages. Admin only, and deliberately not granted to Manager:
+        /// the work queues are not tenant-scoped, so one redrive replays messages belonging to every
+        /// enterprise on the broker.
+        /// </summary>
+        public static class Messaging
+        {
+            public const string Redrive = "messaging.redrive";
         }
 
         public static class Health

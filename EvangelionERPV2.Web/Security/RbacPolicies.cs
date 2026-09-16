@@ -10,6 +10,7 @@ namespace EvangelionERPV2.Web.Security
         public static IReadOnlyCollection<string> All { get; } =
         [
             Metrics.Read,
+            Messaging.Redrive,
             Health.Read,
 
             Accounting.Export,
@@ -188,6 +189,11 @@ namespace EvangelionERPV2.Web.Security
         public static class Metrics
         {
             public const string Read = "rbac:metrics.read";
+        }
+
+        public static class Messaging
+        {
+            public const string Redrive = "rbac:messaging.redrive";
         }
 
         public static class Health

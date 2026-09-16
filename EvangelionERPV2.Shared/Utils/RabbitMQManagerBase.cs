@@ -57,6 +57,16 @@ namespace EvangelionERPV2.Shared.Utils
             "Messages waiting in the work queue",
             new GaugeConfiguration { LabelNames = ["queue"] });
 
+        /// <summary>
+        /// Messages moved back out of the dead-letter queue by an operator. Counted separately from
+        /// ordinary throughput because a redrive is a deliberate act with a person behind it, and
+        /// "how much have we replayed" is a different question from "how much are we processing".
+        /// </summary>
+        private static readonly Counter MessagesRedriven = Metrics.CreateCounter(
+            "evangelion_dlq_redriven_total",
+            "Messages republished from the dead-letter queue back onto the work queue",
+            new CounterConfiguration { LabelNames = ["queue"] });
+
         private static readonly Gauge DlqDepth = Metrics.CreateGauge(
             "evangelion_dlq_depth",
             "Messages sitting in the dead-letter queue, which nothing consumes",
@@ -443,6 +453,95 @@ namespace EvangelionERPV2.Shared.Utils
                         GetSafeExceptionType(nackException));
                 }
             }
+        }
+
+        /// <summary>
+        /// Moves up to <paramref name="maxMessages"/> messages from the dead-letter queue back onto
+        /// the work queue, resetting their retry count.
+        /// <para>
+        /// Nothing consumes the dead-letter queue, so without this a message that failed three times
+        /// is invisible and permanent - the depth gauge made it visible, which is not the same as
+        /// recoverable.
+        /// </para>
+        /// <para>
+        /// Deliberately operator-triggered and bounded rather than automatic. A redrive is a bulk
+        /// retry, and whether re-processing a message is safe depends on whether the handler is
+        /// idempotent - which is an open question for this pipeline. Putting a person and a batch
+        /// size in front of it keeps that decision where it belongs until the question is answered.
+        /// </para>
+        /// <para>
+        /// A message is acknowledged on the dead-letter queue only after it has been accepted onto
+        /// the work queue, and publisher confirms mean that acceptance is the broker's, not a
+        /// hopeful write to a socket. The order matters: the other way round loses the message if
+        /// the republish fails.
+        /// </para>
+        /// </summary>
+        /// <returns>How many messages were actually moved.</returns>
+        public async Task<int> RedriveDeadLetteredAsync(int maxMessages, CancellationToken cancellationToken = default)
+        {
+            if (maxMessages <= 0)
+                return 0;
+
+            var moved = 0;
+
+            for (var i = 0; i < maxMessages && !cancellationToken.IsCancellationRequested; i++)
+            {
+                var delivery = await _channel.BasicGetAsync(_channelSettings.QueueNameDLQ, autoAck: false, cancellationToken);
+                if (delivery is null)
+                    break; // Queue is empty - nothing further to move.
+
+                try
+                {
+                    var headers = CloneHeaders(delivery.BasicProperties?.Headers);
+
+                    // Reset the counter: this message has been looked at by a person and is being
+                    // given a fresh set of attempts, not resuming an exhausted one.
+                    headers["x-retry-count"] = 0;
+
+                    await _channel.BasicPublishAsync(
+                        exchange: _channelSettings.ExchangeName,
+                        routingKey: _channelSettings.RoutingKey,
+                        mandatory: true,
+                        basicProperties: new BasicProperties
+                        {
+                            Persistent = true,
+                            MessageId = delivery.BasicProperties?.MessageId ?? Guid.NewGuid().ToString("N"),
+                            Headers = headers
+                        },
+                        body: delivery.Body,
+                        cancellationToken: cancellationToken);
+
+                    await _channel.BasicAckAsync(delivery.DeliveryTag, false, cancellationToken);
+
+                    MessagesRedriven.WithLabels(_channelSettings.QueueNameDLQ).Inc();
+                    moved++;
+                }
+                catch (Exception exception)
+                {
+                    // Put it back where it was. Requeue rather than drop: a redrive that fails must
+                    // leave the dead-letter queue exactly as it found it.
+                    Log.Logger.Error(
+                        "Redrive failed, returning the message to {Dlq}. ErrorType={ErrorType}",
+                        _channelSettings.QueueNameDLQ,
+                        GetSafeExceptionType(exception));
+
+                    await _channel.BasicNackAsync(delivery.DeliveryTag, false, requeue: true, cancellationToken);
+                    throw;
+                }
+            }
+
+            if (moved > 0)
+            {
+                Log.Logger.Warning(
+                    "Redrove {Count} message(s) from {Dlq} back onto {Queue}",
+                    moved,
+                    _channelSettings.QueueNameDLQ,
+                    _channelSettings.QueueName);
+            }
+
+            await RefreshQueueDepthsAsync(cancellationToken);
+
+            return moved;
         }
 
         public async Task<T> DequeueAndProcessAsync<T>()

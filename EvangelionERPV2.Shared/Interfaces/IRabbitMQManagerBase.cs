@@ -21,6 +21,13 @@ namespace EvangelionERPV2.Shared.Interfaces
         /// second. Handlers may run concurrently.
         /// </summary>
         Task ConsumeAsync<T>(Func<T, Task> processMessageAsync, CancellationToken cancellationToken);
+        /// <summary>
+        /// Moves up to <paramref name="maxMessages"/> messages from the dead-letter queue back onto
+        /// the work queue with their retry count reset. Operator-triggered and bounded on purpose -
+        /// a redrive is a bulk retry, and re-processing is only safe if the handler is idempotent.
+        /// </summary>
+        Task<int> RedriveDeadLetteredAsync(int maxMessages, CancellationToken cancellationToken = default);
+
         Task EnqueueAsync<T>(T obj);
         void SetupChannel();
     }
