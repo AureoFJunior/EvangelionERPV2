@@ -1,5 +1,9 @@
 using System.Linq.Expressions;
 using EvangelionERPV2.OrderModule.Application.Services;
+using EvangelionERPV2.Shared.Auditing;
+using EvangelionERPV2.Shared.Context;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
@@ -23,21 +27,75 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         private readonly Mock<IRepository<User>> _users = new();
         private readonly Mock<IRepository<SalesGoal>> _goals = new();
 
+        // The monthly aggregate reads through the context now rather than through the repositories:
+        // it projects the columns the money rules need and joins the live bill in SQL, instead of
+        // materialising a month of entities. These tests therefore seed a real (in-memory) context,
+        // which means they exercise the actual query rather than a mock of it.
+        private AppDbContext _context = null!;
+
         private SalesPerformanceService BuildService() =>
-            new(_orders.Object, _bills.Object, _users.Object, _goals.Object);
+            new(_context, _orders.Object, _bills.Object, _users.Object, _goals.Object);
 
         private void Given(IEnumerable<Order> orders, IEnumerable<Bill> bills, decimal? commissionRate, decimal? target)
         {
-            _orders.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>?>())).ReturnsAsync(orders);
-            _bills.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Bill, bool>>?>())).ReturnsAsync(bills);
-            _users.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<User, bool>>?>())).ReturnsAsync(new[]
+            SeedContext(orders, bills, new User
             {
-                new User { Id = SellerId, EnterpriseId = EnterpriseId, IsActive = true, FirstName = "Rei", LastName = "Ayanami", CommissionRate = commissionRate }
+                Id = SellerId,
+                EnterpriseId = EnterpriseId,
+                IsActive = true,
+                FirstName = "Rei",
+                LastName = "Ayanami",
+                CommissionRate = commissionRate
             });
+
             _goals.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<SalesGoal, bool>>?>())).ReturnsAsync(
                 target.HasValue
                     ? new[] { new SalesGoal { Id = Guid.NewGuid(), EnterpriseId = EnterpriseId, UserId = SellerId, Year = 2026, Month = 8, TargetAmount = target.Value, IsActive = true } }
                     : Array.Empty<SalesGoal>());
+        }
+
+        /// <summary>
+        /// Seeds the in-memory context the aggregate reads from. Tests that need more than the one
+        /// default seller - a service account, say - call this directly.
+        /// </summary>
+        private void SeedContext(IEnumerable<Order> orders, IEnumerable<Bill> bills, params User[] users)
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase($"sales-performance-tests-{Guid.NewGuid():N}")
+                .Options;
+
+            _context = new AppDbContext(options, httpContextAccessor: null, auditTrailEntryFactory: new NoopAuditTrailEntryFactory());
+            _context.Database.EnsureCreated();
+
+            foreach (var user in users)
+                _context.Set<User>().Add(user);
+
+            foreach (var order in orders)
+            {
+                order.EnterpriseId ??= EnterpriseId;
+                order.IsActive ??= true;
+                _context.Set<Order>().Add(order);
+            }
+
+            foreach (var bill in bills)
+            {
+                bill.IsActive ??= true;
+                _context.Set<Bill>().Add(bill);
+            }
+
+            _context.SaveChanges();
+        }
+
+        private sealed class NoopAuditTrailEntryFactory : IAuditTrailEntryFactory
+        {
+            public IReadOnlyCollection<AuditTrail> Create(
+                IEnumerable<EntityEntry<BaseEntity>> entries,
+                Guid? userId,
+                Guid? enterpriseId,
+                DateTime changedAt)
+            {
+                return Array.Empty<AuditTrail>();
+            }
         }
 
         [Fact]
@@ -278,10 +336,8 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
             var robotSale = Sale(400m);
             robotSale.UserId = robotId;
 
-            _orders.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>?>()))
-                .ReturnsAsync([Sale(1000m), robotSale]);
-            _bills.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Bill, bool>>?>())).ReturnsAsync([]);
             _goals.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<SalesGoal, bool>>?>())).ReturnsAsync([]);
+            SeedContext([Sale(1000m), robotSale], [], Person(SellerId), Robot(robotId));
             GivenFilteredUsers(Person(SellerId), Robot(robotId));
 
             var performance = await BuildService().GetPerformanceAsync(EnterpriseId, 2026, 8);

@@ -1969,9 +1969,9 @@ namespace EvangelionERPV2.Shared.Migrations
 
                     b.HasIndex("CustomerId");
 
-                    b.HasIndex("EnterpriseId");
-
                     b.HasIndex("UserId");
+
+                    b.HasIndex("EnterpriseId", "IsActive", "CreatedAt");
 
                     b.ToTable("Order");
                 });

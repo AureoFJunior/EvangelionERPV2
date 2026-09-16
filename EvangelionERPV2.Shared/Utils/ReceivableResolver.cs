@@ -87,10 +87,65 @@ namespace EvangelionERPV2.Shared.Utils
         /// </summary>
         public static decimal ResolveReceivableAmount(Order order, Bill? bill)
         {
-            if (bill is { Status: BillStatus.Paid, PaidAmount: > 0 })
-                return bill.PaidAmount.Value;
+            return ResolveReceivableAmount(
+                order.TotalValue,
+                bill?.Status,
+                bill?.PaidAmount,
+                bill?.Amount);
+        }
 
-            return bill?.Amount > 0 ? bill.Amount : order.TotalValue;
+        /// <summary>
+        /// The same rule over plain values rather than entities, so a caller that has projected only
+        /// the columns it needs does not have to restate the rule.
+        /// <para>
+        /// This exists because SalesPerformance used to materialise a whole month of Order and Bill
+        /// entities to compute a handful of totals. Reading only the columns the rule touches is
+        /// what made that affordable - and the entity overloads above delegate here, so there is
+        /// still exactly one definition of what money has been received.
+        /// </para>
+        /// </summary>
+        public static decimal ResolveReceivableAmount(
+            decimal orderTotalValue,
+            BillStatus? billStatus,
+            decimal? billPaidAmount,
+            decimal? billAmount)
+        {
+            if (billStatus == BillStatus.Paid && billPaidAmount > 0)
+                return billPaidAmount!.Value;
+
+            return billAmount > 0 ? billAmount!.Value : orderTotalValue;
+        }
+
+        /// <summary>
+        /// Value-based twin of <see cref="ResolveReceivedAmount(Order, Bill?)"/>.
+        /// </summary>
+        public static decimal ResolveReceivedAmount(
+            decimal orderTotalValue,
+            bool orderIsRefunded,
+            bool orderHasPayday,
+            BillStatus? billStatus,
+            decimal? billPaidAmount,
+            decimal? billAmount)
+        {
+            if (orderIsRefunded)
+                return 0;
+
+            if (billStatus.HasValue)
+            {
+                return billStatus == BillStatus.Paid
+                    ? ResolveReceivableAmount(orderTotalValue, billStatus, billPaidAmount, billAmount)
+                    : 0;
+            }
+
+            return orderHasPayday ? orderTotalValue : 0;
+        }
+
+        /// <summary>
+        /// Value-based twin of <see cref="IsOrderRefunded(Order)"/>.
+        /// </summary>
+        public static bool IsOrderRefunded(DateTime? refundedAt, int status)
+        {
+            return refundedAt.HasValue || status == (int)EnumOrderStatus.Refund;
         }
 
         /// <summary>
@@ -122,18 +177,18 @@ namespace EvangelionERPV2.Shared.Utils
         /// </remarks>
         public static decimal ResolveReceivedAmount(Order order, Bill? bill)
         {
-            if (IsOrderRefunded(order))
-                return 0;
-
-            if (bill != null)
-                return bill.Status == BillStatus.Paid ? ResolveReceivableAmount(order, bill) : 0;
-
-            return order.Payday.HasValue ? order.TotalValue : 0;
+            return ResolveReceivedAmount(
+                order.TotalValue,
+                IsOrderRefunded(order),
+                order.Payday.HasValue,
+                bill?.Status,
+                bill?.PaidAmount,
+                bill?.Amount);
         }
 
         public static bool IsOrderRefunded(Order order)
         {
-            return order.RefundedAt.HasValue || order.Status == (int)EnumOrderStatus.Refund;
+            return IsOrderRefunded(order.RefundedAt, order.Status);
         }
     }
 }

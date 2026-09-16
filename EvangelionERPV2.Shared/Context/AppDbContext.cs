@@ -258,6 +258,17 @@ namespace EvangelionERPV2.Shared.Context
             // included — SQL Server treats nulls as equal in a unique index, which is exactly the
             // behaviour wanted here. Filtered on IsActive so a target that was deleted and set
             // again does not collide with its own tombstone.
+            // The monthly sales aggregate filters a tenant's orders by CreatedAt, and Order carried
+            // only a single-column index on EnterpriseId - so every run seeked the tenant and then
+            // looked up and discarded most of what it read. This is the covering shape for that
+            // query.
+            //
+            // Deliberately NOT filtered on IsActive: the column is nullable and legacy rows carry
+            // NULL, which SQL Server excludes from an "[IsActive] = 1" filter - the same trap noted
+            // on the Bill index above.
+            modelBuilder.Entity<Order>()
+                .HasIndex(order => new { order.EnterpriseId, order.IsActive, order.CreatedAt });
+
             modelBuilder.Entity<SalesGoal>()
                 .HasIndex(goal => new { goal.EnterpriseId, goal.UserId, goal.Year, goal.Month })
                 .HasFilter("[IsActive] = 1")
