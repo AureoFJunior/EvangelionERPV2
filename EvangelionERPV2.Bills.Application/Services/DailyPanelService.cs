@@ -92,10 +92,16 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             //
             // Registered is exactly the open set: Paid and Cancelled are excluded here, and Overdue
             // is never persisted — it is derived below from the same clock Bill.StatusAsOf uses.
-            // Four columns, not whole Bill entities. The "newest live bill per order" pick and the
-            // due-date bucketing stay in C# - they are the rule, and restating them in SQL would
-            // give the panel a second definition to drift from.
-            var candidates = await _context.Set<Bill>().AsNoTracking()
+            // Counted in SQL, not in the process.
+            //
+            // This read every open title for the tenant and added them up in a foreach. Projecting
+            // to four columns made each row cheaper but left the growth: measured 2026-09-16 with
+            // 200,005 open bills, one call added ~106 MiB and twenty concurrent callers took the
+            // process from 318 MiB to 1.1 GiB - against a 2 GiB container limit. The same shape had
+            // already produced an OutOfMemoryException in SalesPerformance at that volume.
+            //
+            // The database returns six numbers now, whatever the tenant's size.
+            var liveBills = _context.Set<Bill>().AsNoTracking()
                 .Where(x => x.Order != null
                             && x.Order.EnterpriseId == enterpriseId
                             && x.Order.IsActive == true
@@ -103,32 +109,37 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                             && x.Order.Status != (int)EnumOrderStatus.Refund
                             && (x.IsActive == null || x.IsActive == true)
                             && x.Status == BillStatus.Registered)
-                .Select(x => new ReceivableSlice(x.OrderId, x.Amount, x.DueDate, x.CreatedAt))
-                .ToListAsync();
+                // Newest bill per order, which is what SelectLiveBillsByOrder picked in memory. The
+                // status filter above already excludes Cancelled.
+                .Where(x => x.CreatedAt == _context.Set<Bill>().AsNoTracking()
+                    .Where(other => other.OrderId == x.OrderId
+                                    && (other.IsActive == null || other.IsActive == true)
+                                    && other.Status == BillStatus.Registered)
+                    .Max(other => other.CreatedAt));
 
-            // Same rule as ReceivableResolver.SelectLiveBillsByOrder: newest per order wins. The
-            // status filter above already excludes Cancelled.
-            var liveBills = candidates
-                .GroupBy(slice => slice.OrderId)
-                .ToDictionary(group => group.Key, group => group.OrderByDescending(slice => slice.CreatedAt).First());
+            var totals = await liveBills
+                .GroupBy(_ => 1)
+                .Select(group => new
+                {
+                    OpenCount = group.Count(),
+                    OpenAmount = group.Sum(x => x.Amount),
+                    OverdueCount = group.Count(x => x.DueDate < today),
+                    OverdueAmount = group.Sum(x => x.DueDate < today ? x.Amount : 0m),
+                    DueTodayCount = group.Count(x => x.DueDate == today),
+                    DueTodayAmount = group.Sum(x => x.DueDate == today ? x.Amount : 0m)
+                })
+                .FirstOrDefaultAsync();
 
             var panel = new DailyPanelReceivablesDTO();
 
-            foreach (var bill in liveBills.Values)
+            if (totals != null)
             {
-                panel.OpenCount++;
-                panel.OpenAmount += bill.Amount;
-
-                if (bill.DueDate.Date < today)
-                {
-                    panel.OverdueCount++;
-                    panel.OverdueAmount += bill.Amount;
-                }
-                else if (bill.DueDate.Date == today)
-                {
-                    panel.DueTodayCount++;
-                    panel.DueTodayAmount += bill.Amount;
-                }
+                panel.OpenCount = totals.OpenCount;
+                panel.OpenAmount = totals.OpenAmount;
+                panel.OverdueCount = totals.OverdueCount;
+                panel.OverdueAmount = totals.OverdueAmount;
+                panel.DueTodayCount = totals.DueTodayCount;
+                panel.DueTodayAmount = totals.DueTodayAmount;
             }
 
             return panel;
@@ -138,35 +149,38 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             var horizon = today.AddDays(PayablesHorizonInDays);
 
-            var payables = await _context.Set<PayableBill>().AsNoTracking()
+            // Counted in SQL for the same reason as the receivables above: the number of unpaid
+            // payables inside the horizon is a tenant-sized quantity, and this only ever needed six
+            // numbers from it.
+            var totals = await _context.Set<PayableBill>().AsNoTracking()
                 .Where(x => x.EnterpriseId == enterpriseId
                             && x.IsActive == true
                             && !x.IsPaid
                             && x.RefundedAt == null
                             && x.Amount > 0
                             && x.DueDate < horizon)
-                .Select(x => new PayableSlice(x.Amount, x.DueDate))
-                .ToListAsync();
+                .GroupBy(_ => 1)
+                .Select(group => new
+                {
+                    WeekCount = group.Count(),
+                    WeekAmount = group.Sum(x => x.Amount),
+                    OverdueCount = group.Count(x => x.DueDate.Date < today),
+                    OverdueAmount = group.Sum(x => x.DueDate.Date < today ? x.Amount : 0m),
+                    DueTodayCount = group.Count(x => x.DueDate.Date == today),
+                    DueTodayAmount = group.Sum(x => x.DueDate.Date == today ? x.Amount : 0m)
+                })
+                .FirstOrDefaultAsync();
 
             var panel = new DailyPanelPayablesDTO();
 
-            foreach (var payable in payables)
+            if (totals != null)
             {
-                var dueDate = payable.DueDate.Date;
-
-                panel.DueThisWeekCount++;
-                panel.DueThisWeekAmount += payable.Amount;
-
-                if (dueDate < today)
-                {
-                    panel.OverdueCount++;
-                    panel.OverdueAmount += payable.Amount;
-                }
-                else if (dueDate == today)
-                {
-                    panel.DueTodayCount++;
-                    panel.DueTodayAmount += payable.Amount;
-                }
+                panel.DueThisWeekCount = totals.WeekCount;
+                panel.DueThisWeekAmount = totals.WeekAmount;
+                panel.OverdueCount = totals.OverdueCount;
+                panel.OverdueAmount = totals.OverdueAmount;
+                panel.DueTodayCount = totals.DueTodayCount;
+                panel.DueTodayAmount = totals.DueTodayAmount;
             }
 
             return panel;
@@ -289,12 +303,5 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
         }
 
-        /// <summary>
-        /// Only the columns the receivable buckets read. Not an entity on purpose: the panel used
-        /// to materialise every open Bill just to count them.
-        /// </summary>
-        private sealed record ReceivableSlice(Guid OrderId, decimal Amount, DateTime DueDate, DateTime CreatedAt);
-
-        private sealed record PayableSlice(decimal Amount, DateTime DueDate);
     }
 }
