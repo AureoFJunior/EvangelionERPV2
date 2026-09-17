@@ -934,18 +934,26 @@ Every load run so far came from one IP, so the per-IP rate limiter absorbed the 
 `OverloadProtection`'s concurrency limiter (400 permits in Production) ever saw it. Cloud generators
 come from many addresses, which is the only way that limit gets exercised.
 
-Get a token: **Grafana Cloud → Testing & synthetics → Performance → Settings → Access**, then
-create a **Personal token** (a Stack token also works and needs a project id). Note the stack id on
-the same screen.
+Get a token: **Grafana Cloud → Testing & synthetics → Performance → Settings → Access** →
+**Personal token**. (A Stack token also works but additionally needs a `projectID` in the script's
+cloud options, so personal is the simpler one.)
+
+`K6_CLOUD_STACK` is the stack **slug or URL**, not a token — for `https://acme.grafana.net` it is
+`acme`.
 
 ```bash
 # local generator, results streamed to the cloud
-K6_CLOUD_TOKEN=... K6_CLOUD_STACK_ID=... ./perf/run.sh read_heavy load
+K6_CLOUD_TOKEN=... K6_CLOUD_STACK=acme ./perf/run.sh read_heavy load
 
 # generated FROM cloud IPs - this is the one N2 needs
-K6_CLOUD_TOKEN=... K6_CLOUD_STACK_ID=... K6_RUN_IN_CLOUD=1 \
+K6_CLOUD_TOKEN=... K6_CLOUD_STACK=acme K6_RUN_IN_CLOUD=1 \
   BASE_URL=https://app.evangelionerp.com/api/v1 ./perf/run.sh read_heavy load
 ```
+
+`k6 cloud run` has no `--stack` flag and the runner uses a throwaway container, so it logs in and
+runs in the same container — a `k6 cloud login` on your host would write a config file the container
+never sees. The token is passed through the environment, so it stays out of `docker inspect` and
+process listings.
 
 `K6_RUN_IN_CLOUD=1` refuses a `localhost` BASE_URL rather than failing obscurely halfway through —
 cloud generators cannot reach your machine. Without a token nothing changes; runs stay local.
