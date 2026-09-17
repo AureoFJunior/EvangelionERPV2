@@ -626,6 +626,25 @@ Every variable in `docker-compose.observability.yml` uses an empty default rathe
 That is deliberate: compose interpolates the whole file before profiles select anything, so one
 `:?` would break every plain `docker compose` command for anyone without exporter credentials.
 
+### TLS in production
+
+Local development proxies through nginx on 8082 with no TLS. Production has no load balancer, so
+the instance terminates TLS itself — **Caddy**, in `docker-compose.prod.yml`:
+
+```bash
+docker compose --env-file .env \
+  -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile workers --profile voice up -d
+```
+
+Set `CADDY_DOMAIN` and `CADDY_EMAIL` in `.env`; certificates are obtained and renewed with no cron
+and no second container. Note which profiles are absent: `localdb` (the database is RDS) and
+`proxy` (nginx and Caddy would both want port 80).
+
+`docker-compose.prod.yml` also removes the API's published host port, so 8080 does not listen on the
+instance at all — the security group is not the only thing between the internet and an unencrypted
+endpoint. `/metrics` and `/swagger` are refused at the edge, as they are in `nginx.conf`.
+
 ### Grafana Cloud (production)
 
 Grafana Cloud's free tier stores **10 000 active series, keeps 14 days, and allows 3 users**. This
@@ -908,6 +927,28 @@ aggregate in SQL.
 
 Results land in `perf/results/<timestamp>-<scenario>-<level>/` as `k6.log` plus `resources.csv`
 (`docker stats` sampled every 5s). Every scenario shares a floor of no 5xx and under 1% failures.
+
+### Running against Grafana Cloud k6
+
+Every load run so far came from one IP, so the per-IP rate limiter absorbed the traffic before
+`OverloadProtection`'s concurrency limiter (400 permits in Production) ever saw it. Cloud generators
+come from many addresses, which is the only way that limit gets exercised.
+
+Get a token: **Grafana Cloud → Testing & synthetics → Performance → Settings → Access**, then
+create a **Personal token** (a Stack token also works and needs a project id). Note the stack id on
+the same screen.
+
+```bash
+# local generator, results streamed to the cloud
+K6_CLOUD_TOKEN=... K6_CLOUD_STACK_ID=... ./perf/run.sh read_heavy load
+
+# generated FROM cloud IPs - this is the one N2 needs
+K6_CLOUD_TOKEN=... K6_CLOUD_STACK_ID=... K6_RUN_IN_CLOUD=1 \
+  BASE_URL=https://app.evangelionerp.com/api/v1 ./perf/run.sh read_heavy load
+```
+
+`K6_RUN_IN_CLOUD=1` refuses a `localhost` BASE_URL rather than failing obscurely halfway through —
+cloud generators cannot reach your machine. Without a token nothing changes; runs stay local.
 
 ### What the rig does not cover
 
