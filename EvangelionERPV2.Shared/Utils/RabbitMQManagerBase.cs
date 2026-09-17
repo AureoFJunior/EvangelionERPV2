@@ -119,6 +119,15 @@ namespace EvangelionERPV2.Shared.Utils
         private readonly ConcurrentBag<IChannel> _publishChannels = new();
 
         private const int MaxPooledPublishChannels = 16;
+
+        /// <summary>
+        /// Five attempts over roughly 15 seconds, which rides out a broker restart without holding
+        /// a publishing request open past its timeout.
+        /// </summary>
+        private const int MaxConnectAttempts = 5;
+
+        private static readonly TimeSpan InitialConnectRetryDelay = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan MaxConnectRetryDelay = TimeSpan.FromSeconds(8);
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly TChannelSettings _channelSettings;
         private readonly AWSKMSKeyProvider _kmsProvider;
@@ -146,7 +155,7 @@ namespace EvangelionERPV2.Shared.Utils
             // actually be made, whichever way it was configured.
             EnsureTransportIsSecure(factory.Ssl?.Enabled ?? false, CurrentEnvironmentName());
 
-            _connection = factory.CreateConnectionAsync().GetAwaiter().GetResult();
+            _connection = ConnectWithRetry(factory);
 
             // Publisher confirms. Without them BasicPublishAsync returns as soon as the bytes are
             // written to the socket, so InsertOrderInQueue logged success and the API answered 200
@@ -265,6 +274,47 @@ namespace EvangelionERPV2.Shared.Utils
         /// 2,592,000,000, which overflows <see cref="int"/>.
         /// </summary>
         private const long DeadLetterRetention = 30L * 24 * 60 * 60 * 1000;
+
+        /// <summary>
+        /// Opens the connection, retrying a broker that is not answering yet.
+        /// </summary>
+        /// <remarks>
+        /// The worker hosted services resolve this manager at startup, so an exception here used to
+        /// take the whole process down — a broker restart, or a worker that simply booted first,
+        /// was enough. <c>AutomaticRecoveryEnabled</c> does not help: it recovers a connection that
+        /// was once established, and there is nothing to recover from a first attempt that failed.
+        ///
+        /// Bounded on purpose. The API resolves this manager on the first request that publishes,
+        /// so the total wait is also how long that request hangs before it can answer 503; the
+        /// request timeout is 30 seconds and this stays well inside it.
+        /// </remarks>
+        private IConnection ConnectWithRetry(ConnectionFactory factory)
+        {
+            var delay = InitialConnectRetryDelay;
+
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+                }
+                catch (Exception exception) when (attempt < MaxConnectAttempts)
+                {
+                    Log.Logger.Warning(
+                        "Broker not reachable on attempt {Attempt}/{MaxAttempts}, retrying in {Delay}s. ErrorType={ErrorType}",
+                        attempt,
+                        MaxConnectAttempts,
+                        delay.TotalSeconds,
+                        GetSafeExceptionType(exception));
+
+                    Thread.Sleep(delay);
+
+                    // Jittered so that several workers restarting together do not retry in lockstep.
+                    var next = delay.TotalSeconds * 2 * (0.75 + (Random.Shared.NextDouble() * 0.5));
+                    delay = TimeSpan.FromSeconds(Math.Min(next, MaxConnectRetryDelay.TotalSeconds));
+                }
+            }
+        }
 
         private async Task<IChannel> CreatePublishChannelAsync(CancellationToken cancellationToken)
         {
