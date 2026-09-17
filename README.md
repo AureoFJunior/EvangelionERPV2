@@ -596,6 +596,36 @@ HighErrorRate, LatencyP95, WorkerFailing. They fire and appear under Alerting, b
 anywhere until you configure a contact point** — Grafana's default needs SMTP credentials this repo
 does not carry. That is a deliberate stopping point.
 
+### Dependency exporters
+
+SQL Server, Redis and RabbitMQ metrics, in the `exporters` profile. Redis is Upstash and RabbitMQ is
+CloudAMQP, so these connect out over the internet rather than sitting beside the service — and they
+need real credentials, not the `evangelion/dev/*` references the app resolves at runtime:
+
+```bash
+./scripts/exporter-env.sh >> .env.local      # reads the secrets with your AWS profile
+
+docker compose --env-file .env.local \
+  -f docker-compose.yml -f docker-compose.observability.yml \
+  --profile exporters up -d
+```
+
+| Exporter | Source | Gives you |
+|---|---|---|
+| `mssql_exporter` | the SQL Server container, or RDS | connections, deadlocks, batch rates, buffer cache |
+| `redis_exporter` | Upstash over TLS | `redis_up`, clients, commands, hit ratio, memory |
+| `rabbitmq_exporter` | CloudAMQP **management API** | per-queue depth, ready/unacked, publish and deliver rates |
+
+Two things worth knowing. CloudAMQP does not expose the `rabbitmq_prometheus` plugin on `:15692`
+(verified 2026-09-17), which is why the exporter reads the management API instead. And its shared
+plans deny `/api/nodes`, so the `node` collector is dropped — leaving it in logs a 401 on every
+scrape. There is consequently no `rabbitmq_up`; "can the app reach the broker" comes from the health
+check and `evangelion_queue_depth`, which the application publishes itself.
+
+Every variable in `docker-compose.observability.yml` uses an empty default rather than `${VAR:?}`.
+That is deliberate: compose interpolates the whole file before profiles select anything, so one
+`:?` would break every plain `docker compose` command for anyone without exporter credentials.
+
 ### Grafana Cloud (production)
 
 Grafana Cloud's free tier stores **10 000 active series, keeps 14 days, and allows 3 users**. This
@@ -625,9 +655,6 @@ token. Prefer the agent.
 
 ### Not built yet
 
-- Exporters for SQL Server, Redis and RabbitMQ. Until those exist, "is it the app or the database"
-  is not answerable from a dashboard, and queue *depth* is unknown — which is why the worker alert
-  fires on failures rather than on a stalled queue.
 - A contact point for the alerts. Eight rules evaluate and notify nobody — Grafana's default
   contact point needs SMTP settings this repo does not carry. `DeadLetterQueueNotEmpty` is the one
   that matters most, now that the DLQ discards after 30 days.

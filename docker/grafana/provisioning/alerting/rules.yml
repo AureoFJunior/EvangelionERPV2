@@ -17,6 +17,77 @@ groups:
     interval: 1m
     rules:
 
+      # Dependency exporters, `exporters` profile. These fire only when that profile is running,
+      # which is why noDataState is OK rather than Alerting: an absent exporter is a choice, not an
+      # outage. The application's own probes (DependencyUnhealthy) still cover "can we reach it".
+
+      - uid: eva-sqlserver-deadlocks
+        title: SqlServerDeadlocks
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: SQL Server is deadlocking.
+          description: >-
+            N3 identified SQL Server as the constraint before the API was. Deadlocks are the shape
+            that shows up as intermittent 500s with no pattern in the application logs.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: evangelion-prometheus
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              range: false
+              expr: sum(increase(mssql_deadlocks[15m]))
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: eva-redis-down
+        title: RedisUnreachable
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: The Redis exporter cannot reach Upstash.
+          description: >-
+            Warning rather than critical on purpose: every cache read falls back to the database, so
+            this is slower rather than broken. It becomes critical the day anything treats Redis as
+            a source of truth.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: evangelion-prometheus
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              range: false
+              expr: min(redis_up)
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
       - uid: eva-api-down
         title: ApiDown
         condition: B

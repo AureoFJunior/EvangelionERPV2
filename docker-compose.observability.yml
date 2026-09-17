@@ -48,6 +48,57 @@ services:
     networks:
       - custom_network
 
+  # Dependency exporters.
+  #
+  # Redis and RabbitMQ are managed services (Upstash, CloudAMQP), so these do not run beside a
+  # broker the way exporter sidecars usually do - they connect out over the internet. CloudAMQP does
+  # not expose the rabbitmq_prometheus plugin on :15692, verified 2026-09-17, so the RabbitMQ
+  # exporter reads the management API instead.
+  #
+  # All three are in the `exporters` profile, and every variable below has an empty default rather
+  # than `:?`. That is deliberate and is the same trap this file's header describes: compose
+  # interpolates the entire file before profiles select anything, so one `:?` here would break every
+  # plain `docker compose` command for anyone who has not set exporter credentials. Populate them
+  # with scripts/exporter-env.sh.
+  mssql_exporter:
+    profiles: [exporters]
+    image: ${MSSQL_EXPORTER_IMAGE:-awaragi/prometheus-mssql-exporter:latest}
+    container_name: evangelionerpv2_mssql_exporter
+    environment:
+      SERVER: ${MSSQL_EXPORTER_SERVER:-sqlserver}
+      PORT: ${MSSQL_EXPORTER_PORT:-1433}
+      USERNAME: ${MSSQL_EXPORTER_USER:-sa}
+      PASSWORD: ${SQLSERVER_SA_PASSWORD:-}
+    networks: [custom_network]
+    restart: unless-stopped
+
+  redis_exporter:
+    profiles: [exporters]
+    image: ${REDIS_EXPORTER_IMAGE:-oliver006/redis_exporter:latest}
+    container_name: evangelionerpv2_redis_exporter
+    environment:
+      REDIS_ADDR: ${REDIS_EXPORTER_ADDR:-}
+      REDIS_PASSWORD: ${REDIS_EXPORTER_PASSWORD:-}
+    networks: [custom_network]
+    restart: unless-stopped
+
+  rabbitmq_exporter:
+    profiles: [exporters]
+    image: ${RABBITMQ_EXPORTER_IMAGE:-kbudde/rabbitmq-exporter:latest}
+    container_name: evangelionerpv2_rabbitmq_exporter
+    environment:
+      RABBIT_URL: ${RABBITMQ_EXPORTER_URL:-}
+      RABBIT_USER: ${RABBITMQ_EXPORTER_USER:-}
+      RABBIT_PASSWORD: ${RABBITMQ_EXPORTER_PASSWORD:-}
+      RABBIT_VHOST: ${RABBITMQ_EXPORTER_VHOST:-}
+      # Default is "exchange node overview queue". `node` is dropped because CloudAMQP's shared
+      # plans deny /api/nodes - you do not own the cluster - and it logs a 401 every scrape while
+      # holding rabbitmq_up at 0.
+      RABBIT_EXPORTERS: ${RABBITMQ_EXPORTER_COLLECTORS:-exchange,queue,overview}
+      PUBLISH_PORT: "9419"
+    networks: [custom_network]
+    restart: unless-stopped
+
   grafana:
     # 12.0.0 and not 11.x: this exact provisioning was boot-verified against it - datasource, three
     # dashboards and all six alert rules load with health=ok. Nothing here uses a 12-only feature,
