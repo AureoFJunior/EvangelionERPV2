@@ -387,3 +387,11 @@ docs/superpowers/specs/2026-09-09-agente-do-erp-design.md
 # bind mount has something to attach to.
 .secrets/*
 !.secrets/.gitkeep
+
+# Terraform
+.terraform/
+**/.terraform/**
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform.lock.hcl
