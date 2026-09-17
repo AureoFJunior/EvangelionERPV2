@@ -401,6 +401,10 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsUnique()
                         .HasFilter("[Status] <> 4");
 
+                    b.HasIndex("OrderId", "IsActive", "Status");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("OrderId", "IsActive", "Status"), new[] { "CreatedAt", "Amount", "PaidAmount" });
+
                     b.HasIndex("CreatedAt", "UpdatedAt", "IsActive", "OrderId");
 
                     b.ToTable("Boleto", (string)null);
@@ -1972,6 +1976,8 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasIndex("UserId");
 
                     b.HasIndex("EnterpriseId", "IsActive", "CreatedAt");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("EnterpriseId", "IsActive", "CreatedAt"), new[] { "UserId", "Status", "RefundedAt", "Payday", "TotalValue" });
 
                     b.ToTable("Order");
                 });
