@@ -837,6 +837,26 @@ dotnet ef migrations add MigrationName --project EvangelionERPV2.Shared --startu
 dotnet ef database update --project EvangelionERPV2.Shared --startup-project EvangelionERPV2.Web --context AppDbContext
 ```
 
+
+### A fresh RDS database
+
+Nothing calls `Database.Migrate()`, so a newly created RDS instance is an **empty database**: the
+deploy succeeds, the container starts, health goes green, and every request touching a table answers
+500 with `Invalid column name`. It looks like a broken deploy rather than a missing step.
+
+```bash
+# on the application instance, because RDS is not publicly reachable
+aws ssm start-session --target <instance-id>
+cd /opt/evangelion && ./scripts/rds-db-update.sh
+```
+
+It resolves the endpoint and the master credentials from AWS (RDS generates the password into
+Secrets Manager), takes a pre-flight snapshot, generates the idempotent script and applies it with
+`-I` — quoted identifiers on, without which every filtered index fails with Msg 1934.
+
+Run it from a laptop and it will resolve the endpoint happily and then hang on the connection:
+`publicly_accessible = false` means only the VPC can reach it.
+
 ## Tests
 
 Seventeen test projects — one per module, plus `EvangelionERPV2.Test` for the cross-cutting rules
