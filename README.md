@@ -54,8 +54,8 @@ alongside):
 Surfaces without a module of their own live in the Web layer over one of the above: the dashboard,
 cash-flow forecast, bank reconciliation, payable bills and sales performance.
 
-**Deploying it?** Start at [Deploying to production](#deploying-to-production): what is built, what
-needs you, and in what order. Nothing runs in AWS today.
+**Deploying it?** [Deploying to production](#deploying-to-production) is the runbook. Nothing runs in
+AWS today; `docs/engineering/SPEC-production-readiness.md` tracks what is done and what is left.
 
 ## Tech stack
 
@@ -548,74 +548,119 @@ add `--profile proxy` there: nginx is the local proxy and would fight Caddy for 
 
 ## Deploying to production
 
-### What is built
+The target is **one EC2 instance running this compose file**, with RDS private in the same VPC.
+Terraform describes all of it. ECS is Phase 2, parked behind `var.enable_ecs`.
 
-Everything below is committed, tested and needs nothing from you.
+Current status and who owns what is in `docs/engineering/SPEC-production-readiness.md` — this
+section is the runbook.
 
-| | |
-|---|---|
-| **Terraform** | EC2 + Elastic IP, IAM instance profile (SSM, scoped Secrets Manager and S3 — no access keys on the box), RDS SQL Server with `publicly_accessible = false`, two security groups, nightly DLM snapshots. `validate` and `fmt` clean. **Not applied.** |
-| **State backend** | S3 backend declared in `main.tf`. The bucket does not exist yet. |
-| **Destroy guard** | `prevent_destroy` on the database, a final snapshot, and a typed confirmation in `terraformDestroy.yml`. |
-| **TLS** | Caddy in `docker-compose.prod.yml`; automatic Let's Encrypt, `/metrics` and `/swagger` refused at the edge. |
-| **Deploy** | `buildPushDeploy.yml` builds multi-arch, pushes to Docker Hub and ECR, then `docker compose pull && up -d` over **SSM** — no port 22, no deploy key — and fails the build if `/health` does not come back. |
-| **Migrations** | `scripts/rds-db-update.sh`. A fresh RDS instance is an empty database, and nothing calls `Database.Migrate()`. |
-| **Load testing** | `perf/run.sh` speaks Grafana Cloud k6, verified against the real stack. |
+### First deployment, in order
 
-### What needs you
+The ordering matters more than any individual step.
 
-In the order it has to happen.
-
-**1. Terraform state** — the bucket must exist before the first `init`:
+**1. Terraform state.** The bucket must exist before the first `init`:
 
 ```bash
 aws s3api create-bucket --bucket evangelion-tfstate --region us-east-1
 aws s3api put-bucket-versioning --bucket evangelion-tfstate \
   --versioning-configuration Status=Enabled
 
-cd EvangelionERPV2.Web/terraform && terraform init
+cd EvangelionERPV2.Web/terraform
+terraform init
 ```
 
-Then `terraform import` the ECR repository and the IAM role rather than letting terraform recreate
-them. There is currently **no state at all** — the registered ECS task definitions are orphans from
-an apply whose state was lost.
+Import what already exists rather than letting terraform make a second copy:
 
-**2. A required reviewer on the `destroy` environment**, in repository settings. The workflow already
-targets that environment, but the approval gate is a GitHub setting and cannot be committed.
+```bash
+terraform import aws_ecr_repository.evangelionerpv2 evangelionerpv2-repository   # if declared
+```
 
-**3. `terraform apply`.** Creates the instance and the database — this is the step that starts
-costing money (~$60/month, see §9.2 of the spec).
+**2. Create the infrastructure.**
 
-**4. The prd secrets.** Seven do not exist. Checklist with exact key names in the spec under B4.
-Two things worth reading before you create them: the encryption keys must be **fresh, not copies of
-dev**, and key names have to match the configuration exactly — a multi-key secret returns an empty
-string for a key it cannot find rather than falling back.
+```bash
+terraform plan      # read it; this is the only review the instance and database get
+terraform apply
+```
 
-**5. Three GitHub secrets** for the deploy workflow:
+Outputs give you the Elastic IP, the database endpoint, and the ARN of the secret RDS generated for
+the master password.
 
-| Secret | Note |
-|---|---|
-| `DEPLOY_INSTANCE_ID` | required |
-| `DEPLOY_APP_DIR` | defaults to `/opt/evangelion` |
-| `DEPLOY_HEALTH_URL` | optional; the post-deploy check is skipped without it |
+**3. Create the prd secrets.** Seven are missing. Exact names and keys are in the spec (B4). Two
+rules: the encryption keys must be **freshly generated, not copied from dev**, and key names must
+match the configuration exactly — a multi-key secret returns an **empty string** for a key it cannot
+find rather than falling back to the single value.
 
-**6. Migrations**, on the instance — RDS is not reachable from a laptop:
+**4. Prepare the instance.**
 
 ```bash
 aws ssm start-session --target <instance-id>
+
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
+sudo usermod -aG docker ubuntu        # log out and back in
+uname -m                              # aarch64 - the instance is Graviton
+aws sts get-caller-identity           # must show the instance role, not a user
+
+sudo git clone <repo> /opt/evangelion
+cd /opt/evangelion && cp .env.ec2.example .env   # then fill CADDY_DOMAIN and CADDY_EMAIL
+```
+
+Leave `AWS_PROFILE` empty — the instance role supplies credentials from metadata.
+
+**5. Apply migrations.** Nothing calls `Database.Migrate()`, so a new RDS instance is an empty
+database and the app will answer 500 with `Invalid column name` until this runs:
+
+```bash
 cd /opt/evangelion && ./scripts/rds-db-update.sh
 ```
 
-**7. DNS** — `app.evangelionerp.com` to the Elastic IP, after `/health` answers on the instance.
+**6. Start it.**
 
-### Still open after that
+```bash
+docker compose --env-file .env \
+  -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile workers --profile voice up -d
 
-- **SMTP or a webhook** for Grafana's contact point. Eight alert rules evaluate and notify nobody;
-  `DeadLetterQueueNotEmpty` matters more now that the DLQ discards after 30 days.
-- **A maintenance window** to redeclare the queues, which applies the DLQ retention *and* drains the
-  work queues for the message-format change. Both need the same outage.
-- **Import the Grafana Cloud dashboard** — the write-only token cannot create dashboards.
-- **The multi-IP load run** (`K6_RUN_IN_CLOUD=1`), once there is a public URL to point at.
+curl -f http://localhost/health      # before DNS, before TLS
+```
+
+**7. Point DNS** at the Elastic IP. Caddy issues the certificate on the first HTTPS request, which
+needs ports 80 and 443 open and the name resolving.
+
+**8. Wire up automatic deploys.** Add three repository secrets — `DEPLOY_INSTANCE_ID`,
+`DEPLOY_APP_DIR` (defaults to `/opt/evangelion`), `DEPLOY_HEALTH_URL` — and a push to `release`
+builds, pushes and restarts over SSM.
+
+### Routine deploys
+
+Automatic on push to `release`. By hand:
+
+```bash
+aws ssm start-session --target <instance-id>
+cd /opt/evangelion
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile workers --profile voice pull
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile workers --profile voice up -d
+```
+
+Run `./scripts/rds-db-update.sh` first whenever the release contains a migration.
+
+### Things that will bite
+
+| Symptom | Cause |
+|---|---|
+| `Invalid column name` on every request | Migrations not applied. Step 5 |
+| The migration script hangs | Run from a laptop. RDS is `publicly_accessible = false`; run it on the instance |
+| Caddy never gets a certificate | 80/443 not open, or DNS not pointing at the Elastic IP yet |
+| Deploy is green but nothing changed | Look at the SSM command output — the workflow prints stdout and fails on a non-`Success` status |
+| A secret resolves to an empty string | Key name mismatch in a multi-key secret. There is no fallback once a secret has more than one property |
+| `terraform destroy` refuses | Working as intended — `prevent_destroy` on the database |
+
+### Tearing down
+
+`terraformDestroy.yml` needs a typed `destroy-production` confirmation and a reviewer on the
+`destroy` environment. It will still refuse to delete the database until `prevent_destroy` is
+removed by hand, and a forced destroy leaves a final snapshot.
 
 ## Frontend base URLs
 
