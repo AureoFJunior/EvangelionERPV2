@@ -6,6 +6,8 @@
 #   ./perf/run.sh rate_limit_guard smoke      # run this one WITHOUT the rate-limit override
 #
 # Credentials come from perf/.env.perf (git-ignored). See perf/README.md.
+# Grafana Cloud settings come from perf/.env.cloud, kept separate because seed.py rewrites
+# .env.perf from a fixed key list and would drop anything else in it.
 
 set -euo pipefail
 
@@ -18,6 +20,8 @@ OUT="$HERE/results/$STAMP-$SCENARIO-$LEVEL"
 [[ -f "$HERE/scenarios/$SCENARIO.js" ]] || { echo "no such scenario: $SCENARIO"; exit 1; }
 # shellcheck disable=SC1091
 [[ -f "$HERE/.env.perf" ]] && set -a && source "$HERE/.env.perf" && set +a
+# shellcheck disable=SC1091
+[[ -f "$HERE/.env.cloud" ]] && set -a && source "$HERE/.env.cloud" && set +a
 
 BASE_URL="${BASE_URL:-http://localhost:8082/api/v1}"
 mkdir -p "$OUT"

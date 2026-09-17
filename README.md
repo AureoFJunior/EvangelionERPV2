@@ -941,13 +941,22 @@ cloud options, so personal is the simpler one.)
 `K6_CLOUD_STACK` is the stack **slug or URL**, not a token — for `https://acme.grafana.net` it is
 `acme`.
 
-```bash
-# local generator, results streamed to the cloud
-K6_CLOUD_TOKEN=... K6_CLOUD_STACK=acme ./perf/run.sh read_heavy load
+Put both in `perf/.env.cloud`, which is git-ignored and picked up automatically:
 
-# generated FROM cloud IPs - this is the one N2 needs
-K6_CLOUD_TOKEN=... K6_CLOUD_STACK=acme K6_RUN_IN_CLOUD=1 \
-  BASE_URL=https://app.evangelionerp.com/api/v1 ./perf/run.sh read_heavy load
+```bash
+cp perf/.env.cloud.example perf/.env.cloud   # then paste the token and slug
+./perf/run.sh read_heavy load                # results stream to the cloud
+```
+
+**Not `perf/.env.perf`** — `seed.py` rewrites that file from a fixed key list, so anything extra in
+it disappears on the next seed.
+
+For the run N2 actually needs, generated from cloud addresses rather than this machine, set
+`K6_RUN_IN_CLOUD=1` and a publicly reachable `BASE_URL` (both are in the example file), or pass them
+inline:
+
+```bash
+K6_RUN_IN_CLOUD=1 BASE_URL=https://app.evangelionerp.com/api/v1 ./perf/run.sh read_heavy load
 ```
 
 `k6 cloud run` has no `--stack` flag and the runner uses a throwaway container, so it logs in and
