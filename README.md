@@ -964,6 +964,14 @@ runs in the same container — a `k6 cloud login` on your host would write a con
 never sees. The token is passed through the environment, so it stays out of `docker inspect` and
 process listings.
 
+Two things about the free tier worth knowing before you hit them:
+
+- **One concurrent test.** A run interrupted with Ctrl-C can stay registered as active and block the
+  next one with `Max concurrency of 1 reached`. Stop it from the run's page, or:
+  `curl -X POST https://api.k6.io/loadtests/v2/runs/<id>/stop -H "Authorization: Bearer $K6_CLOUD_TOKEN"`
+- **500 VUh a month.** A `stress` run at 300 VUs for 15 minutes is 75 VUh, so the budget is roughly
+  six of those. Smoke and baseline cost almost nothing.
+
 `K6_RUN_IN_CLOUD=1` refuses a `localhost` BASE_URL rather than failing obscurely halfway through —
 cloud generators cannot reach your machine. Without a token nothing changes; runs stay local.
 

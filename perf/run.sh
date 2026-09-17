@@ -83,11 +83,24 @@ if [ -n "${K6_CLOUD_TOKEN:-}" ]; then
     fi
 
     # login and run in the same container. `k6 cloud run` has no --stack flag, and a login on the
-    # host writes a config file this throwaway container never sees. The token is read from the
-    # environment rather than passed on the command line, so it stays out of `docker inspect` and
-    # any process listing.
+    # host writes a config file this throwaway container never sees.
+    #
+    # --env for every variable the scripts read: `cloud run` archives the script, and only variables
+    # passed this way are inside the archive. Without them BASE_URL is undefined and the run sits in
+    # setup() making no requests at all - which looks like a successful empty test, thresholds and
+    # all. The expansion happens inside the container, so the values stay out of the docker command
+    # line and `docker inspect`.
+    K6_SCRIPT_ENV=""
+    for _var in BASE_URL LEVEL \
+        ADMIN_USER ADMIN_PASS MANAGER_USER MANAGER_PASS \
+        SUPERVISOR_USER SUPERVISOR_PASS EMPLOYEE_USER EMPLOYEE_PASS \
+        PDV_USER PDV_PASS PDV_TERMINAL PDV_SESSION_ID \
+        PERF_PRODUCT_UPDATE PERF_PDV_SYNC; do
+        K6_SCRIPT_ENV="$K6_SCRIPT_ENV --env $_var=\"\$$_var\""
+    done
+
     K6_ENTRYPOINT=(--entrypoint sh)
-    K6_ARGS=(-c "k6 cloud login -t \"\$K6_CLOUD_TOKEN\" --stack \"\${K6_CLOUD_STACK:-\$K6_CLOUD_STACK_ID}\" >/dev/null && exec k6 $K6_SUBCOMMAND --summary-export=/out/summary.json '/perf/scenarios/$SCENARIO.js'")
+    K6_ARGS=(-c "k6 cloud login -t \"\$K6_CLOUD_TOKEN\" --stack \"\${K6_CLOUD_STACK:-\$K6_CLOUD_STACK_ID}\" >/dev/null && exec k6 $K6_SUBCOMMAND$K6_SCRIPT_ENV --summary-export=/out/summary.json '/perf/scenarios/$SCENARIO.js'")
 fi
 
 # --network host so localhost:8082 inside the container is the nginx on this machine.
