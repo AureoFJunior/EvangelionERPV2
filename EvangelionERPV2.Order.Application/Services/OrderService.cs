@@ -1,3 +1,4 @@
+using EvangelionERPV2.Shared.DTOs;
 using System.Linq;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.OrderModule.Domain.Interface;
@@ -509,12 +510,22 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             }
         }
 
+        /// <summary>
+        /// Publishes the order as a flat message contract rather than as the entity.
+        /// </summary>
+        /// <remarks>
+        /// The entity was serialized with <c>ReferenceHandler.Preserve</c> because its navigation
+        /// properties cycle, which put <c>$id</c>/<c>$ref</c> on the wire and made the queue format
+        /// an accident of the EF model: any new navigation property changed what consumers received.
+        /// <see cref="CreateQueuedOrderRequestDTO"/> is what the worker has always reduced the
+        /// message to, so nothing is lost by sending it directly.
+        /// </remarks>
         public async Task InsertOrderInQueue(Order order)
         {
             try
             {
                 Log.Logger.Information($"Order enqueing at: {DateTime.UtcNow}");
-                await _rabbitMQManager.EnqueueAsync(order);
+                await _rabbitMQManager.EnqueueAsync(ToQueuedMessage(order));
                 Log.Logger.Information($"Order enqueued at: {DateTime.UtcNow}");
             }
             catch (Exception ex)
@@ -522,6 +533,29 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 Log.Logger.Error("Order was not able to be enqueued at: {OccurredAt}. ErrorType={ErrorType}", DateTime.UtcNow, ex.GetType().Name);
                 throw;
             }
+        }
+
+        private static CreateQueuedOrderRequestDTO ToQueuedMessage(Order order)
+        {
+            if (order == null)
+                throw new ArgumentNullException(nameof(order));
+
+            return new CreateQueuedOrderRequestDTO
+            {
+                EnterpriseId = order.EnterpriseId ?? Guid.Empty,
+                UserId = order.UserId ?? Guid.Empty,
+                CustomerId = order.CustomerId ?? Guid.Empty,
+                PaymentScheduledDate = order.PaymentScheduledDate,
+                Status = order.Status,
+                Items = (order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>())
+                    .Select(item => new OrderLineItemRequestDTO
+                    {
+                        ProductId = item.ProductId,
+                        Quantity = item.Quantity,
+                        Value = item.Value
+                    })
+                    .ToList()
+            };
         }
 
         private static bool IsImmutableStatus(int status)

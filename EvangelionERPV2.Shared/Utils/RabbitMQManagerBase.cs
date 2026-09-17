@@ -195,7 +195,6 @@ namespace EvangelionERPV2.Shared.Utils
             _jsonOptions = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
-                ReferenceHandler = ReferenceHandler.Preserve,
                 DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                 NumberHandling = JsonNumberHandling.AllowReadingFromString
             };
