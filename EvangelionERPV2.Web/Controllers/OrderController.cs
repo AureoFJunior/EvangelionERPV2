@@ -203,6 +203,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> AddOrder([FromBody] CreateOrderRequestDTO request)
         {
             try

@@ -57,6 +57,9 @@ namespace EvangelionERPV2.Web.Logging
 
                 context.Response.StatusCode = statusCode;
 
+                if (statusCode == StatusCodes.Status503ServiceUnavailable)
+                    context.Response.Headers.RetryAfter = "5";
+
                 // Keep 204 fully bodyless by HTTP contract.
                 if (statusCode == StatusCodes.Status204NoContent)
                     return;
@@ -119,6 +122,9 @@ namespace EvangelionERPV2.Web.Logging
                 UnauthorizedAccessException or SecurityTokenException => StatusCodes.Status401Unauthorized,
                 NotFoundDatabaseException => StatusCodes.Status204NoContent,
                 PeriodClosedException or CreditLimitExceededException => StatusCodes.Status409Conflict,
+
+                MessageBrokerUnavailableException => StatusCodes.Status503ServiceUnavailable,
+
                 _ => StatusCodes.Status500InternalServerError
             };
         }
@@ -173,6 +179,7 @@ namespace EvangelionERPV2.Web.Logging
                 StatusCodes.Status400BadRequest => "The request was invalid. Please check the input and try again.",
                 StatusCodes.Status401Unauthorized => "The request could not be authorized.",
                 StatusCodes.Status409Conflict => "The request conflicts with the current state of the data.",
+                StatusCodes.Status503ServiceUnavailable => "The service is temporarily unable to accept this request. Please retry shortly.",
                 StatusCodes.Status500InternalServerError => "An internal server error occurred. Please try again later.",
                 _ => "An unexpected error occurred."
             };

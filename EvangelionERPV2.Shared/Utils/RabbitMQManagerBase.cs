@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 using EvangelionERPV2.Shared.Interfaces;
 using EvangelionERPV2.Shared.Entities.RabbitMQ;
 using Prometheus;
+using EvangelionERPV2.Shared.Exceptions;
 
 namespace EvangelionERPV2.Shared.Utils
 {
@@ -237,13 +238,28 @@ namespace EvangelionERPV2.Shared.Utils
             Log.Logger.Warning("RabbitMQ URI setting is not a valid amqp/amqps URI. Falling back to host/port settings.");
         }
 
+        /// <summary>
+        /// Dead-letter retention, 30 days in milliseconds. Must be <see cref="long"/>: the value is
+        /// 2,592,000,000, which overflows <see cref="int"/>.
+        /// </summary>
+        private const long DeadLetterRetention = 30L * 24 * 60 * 60 * 1000;
+
         public void SetupChannel()
         {
             try
             {
-                // Setup DLQ
+                var dlqArgs = new Dictionary<string, object?>
+                {
+                    { "x-message-ttl", DeadLetterRetention },
+                    { "x-max-length", 100_000 },
+
+                    // drop-head, not reject-publish: dead-lettering is not a publisher-confirm
+                    // path, so rejecting would discard the failure silently at the broker.
+                    { "x-overflow", "drop-head" }
+                };
+
                 _channel.ExchangeDeclareAsync(_channelSettings.ExchangeNameDLQ, "topic").GetAwaiter().GetResult();
-                _channel.QueueDeclareAsync(_channelSettings.QueueNameDLQ, true, false, false).GetAwaiter().GetResult();
+                _channel.QueueDeclareAsync(_channelSettings.QueueNameDLQ, true, false, false, dlqArgs).GetAwaiter().GetResult();
                 _channel.QueueBindAsync(_channelSettings.QueueNameDLQ, _channelSettings.ExchangeNameDLQ, _channelSettings.RoutingKeyDLQ).GetAwaiter().GetResult();
 
                 // Setup main queue
@@ -341,7 +357,8 @@ namespace EvangelionERPV2.Shared.Utils
                 Log.Logger.Error(
                     "Error publishing message. ErrorType={ErrorType}",
                     GetSafeExceptionType(ex));
-                throw;
+
+                throw new MessageBrokerUnavailableException("The message broker did not accept the message.", ex);
             }
         }
 
