@@ -633,7 +633,7 @@ token. Prefer the agent.
   that matters most, now that the DLQ discards after 30 days.
 - The ECS path: a Prometheus agent sidecar with `remote_write`. Deferred — the planned first
   deployment is a single EC2 instance, where the agent is just another compose service. See
-  `docs/engineering/SPEC-hosting-migration.md`.
+  `docs/engineering/SPEC-production-readiness.md` §9.
 
 ## RabbitMQ note
 
