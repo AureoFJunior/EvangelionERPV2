@@ -27,6 +27,10 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 // Singleton so every hosted service in this host shares one Redis connection.
                 services.AddSingleton<IDistributedLease, RedisLease>();
 
+                // Prunes the idempotency table. Leased, so running in every host costs one sweep
+                // across the cluster rather than one per replica.
+                services.AddHostedService<ProcessedMessageRetentionWorker>();
+
                 #region Redis
                 // The one registration for the whole host. Product, Order and Reports each carried
                 // an identical copy of this; only the last one to run survived resolution, so the

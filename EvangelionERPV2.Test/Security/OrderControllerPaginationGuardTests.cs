@@ -137,7 +137,7 @@ namespace EvangelionERPV2.Test.Security
             SetupActiveTenantMembership(userRepository, userId, enterpriseId);
 
             orderService
-                .Setup(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
+                .Setup(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
                 .ThrowsAsync(new InsertDatabaseException("Insufficient stock for product [aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa]."));
 
             var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId, userId);

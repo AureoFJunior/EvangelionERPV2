@@ -2581,6 +2581,35 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.ToTable("PdvTerminal");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.ProcessedMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Handler")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("MessageId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessedAt");
+
+                    b.HasIndex("Handler", "MessageId")
+                        .IsUnique();
+
+                    b.ToTable("ProcessedMessage");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Product", b =>
                 {
                     b.Property<Guid>("Id")

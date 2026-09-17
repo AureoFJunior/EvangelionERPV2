@@ -43,13 +43,14 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
 
                     Log.Logger.Information("Order Worker consuming from {Time}", DateTime.UtcNow);
 
-                    await rabbitMQManager.ConsumeAsync<CreateQueuedOrderRequestDTO>(async order =>
+                    await rabbitMQManager.ConsumeAsync<CreateQueuedOrderRequestDTO>(async (order, messageId) =>
                     {
                         var token = await GetCachedApiTokenAsync(key, stoppingToken);
                         if (string.IsNullOrWhiteSpace(token))
                             throw new InvalidOperationException("Order Worker could not obtain an API token.");
 
                         var request = ValidateQueuedOrder(order);
+                        request.MessageId = messageId;
                         var createdOrder = await SharedFunctions.PostAsync<object>("Order/InsertQueuedOrder", request, token, cancellationToken: stoppingToken);
                         if (createdOrder == null)
                             throw new InvalidOperationException("Order Worker failed to persist order through API.");

@@ -101,8 +101,8 @@ namespace EvangelionERPV2.OrderModule.Test
 
             Order? created = null;
             orderService
-                .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
-                .ReturnsAsync((Order order, bool _, bool _) =>
+                .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
+                .ReturnsAsync((Order order, bool _, bool _, string? _messageId) =>
                 {
                     order.Id = Guid.NewGuid();
                     created = order;
@@ -146,7 +146,7 @@ namespace EvangelionERPV2.OrderModule.Test
             await Assert.ThrowsAsync<InsertDatabaseException>(
                 () => service.ConvertAsync(quote.Id, EnterpriseId, new ConvertQuoteRequestDTO()));
 
-            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()), Times.Never);
+            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
         }
 
         [Fact]
@@ -159,7 +159,7 @@ namespace EvangelionERPV2.OrderModule.Test
             var (service, _, _, orderService) = BuildSut(products: [product], stored: quote);
 
             orderService
-                .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
+                .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
                 .ThrowsAsync(new CreditLimitExceededException("over the limit"));
 
             await Assert.ThrowsAsync<CreditLimitExceededException>(
@@ -178,8 +178,8 @@ namespace EvangelionERPV2.OrderModule.Test
 
             bool? seen = null;
             orderService
-                .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
-                .ReturnsAsync((Order order, bool allowOverride, bool _) =>
+                .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
+                .ReturnsAsync((Order order, bool allowOverride, bool _, string? _messageId) =>
                 {
                     order.Id = Guid.NewGuid();
                     seen = allowOverride;

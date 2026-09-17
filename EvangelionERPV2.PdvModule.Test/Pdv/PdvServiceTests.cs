@@ -32,8 +32,8 @@ namespace EvangelionERPV2.PdvModule.Test
         {
             var mock = new Mock<IOrderService<Order>>();
 
-            mock.Setup(service => service.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>()))
-                .Returns<Order, bool, bool>(async (order, _, _) =>
+            mock.Setup(service => service.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
+                .Returns<Order, bool, bool, string?>(async (order, _, _, _) =>
                 {
                     order.Id = Guid.NewGuid();
                     order.TotalValue = (order.OrderedProduct ?? [])
@@ -128,7 +128,7 @@ namespace EvangelionERPV2.PdvModule.Test
             var third = await service.SyncSaleAsync(request, _enterpriseId, _userId);
 
             // The whole point. A till that lost three responses in a row still sold the basket once.
-            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Once);
+            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Once);
 
             Assert.Equal((int)EnumPdvSaleStatus.Synced, first.Status);
             Assert.False(first.WasAlreadyRecorded);
@@ -157,7 +157,7 @@ namespace EvangelionERPV2.PdvModule.Test
             Assert.Equal((int)EnumPdvSaleStatus.Rejected, result.Status);
             Assert.Null(result.OrderId);
             Assert.Contains("50", result.RejectReason);
-            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Never);
+            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
         }
 
         [Fact]
@@ -186,7 +186,7 @@ namespace EvangelionERPV2.PdvModule.Test
             var context = _database.CreateContext();
             var orderService = OrderServiceStub(context);
 
-            orderService.Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>()))
+            orderService.Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
                 .ThrowsAsync(new PeriodClosedException("O período está fechado."));
 
             var service = CreateService(context, orderService);
@@ -205,7 +205,7 @@ namespace EvangelionERPV2.PdvModule.Test
             var context = _database.CreateContext();
             var orderService = OrderServiceStub(context);
 
-            orderService.Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>()))
+            orderService.Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
                 .ThrowsAsync(new InsertDatabaseException("boom"));
 
             var service = CreateService(context, orderService);
@@ -261,7 +261,7 @@ namespace EvangelionERPV2.PdvModule.Test
             Assert.Equal((int)EnumPdvSaleStatus.Synced, resumed.Status);
             Assert.Equal(interrupted.OrderId, resumed.OrderId);
 
-            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Once);
+            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Once);
             Assert.Equal(1, await retryContext.Order.CountAsync());
             Assert.Equal(1, await retryContext.PdvSalePayment.CountAsync(payment => payment.PdvSaleId == interrupted.Id));
 

@@ -37,7 +37,10 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 
                     Log.Logger.Information("Email Consumer Worker consuming from {Time}", DateTime.UtcNow);
 
-                    await rabbitMQManager.ConsumeAsync<string>(async rawMessage =>
+                    // messageId is accepted but not yet used: unlike an order, a resent e-mail costs a
+                    // duplicate in an inbox rather than duplicate stock and money. Wire it through
+                    // the same way if that stops being acceptable.
+                    await rabbitMQManager.ConsumeAsync<string>(async (rawMessage, messageId) =>
                     {
                         if (string.IsNullOrWhiteSpace(rawMessage))
                             throw new InvalidOperationException("Email Consumer Worker received an empty message payload.");

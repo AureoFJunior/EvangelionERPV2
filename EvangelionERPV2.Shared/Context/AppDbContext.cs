@@ -113,6 +113,7 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<PasswordResetToken> PasswordResetToken { get; set; }
         public DbSet<User> User { get; set; }
         public DbSet<AuditTrail> AuditTrails { get; set; }
+        public DbSet<ProcessedMessage> ProcessedMessage { get; set; }
 
         protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
         {
@@ -145,6 +146,27 @@ namespace EvangelionERPV2.Shared.Context
             // to mutate a document a payer may already be holding. Filtered on Status rather than
             // IsActive because IsActive is nullable — legacy rows carry NULL, which SQL Server
             // excludes from a "[IsActive] = 1" filter and would silently stop guarding them.
+            // The constraint that makes queue handling idempotent. Unique on (Handler, MessageId)
+            // rather than MessageId alone so two pipelines consuming the same message are not read
+            // as duplicates of each other.
+            modelBuilder.Entity<ProcessedMessage>()
+                .HasIndex(processed => new { processed.Handler, processed.MessageId })
+                .IsUnique();
+
+            modelBuilder.Entity<ProcessedMessage>()
+                .Property(processed => processed.MessageId)
+                .HasMaxLength(128)
+                .IsRequired();
+
+            modelBuilder.Entity<ProcessedMessage>()
+                .Property(processed => processed.Handler)
+                .HasMaxLength(64)
+                .IsRequired();
+
+            // Retention sweeps by age, so the index it scans should lead with the date.
+            modelBuilder.Entity<ProcessedMessage>()
+                .HasIndex(processed => processed.ProcessedAt);
+
             modelBuilder.Entity<Bill>()
                 .HasIndex(bill => bill.OrderId)
                 .HasFilter($"[Status] <> {(int)BillStatus.Cancelled}")

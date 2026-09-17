@@ -20,7 +20,12 @@ namespace EvangelionERPV2.Shared.Interfaces
         /// which serves a single message per call and caps a queue at well under one message a
         /// second. Handlers may run concurrently.
         /// </summary>
-        Task ConsumeAsync<T>(Func<T, Task> processMessageAsync, CancellationToken cancellationToken);
+        /// <summary>
+        /// Registers a long-lived consumer. The handler receives the deserialized body and the
+        /// broker's <c>MessageId</c>, which is preserved across retries and redrives and is
+        /// therefore the key a handler uses to recognise work it has already done.
+        /// </summary>
+        Task ConsumeAsync<T>(Func<T, string, Task> processMessageAsync, CancellationToken cancellationToken);
         /// <summary>
         /// Moves up to <paramref name="maxMessages"/> messages from the dead-letter queue back onto
         /// the work queue with their retry count reset. Operator-triggered and bounded on purpose -

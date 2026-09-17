@@ -24,9 +24,9 @@ namespace EvangelionERPV2.Test.Security
             Order? capturedOrder = null;
 
             orderService
-                .Setup(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()))
-                .Callback<Order, bool, bool>((order, _, _) => capturedOrder = order)
-                .ReturnsAsync((Order order, bool _, bool _) => order);
+                .Setup(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
+                .Callback<Order, bool, bool, string?>((order, _, _, _) => capturedOrder = order)
+                .ReturnsAsync((Order order, bool _, bool _, string? _messageId) => order);
 
             var controller = CreateController(
                 orderService.Object,
@@ -56,7 +56,7 @@ namespace EvangelionERPV2.Test.Security
             var result = await controller.InsertQueuedOrder(BuildRequest(enterpriseId, userId));
 
             Assert.IsType<BadRequestObjectResult>(result);
-            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()), Times.Never);
+            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
         }
 
         [Fact]
@@ -74,7 +74,7 @@ namespace EvangelionERPV2.Test.Security
             var result = await controller.InsertQueuedOrder(BuildRequest(enterpriseId, userId));
 
             Assert.IsType<BadRequestObjectResult>(result);
-            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()), Times.Never);
+            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
         }
 
         [Fact]
@@ -90,7 +90,7 @@ namespace EvangelionERPV2.Test.Security
             var result = await controller.InsertQueuedOrder(BuildRequest(Guid.Empty, Guid.Empty));
 
             Assert.IsType<BadRequestObjectResult>(result);
-            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>()), Times.Never);
+            orderService.Verify(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
         }
 
         private static CreateQueuedOrderRequestDTO BuildRequest(Guid enterpriseId, Guid userId)

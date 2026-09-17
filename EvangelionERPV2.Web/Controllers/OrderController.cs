@@ -305,8 +305,16 @@ namespace EvangelionERPV2.Web.Controllers
                 };
 
                 var order = MapCreateRequestToOrder(createRequest, request.EnterpriseId, request.UserId);
-                await _orderService.CreateAsync(order);
+                await _orderService.CreateAsync(order, messageId: request.MessageId);
                 return Ok("Order created successfully");
+            }
+            catch (DuplicateMessageException ex)
+            {
+                // 200, not an error. The worker asked us to do work we have already done, which is
+                // what at-least-once delivery looks like from this side. Answering OK lets it
+                // acknowledge the message instead of retrying it into a third delivery.
+                Log.Logger.Information("Queued order already processed. MessageId={MessageId}", ex.MessageId);
+                return Ok("Order already processed");
             }
             catch (InsertDatabaseException ex)
             {

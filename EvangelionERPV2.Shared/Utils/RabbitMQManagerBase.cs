@@ -525,7 +525,7 @@ namespace EvangelionERPV2.Shared.Utils
         /// safe here.
         /// </para>
         /// </summary>
-        public async Task ConsumeAsync<T>(Func<T, Task> processMessageAsync, CancellationToken cancellationToken)
+        public async Task ConsumeAsync<T>(Func<T, string, Task> processMessageAsync, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(processMessageAsync);
 
@@ -575,7 +575,7 @@ namespace EvangelionERPV2.Shared.Utils
         /// Shared by <see cref="ConsumeAsync"/> and the single-message DequeueAndProcessAsync so the
         /// two cannot drift apart on acknowledgement or retry behaviour.
         /// </summary>
-        private async Task HandleDeliveryAsync<T>(BasicDeliverEventArgs ea, Func<T, Task> processMessageAsync)
+        private async Task HandleDeliveryAsync<T>(BasicDeliverEventArgs ea, Func<T, string, Task> processMessageAsync)
         {
             try
             {
@@ -583,8 +583,13 @@ namespace EvangelionERPV2.Shared.Utils
                 var resultObject = JsonSerializer.Deserialize<T>(message, _jsonOptions)
                     ?? throw new InvalidOperationException("Failed to deserialize message payload.");
 
+                // Empty rather than a fresh guid when the broker sends no id: a handler must be
+                // able to tell "this message has no identity" from "this is a new one", and a
+                // generated value would look unique on every redelivery.
+                var messageId = ea.BasicProperties?.MessageId ?? string.Empty;
+
                 using (MessageDuration.WithLabels(_channelSettings.QueueName).NewTimer())
-                    await processMessageAsync(resultObject);
+                    await processMessageAsync(resultObject, messageId);
 
                 MessagesProcessed.WithLabels(_channelSettings.QueueName, "ok").Inc();
                 await AckAsync(ea.DeliveryTag);

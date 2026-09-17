@@ -11,6 +11,7 @@ using EvangelionERPV2.Shared.Hubs;
 using EvangelionERPV2.Shared.Utils;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using Serilog;
 
 namespace EvangelionERPV2.OrderModule.Application.Services
@@ -73,7 +74,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// lose the revenue without restoring the stock. Defaulted so no existing caller changes,
         /// exactly like <paramref name="allowCreditOverride"/>.
         /// </param>
-        public async Task<Order> CreateAsync(Order order, bool allowCreditOverride = false, bool allowNegativeStock = false)
+        public async Task<Order> CreateAsync(Order order, bool allowCreditOverride = false, bool allowNegativeStock = false, string? messageId = null)
         {
             try
             {
@@ -94,6 +95,11 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
                 await ExecuteInTransactionAsync(async () =>
                 {
+                    // Claimed inside the transaction, before any work: if this message has already
+                    // been handled the unique index rejects the row and the whole order rolls back,
+                    // so the duplicate never reaches stock or the enterprise balance.
+                    await ClaimMessageAsync(messageId);
+
                     VerifyValidValues(ref order);
                     await AssertPeriodOpenAsync(order.EnterpriseId ?? Guid.Empty, order.PaymentScheduledDate, "This order");
                     await AssertWithinCreditLimitAsync(order, allowCreditOverride);
@@ -118,6 +124,14 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 throw;
             }
             catch (CreditLimitExceededException)
+            {
+                throw;
+            }
+            // Must pass through, like the two above. Wrapped in InsertDatabaseException it reaches
+            // the controller as a 400, the worker reads that as a failure and retries, and the
+            // message it already handled ends up dead-lettered - which is what happened the first
+            // time this was tested.
+            catch (DuplicateMessageException)
             {
                 throw;
             }
@@ -557,6 +571,59 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     .ToList()
             };
         }
+
+        /// <summary>
+        /// Records that a queue message has been handled, or throws
+        /// <see cref="DuplicateMessageException"/> if it already was.
+        /// </summary>
+        /// <remarks>
+        /// The unique index on (Handler, MessageId) is what settles the race between two concurrent
+        /// deliveries: both read an empty table, one commits, the other violates the constraint.
+        /// A check without the constraint would be a race, and a constraint without the transaction
+        /// would leave the row behind when the order failed for some other reason.
+        ///
+        /// A null or empty id means the caller is not a queue consumer - the direct API path - and
+        /// there is nothing to deduplicate.
+        /// </remarks>
+        private async Task ClaimMessageAsync(string? messageId)
+        {
+            if (string.IsNullOrWhiteSpace(messageId) || _appDbContext == null)
+                return;
+
+            if (await _appDbContext.ProcessedMessage
+                    .AsNoTracking()
+                    .AnyAsync(processed => processed.Handler == OrderMessageHandler && processed.MessageId == messageId))
+            {
+                throw new DuplicateMessageException(messageId);
+            }
+
+            _appDbContext.ProcessedMessage.Add(new ProcessedMessage
+            {
+                Id = Guid.NewGuid(),
+                Handler = OrderMessageHandler,
+                MessageId = messageId,
+                ProcessedAt = DateTime.UtcNow
+            });
+
+            try
+            {
+                await _appDbContext.SaveChangesAsync();
+            }
+            catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+            {
+                // The other delivery won. Same outcome as the check above, reached the only way that
+                // is safe when two workers are processing the same message at once.
+                throw new DuplicateMessageException(messageId);
+            }
+        }
+
+        private static bool IsUniqueViolation(DbUpdateException exception)
+        {
+            // 2601 duplicate key in a unique index, 2627 unique constraint violation.
+            return exception.InnerException is SqlException sql && (sql.Number == 2601 || sql.Number == 2627);
+        }
+
+        private const string OrderMessageHandler = "order";
 
         private static bool IsImmutableStatus(int status)
         {

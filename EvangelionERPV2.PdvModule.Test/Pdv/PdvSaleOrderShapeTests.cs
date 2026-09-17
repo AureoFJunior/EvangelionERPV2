@@ -30,8 +30,8 @@ namespace EvangelionERPV2.PdvModule.Test
         {
             var mock = new Mock<IOrderService<Order>>();
 
-            mock.Setup(service => service.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>()))
-                .Returns<Order, bool, bool>(async (order, _, _) =>
+            mock.Setup(service => service.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
+                .Returns<Order, bool, bool, string?>(async (order, _, _, _) =>
                 {
                     order.Id = Guid.NewGuid();
                     order.TotalValue = (order.OrderedProduct ?? [])

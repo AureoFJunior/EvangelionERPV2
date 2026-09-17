@@ -23,7 +23,7 @@ namespace EvangelionERPV2.OrderModule.Application.Interface
         /// sets it: that sale already happened at the till, so refusing it here would lose the
         /// revenue without putting the goods back on the shelf.
         /// </param>
-        Task<Order> CreateAsync(Order order, bool allowCreditOverride = false, bool allowNegativeStock = false);
+        Task<Order> CreateAsync(Order order, bool allowCreditOverride = false, bool allowNegativeStock = false, string? messageId = null);
         Task<Order> RefundAsync(Guid id, Guid enterpriseId, string reason);
         Task<IEnumerable<Order>> GetByEnterpriseIdAsync(Guid enterpriseId, int? pageNumber = null, int? pageSize = null);
         Task<Order?> GetByIdAsync(Guid id, Guid enterpriseId);
