@@ -628,8 +628,12 @@ token. Prefer the agent.
 - Exporters for SQL Server, Redis and RabbitMQ. Until those exist, "is it the app or the database"
   is not answerable from a dashboard, and queue *depth* is unknown — which is why the worker alert
   fires on failures rather than on a stalled queue.
-- The ECS path: a Prometheus agent sidecar with `remote_write`. The task definitions are
-  `cpu 256 / memory 512`, too small to hold one; budget 1024 MB before adding it.
+- A contact point for the alerts. Eight rules evaluate and notify nobody — Grafana's default
+  contact point needs SMTP settings this repo does not carry. `DeadLetterQueueNotEmpty` is the one
+  that matters most, now that the DLQ discards after 30 days.
+- The ECS path: a Prometheus agent sidecar with `remote_write`. Deferred — the planned first
+  deployment is a single EC2 instance, where the agent is just another compose service. See
+  `docs/engineering/SPEC-hosting-migration.md`.
 
 ## RabbitMQ note
 
@@ -638,6 +642,18 @@ token. Prefer the agent.
 `worker_order` and `worker_email` expect a reachable broker, configured through the
 `evangelion/dev/rabbitmq-*` secret references in `.env.local.example`. `worker_notification` does
 not — it speaks only HTTP to the API and Redis for its lease.
+
+**Queue arguments are immutable.** The work queue is declared with `x-max-length` 100,000 and
+`x-overflow reject-publish`; the dead-letter queue with a **30-day `x-message-ttl`**, the same
+100,000 cap, and `x-overflow drop-head`. Changing any of them means draining and deleting the queue
+on the broker and restarting — it is recreated on the next `SetupChannel`. A mismatch shows up as a
+`406 PRECONDITION_FAILED` naming the offending argument, so the log tells you which one.
+
+**Dead-lettered messages are recoverable, and now expire.** Nothing consumes `<queue>.dlq`, so
+`POST /api/v1/Messaging/RedriveDeadLettered?queue=order|email&maxMessages=N` moves them back onto the
+work queue with the retry count reset — Admin only, capped at 500 a batch. After 30 days the broker
+discards them, so `evangelion_dlq_depth` and the `DeadLetterQueueNotEmpty` alert are the difference
+between noticing and losing them.
 
 ## Stop and cleanup
 
@@ -831,6 +847,24 @@ python3 perf/seed.py --users-only    # just the four perf.* accounts, one per ac
 Credentials are written to `perf/.env.perf`, which is git-ignored. `run.sh` sources it and passes
 `ADMIN_*`, `MANAGER_*`, `SUPERVISOR_*`, `EMPLOYEE_*` and `PDV_*` into the container.
 
+**For volume, not breadth**, use the bulk script instead. `seed.py` creates orders through the API,
+one HTTP call each — right for 5,000, useless for 200,000:
+
+```bash
+docker exec -i evangelionerpv2_sqlserver /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "$SQLSERVER_SA_PASSWORD" -C -I -d EvangelionERPV2 \
+  -i perf/seed-volume.sql
+```
+
+200,000 orders and boletos in one month, for exercising the monthly aggregates. Edit `@OrderCount`,
+`@PeriodStart` or `@Cleanup` at the top of the file; re-running tops up rather than duplicating, and
+`@Cleanup = 1` removes the fixture. **`-I` is required** — `Boleto` has a filtered index and the
+insert fails without `QUOTED_IDENTIFIER ON`.
+
+This volume is what exposed an `OutOfMemoryException` in `SalesPerformance/GetPerformance` and
+787 MiB of growth in `Dashboard/Today`, neither of which was visible at 5,000 orders. Both now
+aggregate in SQL.
+
 ### 3. Run a scenario
 
 ```bash
@@ -852,9 +886,14 @@ Results land in `perf/results/<timestamp>-<scenario>-<level>/` as `k6.log` plus 
 
 `write_mixed` drives `Order/InsertOrder`, which persists directly and **never publishes to RabbitMQ**.
 The queue path is `Order/AddOrder` → `InsertOrderInQueue` → the broker, and no scenario exercises it —
-so the message pipeline is currently unmeasured under load. Note also that a queue scenario would
-need its own status thresholds: since publisher confirms were enabled, a broker nack surfaces as a
-500, which the shared `no 5xx` floor would read as a failure.
+so the message pipeline is currently unmeasured under load.
+
+A queue scenario now needs **503** in its thresholds, not 500: a broker that will not accept a
+publish raises `MessageBrokerUnavailableException`, which the exception middleware maps to
+`503 Service Unavailable` with `Retry-After: 5`. That covers the broker being down, a dropped
+connection, and the work queue hitting `x-max-length` and rejecting the publish — back-pressure
+rather than a fault. The shared `no 5xx` floor would still read it as a failure, so such a scenario
+needs its own.
 
 While a run is in flight, the Grafana dashboards at `http://localhost:3000` show the same window from
 the API's side — `resources.csv` is the container view, Prometheus is the application view.
