@@ -1,4 +1,5 @@
-﻿using RabbitMQ.Client.Events;
+﻿using System.Collections.Concurrent;
+using RabbitMQ.Client.Events;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Exceptions;
 using System.Text;
@@ -96,7 +97,28 @@ namespace EvangelionERPV2.Shared.Utils
             });
 
         private readonly IConnection _connection;
+
+        /// <summary>
+        /// The channel that consumes, declares and acknowledges. Never used to publish from a
+        /// request thread — see <see cref="RentPublishChannelAsync"/>.
+        /// </summary>
         private readonly IChannel _channel;
+
+        /// <summary>
+        /// Serialises everything that touches <see cref="_channel"/>. An <c>IChannel</c> is not
+        /// thread-safe, and <c>ConsumerDispatchConcurrency</c> is 10, so up to ten handlers can be
+        /// acknowledging at once.
+        /// </summary>
+        private readonly SemaphoreSlim _channelLock = new(1, 1);
+
+        /// <summary>
+        /// Publishing gets its own channels rather than sharing <see cref="_channel"/> under the
+        /// lock: with publisher confirms a publish waits for the broker's ack, so serialising them
+        /// would cap throughput at one round trip each.
+        /// </summary>
+        private readonly ConcurrentBag<IChannel> _publishChannels = new();
+
+        private const int MaxPooledPublishChannels = 16;
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly TChannelSettings _channelSettings;
         private readonly AWSKMSKeyProvider _kmsProvider;
@@ -159,7 +181,7 @@ namespace EvangelionERPV2.Shared.Utils
                 return Task.CompletedTask;
             };
 
-            SetupChannel();
+            SetupChannelCore();
 
             _jsonOptions = new JsonSerializerOptions
             {
@@ -244,7 +266,72 @@ namespace EvangelionERPV2.Shared.Utils
         /// </summary>
         private const long DeadLetterRetention = 30L * 24 * 60 * 60 * 1000;
 
+        private async Task<IChannel> CreatePublishChannelAsync(CancellationToken cancellationToken)
+        {
+            var channel = await _connection.CreateChannelAsync(
+                new CreateChannelOptions(
+                    publisherConfirmationsEnabled: true,
+                    publisherConfirmationTrackingEnabled: true,
+                    outstandingPublisherConfirmationsRateLimiter: null,
+                    consumerDispatchConcurrency: null),
+                cancellationToken);
+
+            channel.BasicReturnAsync += (_, returned) =>
+            {
+                UnroutableMessages.WithLabels(_channelSettings.QueueName).Inc();
+                Log.Logger.Error(
+                    "Broker returned an unroutable message. Exchange={Exchange} RoutingKey={RoutingKey} Reply={ReplyCode} {ReplyText}",
+                    returned.Exchange,
+                    returned.RoutingKey,
+                    returned.ReplyCode,
+                    returned.ReplyText);
+                return Task.CompletedTask;
+            };
+
+            return channel;
+        }
+
+        private async Task<IChannel> RentPublishChannelAsync(CancellationToken cancellationToken)
+        {
+            while (_publishChannels.TryTake(out var pooled))
+            {
+                if (pooled.IsOpen)
+                    return pooled;
+
+                pooled.Dispose();
+            }
+
+            return await CreatePublishChannelAsync(cancellationToken);
+        }
+
+        private void ReturnPublishChannel(IChannel channel)
+        {
+            // Closed channels are dropped rather than pooled: a channel is killed by the broker on
+            // any protocol error, and handing a dead one to the next publisher turns one failure
+            // into a run of them.
+            if (channel.IsOpen && _publishChannels.Count < MaxPooledPublishChannels)
+            {
+                _publishChannels.Add(channel);
+                return;
+            }
+
+            channel.Dispose();
+        }
+
         public void SetupChannel()
+        {
+            _channelLock.Wait();
+            try
+            {
+                SetupChannelCore();
+            }
+            finally
+            {
+                _channelLock.Release();
+            }
+        }
+
+        private void SetupChannelCore()
         {
             try
             {
@@ -333,7 +420,10 @@ namespace EvangelionERPV2.Shared.Utils
                 var message = JsonSerializer.Serialize(obj, _jsonOptions);
                 var body = Encoding.UTF8.GetBytes(message);
 
-                await _channel.BasicPublishAsync(
+                var channel = await RentPublishChannelAsync(CancellationToken.None);
+                try
+                {
+                    await channel.BasicPublishAsync(
                     exchange: _channelSettings.ExchangeName,
                     routingKey: _channelSettings.RoutingKey,
                     mandatory: true,
@@ -351,6 +441,11 @@ namespace EvangelionERPV2.Shared.Utils
                         }
                     },
                     body: body);
+                }
+                finally
+                {
+                    ReturnPublishChannel(channel);
+                }
             }
             catch (Exception ex)
             {
@@ -393,11 +488,7 @@ namespace EvangelionERPV2.Shared.Utils
             var consumer = new AsyncEventingBasicConsumer(_channel);
             consumer.ReceivedAsync += (_, ea) => HandleDeliveryAsync(ea, processMessageAsync);
 
-            var consumerTag = await _channel.BasicConsumeAsync(
-                queue: _channelSettings.QueueName,
-                autoAck: false,
-                consumer: consumer,
-                cancellationToken: cancellationToken);
+            var consumerTag = await StartConsumerAsync(consumer, cancellationToken);
 
             try
             {
@@ -418,7 +509,7 @@ namespace EvangelionERPV2.Shared.Utils
             {
                 try
                 {
-                    await _channel.BasicCancelAsync(consumerTag, false, CancellationToken.None);
+                    await CancelConsumerAsync(consumerTag);
                 }
                 catch (Exception exception)
                 {
@@ -447,7 +538,7 @@ namespace EvangelionERPV2.Shared.Utils
                     await processMessageAsync(resultObject);
 
                 MessagesProcessed.WithLabels(_channelSettings.QueueName, "ok").Inc();
-                await _channel.BasicAckAsync(ea.DeliveryTag, false);
+                await AckAsync(ea.DeliveryTag);
             }
             catch (Exception ex)
             {
@@ -461,7 +552,7 @@ namespace EvangelionERPV2.Shared.Utils
                     if (await TryScheduleRetryAsync(ea, ex))
                         return;
 
-                    await _channel.BasicNackAsync(ea.DeliveryTag, false, false);
+                    await NackAsync(ea.DeliveryTag);
                 }
                 catch (Exception nackException)
                 {
@@ -503,7 +594,7 @@ namespace EvangelionERPV2.Shared.Utils
 
             for (var i = 0; i < maxMessages && !cancellationToken.IsCancellationRequested; i++)
             {
-                var delivery = await _channel.BasicGetAsync(_channelSettings.QueueNameDLQ, autoAck: false, cancellationToken);
+                var delivery = await GetFromDeadLetterAsync(cancellationToken);
                 if (delivery is null)
                     break; // Queue is empty - nothing further to move.
 
@@ -515,7 +606,10 @@ namespace EvangelionERPV2.Shared.Utils
                     // given a fresh set of attempts, not resuming an exhausted one.
                     headers["x-retry-count"] = 0;
 
-                    await _channel.BasicPublishAsync(
+                    var redriveChannel = await RentPublishChannelAsync(cancellationToken);
+                    try
+                    {
+                        await redriveChannel.BasicPublishAsync(
                         exchange: _channelSettings.ExchangeName,
                         routingKey: _channelSettings.RoutingKey,
                         mandatory: true,
@@ -527,8 +621,13 @@ namespace EvangelionERPV2.Shared.Utils
                         },
                         body: delivery.Body,
                         cancellationToken: cancellationToken);
+                    }
+                    finally
+                    {
+                        ReturnPublishChannel(redriveChannel);
+                    }
 
-                    await _channel.BasicAckAsync(delivery.DeliveryTag, false, cancellationToken);
+                    await AckAsync(delivery.DeliveryTag, cancellationToken);
 
                     MessagesRedriven.WithLabels(_channelSettings.QueueNameDLQ).Inc();
                     moved++;
@@ -542,7 +641,7 @@ namespace EvangelionERPV2.Shared.Utils
                         _channelSettings.QueueNameDLQ,
                         GetSafeExceptionType(exception));
 
-                    await _channel.BasicNackAsync(delivery.DeliveryTag, false, requeue: true, cancellationToken);
+                    await NackAsync(delivery.DeliveryTag, requeue: true, cancellationToken);
                     throw;
                 }
             }
@@ -609,7 +708,7 @@ namespace EvangelionERPV2.Shared.Utils
 
                     MessagesProcessed.WithLabels(_channelSettings.QueueName, "ok").Inc();
                     await TryCancelConsumerAsync(ea.ConsumerTag);
-                    await _channel.BasicAckAsync(ea.DeliveryTag, false);
+                    await AckAsync(ea.DeliveryTag);
                     tcs.TrySetResult(true);
                 }
                 catch (Exception ex)
@@ -628,7 +727,7 @@ namespace EvangelionERPV2.Shared.Utils
                             return;
                         }
 
-                        await _channel.BasicNackAsync(ea.DeliveryTag, false, false);
+                        await NackAsync(ea.DeliveryTag);
                     }
                     catch (Exception nackException)
                     {
@@ -657,11 +756,7 @@ namespace EvangelionERPV2.Shared.Utils
                     });
                 }
 
-                await _channel.BasicConsumeAsync(
-                    queue: _channelSettings.QueueName,
-                    autoAck: false,
-                    consumer: consumer,
-                    cancellationToken: cancellationToken);
+                await StartConsumerAsync(consumer, cancellationToken);
 
                 await tcs.Task;
             }
@@ -685,7 +780,7 @@ namespace EvangelionERPV2.Shared.Utils
                 {
                     try
                     {
-                        await _channel.BasicCancelAsync(consumerTag, false, CancellationToken.None);
+                        await CancelConsumerAsync(consumerTag);
                     }
                     catch (Exception ex)
                     {
@@ -712,7 +807,10 @@ namespace EvangelionERPV2.Shared.Utils
             var headers = CloneHeaders(eventArgs.BasicProperties?.Headers);
             headers["x-retry-count"] = nextRetryCount;
 
-            await _channel.BasicPublishAsync(
+            var retryChannel = await RentPublishChannelAsync(CancellationToken.None);
+            try
+            {
+                await retryChannel.BasicPublishAsync(
                 exchange: _channelSettings.ExchangeName,
                 routingKey: _channelSettings.RoutingKey,
                 mandatory: true,
@@ -725,8 +823,13 @@ namespace EvangelionERPV2.Shared.Utils
                     Headers = headers
                 },
                 body: eventArgs.Body);
+            }
+            finally
+            {
+                ReturnPublishChannel(retryChannel);
+            }
 
-            await _channel.BasicAckAsync(eventArgs.DeliveryTag, false);
+            await AckAsync(eventArgs.DeliveryTag);
 
             Log.Logger.Warning(
                 "Message processing failed. Retrying message attempt {RetryAttempt}/{MaxRetries}. ErrorType={ErrorType}",
@@ -735,6 +838,75 @@ namespace EvangelionERPV2.Shared.Utils
                 GetSafeExceptionType(processingException));
 
             return true;
+        }
+
+        private async Task<string> StartConsumerAsync(IAsyncBasicConsumer consumer, CancellationToken cancellationToken)
+        {
+            await _channelLock.WaitAsync(cancellationToken);
+            try
+            {
+                return await _channel.BasicConsumeAsync(
+                    queue: _channelSettings.QueueName,
+                    autoAck: false,
+                    consumer: consumer,
+                    cancellationToken: cancellationToken);
+            }
+            finally
+            {
+                _channelLock.Release();
+            }
+        }
+
+        private async Task CancelConsumerAsync(string consumerTag)
+        {
+            await _channelLock.WaitAsync(CancellationToken.None);
+            try
+            {
+                await _channel.BasicCancelAsync(consumerTag, false, CancellationToken.None);
+            }
+            finally
+            {
+                _channelLock.Release();
+            }
+        }
+
+        private async Task AckAsync(ulong deliveryTag, CancellationToken cancellationToken = default)
+        {
+            await _channelLock.WaitAsync(cancellationToken);
+            try
+            {
+                await _channel.BasicAckAsync(deliveryTag, false, cancellationToken);
+            }
+            finally
+            {
+                _channelLock.Release();
+            }
+        }
+
+        private async Task NackAsync(ulong deliveryTag, bool requeue = false, CancellationToken cancellationToken = default)
+        {
+            await _channelLock.WaitAsync(cancellationToken);
+            try
+            {
+                await _channel.BasicNackAsync(deliveryTag, false, requeue, cancellationToken);
+            }
+            finally
+            {
+                _channelLock.Release();
+            }
+        }
+
+        private async Task<BasicGetResult?> GetFromDeadLetterAsync(CancellationToken cancellationToken)
+        {
+            await _channelLock.WaitAsync(cancellationToken);
+            try
+            {
+                return await _channel.BasicGetAsync(_channelSettings.QueueNameDLQ, autoAck: false, cancellationToken);
+            }
+            finally
+            {
+                _channelLock.Release();
+            }
         }
 
         private static Dictionary<string, object?> CloneHeaders(IDictionary<string, object?>? sourceHeaders)
@@ -754,11 +926,19 @@ namespace EvangelionERPV2.Shared.Utils
         {
             try
             {
-                var main = await _channel.QueueDeclarePassiveAsync(_channelSettings.QueueName, cancellationToken);
-                QueueDepth.WithLabels(_channelSettings.QueueName).Set(main.MessageCount);
+                await _channelLock.WaitAsync(cancellationToken);
+                try
+                {
+                    var main = await _channel.QueueDeclarePassiveAsync(_channelSettings.QueueName, cancellationToken);
+                    QueueDepth.WithLabels(_channelSettings.QueueName).Set(main.MessageCount);
 
-                var dlq = await _channel.QueueDeclarePassiveAsync(_channelSettings.QueueNameDLQ, cancellationToken);
-                DlqDepth.WithLabels(_channelSettings.QueueNameDLQ).Set(dlq.MessageCount);
+                    var dlq = await _channel.QueueDeclarePassiveAsync(_channelSettings.QueueNameDLQ, cancellationToken);
+                    DlqDepth.WithLabels(_channelSettings.QueueNameDLQ).Set(dlq.MessageCount);
+                }
+                finally
+                {
+                    _channelLock.Release();
+                }
             }
             catch (Exception exception)
             {
