@@ -157,13 +157,17 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var from = candidateLines.Min(line => line.PostedAt).AddDays(-MatchWindowInDays - 1);
             var to = candidateLines.Max(line => line.PostedAt).AddDays(MatchWindowInDays + 1);
 
-            var orders = (await _orderRepository.GetAllAsync(order =>
+            // GetPagedAsync, not GetAllAsync: OrderRepository overrides GetAllAsync to Include
+            // Customer, OrderedProduct and Product, so matching a bank statement would drag every
+            // line item of every order in the window across the wire to read three columns.
+            var orders = (await _orderRepository.GetPagedAsync(order =>
                     order.EnterpriseId == enterpriseId
                     && order.IsActive == true
                     && order.RefundedAt == null
                     && order.Status != (int)EnumOrderStatus.Refund
                     && (order.Payday.HasValue ? order.Payday.Value : order.PaymentScheduledDate) >= from
                     && (order.Payday.HasValue ? order.Payday.Value : order.PaymentScheduledDate) <= to))
+                .Items
                 .Select(order => new Candidate(
                     order.Id,
                     (order.Payday ?? order.PaymentScheduledDate).Date,
@@ -310,11 +314,15 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (line.Amount == 0)
                 throw new InsertDatabaseException("A zero-amount statement line settles no document.");
 
+            // One row, and only to know whether it is there. GetAllAsync would fetch the order
+            // with its customer and every line item to answer a yes/no.
             var exists = line.Amount > 0
-                ? (await _orderRepository.GetAllAsync(order =>
-                        order.Id == referenceId && order.EnterpriseId == enterpriseId && order.IsActive == true)).Any()
-                : (await _payableBillRepository.GetAllAsync(payable =>
-                        payable.Id == referenceId && payable.EnterpriseId == enterpriseId && payable.IsActive == true)).Any();
+                ? (await _orderRepository.GetPagedAsync(order =>
+                        order.Id == referenceId && order.EnterpriseId == enterpriseId && order.IsActive == true,
+                        pageNumber: 1, pageSize: 1)).Items.Count > 0
+                : (await _payableBillRepository.GetPagedAsync(payable =>
+                        payable.Id == referenceId && payable.EnterpriseId == enterpriseId && payable.IsActive == true,
+                        pageNumber: 1, pageSize: 1)).Items.Count > 0;
 
             if (!exists)
             {

@@ -491,17 +491,41 @@ namespace EvangelionERPV2.BillsModule.Test
                         return created;
                     });
 
+                // GetPagedAsync, matching the service: it reads orders and payables that way so it
+                // does not drag every line item of every candidate across to compare three columns.
                 var orderRepository = new Mock<IRepository<Order>>();
                 orderRepository
                     .Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>()))
                     .ReturnsAsync((Expression<Func<Order, bool>>? predicate) =>
                         Orders.Where(predicate!.Compile()).ToList());
+                orderRepository
+                    .Setup(x => x.GetPagedAsync(
+                        It.IsAny<Expression<Func<Order, bool>>?>(),
+                        It.IsAny<Func<IQueryable<Order>, IOrderedQueryable<Order>>?>(),
+                        It.IsAny<int?>(),
+                        It.IsAny<int?>()))
+                    .ReturnsAsync((
+                        Expression<Func<Order, bool>>? predicate,
+                        Func<IQueryable<Order>, IOrderedQueryable<Order>>? _,
+                        int? pageNumber,
+                        int? pageSize) => Page(Orders, predicate, pageNumber, pageSize));
 
                 var payableRepository = new Mock<IRepository<PayableBill>>();
                 payableRepository
                     .Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<PayableBill, bool>>>()))
                     .ReturnsAsync((Expression<Func<PayableBill, bool>>? predicate) =>
                         Payables.Where(predicate!.Compile()).ToList());
+                payableRepository
+                    .Setup(x => x.GetPagedAsync(
+                        It.IsAny<Expression<Func<PayableBill, bool>>?>(),
+                        It.IsAny<Func<IQueryable<PayableBill>, IOrderedQueryable<PayableBill>>?>(),
+                        It.IsAny<int?>(),
+                        It.IsAny<int?>()))
+                    .ReturnsAsync((
+                        Expression<Func<PayableBill, bool>>? predicate,
+                        Func<IQueryable<PayableBill>, IOrderedQueryable<PayableBill>>? _,
+                        int? pageNumber,
+                        int? pageSize) => Page(Payables, predicate, pageNumber, pageSize));
 
                 var enterpriseRepository = new Mock<IRepository<Enterprise>>();
                 enterpriseRepository.Setup(x => x.GetByIdAsync(EnterpriseId)).ReturnsAsync(Enterprise);
@@ -513,6 +537,25 @@ namespace EvangelionERPV2.BillsModule.Test
                     payableRepository.Object,
                     enterpriseRepository.Object);
             }
+
+            /// <summary>
+            /// What the real GetPagedAsync does to a list: filter, then take the page when one is
+            /// asked for. No Includes and no implicit IsActive filter, which is the point of the
+            /// service using it.
+            /// </summary>
+            private static (IReadOnlyList<T> Items, int TotalItems) Page<T>(
+                IEnumerable<T> source,
+                Expression<Func<T, bool>>? predicate,
+                int? pageNumber,
+                int? pageSize)
+            {
+                var filtered = (predicate == null ? source : source.Where(predicate.Compile())).ToList();
+                if (pageNumber == null || pageSize == null)
+                    return (filtered, filtered.Count);
+
+                return (filtered.Skip((pageNumber.Value - 1) * pageSize.Value).Take(pageSize.Value).ToList(), filtered.Count);
+            }
         }
     }
+
 }
