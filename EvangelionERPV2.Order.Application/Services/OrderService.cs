@@ -169,6 +169,41 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 x => x.IsActive == true && x.EnterpriseId == enterpriseId);
         }
 
+        public async Task<IEnumerable<Order>> GetByFilterAsync(Guid enterpriseId,
+            OrderFilterRequestDTO filter,
+            bool descending,
+            int pageNumber,
+            int pageSize)
+        {
+            if (enterpriseId == Guid.Empty)
+                return [];
+
+            ArgumentNullException.ThrowIfNull(filter);
+
+            var status = filter.Status;
+            var customerId = filter.CustomerId;
+            var isActive = filter.IsActive;
+            var startDate = filter.StartDate?.Date;
+
+            // Half-open upper bound rather than CreatedAt.Date <= EndDate: comparing the column
+            // against a value keeps the (EnterpriseId, IsActive, CreatedAt) index seekable, while
+            // CAST(CreatedAt AS date) on every row does not. Same rows either way - a whole day is
+            // still included, because the bound is the start of the next one.
+            var endDateExclusive = filter.EndDate?.Date.AddDays(1);
+
+            return await _orderRepository.GetAllAsyncByFilter(
+                descending,
+                pageNumber,
+                pageSize,
+                x => x.EnterpriseId == enterpriseId &&
+                    (!isActive.HasValue || x.IsActive == isActive.Value) &&
+                    (!status.HasValue || x.Status == status.Value) &&
+                    (!customerId.HasValue || x.CustomerId == customerId.Value) &&
+                    (!startDate.HasValue || x.CreatedAt >= startDate.Value) &&
+                    (!endDateExclusive.HasValue || x.CreatedAt < endDateExclusive.Value),
+                x => x.CreatedAt!);
+        }
+
         public async Task<Order?> GetByIdAsync(Guid id, Guid enterpriseId)
         {
             if (enterpriseId == Guid.Empty)

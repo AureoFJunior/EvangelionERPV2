@@ -115,6 +115,52 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             throw new NotFoundDatabaseException();
         }
 
+        /// <summary>
+        /// Filters, orders and pages in SQL, keeping the same eager loads and the same implicit
+        /// <c>IsActive</c> filter as the <c>GetAllAsync</c> overrides above.
+        /// </summary>
+        /// <remarks>
+        /// The base implementation reads straight off <c>DbSet&lt;Order&gt;</c> with no
+        /// <c>Include</c>, which would return orders whose Customer and OrderedProduct are null.
+        /// Returns an empty list rather than throwing <see cref="NotFoundDatabaseException"/>:
+        /// paging past the end is a normal result, not a missing row.
+        /// </remarks>
+        public async override Task<IEnumerable<Order>> GetAllAsyncByFilter(bool descending,
+            int? pageNumber,
+            int? pageSize,
+            Expression<Func<Order, bool>>? predicate = null,
+            Expression<Func<Order, object>>? orderBy = null)
+        {
+            IQueryable<Order> query = _context.Set<Order>()
+                .Include(o => o.Customer)
+                .Include(o => o.OrderedProduct!)
+                    .ThenInclude(op => op.Product)
+                .Where(o => o.IsActive ?? false)
+                .AsSplitQuery()
+                .AsNoTracking();
+
+            if (predicate != null)
+                query = query.Where(predicate);
+
+            // ThenBy(Id) keeps paging deterministic: neither CreatedAt nor a caller-supplied key is
+            // unique, and SQL ORDER BY is not stable, so rows can repeat or vanish across pages.
+            Expression<Func<Order, object>> sortKey = orderBy ?? (o => o.CreatedAt!);
+
+            IOrderedQueryable<Order> ordered = descending
+                ? query.OrderByDescending(sortKey).ThenByDescending(o => o.Id)
+                : query.OrderBy(sortKey).ThenBy(o => o.Id);
+
+            if (pageNumber == null || pageSize == null)
+                return await ordered.ToListAsync();
+
+            int skip = (pageNumber.Value - 1) * pageSize.Value;
+
+            return await ordered
+                .Skip(skip)
+                .Take(pageSize.Value)
+                .ToListAsync();
+        }
+
         public async Task<IEnumerable<Order>> GetAllAsyncWithOrderedProductsByEnterprise(Enterprise? enterprise)
         {
             if (enterprise == null)

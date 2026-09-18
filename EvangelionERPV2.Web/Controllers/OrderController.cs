@@ -118,30 +118,14 @@ namespace EvangelionERPV2.Web.Controllers
 
                 filter ??= new OrderFilterRequestDTO();
 
-                var statusFilter = filter.Status;
-                var customerIdFilter = filter.CustomerId;
-                var startDateFilter = filter.StartDate?.Date;
-                var endDateFilter = filter.EndDate?.Date;
-                var isActiveFilter = filter.IsActive;
-
-                var orders = (await _orderService.GetByEnterpriseIdAsync(enterpriseId))
-                    .Where(x =>
-                        (!isActiveFilter.HasValue || x.IsActive == isActiveFilter.Value) &&
-                        (!statusFilter.HasValue || x.Status == statusFilter.Value) &&
-                        (!customerIdFilter.HasValue || x.CustomerId == customerIdFilter.Value) &&
-                        (!startDateFilter.HasValue || x.CreatedAt.Date >= startDateFilter.Value) &&
-                        (!endDateFilter.HasValue || x.CreatedAt.Date <= endDateFilter.Value))
-                    .OrderByDescending(x => x.CreatedAt)
-                    .ToList();
-
-                if (!descending)
-                    orders = orders.OrderBy(x => x.CreatedAt).ToList();
-
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
-                orders = orders
-                    .Skip((normalizedPageNumber - 1) * normalizedPageSize)
-                    .Take(normalizedPageSize)
-                    .ToList();
+
+                var orders = (await _orderService.GetByFilterAsync(
+                    enterpriseId,
+                    filter,
+                    descending,
+                    normalizedPageNumber,
+                    normalizedPageSize)).ToList();
 
                 if (!orders.Any())
                     return NoContent();
