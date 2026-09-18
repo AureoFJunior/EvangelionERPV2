@@ -50,15 +50,9 @@ if (-not $SkipIdentityCheck) {
     aws @awsArgs | Out-Null
 }
 
-# Prometheus and Grafana live in their own compose file, not a profile, so the profile list below
-# cannot protect them from the orphan sweep - compose only knows a service exists if its file is
-# named. Without this, every local-up would delete a running monitoring stack, which is the same
-# trap voice hit and the reason the comment below exists.
-$files = @()
-if ($WithObservability) {
-    $files = @("-f", "docker-compose.yml", "-f", "docker-compose.observability.yml")
-}
-
+# No -f anywhere in this script: COMPOSE_FILE in the env file names every compose file, and an
+# explicit -f would override it rather than add to it - silently dropping docker-compose.gpu.yml,
+# which only modifies whisper and so fails by running it on the CPU rather than by erroring.
 $profiles = @("--profile", "proxy", "--profile", "localdb")
 if ($WithWorkers -or $WithOrderWorker) {
     $profiles += @("--profile", "workers")
@@ -68,11 +62,16 @@ if ($WithWorkers -or $WithOrderWorker) {
 if ($WithVoice) {
     $profiles += @("--profile", "voice")
 }
+# The exporters are useless without Prometheus to scrape them, so they ride on the same switch
+# rather than a second one. Each sits idle when its *_EXPORTER_* variables are unset.
+if ($WithObservability) {
+    $profiles += @("--profile", "exporters")
+}
 
 Write-Host "Stopping previous containers..."
-docker compose @files --env-file $envPath @profiles down --remove-orphans
+docker compose --env-file $envPath @profiles down --remove-orphans
 
-$upArgs = $files + @("--env-file", $envPath) + $profiles + @("up", "-d")
+$upArgs = @("--env-file", $envPath) + $profiles + @("up", "-d")
 if (-not $NoBuild) {
     $upArgs += "--build"
 }
@@ -96,9 +95,10 @@ if ($WithVoice) {
 
 # Same reasoning as voice: naming services means every service has to be named, or the stack is
 # protected from the orphan sweep and then never started. Needs GRAFANA_ADMIN_PASSWORD in the env
-# file - compose refuses outright without it, by design.
+# file - compose refuses outright without it, by design. "no such service" here means COMPOSE_FILE
+# does not name docker-compose.observability.yml.
 if ($WithObservability) {
-    $upArgs += @("prometheus", "grafana")
+    $upArgs += @("prometheus", "grafana", "mssql_exporter", "redis_exporter", "rabbitmq_exporter")
 }
 
 Write-Host "Starting containers..."

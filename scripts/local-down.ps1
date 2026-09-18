@@ -18,13 +18,8 @@ if (-not (Test-Path $envPath)) {
 
 Set-Location $repoRoot
 
-# Prometheus and Grafana are in their own compose file; compose only knows they exist if it is
-# named, so without this they survive a down and then get deleted as orphans by the next local-up.
-$files = @()
-if ($WithObservability) {
-    $files = @("-f", "docker-compose.yml", "-f", "docker-compose.observability.yml")
-}
-
+# No -f anywhere in this script, for the reason local-up.ps1 gives: COMPOSE_FILE names the files,
+# and an explicit -f would override it and drop one.
 $profiles = @("--profile", "proxy", "--profile", "localdb")
 if ($WithWorkers -or $WithOrderWorker) {
     $profiles += @("--profile", "workers")
@@ -34,6 +29,11 @@ if ($WithWorkers -or $WithOrderWorker) {
 if ($WithVoice) {
     $profiles += @("--profile", "voice")
 }
+# Same pairing as local-up.ps1. A profile left out here leaves its containers attached to the shared
+# network, and the teardown then fails with "Resource is still in use" rather than removing it.
+if ($WithObservability) {
+    $profiles += @("--profile", "exporters")
+}
 
-docker compose @files --env-file $envPath @profiles down --remove-orphans
+docker compose --env-file $envPath @profiles down --remove-orphans
 Write-Host "Stopped."

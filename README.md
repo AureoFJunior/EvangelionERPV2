@@ -208,20 +208,23 @@ the metrics stack. Naming no services starts everything the enabled profiles con
 
 ```bash
 docker compose --env-file .env.local \
-  -f docker-compose.yml -f docker-compose.observability.yml \
-  --profile localdb --profile proxy --profile workers --profile voice \
+  --profile localdb --profile proxy --profile workers --profile voice --profile exporters \
   up -d --build
 ```
 
-Prometheus and Grafana are in a second file rather than a profile, so **they only exist for a compose
-command that names that file** — `-f` on the `up`, and on the `down` too (see "Stop and cleanup", it
-is the one way to lose your stored metrics history). `.env.local` must set `GRAFANA_ADMIN_PASSWORD`
-or compose refuses to start at all; that is deliberate, and there is no default.
+**No `-f` flags, deliberately.** `COMPOSE_FILE` in `.env.local` names every file this project uses:
 
-Drop both `-f` flags to run everything except the metrics stack.
+```
+COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml:docker-compose.observability.yml
+```
 
-With `COMPOSE_FILE` set in `.env.local` (see "Whisper on the GPU") that same command runs Whisper on
-the card — nothing extra to type.
+Set it once and every command sees the same files, which is what makes the `down` below match this
+`up`. Passing `-f` **overrides** `COMPOSE_FILE` rather than adding to it, so a command with two `-f`
+flags silently drops the third file — the GPU one, in this project, which leaves Whisper running on
+the CPU with no error to tell you.
+
+`.env.local` must set `GRAFANA_ADMIN_PASSWORD` or compose refuses to start at all; that is
+deliberate, and there is no default.
 
 PowerShell shortcut, which handles the file wiring for you:
 
@@ -229,7 +232,7 @@ PowerShell shortcut, which handles the file wiring for you:
 .\scripts\local-up.ps1 -WithWorkers -WithVoice -WithObservability
 ```
 
-That brings up ten containers:
+That brings up thirteen containers:
 
 | Service | Profile | Port (host) | Needs |
 |---|---|---|---|
@@ -243,6 +246,14 @@ That brings up ten containers:
 | `piper` | `voice` | `9100` | its voice model in the `piper_voices` volume |
 | `prometheus` | *(own file)* | `9090`, **loopback only** | nothing; scrapes the API and workers on `:9101` |
 | `grafana` | *(own file)* | `3000` | Prometheus; `GRAFANA_ADMIN_PASSWORD` |
+| `mssql_exporter` | `exporters` | — | SQL Server; `MSSQL_EXPORTER_*` |
+| `redis_exporter` | `exporters` | — | Redis; `REDIS_EXPORTER_ADDR` |
+| `rabbitmq_exporter` | `exporters` | — | RabbitMQ management API; `RABBITMQ_EXPORTER_*` |
+
+The three exporters publish no host port: Prometheus scrapes them over the compose network, and each
+one sits idle rather than failing when its `*_EXPORTER_*` variables are unset. Redis and RabbitMQ
+themselves are not compose services here — they run outside, which is why the exporters need an
+address rather than a `depends_on`.
 
 Three things are **not** started by that command and the assistant is degraded or silent without
 them:
@@ -687,8 +698,9 @@ the same dashboards with no clicking. Edits made in the Grafana UI are overwritt
 is the point: a dashboard that exists only in somebody's browser is not a dashboard.
 
 ```bash
-# .env.local must set GRAFANA_ADMIN_PASSWORD — there is no default, deliberately
-docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d prometheus grafana
+# .env.local must set GRAFANA_ADMIN_PASSWORD — there is no default, deliberately, and it is read
+# from that file only because --env-file names it
+docker compose --env-file .env.local up -d prometheus grafana
 ```
 
 | | URL | Auth |
@@ -756,9 +768,7 @@ need real credentials, not the `evangelion/dev/*` references the app resolves at
 ```bash
 ./scripts/exporter-env.sh >> .env.local      # reads the secrets with your AWS profile
 
-docker compose --env-file .env.local \
-  -f docker-compose.yml -f docker-compose.observability.yml \
-  --profile exporters up -d
+docker compose --env-file .env.local --profile exporters up -d
 ```
 
 | Exporter | Source | Gives you |
@@ -874,38 +884,33 @@ Tear down everything the "Everything at once" command started — same files, sa
 
 ```bash
 docker compose --env-file .env.local \
-  -f docker-compose.yml -f docker-compose.observability.yml \
-  --profile localdb --profile proxy --profile workers --profile voice \
+  --profile localdb --profile proxy --profile workers --profile voice --profile exporters \
   down --remove-orphans
 ```
 
-```powershell
-.\scripts\local-down.ps1 -WithWorkers -WithVoice
-```
+The same profiles as the `up`, and the same absence of `-f`. Volumes are kept — SQL Server data,
+Prometheus history and Grafana's stored config all survive. Add `-v` only when you mean to lose them.
 
 **Name every profile you started.** `down --remove-orphans` deletes containers belonging to profiles
 you leave out, so a `down` without `--profile voice` removes `piper` and `whisper` — and voice then
 fails with `Name or service not known (piper:8000)` until they are started again. A restart policy
 does not help: they were removed, not stopped.
 
-**The same applies to the observability stack, and a profile cannot save it.** Prometheus and Grafana
-live in their own compose file, and compose only knows a service exists if its file is named — so a
-`down --remove-orphans`, or the one `local-up.ps1` runs before it starts anything, deletes them as
-orphans. Name the file, or use the switch:
+**A profile you leave out can also block the teardown rather than break something later.** Omitting
+`--profile exporters` leaves the three exporters attached to the shared network, and compose then
+refuses to remove it:
+
+```
+Network evangelionerpv2_custom_network  Resource is still in use
+```
+
+Nothing is broken when that happens; the command simply did not cover everything. Re-run it with the
+missing profile, or list what is still attached:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.observability.yml \
-  --profile localdb --profile proxy --profile workers --profile voice \
-  down --remove-orphans
+docker network inspect evangelionerpv2_custom_network \
+  --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}'
 ```
-
-```powershell
-.\scripts\local-up.ps1   -WithObservability    # also starts prometheus + grafana
-.\scripts\local-down.ps1 -WithObservability
-```
-
-Losing Prometheus loses its stored history with it, since the volume goes when the container is
-removed as an orphan.
 
 Check what is left:
 
@@ -1066,6 +1071,10 @@ what you measure. `docker-compose.perf.yml` raises it for the API container only
 docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.perf.yml \
   up -d evangelionerpv2
 ```
+
+`-f` here rather than `COMPOSE_FILE`, unlike everywhere else above: the override is wanted for this
+one container and nothing else, and because the command names a single service and never sweeps
+orphans, the files it drops cost nothing — no other container is touched.
 
 **Do not use that override for the `rate_limit_guard` scenario** — that one exists to prove the
 limiter still works, so it needs the normal limit.
