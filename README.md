@@ -58,8 +58,8 @@ cash-flow forecast, bank reconciliation, payable bills and sales performance.
 supported setup today — nothing runs in AWS, and production is deferred by choice.
 
 **Deploying it later?** [Deploying to production](#deploying-to-production) is the runbook, written
-for the day that happens. `docs/engineering/SPEC-production-readiness.md` tracks what is done and
-what is left.
+for the day that happens. `docs/engineering/SPEC-production-deploy.md` is the plan and the
+ordered checklist for it; `SPEC-production-readiness.md` covers what was built and measured in dev.
 
 ## Tech stack
 
@@ -548,7 +548,7 @@ Stop shortcut:
 The production target is **one EC2 instance running the same compose file**, with RDS private in the
 same VPC — not ECS. ECS is Phase 2, kept in terraform behind `var.enable_ecs` and triggered by
 growth rather than by a date. Full reasoning, costs and the Phase 2 triggers are in
-`docs/engineering/SPEC-production-readiness.md` §9.
+`docs/engineering/SPEC-production-deploy.md` §9.
 
 ```powershell
 Copy-Item .env.ec2.example .env.ec2
@@ -571,7 +571,7 @@ The target is **one EC2 instance running this compose file**, with RDS private i
 Terraform describes all of it and is validated but never applied. ECS is Phase 2, parked behind
 `var.enable_ecs`.
 
-Status and ownership live in `docs/engineering/SPEC-production-readiness.md`.
+Status and ownership live in `docs/engineering/SPEC-production-deploy.md` §0.
 
 ### First deployment, in order
 
@@ -837,7 +837,7 @@ token. Prefer the agent.
 
 - The ECS path: a Prometheus agent sidecar with `remote_write`. Deferred — the planned first
   deployment is a single EC2 instance, where the agent is just another compose service. See
-  `docs/engineering/SPEC-production-readiness.md` §9.
+  `docs/engineering/SPEC-production-deploy.md` §9.
 
 ### Outbound mail
 
