@@ -1,8 +1,12 @@
 using System.Linq.Expressions;
 using EvangelionERPV2.BillsModule.Application.Services;
+using EvangelionERPV2.Shared.Auditing;
+using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Moq;
 
 namespace EvangelionERPV2.BillsModule.Test
@@ -25,7 +29,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 new Enterprise { Id = enterpriseId, IsActive = true, Name = "E", CurrentBalance = 321.45m });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext());
 
             var result = await service.GetForecastAsync(enterpriseId, 5);
 
@@ -59,7 +63,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 100);
 
@@ -80,7 +84,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync(new Enterprise { Id = Guid.NewGuid(), CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext());
 
             await Assert.ThrowsAsync<ArgumentException>(() => service.RunSimulationAsync(Guid.NewGuid(), Guid.NewGuid(), new RunSimulationRequestDTO
             {
@@ -118,7 +122,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 0);
 
@@ -166,7 +170,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 200);
 
@@ -199,7 +203,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object);
+            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 100);
 
@@ -322,6 +326,76 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(100, result.DailyProjection.Single(x => x.Date == today.AddDays(6)).AccountsReceivable, 2);
         }
 
+        /// <summary>
+        /// The window filter is in SQL now, and the resolver truncates to a date. An order due at
+        /// 23:00 on the last day of the horizon must still count.
+        /// </summary>
+        /// <remarks>
+        /// Comparing the raw column against midnight on the last day is the easy version of this
+        /// bound and it silently drops that order, which is why the query uses an exclusive bound
+        /// on the following day instead.
+        /// </remarks>
+        [Fact]
+        public async Task GetForecastAsync_WhenReceivableFallsLateOnTheFinalDay_ShouldStillProjectIt()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var today = DateTime.UtcNow.Date;
+            var lastDay = today.AddDays(30);
+
+            var orders = new List<Order>
+            {
+                new() { EnterpriseId = enterpriseId, PaymentScheduledDate = lastDay.AddHours(23), TotalValue = 77, IsActive = true }
+            };
+
+            var result = await BuildForecastAsync(enterpriseId, orders);
+
+            Assert.Equal(77, result.DailyProjection.Single(x => x.Date == lastDay).AccountsReceivable, 2);
+            Assert.Equal(77, result.FinalProjectedBalance, 2);
+        }
+
+        /// <summary>
+        /// The other half of the same bound: orders outside the horizon must not be read at all.
+        /// </summary>
+        [Fact]
+        public async Task GetForecastAsync_ShouldIgnoreOrdersOutsideTheHorizon()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var today = DateTime.UtcNow.Date;
+
+            var orders = new List<Order>
+            {
+                new() { EnterpriseId = enterpriseId, PaymentScheduledDate = today.AddDays(31), TotalValue = 500, IsActive = true },
+                new() { EnterpriseId = enterpriseId, PaymentScheduledDate = today.AddDays(-1), TotalValue = 900, IsActive = true },
+                new() { EnterpriseId = enterpriseId, PaymentScheduledDate = today.AddDays(5), TotalValue = 10, IsActive = true }
+            };
+
+            var result = await BuildForecastAsync(enterpriseId, orders);
+
+            Assert.Equal(10, result.FinalProjectedBalance, 2);
+            Assert.All(result.DailyProjection.Where(x => x.Date != today.AddDays(5)),
+                day => Assert.Equal(0, day.AccountsReceivable, 2));
+        }
+
+        /// <summary>
+        /// Another tenant's orders must never reach the projection.
+        /// </summary>
+        [Fact]
+        public async Task GetForecastAsync_ShouldIgnoreAnotherEnterprisesOrders()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var today = DateTime.UtcNow.Date;
+
+            var orders = new List<Order>
+            {
+                new() { EnterpriseId = enterpriseId, PaymentScheduledDate = today.AddDays(2), TotalValue = 40, IsActive = true },
+                new() { EnterpriseId = Guid.NewGuid(), PaymentScheduledDate = today.AddDays(2), TotalValue = 5000, IsActive = true }
+            };
+
+            var result = await BuildForecastAsync(enterpriseId, orders);
+
+            Assert.Equal(40, result.FinalProjectedBalance, 2);
+        }
+
         private static async Task<CashFlowForecastDTO> BuildForecastAsync(
             Guid enterpriseId, List<Order> orders, params Bill[] bills)
         {
@@ -342,9 +416,65 @@ namespace EvangelionERPV2.BillsModule.Test
                 payableRepo.Object,
                 BillRepoReturning(bills),
                 enterpriseRepo.Object,
-                new Mock<IRepository<ForecastSimulationLog>>().Object);
+                new Mock<IRepository<ForecastSimulationLog>>().Object,
+                BuildContext(orders, bills));
 
             return await service.GetForecastAsync(enterpriseId, 30, 0);
+        }
+
+        /// <summary>
+        /// The forecast reads orders and their bills through EF, not through the repositories, so
+        /// they have to exist in a context rather than in a mock.
+        /// </summary>
+        /// <remarks>
+        /// That changed when the receivable window moved into SQL: the service used to load every
+        /// active order for the enterprise and filter in memory, which ran a 1.84M-order tenant out
+        /// of memory. Ids are assigned here because several of these tests build orders without
+        /// one, and two rows keyed on Guid.Empty cannot both be added.
+        /// </remarks>
+        private static AppDbContext BuildContext(
+            IEnumerable<Order>? orders = null,
+            IEnumerable<Bill>? bills = null)
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase($"cash-flow-forecast-{Guid.NewGuid():N}")
+                .Options;
+
+            var context = new AppDbContext(
+                options,
+                httpContextAccessor: null,
+                auditTrailEntryFactory: new NoopAuditTrailEntryFactory());
+
+            foreach (var order in orders ?? [])
+            {
+                if (order.Id == Guid.Empty)
+                    order.Id = Guid.NewGuid();
+
+                context.Set<Order>().Add(order);
+            }
+
+            foreach (var bill in bills ?? [])
+            {
+                if (bill.Id == Guid.Empty)
+                    bill.Id = Guid.NewGuid();
+
+                context.Set<Bill>().Add(bill);
+            }
+
+            context.SaveChanges();
+            return context;
+        }
+
+        private sealed class NoopAuditTrailEntryFactory : IAuditTrailEntryFactory
+        {
+            public IReadOnlyCollection<AuditTrail> Create(
+                IEnumerable<EntityEntry<BaseEntity>> entries,
+                Guid? userId,
+                Guid? enterpriseId,
+                DateTime changedAt)
+            {
+                return Array.Empty<AuditTrail>();
+            }
         }
 
         /// <summary>

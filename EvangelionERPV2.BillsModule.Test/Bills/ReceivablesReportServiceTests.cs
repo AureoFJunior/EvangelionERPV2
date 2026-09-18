@@ -1,3 +1,7 @@
+using EvangelionERPV2.Shared.Auditing;
+using EvangelionERPV2.Shared.Context;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using System.Linq.Expressions;
 using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.Shared.Entities;
@@ -240,6 +244,90 @@ namespace EvangelionERPV2.BillsModule.Test
             CreatedAt = DateTime.UtcNow.AddDays(-20)
         };
 
+        /// <summary>
+        /// The customer-scoped aging counts in SQL while the tenant-wide one builds a position per
+        /// open order. Same bucket boundaries, same receivable rule — so for one customer they must
+        /// produce the same five numbers.
+        /// </summary>
+        /// <remarks>
+        /// The scoped overload exists because the tenant-wide one cost 1.1 GiB to read a single
+        /// customer's row on a tenant with 1.8M open orders. That made the bucket rule exist twice.
+        /// This is what keeps the two copies honest; if either side changes alone, it fails.
+        /// </remarks>
+        [Fact]
+        public async Task TheScopedAgingAndTheTenantWideAging_AgreeForOneCustomer()
+        {
+            var today = DateTime.UtcNow.Date;
+            var customer = BuildCustomer("Asuka");
+
+            // One order per bucket, plus the boundary days themselves, plus two that must not count.
+            var notYetDue = BuildOrderWithBillFor(customer, 100m, today.AddDays(10));
+            var dueToday = BuildOrderWithBillFor(customer, 200m, today);
+            var day1 = BuildOrderWithBillFor(customer, 300m, today.AddDays(-1));
+            var day30 = BuildOrderWithBillFor(customer, 400m, today.AddDays(-30));
+            var day31 = BuildOrderWithBillFor(customer, 500m, today.AddDays(-31));
+            var day60 = BuildOrderWithBillFor(customer, 600m, today.AddDays(-60));
+            var day61 = BuildOrderWithBillFor(customer, 700m, today.AddDays(-61));
+            var day90 = BuildOrderWithBillFor(customer, 800m, today.AddDays(-90));
+            var day91 = BuildOrderWithBillFor(customer, 900m, today.AddDays(-91));
+
+            // Settled: off the carteira on both sides.
+            var settled = BuildOrderWithBillFor(customer, 1000m, today.AddDays(-5));
+            settled.bill.Status = BillStatus.Paid;
+
+            // No title at all: dated by the order's own PaymentScheduledDate.
+            var untitled = BuildOrder(1100m, customer);
+
+            var withBills = new[] { notYetDue, dueToday, day1, day30, day31, day60, day61, day90, day91, settled };
+            var orders = withBills.Select(x => x.order).Append(untitled).ToList();
+            var bills = withBills.Select(x => x.bill).ToList();
+
+            var sut = BuildSut(orders, bills, [customer]);
+
+            var scoped = await sut.GetCustomerAgingAsync(EnterpriseId, customer.Id);
+            var tenantWide = (await sut.GetAgingAsync(EnterpriseId)).Customers
+                .Single(row => row.CustomerId == customer.Id);
+
+            Assert.Equal(tenantWide.NotYetDue, scoped.NotYetDue);
+            Assert.Equal(tenantWide.Days1To30, scoped.Days1To30);
+            Assert.Equal(tenantWide.Days31To60, scoped.Days31To60);
+            Assert.Equal(tenantWide.Days61To90, scoped.Days61To90);
+            Assert.Equal(tenantWide.Days90Plus, scoped.Days90Plus);
+            Assert.Equal(tenantWide.Total, scoped.Total);
+
+            // Pinned, so a change that moves both sides the same way still fails. Due today counts
+            // as not-yet-due (daysOverdue 0), and the untitled order is scheduled 30 days out.
+            Assert.Equal(100m + 200m + 1100m, scoped.NotYetDue);
+            Assert.Equal(300m + 400m, scoped.Days1To30);
+            Assert.Equal(500m + 600m, scoped.Days31To60);
+            Assert.Equal(700m + 800m, scoped.Days61To90);
+            Assert.Equal(900m, scoped.Days90Plus);
+        }
+
+        [Fact]
+        public async Task ScopedAging_IgnoresAnotherCustomersReceivables()
+        {
+            var today = DateTime.UtcNow.Date;
+            var mine = BuildCustomer("Shinji");
+            var theirs = BuildCustomer("Gendo");
+
+            var ours = BuildOrderWithBillFor(mine, 250m, today.AddDays(-10));
+            var other = BuildOrderWithBillFor(theirs, 9999m, today.AddDays(-10));
+
+            var sut = BuildSut([ours.order, other.order], [ours.bill, other.bill], [mine, theirs]);
+
+            var scoped = await sut.GetCustomerAgingAsync(EnterpriseId, mine.Id);
+
+            Assert.Equal(250m, scoped.Days1To30);
+            Assert.Equal(250m, scoped.Total);
+        }
+
+        private static (Order order, Bill bill) BuildOrderWithBillFor(Customer customer, decimal amount, DateTime dueDate)
+        {
+            var order = BuildOrder(amount, customer);
+            return (order, BuildBill(order, amount, dueDate));
+        }
+
         private static (Order order, Bill bill) BuildOrderWithBill(decimal amount, DateTime dueDate)
         {
             var order = BuildOrder(amount);
@@ -258,7 +346,43 @@ namespace EvangelionERPV2.BillsModule.Test
                 // result, so a tenant with no customers must not take the carteira down with it.
                 Repo(
                     customers ?? orders.Select(x => x.Customer!).Where(x => x != null).DistinctBy(x => x.Id).ToList(),
-                    throwsWhenEmpty: true).Object);
+                    throwsWhenEmpty: true).Object,
+                // Only GetCustomerAgingAsync reads through EF; the tenant-wide report still goes
+                // through the repositories above, so this stays empty unless a test seeds it.
+                BuildContext(orders, bills));
+        }
+
+        private static AppDbContext BuildContext(IEnumerable<Order> orders, IEnumerable<Bill> bills)
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase($"receivables-report-{Guid.NewGuid():N}")
+                .Options;
+
+            var context = new AppDbContext(
+                options,
+                httpContextAccessor: null,
+                auditTrailEntryFactory: new NoopAuditTrailEntryFactory());
+
+            foreach (var order in orders)
+                context.Set<Order>().Add(order);
+
+            foreach (var bill in bills)
+                context.Set<Bill>().Add(bill);
+
+            context.SaveChanges();
+            return context;
+        }
+
+        private sealed class NoopAuditTrailEntryFactory : IAuditTrailEntryFactory
+        {
+            public IReadOnlyCollection<AuditTrail> Create(
+                IEnumerable<EntityEntry<BaseEntity>> entries,
+                Guid? userId,
+                Guid? enterpriseId,
+                DateTime changedAt)
+            {
+                return Array.Empty<AuditTrail>();
+            }
         }
 
         private static Mock<IRepository<TEntity>> Repo<TEntity>(List<TEntity> records, bool throwsWhenEmpty = false)

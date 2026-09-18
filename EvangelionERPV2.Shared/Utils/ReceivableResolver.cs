@@ -47,14 +47,41 @@ namespace EvangelionERPV2.Shared.Utils
         /// </remarks>
         public static DateTime? ResolveOrderReceivableDate(Order order, Bill? bill, DateTime today)
         {
-            if (bill != null)
+            return ResolveOrderReceivableDate(
+                order.Payday,
+                order.PaymentScheduledDate,
+                bill?.Status,
+                bill?.PaidAt,
+                bill?.DueDate,
+                today);
+        }
+
+        /// <summary>
+        /// The same rule over plain values, so a caller that projected only the columns it needs
+        /// does not have to restate it.
+        /// </summary>
+        /// <remarks>
+        /// The cash-flow forecast reads this way: materialising whole Order entities for every
+        /// order inside the horizon is what made a 1.84M-order tenant expensive even after the
+        /// window moved into SQL. <paramref name="billStatus"/> is null when the order has no live
+        /// title, which is what selects the order's own dates.
+        /// </remarks>
+        public static DateTime? ResolveOrderReceivableDate(
+            DateTime? orderPayday,
+            DateTime orderPaymentScheduledDate,
+            BillStatus? billStatus,
+            DateTime? billPaidAt,
+            DateTime? billDueDate,
+            DateTime today)
+        {
+            if (billStatus.HasValue)
             {
-                switch (bill.Status)
+                switch (billStatus.Value)
                 {
                     case BillStatus.Paid:
                         // Same rule the payables side uses: cash that landed before today is already
                         // inside the current balance and must not be counted a second time.
-                        var settledDate = bill.PaidAt?.Date;
+                        var settledDate = billPaidAt?.Date;
                         return settledDate >= today ? settledDate : null;
 
                     case BillStatus.Rejected:
@@ -65,18 +92,18 @@ namespace EvangelionERPV2.Shared.Utils
                         // Open, overdue included. Past due is dropped rather than pulled forward:
                         // a boleto nobody paid on time is not evidence of cash arriving today, and
                         // the receivables side of this forecast is deliberately the conservative one.
-                        var dueDate = bill.DueDate.Date;
+                        var dueDate = billDueDate!.Value.Date;
                         return dueDate < today ? null : dueDate;
                 }
             }
 
-            if (order.Payday.HasValue)
+            if (orderPayday.HasValue)
             {
-                var paidDate = order.Payday.Value.Date;
+                var paidDate = orderPayday.Value.Date;
                 return paidDate >= today ? paidDate : null;
             }
 
-            var scheduledDate = order.PaymentScheduledDate.Date;
+            var scheduledDate = orderPaymentScheduledDate.Date;
             // When using persisted current balance, realized receivables in the past must not be projected again.
             return scheduledDate < today ? null : scheduledDate;
         }

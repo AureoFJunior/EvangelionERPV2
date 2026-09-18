@@ -1,9 +1,11 @@
 using EvangelionERPV2.BillsModule.Application.Interface;
+using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Utils;
+using Microsoft.EntityFrameworkCore;
 
 namespace EvangelionERPV2.BillsModule.Application.Services
 {
@@ -26,14 +28,91 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly IRepository<Bill> _billRepository;
         private readonly IRepository<Customer> _customerRepository;
 
+        private readonly AppDbContext _context;
+
         public ReceivablesReportService(
             IRepository<Order> orderRepository,
             IRepository<Bill> billRepository,
-            IRepository<Customer> customerRepository)
+            IRepository<Customer> customerRepository,
+            AppDbContext context)
         {
             _orderRepository = orderRepository;
             _billRepository = billRepository;
             _customerRepository = customerRepository;
+            _context = context;
+        }
+
+        public async Task<ReceivablesAgingCustomerDTO> GetCustomerAgingAsync(
+            Guid enterpriseId,
+            Guid customerId,
+            CancellationToken cancellation = default)
+        {
+            var today = DateTime.UtcNow.Date;
+
+            // The same open-position rule BuildOpenPositionsAsync applies, written as a query: an
+            // unsettled order with something still owed, dated by its live title where it has one.
+            var positions =
+                from order in _context.Set<Order>().AsNoTracking()
+                where order.EnterpriseId == enterpriseId
+                      && order.CustomerId == customerId
+                      && order.IsActive == true
+                      && order.TotalValue > 0
+                      && order.RefundedAt == null
+                      && order.Status != (int)EnumOrderStatus.Refund
+                      && order.Status != (int)EnumOrderStatus.Paid
+                      && order.Status != (int)EnumOrderStatus.Finished
+                let bill = _context.Set<Bill>().AsNoTracking()
+                    .Where(candidate => (candidate.IsActive == null || candidate.IsActive == true)
+                                        && candidate.OrderId == order.Id
+                                        && (candidate.Status == BillStatus.Registered || candidate.Status == BillStatus.Paid))
+                    .OrderByDescending(candidate => candidate.CreatedAt)
+                    .FirstOrDefault()
+                // A settled title means the order is off the carteira, the same skip the loop does.
+                where bill == null || bill.Status != BillStatus.Paid
+                select new
+                {
+                    DueDate = bill != null
+                        ? bill.DueDate
+                        : (order.Payday ?? order.PaymentScheduledDate),
+                    // ReceivableResolver.ResolveReceivableAmount, with the Paid branch already
+                    // excluded above, so the billed amount wins over the order total.
+                    Amount = bill != null && bill.Amount > 0m ? bill.Amount : order.TotalValue
+                };
+
+            // The same boundaries as ResolveBucket, expressed as dates rather than as a day count.
+            // ResolveBucket asks for (today - DueDate.Date).Days; comparing the column against
+            // precomputed cutoffs is the same partition and keeps DueDate seekable, where DATEDIFF
+            // or CAST(DueDate AS date) would wrap the column and stop it being. The cutoffs are
+            // midnight, so dropping .Date off the column changes nothing.
+            var thirtyDaysAgo = today.AddDays(-30);
+            var sixtyDaysAgo = today.AddDays(-60);
+            var ninetyDaysAgo = today.AddDays(-90);
+
+            var totals = await positions
+                .Where(position => position.Amount > 0m)
+                .GroupBy(position => 1)
+                .Select(grouped => new
+                {
+                    NotYetDue = grouped.Sum(x => x.DueDate >= today ? x.Amount : 0m),
+                    Days1To30 = grouped.Sum(x => x.DueDate < today && x.DueDate >= thirtyDaysAgo ? x.Amount : 0m),
+                    Days31To60 = grouped.Sum(x => x.DueDate < thirtyDaysAgo && x.DueDate >= sixtyDaysAgo ? x.Amount : 0m),
+                    Days61To90 = grouped.Sum(x => x.DueDate < sixtyDaysAgo && x.DueDate >= ninetyDaysAgo ? x.Amount : 0m),
+                    Days90Plus = grouped.Sum(x => x.DueDate < ninetyDaysAgo ? x.Amount : 0m)
+                })
+                .FirstOrDefaultAsync(cancellation);
+
+            var row = new ReceivablesAgingCustomerDTO { CustomerId = customerId };
+            if (totals == null)
+                return row;
+
+            row.NotYetDue = totals.NotYetDue;
+            row.Days1To30 = totals.Days1To30;
+            row.Days31To60 = totals.Days31To60;
+            row.Days61To90 = totals.Days61To90;
+            row.Days90Plus = totals.Days90Plus;
+            row.Total = totals.NotYetDue + totals.Days1To30 + totals.Days31To60 + totals.Days61To90 + totals.Days90Plus;
+
+            return row;
         }
 
         public async Task<ReceivablesAgingDTO> GetAgingAsync(Guid enterpriseId, CancellationToken cancellation = default)

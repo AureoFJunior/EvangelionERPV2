@@ -1,15 +1,20 @@
 using System.Linq.Expressions;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.BillsModule.Application.Services;
+using EvangelionERPV2.Shared.Auditing;
+using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Shared.Utils;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Moq;
 
 namespace EvangelionERPV2.BillsModule.Test.Bills
 {
-    public class CustomerSummaryServiceTests
+    public class CustomerSummaryServiceTests : IDisposable
     {
         private static readonly Guid EnterpriseId = Guid.NewGuid();
         private static readonly Guid CustomerId = Guid.NewGuid();
@@ -22,8 +27,51 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
         private readonly Mock<IRepository<Product>> _products = new();
         private readonly Mock<IReceivablesReportService> _receivables = new();
 
+        // Orders, their bills and their lines are read through EF now, not through the repositories:
+        // every figure on the ficha is an aggregate over the customer's whole history, and adding
+        // them up in memory is what made this answer OutOfMemoryException at 1.8M orders.
+        private readonly AppDbContext _context = BuildContext();
+
         private CustomerSummaryService BuildService() =>
-            new(_customers.Object, _orders.Object, _bills.Object, _lines.Object, _products.Object, _receivables.Object);
+            new(_customers.Object, _orders.Object, _bills.Object, _lines.Object, _products.Object, _receivables.Object, _context);
+
+        private static AppDbContext BuildContext()
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase($"customer-summary-{Guid.NewGuid():N}")
+                .Options;
+
+            return new AppDbContext(
+                options,
+                httpContextAccessor: null,
+                auditTrailEntryFactory: new NoopAuditTrailEntryFactory());
+        }
+
+        private void Seed(IEnumerable<Order>? orders = null, IEnumerable<Bill>? bills = null, IEnumerable<OrderedProduct>? lines = null)
+        {
+            foreach (var order in orders ?? []) _context.Set<Order>().Add(order);
+            foreach (var bill in bills ?? []) _context.Set<Bill>().Add(bill);
+            foreach (var line in lines ?? []) _context.Set<OrderedProduct>().Add(line);
+            _context.SaveChanges();
+        }
+
+        public void Dispose()
+        {
+            _context.Dispose();
+            GC.SuppressFinalize(this);
+        }
+
+        private sealed class NoopAuditTrailEntryFactory : IAuditTrailEntryFactory
+        {
+            public IReadOnlyCollection<AuditTrail> Create(
+                IEnumerable<EntityEntry<BaseEntity>> entries,
+                Guid? userId,
+                Guid? enterpriseId,
+                DateTime changedAt)
+            {
+                return Array.Empty<AuditTrail>();
+            }
+        }
 
         private void GivenCustomer(decimal? creditLimit = null)
         {
@@ -41,12 +89,10 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
 
         private void GivenOrders(IEnumerable<Order> orders, IEnumerable<Bill> bills)
         {
-            _orders.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>?>())).ReturnsAsync(orders);
-            _bills.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Bill, bool>>?>())).ReturnsAsync(bills);
-            _lines.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<OrderedProduct, bool>>?>())).ReturnsAsync(Array.Empty<OrderedProduct>());
+            Seed(orders, bills);
             _products.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>?>())).ReturnsAsync(Array.Empty<Product>());
-            _receivables.Setup(r => r.GetAgingAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new ReceivablesAgingDTO());
+            _receivables.Setup(r => r.GetCustomerAgingAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new ReceivablesAgingCustomerDTO());
         }
 
         private static Order Order(decimal amount, DateTime createdAt, bool refunded = false) => new()
@@ -146,6 +192,67 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
             Assert.Null(financial.CreditAvailable);
         }
 
+        /// <summary>
+        /// Open exposure is now defined twice — once as a SQL expression in CustomerSummaryService
+        /// and once as <see cref="ReceivableResolver.ResolveOpenExposure"/>. This runs the same
+        /// cases through both and asserts they agree.
+        /// </summary>
+        /// <remarks>
+        /// The same guard SalesPerformance carries for "what has been received", and for the same
+        /// reason: two definitions of money drift apart silently. If either side changes alone,
+        /// this fails. Do not delete it.
+        /// </remarks>
+        [Fact]
+        public async Task TheQueryAndTheResolver_AgreeOnOpenExposure()
+        {
+            var noBill = Order(1000m, DateTime.UtcNow);
+            var settled = Order(500m, DateTime.UtcNow);
+            var settledShort = Order(500m, DateTime.UtcNow);
+            var open = Order(400m, DateTime.UtcNow);
+            var openZeroAmount = Order(250m, DateTime.UtcNow);
+            var rejected = Order(300m, DateTime.UtcNow);
+            var cancelledOnly = Order(600m, DateTime.UtcNow);
+            var refunded = Order(9000m, DateTime.UtcNow, refunded: true);
+
+            var bills = new[]
+            {
+                new Bill { Id = Guid.NewGuid(), OrderId = settled.Id, Amount = 500m, PaidAmount = 500m, Status = BillStatus.Paid, IsActive = true },
+                new Bill { Id = Guid.NewGuid(), OrderId = settledShort.Id, Amount = 500m, PaidAmount = 450m, Status = BillStatus.Paid, IsActive = true },
+                new Bill { Id = Guid.NewGuid(), OrderId = open.Id, Amount = 400m, Status = BillStatus.Registered, IsActive = true },
+                // Amount 0 falls back to the order total on both sides.
+                new Bill { Id = Guid.NewGuid(), OrderId = openZeroAmount.Id, Amount = 0m, Status = BillStatus.Registered, IsActive = true },
+                new Bill { Id = Guid.NewGuid(), OrderId = rejected.Id, Amount = 300m, Status = BillStatus.Rejected, IsActive = true },
+                // Cancelled is not a live title, so this order answers off its own total.
+                new Bill { Id = Guid.NewGuid(), OrderId = cancelledOnly.Id, Amount = 600m, Status = BillStatus.Cancelled, IsActive = true },
+                new Bill { Id = Guid.NewGuid(), OrderId = refunded.Id, Amount = 9000m, Status = BillStatus.Registered, IsActive = true }
+            };
+
+            var orders = new[] { noBill, settled, settledShort, open, openZeroAmount, rejected, cancelledOnly, refunded };
+
+            GivenCustomer(creditLimit: 100_000m);
+            GivenOrders(orders, bills);
+
+            var fromQuery = (await BuildService().GetSummaryAsync(CustomerId, EnterpriseId, includeFinancial: true))!
+                .Financial!.OpenExposure;
+
+            var liveBills = ReceivableResolver.SelectLiveBillsByOrder(bills);
+            var fromResolver = Math.Round(
+                orders
+                    .Where(order => !ReceivableResolver.IsOrderRefunded(order))
+                    .Sum(order => ReceivableResolver.ResolveOpenExposure(
+                        order,
+                        liveBills.TryGetValue(order.Id, out var bill) ? bill : null)),
+                2,
+                MidpointRounding.AwayFromZero);
+
+            Assert.Equal(fromResolver, fromQuery);
+
+            // Pinned as a number too, so a change that breaks both sides the same way still fails:
+            // 1000 no bill + 0 settled + 0 settled short + 400 open + 250 zero-amount falls back
+            // + 300 rejected + 600 cancelled-is-not-live, and the refund contributes nothing.
+            Assert.Equal(2550m, fromQuery);
+        }
+
         [Fact]
         public async Task TopProducts_RankByRevenue()
         {
@@ -153,13 +260,13 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
             var otherProductId = Guid.NewGuid();
 
             GivenCustomer();
-            _orders.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>?>())).ReturnsAsync(new[] { order });
-            _bills.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Bill, bool>>?>())).ReturnsAsync(Array.Empty<Bill>());
-            _lines.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<OrderedProduct, bool>>?>())).ReturnsAsync(new[]
-            {
-                new OrderedProduct { Id = Guid.NewGuid(), OrderId = order.Id, ProductId = ProductId, Quantity = 2m, Value = 100m, IsActive = true },
-                new OrderedProduct { Id = Guid.NewGuid(), OrderId = order.Id, ProductId = otherProductId, Quantity = 1m, Value = 800m, IsActive = true }
-            });
+            Seed(
+                orders: new[] { order },
+                lines: new[]
+                {
+                    new OrderedProduct { Id = Guid.NewGuid(), OrderId = order.Id, ProductId = ProductId, Quantity = 2m, Value = 100m, IsActive = true },
+                    new OrderedProduct { Id = Guid.NewGuid(), OrderId = order.Id, ProductId = otherProductId, Quantity = 1m, Value = 800m, IsActive = true }
+                });
             _products.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>?>())).ReturnsAsync(new[]
             {
                 new Product { Id = ProductId, EnterpriseId = EnterpriseId, Name = "LCL" },

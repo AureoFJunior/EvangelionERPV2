@@ -1,8 +1,11 @@
 using EvangelionERPV2.BillsModule.Application.Interface;
+using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Utils;
+using Microsoft.EntityFrameworkCore;
 
 namespace EvangelionERPV2.BillsModule.Application.Services
 {
@@ -33,6 +36,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly IRepository<OrderedProduct> _orderedProductRepository;
         private readonly IRepository<Product> _productRepository;
         private readonly IReceivablesReportService _receivablesReportService;
+        private readonly AppDbContext _context;
 
         public CustomerSummaryService(
             IRepository<Customer> customerRepository,
@@ -40,7 +44,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             IRepository<Bill> billRepository,
             IRepository<OrderedProduct> orderedProductRepository,
             IRepository<Product> productRepository,
-            IReceivablesReportService receivablesReportService)
+            IReceivablesReportService receivablesReportService,
+            AppDbContext context)
         {
             _customerRepository = customerRepository;
             _orderRepository = orderRepository;
@@ -48,6 +53,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             _orderedProductRepository = orderedProductRepository;
             _productRepository = productRepository;
             _receivablesReportService = receivablesReportService;
+            _context = context;
         }
 
         public async Task<CustomerSummaryDTO?> GetSummaryAsync(
@@ -68,26 +74,32 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (customer == null)
                 return null;
 
-            var orders = (await _orderRepository.GetAllAsync(order =>
-                    order.IsActive == true
-                    && order.EnterpriseId == enterpriseId
-                    && order.CustomerId == customerId))
-                .OrderByDescending(order => order.CreatedAt)
-                .ToList();
-
-            var orderIds = orders.Select(order => order.Id).ToList();
-
-            // Bill carries no EnterpriseId — it is tenant-scoped through Order, which is why this
-            // is keyed by the order ids already filtered above.
-            var bills = orderIds.Count == 0
-                ? new List<Bill>()
-                : (await _billRepository.GetAllAsync(bill => bill.IsActive == true && orderIds.Contains(bill.OrderId))).ToList();
-
-            var liveBills = ReceivableResolver.SelectLiveBillsByOrder(bills);
+            // Every figure below is an aggregate over the customer's whole history, so it is
+            // computed in SQL. Loading the orders to add them up here is what made this endpoint
+            // answer OutOfMemoryException for a customer with 1.8M of them.
+            var customerOrders = _context.Set<Order>().AsNoTracking()
+                .Where(order => order.IsActive == true
+                                && order.EnterpriseId == enterpriseId
+                                && order.CustomerId == customerId);
 
             // Refunds are excluded from what the customer "bought": the money went back.
-            var realOrders = orders.Where(order => !ReceivableResolver.IsOrderRefunded(order)).ToList();
-            var totalPurchased = Round(realOrders.Sum(order => order.TotalValue));
+            // ReceivableResolver.IsOrderRefunded, in the query.
+            var realOrders = customerOrders
+                .Where(order => order.RefundedAt == null && order.Status != (int)EnumOrderStatus.Refund);
+
+            var stats = await realOrders
+                .GroupBy(order => 1)
+                .Select(group => new
+                {
+                    Count = group.Count(),
+                    Total = group.Sum(order => order.TotalValue),
+                    First = group.Min(order => order.CreatedAt),
+                    Last = group.Max(order => order.CreatedAt)
+                })
+                .FirstOrDefaultAsync(cancellation);
+
+            var orderCount = stats?.Count ?? 0;
+            var totalPurchased = Round(stats?.Total ?? 0m);
 
             var summary = new CustomerSummaryDTO
             {
@@ -98,42 +110,50 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 Document = customer.Document,
                 Municipio = customer.Municipio,
                 Uf = customer.Uf,
-                OrderCount = realOrders.Count,
+                OrderCount = orderCount,
                 TotalPurchased = totalPurchased,
-                AverageTicket = realOrders.Count > 0 ? Round(totalPurchased / realOrders.Count) : null,
-                FirstPurchaseAtUtc = realOrders.Count > 0 ? realOrders.Min(order => order.CreatedAt) : null,
-                LastPurchaseAtUtc = realOrders.Count > 0 ? realOrders.Max(order => order.CreatedAt) : null,
-                RecentOrders = orders.Take(RecentOrderCount).Select(order => new CustomerOrderSummaryDTO
-                {
-                    OrderId = order.Id,
-                    CreatedAtUtc = order.CreatedAt,
-                    TotalValue = order.TotalValue,
-                    Status = order.Status,
-                    IsRefunded = ReceivableResolver.IsOrderRefunded(order),
-                    BillStatus = liveBills.TryGetValue(order.Id, out var bill) ? (int)bill.Status : null,
-                    BillDueDate = liveBills.TryGetValue(order.Id, out var dueBill) ? dueBill.DueDate : null
-                }).ToList(),
-                TopProducts = await BuildTopProductsAsync(realOrders.Select(order => order.Id).ToList(), enterpriseId)
+                AverageTicket = orderCount > 0 ? Round(totalPurchased / orderCount) : null,
+                FirstPurchaseAtUtc = orderCount > 0 ? stats!.First : null,
+                LastPurchaseAtUtc = orderCount > 0 ? stats!.Last : null,
+                RecentOrders = await ReadRecentOrdersAsync(customerOrders, cancellation),
+                TopProducts = await BuildTopProductsAsync(realOrders, enterpriseId, cancellation)
             };
 
             if (summary.LastPurchaseAtUtc.HasValue)
                 summary.DaysSinceLastPurchase = (DateTime.UtcNow.Date - summary.LastPurchaseAtUtc.Value.Date).Days;
 
             if (includeFinancial)
-                summary.Financial = await BuildFinancialAsync(customer, realOrders, liveBills, enterpriseId, cancellation);
+                summary.Financial = await BuildFinancialAsync(customer, realOrders, enterpriseId, cancellation);
 
             return summary;
         }
 
         private async Task<CustomerFinancialSummaryDTO> BuildFinancialAsync(
             Customer customer,
-            IEnumerable<Order> orders,
-            IReadOnlyDictionary<Guid, Bill> liveBills,
+            IQueryable<Order> realOrders,
             Guid enterpriseId,
             CancellationToken cancellation)
         {
-            var exposure = Round(orders.Sum(order =>
-                ReceivableResolver.ResolveOpenExposure(order, liveBills.TryGetValue(order.Id, out var bill) ? bill : null)));
+            // ReceivableResolver.ResolveOpenExposure, in the query. Refunded orders are already out
+            // of realOrders, so what is left is: a settled title owes nothing, and anything else
+            // owes the billed amount where there is one and the order total where there is not.
+            // CustomerSummaryExposureAgreementTests runs both this and the resolver over the same
+            // cases and asserts they agree — keep that test, it is the only thing holding the two
+            // definitions of exposure together.
+            var exposure = Round(await (
+                from order in realOrders
+                let bill = _context.Set<Bill>().AsNoTracking()
+                    .Where(candidate => candidate.IsActive == true
+                                        && candidate.OrderId == order.Id
+                                        && candidate.Status != BillStatus.Cancelled)
+                    .OrderByDescending(candidate => candidate.CreatedAt)
+                    .FirstOrDefault()
+                select bill == null
+                    ? order.TotalValue
+                    : bill.Status == BillStatus.Paid
+                        ? 0m
+                        : (bill.Amount > 0m ? bill.Amount : order.TotalValue))
+                .SumAsync(cancellation));
 
             var financial = new CustomerFinancialSummaryDTO
             {
@@ -145,50 +165,83 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             };
 
             // The aging rule is reused rather than repeated — one opinion about which bucket a
-            // receivable falls in. ponytail: this scans the tenant's whole open carteira to read one
-            // customer's row; give ReceivablesReportService a customer filter if a big tenant feels it.
-            var aging = await _receivablesReportService.GetAgingAsync(enterpriseId, cancellation);
-            var row = aging.Customers.FirstOrDefault(entry => entry.CustomerId == customer.Id);
+            // receivable falls in. The customer-scoped overload, because the tenant-wide one builds
+            // a position object per open order to read this single row: 1.1 GiB for a customer with
+            // 1.8M of them. That was the ponytail note this used to carry, and a big tenant felt it.
+            var row = await _receivablesReportService.GetCustomerAgingAsync(enterpriseId, customer.Id, cancellation);
 
-            if (row != null)
-            {
-                financial.NotYetDue = row.NotYetDue;
-                financial.Days1To30 = row.Days1To30;
-                financial.Days31To60 = row.Days31To60;
-                financial.Days61To90 = row.Days61To90;
-                financial.Days90Plus = row.Days90Plus;
-                financial.OverdueAmount = Round(row.Days1To30 + row.Days31To60 + row.Days61To90 + row.Days90Plus);
-            }
+            financial.NotYetDue = row.NotYetDue;
+            financial.Days1To30 = row.Days1To30;
+            financial.Days31To60 = row.Days31To60;
+            financial.Days61To90 = row.Days61To90;
+            financial.Days90Plus = row.Days90Plus;
+            financial.OverdueAmount = Round(row.Days1To30 + row.Days31To60 + row.Days61To90 + row.Days90Plus);
 
             return financial;
         }
 
-        private async Task<IReadOnlyList<CustomerTopProductDTO>> BuildTopProductsAsync(
-            IReadOnlyList<Guid> orderIds,
-            Guid enterpriseId)
+        /// <summary>
+        /// The last <see cref="RecentOrderCount"/> orders, refunds included — the ficha shows what
+        /// happened, not only what counted.
+        /// </summary>
+        private async Task<IReadOnlyList<CustomerOrderSummaryDTO>> ReadRecentOrdersAsync(
+            IQueryable<Order> customerOrders,
+            CancellationToken cancellation)
         {
-            if (orderIds.Count == 0)
-                return Array.Empty<CustomerTopProductDTO>();
-
-            var lines = (await _orderedProductRepository.GetAllAsync(line =>
-                    line.IsActive == true && line.OrderId.HasValue && orderIds.Contains(line.OrderId.Value)))
-                .Where(line => line.Quantity > 0)
-                .ToList();
-
-            if (lines.Count == 0)
-                return Array.Empty<CustomerTopProductDTO>();
-
-            var ranked = lines
-                .GroupBy(line => line.ProductId)
-                .Select(group => new CustomerTopProductDTO
+            return await (
+                from order in customerOrders
+                orderby order.CreatedAt descending
+                // The live title: newest not-cancelled, the same rule
+                // ReceivableResolver.SelectLiveBillsByOrder applies in memory. Written out rather
+                // than called through a helper because EF does not inline a method into a query -
+                // it evaluates it client-side, where it throws.
+                let bill = _context.Set<Bill>().AsNoTracking()
+                    .Where(candidate => candidate.IsActive == true
+                                        && candidate.OrderId == order.Id
+                                        && candidate.Status != BillStatus.Cancelled)
+                    .OrderByDescending(candidate => candidate.CreatedAt)
+                    .FirstOrDefault()
+                select new CustomerOrderSummaryDTO
                 {
-                    ProductId = group.Key,
-                    Quantity = group.Sum(line => line.Quantity),
-                    Revenue = Round(group.Sum(line => line.Value * line.Quantity))
+                    OrderId = order.Id,
+                    CreatedAtUtc = order.CreatedAt,
+                    TotalValue = order.TotalValue,
+                    Status = order.Status,
+                    IsRefunded = order.RefundedAt != null || order.Status == (int)EnumOrderStatus.Refund,
+                    BillStatus = bill == null ? null : (int)bill.Status,
+                    BillDueDate = bill == null ? null : bill.DueDate
+                })
+                .Take(RecentOrderCount)
+                .ToListAsync(cancellation);
+        }
+
+        private async Task<IReadOnlyList<CustomerTopProductDTO>> BuildTopProductsAsync(
+            IQueryable<Order> realOrders,
+            Guid enterpriseId,
+            CancellationToken cancellation)
+        {
+            // Ranked in SQL. Reading every line of every order to rank five products is the same
+            // defect as the one above, one join further out.
+            var ranked = await (
+                from line in _context.Set<OrderedProduct>().AsNoTracking()
+                join order in realOrders on line.OrderId equals order.Id
+                where line.IsActive == true && line.Quantity > 0
+                group line by line.ProductId into grouped
+                select new CustomerTopProductDTO
+                {
+                    ProductId = grouped.Key,
+                    Quantity = grouped.Sum(line => line.Quantity),
+                    Revenue = grouped.Sum(line => line.Value * line.Quantity)
                 })
                 .OrderByDescending(product => product.Revenue)
                 .Take(TopProductCount)
-                .ToList();
+                .ToListAsync(cancellation);
+
+            if (ranked.Count == 0)
+                return Array.Empty<CustomerTopProductDTO>();
+
+            foreach (var product in ranked)
+                product.Revenue = Round(product.Revenue);
 
             var rankedIds = ranked.Select(product => product.ProductId).ToList();
             var names = (await _productRepository.GetAllAsync(product =>
