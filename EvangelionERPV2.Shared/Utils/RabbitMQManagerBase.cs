@@ -464,11 +464,14 @@ namespace EvangelionERPV2.Shared.Utils
 
         public async Task EnqueueAsync<T>(T obj)
         {
+            // Outside the try below on purpose. A payload that will not serialize is a bug in the
+            // caller, not an unavailable broker, and wrapping it as one would answer 503 with a
+            // Retry-After for a request that can never succeed.
+            var message = JsonSerializer.Serialize(obj, _jsonOptions);
+            var body = Encoding.UTF8.GetBytes(message);
+
             try
             {
-                var message = JsonSerializer.Serialize(obj, _jsonOptions);
-                var body = Encoding.UTF8.GetBytes(message);
-
                 var channel = await RentPublishChannelAsync(CancellationToken.None);
                 try
                 {

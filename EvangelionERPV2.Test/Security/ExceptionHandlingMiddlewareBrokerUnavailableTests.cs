@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Moq;
 using System.Reflection;
+using System.Text.Json;
 
 namespace EvangelionERPV2.Test.Security
 {
@@ -45,6 +46,21 @@ namespace EvangelionERPV2.Test.Security
             Assert.DoesNotContain("rabbit", message, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("broker", message, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("queue", message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// A payload that will not serialize is a caller bug, not an unavailable broker. Reported as
+        /// 503 it would carry Retry-After and invite a client to retry forever.
+        /// </summary>
+        [Fact]
+        public void SerializationFailure_IsNotReportedAsRetryable()
+        {
+            var middleware = CreateMiddleware();
+
+            var statusCode = InvokeGetStatusCodeFromException(middleware, new JsonException("cycle detected"));
+
+            Assert.NotEqual(StatusCodes.Status503ServiceUnavailable, statusCode);
+            Assert.Equal(StatusCodes.Status500InternalServerError, statusCode);
         }
 
         [Fact]
