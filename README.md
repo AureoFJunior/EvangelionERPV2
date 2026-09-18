@@ -696,8 +696,40 @@ docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d p
 | Grafana | http://localhost:3000 | admin / `GRAFANA_ADMIN_PASSWORD` |
 | Prometheus | http://127.0.0.1:9090 | none — and that is why it is bound to loopback |
 
-Verified on Grafana 12.0.0: the datasource, all three dashboards and all six alert rules provision
+Verified on Grafana 12.0.0: the datasource, all three dashboards and all ten alert rules provision
 from these files with no manual step, and every rule evaluates `health=ok`.
+
+### Where alerts go
+
+`docker/grafana/provisioning/alerting/contactpoints.yml` declares one contact point holding an email
+and a webhook receiver. Both are inert until configured, so the stack runs with neither. Set either
+in `.env.local` and restart Grafana:
+
+```bash
+# email
+ALERT_SMTP_ENABLED=true
+ALERT_SMTP_HOST=smtp.gmail.com:587      # host:port - the host alone fails with "missing port in address"
+ALERT_SMTP_USER=you@example.com
+ALERT_SMTP_PASSWORD=xxxxxxxxxxxxxxxx    # Gmail shows App Passwords spaced; paste without spaces
+ALERT_SMTP_FROM=you@example.com
+ALERT_EMAIL_TO=alerts@example.com
+
+# or a webhook, which needs no credentials at all
+ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+Test delivery without waiting for something to break:
+
+```bash
+curl -u admin:$GRAFANA_ADMIN_PASSWORD -X POST \
+  http://localhost:3000/api/alertmanager/grafana/config/api/v1/receivers/test \
+  -H 'Content-Type: application/json' \
+  -d '{"receivers":[{"name":"t","grafana_managed_receiver_configs":[{"name":"t","type":"email","settings":{"addresses":"you@example.com"}}]}]}'
+```
+
+The contact point YAML uses plain `${VAR}`, never `${VAR:-default}` — Grafana does not expand
+shell-style defaults, and an unexpanded value **fails provisioning and stops Grafana from starting**.
+Defaults belong in `docker-compose.observability.yml`, where that syntax works.
 
 Prometheus has no login of any kind, so it is published on `127.0.0.1` only, unlike every other
 service in this project. `--web.enable-lifecycle` is deliberately off: it exposes an unauthenticated
@@ -793,12 +825,28 @@ token. Prefer the agent.
 
 ### Not built yet
 
-- A contact point for the alerts. Eight rules evaluate and notify nobody — Grafana's default
-  contact point needs SMTP settings this repo does not carry. `DeadLetterQueueNotEmpty` is the one
-  that matters most, now that the DLQ discards after 30 days.
 - The ECS path: a Prometheus agent sidecar with `remote_write`. Deferred — the planned first
   deployment is a single EC2 instance, where the agent is just another compose service. See
   `docs/engineering/SPEC-production-readiness.md` §9.
+
+### Outbound mail
+
+The application and all three workers send through one configured account rather than each tenant's
+own. `EmailSettings__*` is injected from `EMAIL_SMTP_*` in `.env.local`:
+
+```bash
+EMAIL_SMTP_HOST=smtp.gmail.com     # host and port separately here, unlike ALERT_SMTP_HOST
+EMAIL_SMTP_PORT=587
+EMAIL_SMTP_USER=you@example.com
+EMAIL_SMTP_PASSWORD=xxxxxxxxxxxxxxxx
+```
+
+Per-enterprise rows in the `Email` table are still read, but only as a fallback when the configured
+account is absent — so a tenant sends from its own mailbox only when this is left empty. Note the
+consequence: with it set, every tenant sends from the same address.
+
+Passwords stored in that table are encrypted at rest; `EMAIL_SMTP_PASSWORD` is plaintext
+configuration. Both work, because the send path tries each form.
 
 ## RabbitMQ note
 
