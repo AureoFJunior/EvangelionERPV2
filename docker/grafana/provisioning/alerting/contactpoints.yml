@@ -1,0 +1,45 @@
+# Where the alert rules in rules.yml actually go.
+#
+# Both routes below are provisioned, and each is inert until its variable is set, so this file is
+# safe to ship with neither configured - which is the state it arrives in.
+#
+#   ALERT_EMAIL_TO      an address; also needs the GF_SMTP_* variables in docker-compose.observability.yml
+#   ALERT_WEBHOOK_URL   a Discord, Slack or generic webhook; needs nothing else
+#
+# Set either one in .env.local and restart Grafana. Setting both sends to both.
+#
+# Grafana requires the default policy to name exactly one contact point, so `evangelion-default` is
+# a group holding whichever integrations are configured rather than two competing receivers.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: evangelion-default
+    receivers:
+      - uid: evangelion-email
+        type: email
+        # Plain ${VAR}: Grafana expands environment variables here but does NOT understand
+        # shell-style ${VAR:-default}, and an unexpanded value fails provisioning at startup -
+        # which takes Grafana down rather than merely leaving alerts undelivered. The defaults
+        # live in docker-compose.observability.yml, where that syntax does work.
+        settings:
+          addresses: ${ALERT_EMAIL_TO}
+          singleEmail: true
+        disableResolveMessage: false
+
+      - uid: evangelion-webhook
+        type: webhook
+        settings:
+          url: ${ALERT_WEBHOOK_URL}
+          httpMethod: POST
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: evangelion-default
+    group_by: ["alertname"]
+    # Long enough that a flapping dependency does not page repeatedly, short enough that an unread
+    # DeadLetterQueueNotEmpty is repeated before the 30-day DLQ TTL matters.
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h

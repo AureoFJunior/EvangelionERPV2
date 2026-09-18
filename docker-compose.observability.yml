@@ -116,6 +116,20 @@ services:
       GF_SECURITY_COOKIE_SECURE: ${GRAFANA_COOKIE_SECURE:-false}
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+
+      # Alert delivery. Empty defaults on purpose - compose interpolates this whole file before
+      # profiles select anything, so a `:?` here would break every plain docker compose command.
+      # Grafana simply reports SMTP as disabled when the host is blank.
+      GF_SMTP_ENABLED: ${ALERT_SMTP_ENABLED:-false}
+      # host:port, not host alone - Grafana fails with "missing port in address".
+      GF_SMTP_HOST: ${ALERT_SMTP_HOST:-}
+      GF_SMTP_USER: ${ALERT_SMTP_USER:-}
+      GF_SMTP_PASSWORD: ${ALERT_SMTP_PASSWORD:-}
+      GF_SMTP_FROM_ADDRESS: ${ALERT_SMTP_FROM:-alerts@evangelionerp.com}
+      GF_SMTP_FROM_NAME: Evangelion ERP
+      GF_SMTP_STARTTLS_POLICY: ${ALERT_SMTP_STARTTLS:-OpportunisticStartTLS}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-alerts@localhost}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-http://localhost:9/unconfigured}
     ports:
       - "${GRAFANA_HOST_PORT:-3000}:3000"
     volumes:
