@@ -1,0 +1,102 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!--
+    Versions for all 62 projects live here; the csproj files say only which packages they use.
+
+    Adding a package: `dotnet add <project> package <name>` writes the version here and a bare
+    reference in the project. Changing a version: edit it here once.
+
+    The variables below exist for families that break when their members drift apart - EF Core
+    against its own provider, MailKit against MimeKit, a Serilog sink against a Serilog it no longer
+    matches. A package with no family gets its version inline, because a variable used once is just
+    a longer way of writing the number.
+  -->
+  <PropertyGroup Label="SharedVersions">
+    <MicrosoftExtensionsVersion>10.0.9</MicrosoftExtensionsVersion>
+    <EntityFrameworkVersion>10.0.9</EntityFrameworkVersion>
+    <SerilogSinkFileVersion>7.0.0</SerilogSinkFileVersion>
+    <MailKitVersion>4.17.0</MailKitVersion>
+    <SkiaSharpVersion>3.119.0</SkiaSharpVersion>
+    <PrometheusNetVersion>8.2.1</PrometheusNetVersion>
+    <XunitVersion>2.9.3</XunitVersion>
+  </PropertyGroup>
+
+  <ItemGroup Label="Entity Framework Core">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="$(EntityFrameworkVersion)" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Abstractions" Version="$(EntityFrameworkVersion)" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Analyzers" Version="$(EntityFrameworkVersion)" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="$(EntityFrameworkVersion)" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="$(EntityFrameworkVersion)" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="$(EntityFrameworkVersion)" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="$(EntityFrameworkVersion)" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="$(EntityFrameworkVersion)" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Tools" Version="$(EntityFrameworkVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Label="ASP.NET Core and Microsoft.Extensions">
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.Google" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Versioning" Version="5.1.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.9.0" />
+    <PackageVersion Include="Swashbuckle.AspNetCore" Version="10.2.3" />
+    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.19.1" />
+    <PackageVersion Include="AspNetCoreRateLimit" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Logging and metrics">
+    <PackageVersion Include="Serilog" Version="4.3.1" />
+    <PackageVersion Include="Serilog.Extensions.Hosting" Version="10.0.0" />
+    <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageVersion Include="Serilog.Sinks.File" Version="$(SerilogSinkFileVersion)" />
+    <PackageVersion Include="prometheus-net" Version="$(PrometheusNetVersion)" />
+    <PackageVersion Include="prometheus-net.AspNetCore" Version="$(PrometheusNetVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Label="Messaging and mail">
+    <PackageVersion Include="RabbitMQ.Client" Version="7.2.1" />
+    <PackageVersion Include="MailKit" Version="$(MailKitVersion)" />
+    <PackageVersion Include="MimeKit" Version="$(MailKitVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Label="AWS">
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.25.3" />
+    <PackageVersion Include="AWSSDK.SecretsManager" Version="4.0.5.8" />
+  </ItemGroup>
+
+  <ItemGroup Label="Fiscal, billing and documents">
+    <PackageVersion Include="BoletoNetCore" Version="3.0.1.557" />
+    <PackageVersion Include="Unimake.DFe" Version="20260722.1716.27" />
+    <PackageVersion Include="Stripe.net" Version="48.4.0" />
+    <PackageVersion Include="PuppeteerSharp" Version="25.1.2" />
+    <PackageVersion Include="SkiaSharp" Version="$(SkiaSharpVersion)" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="$(SkiaSharpVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Label="Application libraries">
+    <PackageVersion Include="AutoMapper" Version="16.1.1" />
+    <PackageVersion Include="FluentValidation" Version="12.1.1" />
+    <PackageVersion Include="FluentValidation.AspNetCore" Version="11.3.1" />
+    <PackageVersion Include="Google.Apis.Auth" Version="1.75.0" />
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageVersion Include="OllamaSharp" Version="5.4.30" />
+    <PackageVersion Include="Polly" Version="8.7.0" />
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing and tooling">
+    <PackageVersion Include="xunit" Version="$(XunitVersion)" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
+    <PackageVersion Include="Moq" Version="4.20.72" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
+  </ItemGroup>
+
+</Project>
