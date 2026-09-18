@@ -121,6 +121,13 @@ namespace EvangelionERPV2.Shared.Utils
         private const int MaxPooledPublishChannels = 16;
 
         /// <summary>
+        /// Bounds how many publish channels exist at once, not merely how many are kept. The bag
+        /// alone capped retention, so a burst of a hundred concurrent publishes opened a hundred
+        /// channels and discarded eighty-four of them.
+        /// </summary>
+        private readonly SemaphoreSlim _publishChannelSlots = new(MaxPooledPublishChannels, MaxPooledPublishChannels);
+
+        /// <summary>
         /// Five attempts over roughly 15 seconds, which rides out a broker restart without holding
         /// a publishing request open past its timeout.
         /// </summary>
@@ -342,29 +349,43 @@ namespace EvangelionERPV2.Shared.Utils
 
         private async Task<IChannel> RentPublishChannelAsync(CancellationToken cancellationToken)
         {
-            while (_publishChannels.TryTake(out var pooled))
+            await _publishChannelSlots.WaitAsync(cancellationToken);
+
+            try
             {
-                if (pooled.IsOpen)
-                    return pooled;
+                while (_publishChannels.TryTake(out var pooled))
+                {
+                    if (IsUsable(pooled))
+                        return pooled;
 
-                pooled.Dispose();
+                    TryDispose(pooled);
+                }
+
+                return await CreatePublishChannelAsync(cancellationToken);
             }
-
-            return await CreatePublishChannelAsync(cancellationToken);
+            catch
+            {
+                _publishChannelSlots.Release();
+                throw;
+            }
         }
 
         private void ReturnPublishChannel(IChannel channel)
         {
-            // Closed channels are dropped rather than pooled: a channel is killed by the broker on
-            // any protocol error, and handing a dead one to the next publisher turns one failure
-            // into a run of them.
-            if (channel.IsOpen && _publishChannels.Count < MaxPooledPublishChannels)
+            try
             {
-                _publishChannels.Add(channel);
-                return;
+                // Closed channels are dropped rather than pooled: a channel is killed by the broker
+                // on any protocol error, and handing a dead one to the next publisher turns one
+                // failure into a run of them.
+                if (IsUsable(channel))
+                    _publishChannels.Add(channel);
+                else
+                    TryDispose(channel);
             }
-
-            channel.Dispose();
+            finally
+            {
+                _publishChannelSlots.Release();
+            }
         }
 
         public void SetupChannel()
@@ -472,14 +493,10 @@ namespace EvangelionERPV2.Shared.Utils
 
             try
             {
-                var channel = await RentPublishChannelAsync(CancellationToken.None);
-                try
-                {
-                    await channel.BasicPublishAsync(
-                    exchange: _channelSettings.ExchangeName,
-                    routingKey: _channelSettings.RoutingKey,
-                    mandatory: true,
-                    basicProperties: new BasicProperties()
+                await PublishWithStaleRetryAsync(
+                    _channelSettings.ExchangeName,
+                    _channelSettings.RoutingKey,
+                    new BasicProperties
                     {
                         // Durable queue plus a transient message is not durable. Without this the
                         // broker holds the message in memory only and discards the lot on restart,
@@ -492,12 +509,8 @@ namespace EvangelionERPV2.Shared.Utils
                             ["x-retry-count"] = 0
                         }
                     },
-                    body: body);
-                }
-                finally
-                {
-                    ReturnPublishChannel(channel);
-                }
+                    body,
+                    CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -963,6 +976,97 @@ namespace EvangelionERPV2.Shared.Utils
             finally
             {
                 _channelLock.Release();
+            }
+        }
+
+        // Deliberately not IDisposable. Implementing it on 2026-09-18 broke publishing outright:
+        // something in the host disposed the singleton shortly after startup, which closed the
+        // connection and made every later publish throw ObjectDisposedException. The connection is
+        // process-lifetime and the broker reaps channels when the socket closes, so the tidiness
+        // this would buy is not worth a disposed connection under a live workload. Revisit only
+        // with the ownership question answered first.
+
+        /// <summary>
+        /// Publishes, and retries once on a fresh channel if the pooled one turned out to be dead.
+        /// </summary>
+        /// <remarks>
+        /// A pooled channel can be closed by the broker between the liveness check and the publish,
+        /// which surfaces as <c>AlreadyClosedException</c>. That is inherent to pooling rather than
+        /// a broker failure, so it is compensated here instead of being reported as one. A second
+        /// failure is real and propagates.
+        /// </remarks>
+        private async Task PublishWithStaleRetryAsync(
+            string exchange,
+            string routingKey,
+            BasicProperties properties,
+            ReadOnlyMemory<byte> body,
+            CancellationToken cancellationToken)
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                var channel = await RentPublishChannelAsync(cancellationToken);
+                var stale = false;
+
+                try
+                {
+                    await channel.BasicPublishAsync(exchange, routingKey, true, properties, body, cancellationToken);
+                    return;
+                }
+                catch (Exception exception) when (attempt == 0 && IsStaleChannel(exception))
+                {
+                    stale = true;
+                }
+                finally
+                {
+                    if (stale)
+                    {
+                        TryDispose(channel);
+                        _publishChannelSlots.Release();
+                    }
+                    else
+                    {
+                        ReturnPublishChannel(channel);
+                    }
+                }
+            }
+        }
+
+        private static bool IsStaleChannel(Exception exception)
+        {
+            return exception is AlreadyClosedException or ObjectDisposedException;
+        }
+
+        /// <summary>
+        /// Whether a channel can still be published on.
+        /// </summary>
+        /// <remarks>
+        /// <c>IsOpen</c> throws <see cref="ObjectDisposedException"/> on a disposed channel rather
+        /// than returning false, so reading it directly turns a dropped connection into an exception
+        /// on the next publish.
+        /// </remarks>
+        private static bool IsUsable(IChannel? channel)
+        {
+            try
+            {
+                return channel is { IsOpen: true };
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+        }
+
+        private static void TryDispose(IDisposable? resource)
+        {
+            // Shutdown must not throw. A broker that has already gone makes Dispose on a channel
+            // raise, and an exception here would replace whatever is actually stopping the host.
+            try
+            {
+                resource?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                Log.Logger.Warning("Error disposing a broker resource. ErrorType={ErrorType}", GetSafeExceptionType(exception));
             }
         }
 
