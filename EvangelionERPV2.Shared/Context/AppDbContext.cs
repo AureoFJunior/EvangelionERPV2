@@ -288,10 +288,6 @@ namespace EvangelionERPV2.Shared.Context
             // Deliberately NOT filtered on IsActive: the column is nullable and legacy rows carry
             // NULL, which SQL Server excludes from an "[IsActive] = 1" filter - the same trap noted
             // on the Bill index above.
-            // Measured 2026-09-17 against 1.84M orders: without the included columns the seek found
-            // the month and then did a key lookup per row for Payday, TotalValue, Status, RefundedAt
-            // and UserId. Including them is what turns the monthly aggregate from a lookup storm
-            // into a range scan of one index.
             modelBuilder.Entity<Order>()
                 .HasIndex(order => new { order.EnterpriseId, order.IsActive, order.CreatedAt })
                 .IncludeProperties(order => new
@@ -303,14 +299,8 @@ namespace EvangelionERPV2.Shared.Context
                     order.TotalValue
                 });
 
-            // The monthly aggregate resolves the live bill per order with a correlated subquery, so
-            // this is read once per order in the month - 167,000 times for one call at the volume
-            // above. Without it each of those scanned the table: 2.17M logical reads per query
-            // became 670k, and the endpoint went from 4.15 to 10.2 requests a second.
-            //
-            // Separate from the filtered unique index on OrderId above, which exists to stop a
-            // second live bill per order and cannot serve this because its filter excludes the
-            // cancelled rows the subquery still has to look at.
+            // Cannot be served by the filtered unique index on OrderId above: that filter excludes
+            // cancelled rows, which the per-order bill lookup still has to read.
             modelBuilder.Entity<Bill>()
                 .HasIndex(bill => new { bill.OrderId, bill.IsActive, bill.Status })
                 .IncludeProperties(bill => new { bill.CreatedAt, bill.Amount, bill.PaidAmount });
