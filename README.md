@@ -54,8 +54,12 @@ alongside):
 Surfaces without a module of their own live in the Web layer over one of the above: the dashboard,
 cash-flow forecast, bank reconciliation, payable bills and sales performance.
 
-**Deploying it?** [Deploying to production](#deploying-to-production) is the runbook. Nothing runs in
-AWS today; `docs/engineering/SPEC-production-readiness.md` tracks what is done and what is left.
+**Running it?** [Running with Docker Compose](#running-with-docker-compose). That is the only
+supported setup today — nothing runs in AWS, and production is deferred by choice.
+
+**Deploying it later?** [Deploying to production](#deploying-to-production) is the runbook, written
+for the day that happens. `docs/engineering/SPEC-production-readiness.md` tracks what is done and
+what is left.
 
 ## Tech stack
 
@@ -548,11 +552,15 @@ add `--profile proxy` there: nginx is the local proxy and would fight Caddy for 
 
 ## Deploying to production
 
-The target is **one EC2 instance running this compose file**, with RDS private in the same VPC.
-Terraform describes all of it. ECS is Phase 2, parked behind `var.enable_ecs`.
+**Not done yet, and not in progress** — production is deferred and dev runs on the compose stack
+above. This section is the runbook for the day it changes; it is written down now so the ordering
+is not re-derived under pressure.
 
-Current status and who owns what is in `docs/engineering/SPEC-production-readiness.md` — this
-section is the runbook.
+The target is **one EC2 instance running this compose file**, with RDS private in the same VPC.
+Terraform describes all of it and is validated but never applied. ECS is Phase 2, parked behind
+`var.enable_ecs`.
+
+Status and ownership live in `docs/engineering/SPEC-production-readiness.md`.
 
 ### First deployment, in order
 
