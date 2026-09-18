@@ -918,17 +918,11 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             {
                 if (disposing)
                 {
-                    // Dispose managed resources here.
-                    (_orderRepository as IDisposable)?.Dispose();
-                    (_orderRepositoryCustom as IDisposable)?.Dispose();
-                    (_productRepository as IDisposable)?.Dispose();
-                    (_orderedProductRepository as IDisposable)?.Dispose();
-                    (_enterpriseRepository as IDisposable)?.Dispose();
-                    (_productService as IDisposable)?.Dispose();
-                    (_rabbitMQManager as IDisposable)?.Dispose();
-                    (_orderReportGeneratorService as IDisposable)?.
-Dispose();
-                    (_orderHubContext as IDisposable)?.Dispose();
+                    // Nothing is disposed here on purpose. Every dependency of this service is
+                    // injected, so the container owns it and disposes it: this class disposing them
+                    // reached past its own lifetime. It disposed the singleton RabbitMQ manager at
+                    // the end of the first request that used it, which closed the broker connection
+                    // for the rest of the process.
                 }
 
                 // Dispose unmanaged resources here.
@@ -939,11 +933,6 @@ Dispose();
             }
         }
 
-        // Destructor for finalization code
-        ~OrderService()
-        {
-            Dispose(false);
-        }
 
         #endregion
     }

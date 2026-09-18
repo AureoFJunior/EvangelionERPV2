@@ -14,7 +14,7 @@ using EvangelionERPV2.Shared.Exceptions;
 
 namespace EvangelionERPV2.Shared.Utils
 {
-    public abstract class RabbitMQManagerBase<TChannelSettings> : IRabbitMQManagerBase
+    public abstract class RabbitMQManagerBase<TChannelSettings> : IRabbitMQManagerBase, IDisposable
     where TChannelSettings : class, IBaseChannelSettings
     {
         private const int MaxProcessingRetries = 3;
@@ -126,6 +126,8 @@ namespace EvangelionERPV2.Shared.Utils
         /// channels and discarded eighty-four of them.
         /// </summary>
         private readonly SemaphoreSlim _publishChannelSlots = new(MaxPooledPublishChannels, MaxPooledPublishChannels);
+
+        private bool _disposed;
 
         /// <summary>
         /// Five attempts over roughly 15 seconds, which rides out a broker restart without holding
@@ -979,22 +981,28 @@ namespace EvangelionERPV2.Shared.Utils
             }
         }
 
-        // Deliberately not IDisposable. Implementing it on 2026-09-18 broke publishing outright:
-        // something in the host disposed the singleton shortly after startup, which closed the
-        // connection and made every later publish throw ObjectDisposedException. The connection is
-        // process-lifetime and the broker reaps channels when the socket closes, so the tidiness
-        // this would buy is not worth a disposed connection under a live workload. Revisit only
-        // with the ownership question answered first.
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
 
-        /// <summary>
-        /// Publishes, and retries once on a fresh channel if the pooled one turned out to be dead.
-        /// </summary>
-        /// <remarks>
-        /// A pooled channel can be closed by the broker between the liveness check and the publish,
-        /// which surfaces as <c>AlreadyClosedException</c>. That is inherent to pooling rather than
-        /// a broker failure, so it is compensated here instead of being reported as one. A second
-        /// failure is real and propagates.
-        /// </remarks>
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed || !disposing)
+                return;
+
+            _disposed = true;
+
+            while (_publishChannels.TryTake(out var pooled))
+                TryDispose(pooled);
+
+            TryDispose(_channel);
+            TryDispose(_connection);
+            _channelLock.Dispose();
+            _publishChannelSlots.Dispose();
+        }
+
         private async Task PublishWithStaleRetryAsync(
             string exchange,
             string routingKey,

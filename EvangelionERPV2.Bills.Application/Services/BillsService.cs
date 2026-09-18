@@ -716,22 +716,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             {
                 if (disposing)
                 {
-                    (_billRepository as IDisposable)?.Dispose();
-                    (_billRepositoryCustom as IDisposable)?.Dispose();
-                    (_orderRepository as IDisposable)?.Dispose();
-                    (_customerRepository as IDisposable)?.Dispose();
-                    (_enterpriseRepository as IDisposable)?.Dispose();
-                    (_sequenceRepository as IDisposable)?.Dispose();
                 }
 
                 disposed = true;
             }
         }
 
-        ~BillsService()
-        {
-            Dispose(false);
-        }
         #endregion
     }
 }

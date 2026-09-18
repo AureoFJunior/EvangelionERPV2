@@ -644,10 +644,11 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             {
                 if (disposing)
                 {
-                    // Dispose managed resources here.
-                    (_s3Client as IDisposable)?.Dispose();
-                    (_productRepository as IDisposable)?.Dispose();
-                    (kmsProvider as IDisposable)?.Dispose();
+                    // Nothing is disposed here on purpose. Every dependency of this service is
+                    // injected, so the container owns it and disposes it: this class disposing them
+                    // reached past its own lifetime. It disposed the singleton RabbitMQ manager at
+                    // the end of the first request that used it, which closed the broker connection
+                    // for the rest of the process.
                 }
 
                 // Dispose unmanaged resources here.
@@ -658,11 +659,6 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             }
         }
 
-        // Destructor for finalization code
-        ~ProductService()
-        {
-            Dispose(false);
-        }
 
         #endregion
     }

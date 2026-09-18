@@ -778,21 +778,12 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             {
                 if (disposing)
                 {
-                    (_nfeRepository as IDisposable)?.Dispose();
-                    (_nfeRepositoryCustom as IDisposable)?.Dispose();
-                    (_orderRepository as IDisposable)?.Dispose();
-                    (_customerRepository as IDisposable)?.Dispose();
-                    (_enterpriseRepository as IDisposable)?.Dispose();
                 }
 
                 disposed = true;
             }
         }
 
-        ~NFeService()
-        {
-            Dispose(false);
-        }
         #endregion
 
         private static SemaphoreSlim[] CreateIssuanceLocks()
