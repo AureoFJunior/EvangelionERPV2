@@ -10,6 +10,7 @@ ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
 COPY global.json ./
+COPY Directory.Packages.props ./
 COPY EvangelionERPV2.sln ./
 COPY EvangelionERPV2.Worker.Email/EvangelionERPV2.Worker.Email.csproj EvangelionERPV2.Worker.Email/
 COPY EvangelionERPV2.Email.Application/*.csproj EvangelionERPV2.Email.Application/
