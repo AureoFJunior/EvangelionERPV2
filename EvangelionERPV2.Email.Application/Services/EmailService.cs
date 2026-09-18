@@ -285,7 +285,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 .ThenByDescending(x => x.CreatedAt)
                 .ToList() ?? [];
 
-            var candidates = new List<Email>(storedSettings);
+            var candidates = new List<Email>();
 
             var configuredSettings = _configuration.GetSection("EmailSettings");
             var hostName = ResolveConfigValue(configuredSettings["HostName"]);
@@ -305,12 +305,19 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                     IsActive = true
                 };
 
-                var hasSameStoredSetting = candidates.Any(x =>
-                    string.Equals(x.HostName?.Trim(), configuredCandidate.HostName?.Trim(), StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(x.UserName?.Trim(), configuredCandidate.UserName?.Trim(), StringComparison.OrdinalIgnoreCase));
+                candidates.Add(configuredCandidate);
+            }
 
-                if (!hasSameStoredSetting)
-                    candidates.Add(configuredCandidate);
+            // Stored per-enterprise rows are kept as a fallback, after the configured account, so a
+            // tenant that has its own mailbox still sends when EmailSettings is not configured.
+            foreach (var stored in storedSettings)
+            {
+                var duplicate = candidates.Any(x =>
+                    string.Equals(x.HostName?.Trim(), stored.HostName?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(x.UserName?.Trim(), stored.UserName?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                if (!duplicate)
+                    candidates.Add(stored);
             }
 
             return candidates;

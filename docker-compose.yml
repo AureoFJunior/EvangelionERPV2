@@ -38,6 +38,10 @@ services:
       RedisSettings__InstanceName: ${EVA_REDIS_INSTANCE:-evangelion/prd/redis-name:instancename}
       RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
       Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
+      EmailSettings__HostName: ${EMAIL_SMTP_HOST:-}
+      EmailSettings__Port: ${EMAIL_SMTP_PORT:-587}
+      EmailSettings__Username: ${EMAIL_SMTP_USER:-}
+      EmailSettings__Password: ${EMAIL_SMTP_PASSWORD:-}
       Encryption__TokenKey: ${EVA_TOKEN_KEY:-evangelion/prd/encryptiontokenkey:key}
       AWSSettings__SecretName: "${EVA_AWS_SECRET_NAME:-AWSCredentials}"
       AWSSettings__BucketProducttName: "${EVA_AWS_PRODUCT_BUCKET:-evangelionerpv2images}"
@@ -196,6 +200,10 @@ services:
       DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       HttpConfig__DefaultApiUrl: http://evangelionerpv2:8080/api/v1
       Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
+      EmailSettings__HostName: ${EMAIL_SMTP_HOST:-}
+      EmailSettings__Port: ${EMAIL_SMTP_PORT:-587}
+      EmailSettings__Username: ${EMAIL_SMTP_USER:-}
+      EmailSettings__Password: ${EMAIL_SMTP_PASSWORD:-}
       SelfAPIAuth: ${EVA_WORKER_SELF_API_AUTH:-evangelion/prd/selfapilogin:log}
       RabbitMQSettings__HostName: ${EVA_RABBITMQ_HOSTNAME:-evangelion/prd/rabbitmq-host:hostname}
       RabbitMQSettings__UserName: ${EVA_RABBITMQ_USERNAME:-evangelion/prd/rabbitmq-user:username}
@@ -238,6 +246,10 @@ services:
       DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       HttpConfig__DefaultApiUrl: http://evangelionerpv2:8080/api/v1
       Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
+      EmailSettings__HostName: ${EMAIL_SMTP_HOST:-}
+      EmailSettings__Port: ${EMAIL_SMTP_PORT:-587}
+      EmailSettings__Username: ${EMAIL_SMTP_USER:-}
+      EmailSettings__Password: ${EMAIL_SMTP_PASSWORD:-}
       SelfAPIAuth: ${EVA_WORKER_SELF_API_AUTH:-evangelion/prd/selfapilogin:log}
       # Same Redis as the API: the broadcast workers lease it so only one replica sends a slot.
       RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
@@ -282,6 +294,10 @@ services:
       DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       HttpConfig__DefaultApiUrl: http://evangelionerpv2:8080/api/v1
       Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
+      EmailSettings__HostName: ${EMAIL_SMTP_HOST:-}
+      EmailSettings__Port: ${EMAIL_SMTP_PORT:-587}
+      EmailSettings__Username: ${EMAIL_SMTP_USER:-}
+      EmailSettings__Password: ${EMAIL_SMTP_PASSWORD:-}
       SelfAPIAuth: ${EVA_WORKER_SELF_API_AUTH:-evangelion/prd/selfapilogin:log}
       # Same Redis as the API: the sweep leases it so only one replica runs a pass.
       RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
