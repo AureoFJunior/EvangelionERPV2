@@ -58,8 +58,8 @@ cash-flow forecast, bank reconciliation, payable bills and sales performance.
 supported setup today — nothing runs in AWS, and production is deferred by choice.
 
 **Deploying it later?** [Deploying to production](#deploying-to-production) is the runbook, written
-for the day that happens. `docs/engineering/SPEC-production-deploy.md` is the plan and the
-ordered checklist for it; `SPEC-production-readiness.md` covers what was built and measured in dev.
+for the day that happens. The full plan, the ordered checklist and the measurements behind it live
+in the working specs under `docs/`, which are kept out of the repo — ask the maintainer for them.
 
 ## Tech stack
 
@@ -547,8 +547,8 @@ Stop shortcut:
 
 The production target is **one EC2 instance running the same compose file**, with RDS private in the
 same VPC — not ECS. ECS is Phase 2, kept in terraform behind `var.enable_ecs` and triggered by
-growth rather than by a date. Full reasoning, costs and the Phase 2 triggers are in
-`docs/engineering/SPEC-production-deploy.md` §9.
+growth rather than by a date. Full reasoning, costs and the Phase 2 triggers are in the deploy spec
+under `docs/`, kept out of the repo.
 
 ```powershell
 Copy-Item .env.ec2.example .env.ec2
@@ -571,7 +571,7 @@ The target is **one EC2 instance running this compose file**, with RDS private i
 Terraform describes all of it and is validated but never applied. ECS is Phase 2, parked behind
 `var.enable_ecs`.
 
-Status and ownership live in `docs/engineering/SPEC-production-deploy.md` §0.
+Status and ownership live in the deploy spec under `docs/`, kept out of the repo.
 
 ### First deployment, in order
 
@@ -836,8 +836,7 @@ token. Prefer the agent.
 ### Not built yet
 
 - The ECS path: a Prometheus agent sidecar with `remote_write`. Deferred — the planned first
-  deployment is a single EC2 instance, where the agent is just another compose service. See
-  `docs/engineering/SPEC-production-deploy.md` §9.
+  deployment is a single EC2 instance, where the agent is just another compose service.
 
 ### Outbound mail
 
@@ -1059,7 +1058,7 @@ permission: `RbacControllerPolicyCoverageTests` fails when a new action has no p
 ## Load testing with k6
 
 The rig lives in `perf/` and drives the API through nginx. It is untracked work in progress — see
-`perf/README.md` and `docs/performance/SPEC-stress-test.md` for the scenarios and what each measures.
+`perf/README.md` for the scenarios and what each measures.
 
 ### 1. Bring the stack up with the rate limit raised
 

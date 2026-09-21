@@ -397,3 +397,6 @@ docs/superpowers/specs/2026-09-09-agente-do-erp-design.md
 
 # .terraform.lock.hcl is deliberately NOT ignored: it pins provider versions and their hashes, so
 # committing it is what makes everyone resolve the same AWS provider.
+
+# Working docs and specs stay local: only the root README.md is committed.
+docs/**/*.md
