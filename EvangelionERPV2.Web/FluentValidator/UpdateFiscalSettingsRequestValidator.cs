@@ -57,9 +57,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.NFeSeries).NotEmpty().MaximumLength(3);
             RuleFor(x => x.NFCeSeries).NotEmpty().MaximumLength(3);
 
-            // natOp is 1..60 on the wire. Empty is allowed here and filled with the default on the
-            // way in, so a tenant that clears the box gets "VENDA DE MERCADORIA" and never a note
-            // SEFAZ refuses for an empty element.
             RuleFor(x => x.DefaultNatOp).MaximumLength(60);
 
             RuleFor(x => x.DefaultCfopIntra)

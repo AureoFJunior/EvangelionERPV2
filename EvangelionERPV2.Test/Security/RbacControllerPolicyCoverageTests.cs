@@ -209,9 +209,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void FiscalSettingsPermissions_AreAdminOnlyInRoleMap()
         {
-            // Admin-only by omission from every role array. The fiscal profile exposes the
-            // emitente CNPJ and IE, and a wrong CFOP, CST or CRT silently mis-taxes every future
-            // document — only fixable by cancelling inside the legal window.
             foreach (var permission in new[]
                      {
                          RbacPermissions.NFe.SettingsRead,
@@ -229,9 +226,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void CertificateRead_StartsAtManagerInRoleMap()
         {
-            // Metadata only (subject, expiry, days remaining) — no key material. Whoever operates
-            // issuance needs the expiry warning without waiting on an admin, but replacing the
-            // certificate stays admin-only.
             Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Admin, RbacPermissions.NFe.CertificateRead));
             Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, RbacPermissions.NFe.CertificateRead));
             Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Supervisor, RbacPermissions.NFe.CertificateRead));
@@ -241,8 +235,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void EnterpriseReadSelf_StartsAtManagerInRoleMap()
         {
-            // Enterprise self-read exposes company-level financials, so it is deliberately
-            // NOT part of the base (Employee/Supervisor) permission set.
             Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Admin, RbacPermissions.Enterprise.ReadSelf));
             Assert.True(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Manager, RbacPermissions.Enterprise.ReadSelf));
             Assert.False(RbacRolePermissionMap.HasPermission((short)EnumAccessLevel.Supervisor, RbacPermissions.Enterprise.ReadSelf));
@@ -280,8 +272,6 @@ namespace EvangelionERPV2.Test.Security
                          RbacPermissions.EmployeeAbsences.Update,
                          RbacPermissions.EmployeeAbsences.Delete,
 
-                         // Same tier: scheduling férias writes an absence row, and a lapsed
-                         // accrual is a debt owed in dobro.
                          RbacPermissions.EmployeeVacations.Read,
                          RbacPermissions.EmployeeVacations.Schedule
                      })
@@ -297,12 +287,6 @@ namespace EvangelionERPV2.Test.Security
         /// Every authenticated action carries an rbac policy, because that is where the till
         /// token's scope is enforced.
         /// </summary>
-        /// <remarks>
-        /// `PdvTokenScope.Grants` runs inside the two policy handlers, so an action with no policy
-        /// is an action a pdv-scoped token reaches unchecked — a credential lifted off a shop floor
-        /// buying more than the till. There is exactly one exception and it refuses scoped callers
-        /// by hand; a second one must be a deliberate edit to this list, not a quiet omission.
-        /// </remarks>
         [Fact]
         public void EveryAuthenticatedAction_CarriesAPolicy()
         {

@@ -15,8 +15,6 @@ namespace EvangelionERPV2.BillsModule.Test
     /// </summary>
     public class VacationPayServiceTests
     {
-        // 31-day month, so a whole month of férias is the salary itself and a 10-day stretch is a
-        // clean fraction of it.
         private static readonly DateTime FeriasStart = new(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc);
 
         #region Amounts
@@ -56,7 +54,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var payment = Assert.Single(await sut.GenerateAsync(enterpriseId, accrual.Id));
 
-            // 10 of 31 days at 3100 is exactly 1000, so a whole month is not what got billed.
             Assert.Equal(1000m, payment.SalaryPortion);
             Assert.Equal(333.33m, payment.ConstitutionalThird);
             Assert.Equal(1333.33m, payment.TotalAmount);
@@ -80,7 +77,6 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(10, payment.SoldDays);
             Assert.Equal(1000m, payment.AbonoAmount);
 
-            // The abono carries a third of its own — leaving it off would underpay by 333.33.
             Assert.Equal(333.33m, payment.AbonoConstitutionalThird);
             Assert.Equal(4000m, payment.TotalAmount);
         }
@@ -116,7 +112,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             Assert.Equal(2, payments.Count);
 
-            // One conversion of days into cash for the whole período, not one per stretch.
             Assert.Equal(1, payments.Count(x => x.AbonoAmount > 0));
             Assert.Equal(10, payments.Single(x => x.AbonoAmount > 0).SoldDays);
         }
@@ -130,8 +125,6 @@ namespace EvangelionERPV2.BillsModule.Test
             var first = BuildStretch(employee, FeriasStart, days: 14);
             var second = BuildStretch(employee, FeriasStart.AddMonths(3), days: 16);
 
-            // The first stretch was billed when 4 days had been sold; 3 more were sold afterwards.
-            // Those used to fall out entirely — the abono rode the first bill or nothing.
             accrual.SoldDays = 7;
 
             var alreadyBilled = new PayableBill
@@ -162,10 +155,6 @@ namespace EvangelionERPV2.BillsModule.Test
             var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3100m);
             accrual.SoldDays = 10;
 
-            // The stretch this bill was issued for was cancelled and rescheduled, so no scheduled
-            // absence carries its due date any more. It predates AbonoDaysSettled, so nothing on the
-            // row says how many days it settled — and it is worth more than its stretch alone was,
-            // which is the only evidence there is that it carried the abono.
             var cancelledStretchBill = new PayableBill
             {
                 Id = Guid.NewGuid(),
@@ -186,9 +175,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             await sut.GenerateAsync(enterpriseId, accrual.Id);
 
-            // The abono is one conversion of days into cash for the whole periodo, and the bill that
-            // carried it is still standing and unrefunded. Billing it again pays the same ten days
-            // a second time.
             var created = Assert.Single(stores.createdBills);
             Assert.Equal(0, created.AbonoDaysSettled);
             Assert.Equal(2000m + 666.67m, created.Amount);
@@ -240,8 +226,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var payment = Assert.Single(await sut.GenerateAsync(enterpriseId, accrual.Id));
 
-            // CLT art. 145: the money is due before the leave begins, which is the whole reason the
-            // due date is not the competência's payroll date.
             Assert.Equal(FeriasStart.AddDays(-2).Date, payment.DueDate.Date);
             Assert.Equal(FeriasStart.AddDays(-2).Date, Assert.Single(stores.createdBills).DueDate.Date);
         }
@@ -391,9 +375,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task GenerateAsync_NetsTheBillByTheProvisionAlreadyAccruedForIt()
         {
-            // The monthly payroll bill's Amount already includes the férias provision as cash
-            // leaving, so charging the férias bill at gross projects the same money twice —
-            // docs/employee/SPEC-hr-module.md §4 P5a.
             var enterpriseId = Guid.NewGuid();
             var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3000m);
             var stretch = BuildStretch(employee, FeriasStart, days: 31);
@@ -406,7 +387,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var payment = Assert.Single(await sut.GenerateAsync(enterpriseId, accrual.Id));
 
-            // The employee is still owed the gross; only what the bill projects moves.
             Assert.Equal(4000m, payment.TotalAmount);
             Assert.Equal(1500m, payment.ProvisionOffset);
             Assert.Equal(2500m, payment.NetAmount);
@@ -419,8 +399,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task GenerateAsync_WhenTheProvisionCoversTheWholeBill_NetsItToZeroAndNoFurther()
         {
-            // A fully provisioned férias is pure forecast: the cash was already projected month by
-            // month. The bill must land at zero rather than turning into a credit.
             var enterpriseId = Guid.NewGuid();
             var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3000m);
             var stretch = BuildStretch(employee, FeriasStart, days: 31);
@@ -434,15 +412,12 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(4000m, payment.ProvisionOffset);
             Assert.Equal(0m, Assert.Single(stores.createdBills).Amount);
 
-            // And the months give up only what was actually paid out.
             Assert.Equal(4000m, competencia.VacationProvisionConsumed);
         }
 
         [Fact]
         public async Task GenerateAsync_RunTwice_NetsTheBillOnlyOnce()
         {
-            // The trap this whole change had to avoid: the drawdown sums the standing bills, so if
-            // it summed the netted Amount it would feed on its own output and converge on zero.
             var enterpriseId = Guid.NewGuid();
             var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3000m);
             var stretch = BuildStretch(employee, FeriasStart, days: 31);
@@ -462,13 +437,10 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task GenerateAsync_SplitFerias_NetsTheEarliestDueBillFirst()
         {
-            // The provision that exists today belongs to the payment that falls due first; the
-            // second stretch takes what is left.
             var enterpriseId = Guid.NewGuid();
             var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3000m);
 
             var first = BuildStretch(employee, FeriasStart, days: 31);
-            // September has 30 days, so a 30-day stretch there prices at the same 4000 gross.
             var second = BuildStretch(employee, FeriasStart.AddMonths(2), days: 30);
 
             var (sut, _) = BuildSut(accrual, employee, [first, second], competencias:
@@ -480,16 +452,14 @@ namespace EvangelionERPV2.BillsModule.Test
                 .OrderBy(x => x.DueDate)
                 .ToList();
 
-            Assert.Equal(0m, payments[0].NetAmount);      // 4000 gross, fully covered
-            Assert.Equal(3000m, payments[1].NetAmount);   // 4000 gross, 1000 of provision left
+            Assert.Equal(0m, payments[0].NetAmount);
+            Assert.Equal(3000m, payments[1].NetAmount);
             Assert.Equal(1000m, payments[1].ProvisionOffset);
         }
 
         [Fact]
         public async Task GetAsync_AfterNetting_StillReportsTheAbonoItSettled()
         {
-            // Whether a bill settled the abono is inferred from what it is worth, so the inference
-            // has to read the gross — a netted bill can be worth less than the stretch alone.
             var enterpriseId = Guid.NewGuid();
             var (accrual, employee) = BuildAccrual(enterpriseId, salary: 3100m);
             accrual.SoldDays = 10;
@@ -529,8 +499,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 Id = Guid.NewGuid(),
                 EmployeeId = employee.Id,
                 EnterpriseId = enterpriseId,
-                // The concessivo window has to contain FeriasStart: that calendar range is the only
-                // thing tying a Vacation absence to this accrual.
                 AcquisitionStart = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                 AcquisitionEnd = new DateTime(2025, 12, 31, 0, 0, 0, DateTimeKind.Utc),
                 ConcessionDeadline = new DateTime(2026, 12, 31, 0, 0, 0, DateTimeKind.Utc),
@@ -542,10 +510,6 @@ namespace EvangelionERPV2.BillsModule.Test
             return (accrual, employee);
         }
 
-        /// <remarks>
-        /// The stretch has to start inside [AcquisitionEnd, ConcessionDeadline] — that calendar
-        /// window is the only link between an absence and its accrual.
-        /// </remarks>
         private static EmployeeAbsence BuildStretch(Employee employee, DateTime start, int days) =>
             new()
             {
@@ -588,8 +552,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var accrualRepo = CreateRepositoryMock(new List<EmployeeVacationAccrual> { accrual });
             var employeeRepo = CreateRepositoryMock(new List<Employee> { employee });
-            // Throws when empty like the real repositories: an accrual with nothing scheduled yet
-            // is the ordinary case and must not blow up.
             var absenceRepo = CreateRepositoryMock(stretches, throwsWhenEmpty: true);
             var billRepo = CreateRepositoryMock(billStore);
             var detailRepo = CreateRepositoryMock(competencias ?? []);
@@ -607,8 +569,6 @@ namespace EvangelionERPV2.BillsModule.Test
                     return bill;
                 });
 
-            // The real drawdown service, not a mock: it is sealed, and running it for real proves
-            // the wiring from bill creation into the provision actually holds.
             var drawdown = new VacationProvisionDrawdownService(
                 accrualRepo.Object, billRepo.Object, detailRepo.Object);
 

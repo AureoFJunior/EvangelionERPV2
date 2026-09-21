@@ -192,8 +192,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
 
                 await _service.InsertOrderInQueue(order);
 
-                // The queue, not the database: OrderService publishes and returns before the order
-                // exists, so this says enqueued rather than created on purpose.
                 return JsonSerializer.Serialize(
                     new { status = "na fila", pedidoId = order.Id, total, itens = lines.Count },
                     AiJson.Options);

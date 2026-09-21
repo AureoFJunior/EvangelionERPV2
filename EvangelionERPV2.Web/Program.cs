@@ -49,27 +49,10 @@ using Microsoft.Net.Http.Headers;
 var builder = WebApplication.CreateBuilder(args);
 const string DefaultCorsPolicyName = "DefaultCorsPolicy";
 
-// prometheus-net connects its Meter adapter to every System.Diagnostics.Metrics instrument in the
-// process, and two of those meters are pure cost here.
-//
-// Microsoft.AspNetCore.* publishes http_server_request_duration labelled with http_route - a second
-// request histogram measuring exactly what UseHttpMetrics already measures, at ~19 series per route.
-// Across this API's 184 controller actions that is thousands of duplicate series, and it grows with
-// the codebase. Private.InternalDiagnostics.* is msquic internals nobody here reads.
-//
-// Measured on 8.2.1 with three routes: 262 series down to 166, the per-route duplication gone, and
-// the metrics the dashboards actually query all intact. It takes ~45s AFTER the first request for
-// these to finish appearing, so a scrape taken seconds after boot understates them - which is why
-// the count check in the observability docs says to use a process that has been up a minute.
-//
-// The Kestrel and hosting *EventCounters* (current_connections, request_queue_length and friends)
-// come from a different adapter, are fixed-cardinality, and are deliberately kept.
 Metrics.ConfigureMeterAdapter(options =>
     options.InstrumentFilterPredicate = instrument =>
         !instrument.Meter.Name.StartsWith("Microsoft.AspNetCore")
         && !instrument.Meter.Name.StartsWith("Private.InternalDiagnostics"));
-
-// Add services to the container.
 
 #region Services
 
@@ -132,8 +115,6 @@ try
 
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-    // Configure the HTTP request pipeline.
-
     SetupSwagger(app, app.Environment);
 
     app.UseHttpMetrics();
@@ -153,9 +134,6 @@ try
 
     app.UseIpRateLimiting();
 
-    // Order matters: the IP limiter above answers "is this caller asking too often", this answers
-    // "is the server already doing all it can". A caller inside its quota still gets shed when the
-    // process is saturated, which is the point.
     app.UseRequestTimeouts();
     app.UseRateLimiter();
 
@@ -168,22 +146,6 @@ try
 
     app.MapMetrics("/metrics").RequireAuthorization(RbacPolicies.Metrics.Read);
 
-    // Same registry, second door, no auth on it. Prometheus scrapes every 15 seconds for ever and
-    // the tokens this API issues expire, so the alternative was a never-expiring Supervisor token
-    // sitting in a scraper's config file - a credential that can read every business endpoint,
-    // handed out so that something can read a counter.
-    //
-    // 9101 is never published: no host port in docker-compose.yml, no security group rule on ECS
-    // (the agent sidecar shares the task's network namespace). The readers are containers on the
-    // same network, which is the boundary that already holds the connection string. It is a real
-    // narrowing and not a free lunch - some series carry an enterprise_id label - so if that
-    // network ever stops being a boundary, this has to be revisited.
-    // KestrelMetricServer, NOT app.UseMetricServer(port: 9101). The latter looks like it opens a
-    // second listener and does not: it registers the metrics middleware filtered to that port, so
-    // the port still has to be bound by something else. Shipped that way it left 9101 refusing
-    // connections while the app looked perfectly healthy - verified against 8.2.1 in a container,
-    // where only :::8080 was ever listening. This binds *:9101 for real, and is what the three
-    // workers already do.
     new KestrelMetricServer(port: 9101).Start();
     app.MapHub<OrderHub>("/orderHub", options =>
     {
@@ -202,10 +164,6 @@ try
     }).RequireAuthorization(RbacPolicies.Ai.Chat);
 
     app.MapControllers();
-    // Served from HealthResultCache rather than MapHealthChecks: the endpoint is anonymous and
-    // exempt from the overload limiter, so without caching every caller ran a SQL connect, a
-    // migrations read, a Redis round trip and a broker probe. Same response shape as before -
-    // plain status text, 503 only when Unhealthy.
     app.MapGet("/health", async (HealthResultCache cache, HttpContext context) =>
     {
         var report = await cache.GetAsync(context.RequestAborted);
@@ -233,9 +191,6 @@ catch (Exception ex)
 
 static void BuildValidators(WebApplicationBuilder builder)
 {
-    // Assembly scan rather than a hand-maintained list. A validator that existed but was never
-    // added to that list was silently inert - validation that looks present and does nothing -
-    // and ValidatorCoverageTests now fails when a bound request type has no validator at all.
     builder.Services.AddValidatorsFromAssemblyContaining<UserValidator>(ServiceLifetime.Transient);
 }
 
@@ -343,7 +298,6 @@ static void AddSwaggerGen(WebApplicationBuilder builder)
     });
 }
 
-
 static void SetupAPIVersioning(WebApplicationBuilder builder)
 {
     builder.Services.AddApiVersioning(opt =>
@@ -396,11 +350,6 @@ static void SetupRequestLimits(WebApplicationBuilder builder)
 /// </summary>
 static async Task LogPendingMigrationsAsync(WebApplication app)
 {
-    // SQL Server accepts connections before it has finished attaching its databases, and EF reports
-    // a history table it cannot read as "every migration is pending" rather than throwing — so the
-    // catch below never fires and a merely slow database gets announced as an empty one. That is
-    // not a hypothetical: on 2026-09-11 this logged all 64 as missing against a database that had
-    // all 64 applied. Retrying while nothing at all looks applied is what tells the two apart.
     const int attempts = 3;
     var retryDelay = TimeSpan.FromSeconds(3);
 
@@ -420,9 +369,6 @@ static async Task LogPendingMigrationsAsync(WebApplication app)
                 return;
             }
 
-            // Nothing applied at all, with migrations waiting, is a database that is not ready far
-            // more often than one that is genuinely blank. A real blank database still reports this
-            // on the last attempt, which is the honest answer for a first deploy.
             if (applied.Count == 0 && attempt < attempts)
             {
                 Log.Logger.Information(
@@ -446,8 +392,6 @@ static async Task LogPendingMigrationsAsync(WebApplication app)
         {
             if (attempt == attempts)
             {
-                // A database that cannot be reached at boot is DatabaseHealthCheck's job to report,
-                // not a reason to take the process down here.
                 Log.Logger.Error("Could not read pending migrations at startup. ErrorType={ErrorType}", exception.GetType().Name);
                 return;
             }
@@ -464,8 +408,6 @@ static void SetupHealthCheck(WebApplicationBuilder builder)
         .AddCheck<RedisHealthCheck>("redis")
         .AddCheck<RabbitMqHealthCheck>("rabbitmq");
 
-    // Publishes the same results as series, so a dependency going down can raise an alert instead
-    // of waiting for somebody to think of opening /health. The host drives the timer itself.
     builder.Services.AddSingleton<HealthResultCache>();
     builder.Services.AddSingleton<IHealthCheckPublisher, PrometheusHealthPublisher>();
     builder.Services.Configure<HealthCheckPublisherOptions>(options =>
@@ -496,13 +438,11 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     builder.Services.AddScoped<IAiProgressNotifier, AiProgressNotifier>();
     SharedIoC.Configure(builder.Services, builder.Configuration);
 
-    // reCAPTCHA verification (short timeout, fail-closed for auth endpoints).
     builder.Services.AddHttpClient<IRecaptchaVerifier, RecaptchaVerifier>(client =>
     {
         client.Timeout = TimeSpan.FromSeconds(5);
     });
 
-    // One password check, shared by the web login and the till's. Scoped: it holds a repository.
     builder.Services.AddScoped<PasswordLoginService>();
 }
 
@@ -576,8 +516,6 @@ static void AddOverloadProtection(WebApplicationBuilder builder)
 
     builder.Services.AddRequestTimeouts(options =>
     {
-        // Nothing should take half a minute. Without this a request has no upper bound at all and
-        // can hold a thread and a connection long after the client has gone.
         options.DefaultPolicy = new RequestTimeoutPolicy
         {
             Timeout = TimeSpan.FromSeconds(timeoutSeconds),
@@ -591,9 +529,6 @@ static void AddOverloadProtection(WebApplicationBuilder builder)
 
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         {
-            // Health and metrics must answer while the API is shedding: an orchestrator that cannot
-            // reach /health during overload will kill a container that is defending itself, and a
-            // scrape that fails takes away the graph showing why.
             var path = context.Request.Path;
             if (path.StartsWithSegments("/health") || path.StartsWithSegments("/metrics"))
                 return RateLimitPartition.GetNoLimiter("exempt");
@@ -608,7 +543,6 @@ static void AddOverloadProtection(WebApplicationBuilder builder)
 
         options.OnRejected = (context, _) =>
         {
-            // Tell the caller it is worth trying again; a 503 with no hint reads as a fault.
             context.HttpContext.Response.Headers.RetryAfter = "1";
             Log.Logger.Warning(
                 "Shedding request under load. Path={Path} Permits={Permits} Queue={Queue}",

@@ -169,8 +169,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                // Read-detached then mutate: the request DTO carries no audit columns, so the
-                // stored row is the only source for CreatedAt/EnterpriseId.
                 var existingSupplier = await _repository.GetByIdAsync(request.Id);
                 if (existingSupplier == null || existingSupplier.EnterpriseId != enterpriseId || existingSupplier.IsActive != true)
                     return NoContent();

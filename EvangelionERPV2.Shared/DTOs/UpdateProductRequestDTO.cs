@@ -21,9 +21,6 @@ namespace EvangelionERPV2.Shared.DTOs
         public bool IsService { get; set; }
         public bool? IsActive { get; set; }
 
-        // Fiscal (NFe/NFCe). Null means "fall back to EnterpriseFiscalSettings.Default*", so an
-        // update that omits them clears the per-product override rather than silently keeping a
-        // stale one — the same all-or-nothing shape the rest of this DTO already has.
         public string? Ncm { get; set; }
         public string? Cest { get; set; }
         public string? Cean { get; set; }

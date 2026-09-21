@@ -8,8 +8,6 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Adress { get; set; } = string.Empty;
         public string? Document { get; set; }
 
-        // Structured destinatário address for NFe enderDest. All optional — only a customer who
-        // receives a fiscal document needs them.
         public string? Logradouro { get; set; }
         public string? Numero { get; set; }
         public string? Complemento { get; set; }

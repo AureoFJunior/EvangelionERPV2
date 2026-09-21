@@ -8,8 +8,6 @@ namespace EvangelionERPV2.Web.FluentValidator
     {
         public NFeCancelRequestValidator()
         {
-            // SEFAZ requires 15 to 255 characters for xJust on event 110111. Enforced here so a
-            // rejection that costs a round trip becomes a 400 instead.
             RuleFor(x => x.Reason)
                 .NotEmpty().WithMessage("Cancellation reason is required.")
                 .Length(15, 255).WithMessage("Cancellation reason must be between 15 and 255 characters.");
@@ -24,13 +22,9 @@ namespace EvangelionERPV2.Web.FluentValidator
     {
         public UpdateNFCeCscRequestValidator()
         {
-            // The portal issues small positive ids. Zero reaches the library as CSCIDToken 0, which
-            // SEFAZ rejects with a motivo that points at neither field.
             RuleFor(x => x.CscId)
                 .GreaterThan(0).WithMessage("A CSC id is required.");
 
-            // No format rule beyond a length bound: the CSC is an opaque string the UF issues, and
-            // inventing a pattern here would reject a legitimate one the portal handed out.
             RuleFor(x => x.Csc)
                 .NotEmpty().WithMessage("A CSC is required.")
                 .MaximumLength(64).WithMessage("A CSC must be 64 characters or shorter.");
@@ -57,7 +51,6 @@ namespace EvangelionERPV2.Web.FluentValidator
 
     public sealed class SettleBillRequestValidator : AbstractValidator<SettleBillRequestDTO>
     {
-        // decimal(18,2) end to end, so 16 integer digits is the widest value the column holds.
         private const decimal MaxPaidAmount = 9_999_999_999_999_999.99m;
 
         public SettleBillRequestValidator()
@@ -66,8 +59,6 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .GreaterThan(0).WithMessage("Paid amount must be greater than zero.")
                 .LessThanOrEqualTo(MaxPaidAmount).WithMessage("Paid amount is too large.");
 
-            // A settlement dated in the future would be projected by the cash-flow forecast as
-            // money that has not arrived. The service re-checks this; the 400 is cheaper.
             RuleFor(x => x.PaidAt!.Value)
                 .LessThanOrEqualTo(_ => DateTime.UtcNow.Date.AddDays(1).AddTicks(-1))
                     .WithMessage("Settlement date cannot be in the future.")

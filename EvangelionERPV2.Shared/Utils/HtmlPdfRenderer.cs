@@ -6,12 +6,6 @@ namespace EvangelionERPV2.Shared.Utils
     /// <summary>
     /// The one headless-Chromium HTML-to-PDF renderer in the solution.
     /// </summary>
-    /// <remarks>
-    /// It lives here, and it is static, because the browser is a process: two modules sharing one
-    /// is fine, two each launching their own is not. Boleto rendering was the first caller and the
-    /// DANFE is the second, so the browser handle and its lock are held once for the host rather
-    /// than once per service instance.
-    /// </remarks>
     public static class HtmlPdfRenderer
     {
         private static IBrowser? sharedBrowser;
@@ -104,7 +98,6 @@ namespace EvangelionERPV2.Shared.Utils
                 {
                     Headless = true,
                     ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
-                    // /dev/shm is 64 MB in a default container and Chromium crashes when it fills.
                     Args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
                 });
             }

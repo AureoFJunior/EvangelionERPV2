@@ -57,7 +57,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
             var ex = Assert.Throws<NFeCertificateException>(() => sut.Inspect(pfx, "wrong-password"));
 
-            // Same message as a malformed file: the endpoint must not be a password oracle.
             Assert.Equal(NFeCertificateException.InvalidUpload().Message, ex.Message);
         }
 
@@ -109,8 +108,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task GetAsync_WithStoredCertificate_ReturnsUsablePrivateKey()
         {
-            // The single most common Linux failure mode for Brazilian fiscal libraries is a
-            // certificate that loads but whose private key cannot sign. Assert an actual signature.
             var enterpriseId = Guid.NewGuid();
             var pfx = CreatePfx($"NERV:{Cnpj}", notAfter: Now.AddDays(365));
             var (sut, secrets) = BuildSut();
@@ -135,7 +132,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         public async Task GetAsync_ExpiredStoredCertificate_ThrowsExpired()
         {
             var enterpriseId = Guid.NewGuid();
-            // Stored while valid; the clock has since moved past NotAfter.
             var pfx = CreatePfx($"NERV:{Cnpj}", notAfter: Now.AddDays(10));
             var (sut, secrets) = BuildSut(now: Now.AddDays(20));
             secrets[Prefix + enterpriseId.ToString("D")] = BuildSecretPayload(pfx, Password);
@@ -161,8 +157,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task GetAsync_WithPlainSecretPrefix_ThrowsInEveryEnvironment()
         {
-            // AWSKMSKeyProvider allows "plain:" in Development. A signing identity must never
-            // ride that path, so the guard here is unconditional.
             var (sut, _) = BuildSut(prefix: "plain:");
 
             var ex = await Assert.ThrowsAsync<NFeCertificateException>(() => sut.GetAsync(Guid.NewGuid()));
@@ -188,8 +182,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task GetAsync_AfterInvalidate_ReadsTheRotatedCertificate()
         {
-            // Rotation must take effect without restarting the process — the whole reason the
-            // cache-bypass overload exists on AWSKMSKeyProvider.
             var enterpriseId = Guid.NewGuid();
             var secretId = Prefix + enterpriseId.ToString("D");
 
@@ -230,7 +222,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task StoreAsync_InvalidCertificate_WritesNothing()
         {
-            // A rejected upload must not clobber a working certificate.
             var enterpriseId = Guid.NewGuid();
             var (sut, secrets) = BuildSut();
 
@@ -285,8 +276,8 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [InlineData("NERV INDUSTRIA LTDA", "")]
         [InlineData("", "")]
         [InlineData(null, "")]
-        [InlineData("NERV:1122233300018", "")]     // 13 digits
-        [InlineData("NERV:112223330001812", "")]   // 15 digits
+        [InlineData("NERV:1122233300018", "")]
+        [InlineData("NERV:112223330001812", "")]
         public void ExtractCnpj_ParsesOnlyFourteenDigitRuns(string? subject, string expected)
         {
             Assert.Equal(expected, NFeCertificateMetadata.ExtractCnpj(subject));

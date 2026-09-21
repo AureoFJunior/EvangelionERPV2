@@ -70,15 +70,9 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (product is null || product.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"produto não encontrado nesta empresa\"}";
 
-                // Re-checked here, not just at propose time: a card can sit for minutes and the
-                // product may have been deactivated in between.
                 if (product.IsActive != true)
                     return "{\"erro\":\"este produto está inativo e não pode ser alterado\"}";
 
-                // Stock is deliberately absent here. ProductService.ApplyStockMovementAsync is the
-                // only place StorageQuantity may move, because the quantity, the ledger row saying
-                // why, and the cache invalidation have to happen together. Assigning it here left
-                // the scalar and the StockMovement ledger disagreeing.
                 if (product.DefaultValue == preco)
                     return "{\"erro\":\"nada para alterar: o produto já está com esse preço\"}";
 

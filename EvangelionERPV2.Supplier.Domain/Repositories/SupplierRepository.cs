@@ -125,8 +125,6 @@ namespace EvangelionERPV2.SupplierModule.Domain.Repositories
             else if (supplier.UpdatedAt.HasValue && supplier.UpdatedAt.Value != DateTime.MinValue)
                 return x => x.UpdatedAt ?? DateTime.MinValue;
 
-            // An all-empty filter is a plain "list the enterprise's suppliers" call: fall back to
-            // the primary key so it pages deterministically instead of failing.
             return x => x.Id;
         }
     }

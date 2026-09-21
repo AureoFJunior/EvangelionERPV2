@@ -23,8 +23,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Transcribing_Silence_ComesBackWithoutSpeechRatherThanFailing()
         {
-            // Whisper answers 200 with an empty string for a clip that is only room noise. That is
-            // not an error — it is a turn the client must simply not send.
             var service = BuildService(HttpStatusCode.OK, "{\"text\":\"\"}");
 
             var result = await service.TranscribeAsync(Audio(), "audio/webm", "utterance.webm");
@@ -46,8 +44,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             await service.TranscribeAsync(Audio(), "audio/webm", "utterance.webm");
 
-            // Measured 2026-09-14 on noisy clips: without the prompt, this system's own words come
-            // back as nonsense — "estoque crítico hoje" as "toque, que de cor".
             Assert.Contains("vad_filter", body);
             Assert.Contains("estoque crítico", body);
         }
@@ -72,8 +68,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Transcribing_ARepetitionLoop_ComesBackAsNothingSaid()
         {
-            // What Whisper returns for silence: one phrase until it runs out of room. Passed on, it
-            // becomes a question the person never asked and stays in their history as their words.
             var loop = string.Concat(Enumerable.Repeat("O que é que é ", 48));
             var service = BuildService(HttpStatusCode.OK, "{\"text\":\"" + loop + "\"}");
 
@@ -135,7 +129,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             Assert.Contains("faster-whisper-small", body);
             Assert.Contains("pt", body);
-            // json, never verbose_json: no segments, no timings, nothing resembling a recording.
             Assert.Contains("json", body);
             Assert.DoesNotContain("verbose_json", body);
         }

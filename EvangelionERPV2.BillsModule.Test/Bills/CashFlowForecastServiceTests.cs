@@ -145,8 +145,6 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(170, result.FinalProjectedBalance, 2);
         }
 
-
-
         [Fact]
         public async Task GetForecastAsync_ShouldProjectOverdueUnpaidBillsForTodayAndIgnorePastPaidBills()
         {
@@ -229,7 +227,6 @@ namespace EvangelionERPV2.BillsModule.Test
             var today = DateTime.UtcNow.Date;
             var orderId = Guid.NewGuid();
 
-            // Payday is in the past, which the pre-boleto rule read as "already received".
             var orders = new List<Order>
             {
                 new() { Id = orderId, EnterpriseId = enterpriseId, PaymentScheduledDate = today.AddDays(4), Payday = today.AddDays(3), TotalValue = 100, IsActive = true }
@@ -263,7 +260,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 new() { Id = orderId, EnterpriseId = enterpriseId, PaymentScheduledDate = today.AddDays(9), TotalValue = 100, IsActive = true }
             };
 
-            // Settled late with interest: 112.50 arrived, not the 100 the order asked for.
             var settled = new Bill
             {
                 Id = Guid.NewGuid(),
@@ -330,11 +326,6 @@ namespace EvangelionERPV2.BillsModule.Test
         /// The window filter is in SQL now, and the resolver truncates to a date. An order due at
         /// 23:00 on the last day of the horizon must still count.
         /// </summary>
-        /// <remarks>
-        /// Comparing the raw column against midnight on the last day is the easy version of this
-        /// bound and it silently drops that order, which is why the query uses an exclusive bound
-        /// on the following day instead.
-        /// </remarks>
         [Fact]
         public async Task GetForecastAsync_WhenReceivableFallsLateOnTheFinalDay_ShouldStillProjectIt()
         {
@@ -426,12 +417,6 @@ namespace EvangelionERPV2.BillsModule.Test
         /// The forecast reads orders and their bills through EF, not through the repositories, so
         /// they have to exist in a context rather than in a mock.
         /// </summary>
-        /// <remarks>
-        /// That changed when the receivable window moved into SQL: the service used to load every
-        /// active order for the enterprise and filter in memory, which ran a 1.84M-order tenant out
-        /// of memory. Ids are assigned here because several of these tests build orders without
-        /// one, and two rows keyed on Guid.Empty cannot both be added.
-        /// </remarks>
         private static AppDbContext BuildContext(
             IEnumerable<Order>? orders = null,
             IEnumerable<Bill>? bills = null)

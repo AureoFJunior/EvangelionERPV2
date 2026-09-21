@@ -18,14 +18,6 @@ namespace EvangelionERPV2.PdvModule.Test
     /// <summary>
     /// What a provider event does to a charge — and what a replayed or late one does not.
     /// </summary>
-    /// <remarks>
-    /// The signature check is the controller's half and is tested where the controller lives
-    /// (EvangelionERPV2.Test); this file is the half that decides what an event is allowed to
-    /// change once it has been believed.
-    ///
-    /// Every provider retries, so an endpoint that is not idempotent is one that will eventually be
-    /// delivered twice and record the money twice.
-    /// </remarks>
     public class StripeWebhookTests : IDisposable
     {
         private readonly PdvTestContext _database = new();
@@ -55,8 +47,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ReplayingTheSameEventIdChangesNothing()
         {
-            // A webhook endpoint that is not idempotent is a webhook endpoint that will eventually
-            // be delivered twice, because every provider retries.
             using var context = _database.CreateContext();
             var service = CreateService(context);
             await GiveChargeAsync(context, "pi_1");
@@ -70,8 +60,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task AnEventForAnIntentWeDoNotKnowIsAcceptedAndIgnored()
         {
-            // False, not an exception: telling Stripe to retry forever for a charge that is not
-            // ours is a queue we never drain.
             using var context = _database.CreateContext();
             var service = CreateService(context);
 
@@ -82,7 +70,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ALateEventCannotUnsettleAChargeThatAlreadyPaid()
         {
-            // Expiry racing settlement is a real delivery order, and the money won.
             using var context = _database.CreateContext();
             var service = CreateService(context);
             await GiveChargeAsync(context, "pi_1");
@@ -123,7 +110,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task AnEventWithABadSignatureIsRefusedAndChangesNothing()
         {
-            // The only thing standing between a stranger and marking a charge paid.
             using var context = _database.CreateContext();
             await GiveChargeAsync(context, "pi_1");
             var handler = CreateHandler(context);
@@ -138,8 +124,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ABodyAlteredAfterSigningIsRefused()
         {
-            // The signature covers the body. Re-pointing the event at a different intent after
-            // signing must not survive verification.
             using var context = _database.CreateContext();
             await GiveChargeAsync(context, "pi_1");
             var handler = CreateHandler(context);
@@ -162,7 +146,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task AStaleTimestampIsRefusedEvenWithARealSignature()
         {
-            // Replay protection. The signature is genuine; the clock is not.
             using var context = _database.CreateContext();
             await GiveChargeAsync(context, "pi_1");
             var handler = CreateHandler(context);
@@ -176,7 +159,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task AnEventTypeWeDoNotHandleIsAcceptedAndIgnored()
         {
-            // 200, not 400: another integration on the same account must not build a retry queue.
             using var context = _database.CreateContext();
             await GiveChargeAsync(context, "pi_1");
             var handler = CreateHandler(context);
@@ -190,10 +172,6 @@ namespace EvangelionERPV2.PdvModule.Test
         private const string WebhookSecret = "whsec_test_secret";
 
         /// <summary>The header exactly as Stripe builds it: <c>t=&lt;unix&gt;,v1=&lt;HMAC-SHA256&gt;</c>.</summary>
-        /// <remarks>
-        /// Built here rather than stubbed, so these tests exercise the real verification path. A
-        /// stubbed verifier would pass whatever it was told and prove nothing.
-        /// </remarks>
         private static string SignatureFor(string json, string secret = WebhookSecret, long? timestamp = null)
         {
             var stamp = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -207,11 +185,6 @@ namespace EvangelionERPV2.PdvModule.Test
         /// <summary>
         /// A payment_intent.succeeded envelope, as Stripe sends one.
         /// </summary>
-        /// <remarks>
-        /// The envelope fields are not decoration: Stripe.net's own EventConverter reads
-        /// <c>api_version</c> to pick a deserialiser and throws without it, so a payload trimmed to
-        /// just id/type/data never reaches the code under test.
-        /// </remarks>
         private static string SucceededEventJson(string eventId, string intentId) =>
             $$"""
             {

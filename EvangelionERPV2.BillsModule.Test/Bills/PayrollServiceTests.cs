@@ -337,8 +337,6 @@ namespace EvangelionERPV2.BillsModule.Test
             await Assert.ThrowsAsync<InsertDatabaseException>(
                 () => sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
 
-            // The whole loop is one unit of work: the first employee's bill must not survive,
-            // otherwise the retry below would bill him a second time.
             Assert.Empty(stores.createdBills);
             Assert.Empty(stores.details);
         }
@@ -405,7 +403,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
 
-            // 16 of 31 days.
             Assert.Equal(1548.39m, breakdown.GrossSalary);
             Assert.Equal(129.03m, breakdown.ThirteenthSalaryProvision);
             Assert.Equal(172.04m, breakdown.VacationProvision);
@@ -442,7 +439,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
 
-            // 15 of 31 days.
             Assert.Equal(1451.61m, breakdown.GrossSalary);
             Assert.Equal(2354.59m, breakdown.TotalCost);
         }
@@ -473,7 +469,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2028, 2));
 
-            // 15 of 29 days.
             Assert.Equal(1551.72m, breakdown.GrossSalary);
             Assert.Equal(2516.98m, breakdown.TotalCost);
         }
@@ -482,7 +477,6 @@ namespace EvangelionERPV2.BillsModule.Test
         public async Task GeneratePayrollAsync_WithHalfCentValues_ShouldRoundAwayFromZero()
         {
             var enterpriseId = Guid.NewGuid();
-            // 3000.06 / 12 is exactly 250.005: banker's rounding would return 250.00.
             var (sut, _) = BuildSut(employees: [BuildEmployee(enterpriseId, 3000.06m)]);
 
             var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
@@ -509,7 +503,7 @@ namespace EvangelionERPV2.BillsModule.Test
         {
             var enterpriseId = Guid.NewGuid();
             var employee = BuildEmployee(enterpriseId, 3000m, "Misato");
-            employee.IsActive = false; // historical payroll survives employee deactivation
+            employee.IsActive = false;
 
             var bill = new PayableBill
             {
@@ -659,8 +653,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             await sut.GeneratePayrollAsync(enterpriseId, 2026, 7);
 
-            // Until 2026-09-01 the row carried no tenant at all and every read of this table had to
-            // reach the payable bill to find out whose it was.
             var detail = Assert.Single(stores.details);
             Assert.Equal(enterpriseId, detail.EnterpriseId);
         }
@@ -681,9 +673,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 IsActive = true
             };
 
-            // The detail says another company; the bill says this one. The tenant column is the
-            // gate now, not the bill lookup that used to be the only one — so this row is invisible
-            // here whichever of the two is wrong.
             var foreignDetail = new PayrollBillDetail
             {
                 Id = Guid.NewGuid(),
@@ -716,19 +705,16 @@ namespace EvangelionERPV2.BillsModule.Test
         {
             var enterpriseId = Guid.NewGuid();
             var employee = BuildEmployee(enterpriseId, 3000m);
-            // 6 to 10 July inclusive: five days gone out of thirty-one.
             var falta = BuildAbsence(employee, EnumEmployeeAbsenceType.Falta, 6, 10, isJustified: false);
 
             var (sut, stores) = BuildSut(employees: [employee], absences: [falta]);
 
             var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
 
-            // 26 of 31 days, against 3000.00 / 4866.17 for the same employee with no absence.
             Assert.Equal(2516.13m, breakdown.GrossSalary);
             Assert.Equal(4081.31m, breakdown.TotalCost);
             Assert.True(breakdown.TotalCost < 4866.17m);
 
-            // The payable actually written carries the reduced amount, not just the DTO.
             var bill = Assert.Single(stores.createdBills);
             Assert.Equal(4081.31m, bill.Amount);
         }
@@ -766,7 +752,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
 
-            // 28 of 31 days.
             Assert.Equal(2709.68m, breakdown.GrossSalary);
             Assert.Equal(4395.26m, breakdown.TotalCost);
         }
@@ -801,20 +786,14 @@ namespace EvangelionERPV2.BillsModule.Test
             var enterpriseId = Guid.NewGuid();
             var employee = BuildEmployee(enterpriseId, 3000m);
 
-            // Justified, because férias are paid leave — the reduction has to come from the kind,
-            // not from IsJustified. Marking the row unjustified instead would make CLT art. 130
-            // count férias as faltas and shrink next year's entitlement.
             var ferias = BuildAbsence(employee, EnumEmployeeAbsenceType.Vacation, 6, 15, isJustified: true);
 
             var (sut, _) = BuildSut(employees: [employee], absences: [ferias]);
 
             var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
 
-            // 10 férias days out of 31: ordinary payroll owes the other 21.
             Assert.Equal(2032.26m, breakdown.GrossSalary);
 
-            // And the two halves reconcile to exactly one month of salary, not two. The férias bill
-            // pays 3000 * 10/31 on top of this, plus its own 1/3.
             var feriasSalaryPortion = Math.Round(3000m * 10 / 31, 2, MidpointRounding.AwayFromZero);
             Assert.Equal(3000m, breakdown.GrossSalary + feriasSalaryPortion);
         }
@@ -824,7 +803,6 @@ namespace EvangelionERPV2.BillsModule.Test
         {
             var enterpriseId = Guid.NewGuid();
             var employee = BuildEmployee(enterpriseId, 3000m);
-            // 6-10 and 8-12 overlap on three days; the union is 6-12, seven days.
             var first = BuildAbsence(employee, EnumEmployeeAbsenceType.Falta, 6, 10, isJustified: false);
             var second = BuildAbsence(employee, EnumEmployeeAbsenceType.Falta, 8, 12, isJustified: false);
 
@@ -832,7 +810,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
 
-            // 24 of 31 days — not the 21 a naive sum of the two ranges would underpay.
             Assert.Equal(2322.58m, breakdown.GrossSalary);
             Assert.Equal(3767.35m, breakdown.TotalCost);
         }
@@ -858,7 +835,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
 
-            // Only 1-3 July count: 28 of 31 days. June is June's problem.
             Assert.Equal(2709.68m, breakdown.GrossSalary);
             Assert.Equal(4395.26m, breakdown.TotalCost);
         }
@@ -869,15 +845,12 @@ namespace EvangelionERPV2.BillsModule.Test
             var enterpriseId = Guid.NewGuid();
             var employee = BuildEmployee(enterpriseId, 3000m);
             employee.HireDate = new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc);
-            // Days the employee could not have worked anyway — subtracting them would pay less
-            // than the seventeen days the proration already accounts for.
             var falta = BuildAbsence(employee, EnumEmployeeAbsenceType.Falta, 1, 10, isJustified: false);
 
             var (sut, _) = BuildSut(employees: [employee], absences: [falta]);
 
             var breakdown = Assert.Single(await sut.GeneratePayrollAsync(enterpriseId, 2026, 7));
 
-            // 17 of 31 days, exactly as with no absence row at all.
             Assert.Equal(1645.16m, breakdown.GrossSalary);
             Assert.Equal(2668.54m, breakdown.TotalCost);
         }
@@ -967,8 +940,6 @@ namespace EvangelionERPV2.BillsModule.Test
             var payableBillStore = payableBills ?? [];
             var settingsRepo = CreateRepositoryMock(settings ?? []);
             var employeeRepo = CreateRepositoryMock(employees ?? [], employeeRepositoryThrowsWhenEmpty);
-            // Throws when empty, like the real repositories: a month with no absences at all is the
-            // normal case and must not blow up the payroll run.
             var absenceRepo = CreateRepositoryMock(absences ?? [], throwsWhenEmpty: true);
             var payableBillRepo = CreateRepositoryMock(payableBillStore);
             var detailRepo = CreateRepositoryMock(detailStore);
@@ -989,8 +960,6 @@ namespace EvangelionERPV2.BillsModule.Test
                     return bill;
                 });
 
-            // Emulates the real transaction: everything written by the delegate is discarded when
-            // it throws, so a test can assert no bill survives without its PayrollBillDetail.
             detailRepo
                 .Setup(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
                 .Returns(async (Func<Task> operation, CancellationToken _) =>
@@ -1036,8 +1005,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 {
                     var result = predicate == null ? records.ToList() : records.Where(predicate.Compile()).ToList();
 
-                    // The real repositories (EmployeeRepository and friends) throw instead of
-                    // returning an empty set — the "no data" paths must survive that contract.
                     if (throwsWhenEmpty && result.Count == 0)
                         throw new NotFoundDatabaseException();
 

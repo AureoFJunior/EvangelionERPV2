@@ -8,16 +8,6 @@ namespace EvangelionERPV2.Web.Security
     /// Counts failed attempts against a key inside a rolling window and reports when the key has
     /// had too many.
     /// </summary>
-    /// <remarks>
-    /// The shape is <c>UserController</c>'s reset-password limiter: a fixed window, a cap on
-    /// tracked keys so a spray cannot grow the dictionary without bound, and a periodic sweep of
-    /// expired entries. It lives here as a type because the till's login needs two of these — one
-    /// per terminal, one per terminal-and-operator — and two hand-copied sets of the same fields
-    /// would be two places to get the window wrong.
-    ///
-    /// In-process and per-instance, so a horizontally scaled deployment limits per replica. That is
-    /// the same ceiling the reset-password limiter has; a shared counter needs a shared store.
-    /// </remarks>
     public sealed class FailedAttemptLimiter
     {
         private readonly ConcurrentDictionary<string, Entry> _entries = new();
@@ -69,8 +59,6 @@ namespace EvangelionERPV2.Web.Security
                 if (!_entries.ContainsKey(key) && _entries.Count >= _maxEntries)
                     TryRemoveOldest();
 
-                // Still full: every tracked key is younger than this one, so drop this attempt
-                // rather than evict a counter that is actively holding an attacker back.
                 if (!_entries.ContainsKey(key) && _entries.Count >= _maxEntries)
                     return;
 

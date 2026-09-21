@@ -172,8 +172,6 @@ namespace EvangelionERPV2.Test.Security
                     IsActive = true
                 });
 
-            // Creating with stock posts the opening count as a movement, so the ledger accounts for
-            // the whole balance. Strict mocks have to expect it.
             productService
                 .Setup(s => s.ApplyStockMovementAsync(
                     It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
@@ -225,8 +223,6 @@ namespace EvangelionERPV2.Test.Security
                 .Setup(r => r.GetByIdAsync(callerId))
                 .ThrowsAsync(new NotFoundDatabaseException());
 
-            // Creating with stock posts the opening count as a movement, so the ledger accounts for
-            // the whole balance. Strict mocks have to expect it.
             productService
                 .Setup(s => s.ApplyStockMovementAsync(
                     It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
@@ -284,8 +280,6 @@ namespace EvangelionERPV2.Test.Security
                     IsActive = true
                 });
 
-            // Creating with stock posts the opening count as a movement, so the ledger accounts for
-            // the whole balance. Strict mocks have to expect it.
             productService
                 .Setup(s => s.ApplyStockMovementAsync(
                     It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
@@ -384,8 +378,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task AddProduct_PostsTheOpeningCountAsAStockMovement()
         {
-            // Creation used to assign StorageQuantity directly, so a new product carried stock the
-            // ledger had no row for — and real drift was then indistinguishable from that gap.
             var enterpriseId = Guid.NewGuid();
             var callerId = Guid.NewGuid();
             var productRepository = new Mock<IRepository<Product>>(MockBehavior.Strict);
@@ -411,8 +403,6 @@ namespace EvangelionERPV2.Test.Security
 
             productService
                 .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
-                // Read at persist time: the controller returns this same instance and then stamps
-                // BalanceAfter onto it, so the value has to be captured before that happens.
                 .Callback<ProductPicture>(payload => quantityAtPersist = payload.Product.StorageQuantity)
                 .ReturnsAsync((ProductPicture payload) =>
                 {
@@ -436,7 +426,6 @@ namespace EvangelionERPV2.Test.Security
             });
 
             Assert.IsType<OkObjectResult>(result);
-            // Persisted at zero, then moved: the ledger accounts for the whole balance.
             Assert.Equal(0, quantityAtPersist);
             Assert.Equal(12, movedQuantity);
             Assert.Equal(EnumStockMovementType.Adjustment, movementType);

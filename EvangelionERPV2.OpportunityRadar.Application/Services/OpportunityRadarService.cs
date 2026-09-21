@@ -150,7 +150,6 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
             var page = Math.Max(1, filter.Page);
             var pageSize = Math.Clamp(filter.PageSize <= 0 ? 25 : filter.PageSize, 1, 200);
 
-            // Filter, sort and page in SQL — the result set is unbounded per enterprise.
             var (paged, total) = await _opportunityRepository.GetPagedAsync(
                 BuildOpportunityPredicate(enterpriseId, filter),
                 query => ApplySort(query, filter),
@@ -458,9 +457,6 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
             var sortBy = (filter.SortBy ?? "priority").Trim().ToLowerInvariant();
             var descending = filter.Descending;
 
-            // Every branch ends in the primary key: SQL ORDER BY is not stable, so without a
-            // unique tiebreaker rows tied on the sort column straddle a page boundary and get
-            // repeated on one page while disappearing from another.
             return sortBy switch
             {
                 "score" => descending
@@ -1826,8 +1822,6 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
 
         private static decimal ResolveCoverageDays(Product product, IReadOnlyDictionary<Guid, decimal> dailyConsumption)
         {
-            // decimal has no PositiveInfinity; MaxValue is the "never runs out" sentinel and is
-            // only ever compared against, never used in further arithmetic.
             if (!dailyConsumption.TryGetValue(product.Id, out var consumption) || consumption <= 0)
                 return decimal.MaxValue;
 
@@ -2120,4 +2114,3 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
         }
     }
 }
-

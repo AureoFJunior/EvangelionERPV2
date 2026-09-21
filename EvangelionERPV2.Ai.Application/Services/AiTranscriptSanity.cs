@@ -4,12 +4,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
     /// Catches Whisper's repetition hallucination: fed silence or room noise, it does not answer
     /// "nothing was said" — it answers with one short phrase repeated until it runs out of room.
     /// </summary>
-    /// <remarks>
-    /// Observed 2026-09-14 in this database: a 667-character "question" reading
-    /// "O que é que é que é que é…" persisted twice as the user's own words. What the user actually
-    /// said was nothing. Left alone it reaches the model as a real question, costs a turn, and sits
-    /// in the conversation history as something the person never said.
-    /// </remarks>
     public static class AiTranscriptSanity
     {
         /// <summary>
@@ -31,16 +25,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
         /// <summary>
         /// Drops a sentence that is immediately repeated, keeping the first.
         /// </summary>
-        /// <remarks>
-        /// Observed in this database the same day: "Por isso que ela está aqui. Por isso que ela está
-        /// aqui." and "Vamos verificar o estoque, verificar o estoque." A clean clip transcribes
-        /// cleanly — a Piper sentence round-trips through Whisper word for word — so this is the
-        /// microphone hearing it twice, not the model inventing it. Either way the doubled text
-        /// reaches the model as the question and sits in the history as the person's own words.
-        ///
-        /// Only *adjacent* and *identical* sentences are collapsed. A question that legitimately
-        /// repeats a phrase with anything in between is left exactly as it was said.
-        /// </remarks>
         public static string CollapseRepeatedSentences(string? text)
         {
             if (string.IsNullOrWhiteSpace(text))

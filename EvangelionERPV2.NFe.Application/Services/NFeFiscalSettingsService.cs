@@ -49,8 +49,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
             var settings = await FindActiveSettingsAsync(enterpriseId);
 
-            // A tenant that has never configured anything gets a transient default rather than a
-            // null, so the settings screen renders on first visit.
             return settings ?? new EnterpriseFiscalSettings { EnterpriseId = enterpriseId };
         }
 
@@ -68,9 +66,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             var now = DateTime.UtcNow;
             var existing = await FindActiveSettingsAsync(enterpriseId);
 
-            // The profile and its counter rows are one unit of work. Committing them separately left
-            // a window where a saved profile had no counters, and issuance would then report the
-            // tenant as unconfigured with no way to tell that from a genuinely missing profile.
             await _settingsRepository.ExecuteInTransactionAsync(async () =>
             {
                 if (existing == null)
@@ -177,11 +172,8 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             settings.Pais = BlankTo(settings.Pais?.Trim(), "BRASIL");
             settings.DefaultUnidadeTributavel = BlankTo(settings.DefaultUnidadeTributavel?.Trim(), "UN");
 
-            // natOp is mandatory on the wire and free text, so a tenant that clears it gets the
-            // default back rather than a note SEFAZ refuses for an empty element.
             settings.DefaultNatOp = BlankTo(settings.DefaultNatOp?.Trim(), "VENDA DE MERCADORIA");
 
-            // The client never supplies cUF — it is derived from the UF so the two cannot drift.
             if (SupportedUfs.TryGetValue(settings.Uf, out var codigoUf))
                 settings.CodigoUfIbge = codigoUf;
         }
@@ -203,8 +195,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (settings.Crt is < 1 or > 4)
                 throw new InsertDatabaseException("Fiscal settings CRT must be between 1 and 4.");
 
-            // Simples Nacional (CRT 1/2) carries CSOSN, Regime Normal (CRT 3) carries CST. Saving
-            // a profile without the one its regime needs fails at emission, after burning a number.
             if (settings.Crt == 3 && string.IsNullOrWhiteSpace(settings.DefaultCst))
                 throw new InsertDatabaseException("Fiscal settings default CST is required for Regime Normal.");
 
@@ -236,8 +226,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (settings.CodigoMunicipioIbge.Length != 7)
                 throw new InsertDatabaseException("Fiscal settings IBGE municipality code must have 7 digits.");
 
-            // The IBGE code embeds the state in its first two digits; a mismatch means the
-            // municipality belongs to another UF and SEFAZ rejects the note.
             if (!settings.CodigoMunicipioIbge.StartsWith(
                     settings.CodigoUfIbge.ToString(), StringComparison.Ordinal))
                 throw new InsertDatabaseException("Fiscal settings IBGE municipality code does not belong to the selected UF.");
@@ -334,7 +322,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             target.DefaultAliquotaCofins = source.DefaultAliquotaCofins;
             target.DefaultUnidadeTributavel = source.DefaultUnidadeTributavel;
 
-            // Certificate metadata is owned by the certificate upload flow, never by this payload.
             target.UpdatedAt = now;
         }
 

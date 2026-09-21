@@ -27,20 +27,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
     /// <summary>
     /// The real SEFAZ transport. This is the only file in the solution that talks to an autorizador.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The service type names below are aliased on purpose. <c>Autorizacao</c>, <c>ConsultaProtocolo</c>,
-    /// <c>RecepcaoEvento</c> and <c>StatusServico</c> all exist under <c>Servicos.NFGas</c> and
-    /// <c>Servicos.NFSe.*</c> as well; a bare <c>using</c> plus a short name binds to the wrong document
-    /// type and still compiles.
-    /// </para>
-    /// <para>
-    /// The library is entirely synchronous, so every call is wrapped in <see cref="Task.Run(Action)"/>.
-    /// The cancellation token bounds the wait, not the transmission — bytes already in flight cannot be
-    /// recalled, which is exactly why the caller commits its write-ahead marker before getting here.
-    /// Only <c>Configuracao.TimeOutWebServiceConnect</c> actually bounds the socket.
-    /// </para>
-    /// </remarks>
     public sealed class SefazNFeProvider : INFeProvider
     {
         /// <summary>Layout version of the cancelamento event; independent of the NFe schema version.</summary>
@@ -48,8 +34,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
 
         private const string CancellationDescription = "Cancelamento";
 
-        // xJust, bounded by the event schema. Rejected locally rather than at SEFAZ: a refused event
-        // is a wasted round trip on a note whose cancellation window is running out.
         private const int MinimumJustificationLength = 15;
         private const int MaximumJustificationLength = 255;
 
@@ -68,8 +52,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             _respTecSettings = respTecSettings?.Value ?? new NFeRespTecSettings();
             _kmsKeyProvider = kmsKeyProvider;
 
-            // Optional so the modelo-55 unit-test path needs no CSC at all. An NFCe issued without
-            // one fails in UnimakeConfiguracaoFactory, before a number is consumed.
             _cscProvider = cscProvider;
         }
 
@@ -77,15 +59,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
         /// The configured <c>infRespTec</c>, or null when this installation has not been told who
         /// wrote the software.
         /// </summary>
-        /// <remarks>
-        /// All four core values or none: a partially filled group is a rejection at SEFAZ with a
-        /// motivo that points at the field rather than at the configuration, so it is logged here
-        /// and omitted, which is exactly what every note did before these settings existed.
-        ///
-        /// The CSRT is a Secrets Manager reference like every other secret in this system. Without
-        /// a resolver — the unit-test path — the optional half is simply dropped: idCSRT and CSRT
-        /// are required only where the UF demands them, and a note without them is still valid.
-        /// </remarks>
         private async Task<NFeResponsibleTechnician?> ResolveResponsibleTechnicianAsync(CancellationToken cancellationToken)
         {
             var cnpj = OnlyDigits(_respTecSettings.Cnpj);
@@ -132,14 +105,10 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             var settings = context.FiscalSettings;
             NFeAutorizacao service;
 
-            // Everything before Executar() is provably pre-socket, so a failure here is reported as
-            // NeverTransmitted and the caller keeps its allocated number.
             try
             {
                 var certificate = await _certificates.GetAsync(settings.EnterpriseId, cancellationToken);
 
-                // Only for 65: modelo 55 has no consumer QR, and the factory refuses a CSC it was
-                // not asked for rather than silently ignoring a signing key.
                 var csc = context.Type == NFeDocumentType.NFCe && _cscProvider != null
                     ? await _cscProvider.GetAsync(settings.EnterpriseId, cancellationToken)
                     : null;
@@ -148,10 +117,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                     settings, context.Type, certificate, csc, context.TipoEmissao);
                 var enviNFe = NFeXmlBuilder.Build(context, await ResolveResponsibleTechnicianAsync(cancellationToken));
 
-                // Schema validation happens inside this constructor and throws ValidarXMLException
-                // with the offending element, line and column. Do not call ValidarEstruturaXML
-                // yourself — handed a bare Configuracao it reports a NullReferenceException as if it
-                // were a schema rejection.
                 service = new NFeAutorizacao(enviNFe, configuracao);
             }
             catch (Exception exception) when (IsPreTransmissionFailure(exception))
@@ -159,10 +124,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                 return PreTransmissionFailure(context.AccessKey, exception, "build");
             }
 
-            // Signing happens while the service is constructed, so by here the note exists as a
-            // signed document whether or not SEFAZ is ever reached. For an off-line note that is
-            // the whole point: it is printed at the counter now and transmitted later, and if this
-            // XML were not kept there would be nothing to print and nothing to send.
             var signedXml = Xml(service.ConteudoXMLAssinado);
 
             try
@@ -171,8 +132,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             }
             catch (Exception exception)
             {
-                // The socket was open. Nothing here can prove the note did not land, so the outcome
-                // is unknown and the caller must consult rather than resend.
                 Log.Logger.Error(exception, "NFe transmission failed for chave {AccessKey}.", Redact(context.AccessKey));
 
                 var unknown = new NFeProviderResult
@@ -182,9 +141,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                     XMotivo = "The transmission failed with an unknown outcome; SEFAZ must be consulted.",
                     IsTransient = true,
 
-                    // Kept even though the outcome is unknown: it is the only copy of what was
-                    // signed, and a later consult that finds the note authorised has nothing else
-                    // to pair the protocol with.
                     XmlContent = signedXml ?? string.Empty
                 };
 
@@ -194,8 +150,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
 
             var result = ReadAuthorization(context, service);
 
-            // A rejected or unanswered note still has a signed body worth keeping — for an off-line
-            // one it is what the customer is holding.
             if (string.IsNullOrWhiteSpace(result.XmlContent) && !string.IsNullOrWhiteSpace(signedXml))
             {
                 result.XmlContent = signedXml;
@@ -235,8 +189,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                     ? await _cscProvider.GetAsync(fiscalSettings.EnterpriseId, cancellationToken)
                     : null;
 
-                // tpEmis comes from the stored ide, not from an argument: this transmits what was
-                // signed, and nothing here may change what the document says about itself.
                 var configuracao = UnimakeConfiguracaoFactory.Create(
                     fiscalSettings, type, certificate, csc, TipoEmissaoOf(signedXml));
 
@@ -308,8 +260,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             }
             catch (XmlException)
             {
-                // Fall through: a document we cannot parse is rejected by the library moments later
-                // with a far better message than anything invented here.
             }
 
             return 1;
@@ -342,8 +292,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             }
             catch (Exception exception)
             {
-                // A failed consult answers nothing. Pending keeps the document unknown so the sweeper
-                // asks again, which is the only safe reading.
                 Log.Logger.Warning(exception, "NFe consult failed for chave {AccessKey}.", Redact(accessKey));
 
                 return new NFeProviderResult { AccessKey = accessKey, Status = NFeStatus.Pending, IsTransient = true };
@@ -459,9 +407,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             var result = service.Result;
             var inOperation = SefazCStatMap.IsServiceInOperation(result?.CStat ?? 0);
 
-            // Status stays Pending either way: an autorizador is up or down, which is not a verdict
-            // about any document. IsTransient is what tells the caller "retry later" from
-            // "SEFAZ is answering, your request was wrong".
             return new NFeProviderResult
             {
                 Status = NFeStatus.Pending,
@@ -475,12 +420,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
         /// <summary>
         /// Reads the authorization answer, preferring the per-note protocol over the batch envelope.
         /// </summary>
-        /// <remarks>
-        /// With a synchronous batch the envelope reports 104 ("lote processado") — a statement about
-        /// the batch, not about the note. The verdict that matters is in protNFe/infProt. Only when
-        /// there is no protocol at all does the envelope's own cStat become the answer, which is what
-        /// a rejected batch looks like.
-        /// </remarks>
         private static NFeProviderResult ReadAuthorization(NFeIssueContext context, NFeAutorizacao service)
         {
             var envelope = service.Result;
@@ -499,25 +438,17 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                 TotalValue = context.Order.TotalValue,
                 IsTransient = verdict.IsTransient,
 
-                // Never true here: Executar() returned, so the request reached the wire.
                 NeverTransmitted = false,
                 IssuedAt = protocol is null ? null : ToUtc(protocol.DhRecbto),
 
-                // nfeProc — the signed note plus its protocol — is the artefact worth five years of
-                // retention. The signed enviNFe is the fallback when SEFAZ refused and there is no
-                // protocol to pair with it.
                 XmlContent = Xml(service.NfeProcResult) ?? Xml(service.ConteudoXMLAssinado) ?? string.Empty
             };
 
-            // NFCe only, and taken from the document that was actually signed. Absent on modelo 55,
-            // which has no infNFeSupl at all.
             ReadConsumerQr(result);
 
             if (protocol is not null && !string.IsNullOrWhiteSpace(protocol.ChNFe)
                 && !string.Equals(protocol.ChNFe, context.AccessKey, StringComparison.Ordinal))
             {
-                // Loud rather than silent: the protocol we are about to store would belong to a
-                // different note, and the caller stores it against ours.
                 Log.Logger.Error(
                     "SEFAZ answered chave {Answered} for a request sent with chave {Sent}; the protocol is not being trusted.",
                     Redact(protocol.ChNFe),
@@ -538,11 +469,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
         /// <summary>
         /// Lifts <c>infNFeSupl/qrCode</c> and <c>urlChave</c> off the signed XML onto the result.
         /// </summary>
-        /// <remarks>
-        /// Best-effort by design: a note that authorised is authorised, and a QR we failed to parse
-        /// must never turn that into a failure. It is logged instead, because an NFCe stored without
-        /// its QR is a document no customer can check and somebody has to find out.
-        /// </remarks>
         private static void ReadConsumerQr(NFeProviderResult result)
         {
             if (string.IsNullOrWhiteSpace(result.XmlContent))
@@ -592,8 +518,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                 Protocol = protocol?.NProt ?? string.Empty,
                 IsTransient = verdict.IsTransient,
 
-                // cStat 217 — SEFAZ has never heard of this chave — is the one answer that proves
-                // nothing landed, and therefore the one that lets the number be sent again.
                 NeverTransmitted = verdict.NeverTransmitted,
                 IssuedAt = protocol is not null ? ToUtc(protocol.DhRecbto) : ToUtc(result.DhRecbto)
             };
@@ -627,7 +551,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
 
             var infEvento = new InfEvento
             {
-                // "ID" + tpEvento(6) + chave(44) + nSeqEvento(2), per the event schema.
                 Id = string.Create(
                     CultureInfo.InvariantCulture,
                     $"ID{(int)TipoEventoNFe.Cancelamento}{accessKey}{sequence:D2}"),
@@ -677,7 +600,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
                 Status = NFeStatus.Error,
                 XMotivo = exception.Message,
 
-                // The whole point of this branch: nothing was sent, so the allocated number survives.
                 NeverTransmitted = true
             };
         }

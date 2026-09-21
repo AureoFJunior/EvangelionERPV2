@@ -1,4 +1,4 @@
-﻿using Serilog.Events;
+using Serilog.Events;
 using Serilog.Sinks.SystemConsole.Themes;
 using Serilog;
 
@@ -41,14 +41,13 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
-                .MinimumLevel.Override("Microsoft", LogEventLevel.Information)  // Adjust the log level for Microsoft logs
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
                 .Enrich.FromLogContext()
-                .WriteTo.Console(theme: customTheme) // Log to console and use a custom theme to the log
-                .WriteTo.File(path: @"c:\evaerpv2\logs\evarpv2.log", // Path that contains the log file
+                .WriteTo.Console(theme: customTheme)
+                .WriteTo.File(path: @"c:\evaerpv2\logs\evarpv2.log",
                     rollingInterval: RollingInterval.Day,
                     rollOnFileSizeLimit: true,
-                    fileSizeLimitBytes: 50000) // Create another file when the size exceds this value
-                                               // Add more configuration as needed, such as additional sinks, file logging, etc.
+                    fileSizeLimitBytes: 50000)
                 .CreateLogger();
         }
     }

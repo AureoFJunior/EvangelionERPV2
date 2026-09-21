@@ -67,10 +67,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// <summary>
         /// What the operator counted at close. Null while open.
         /// </summary>
-        /// <remarks>
-        /// Written before <see cref="ExpectedAmount"/> is ever shown to them — a blind count is the
-        /// only kind worth taking, because an operator who can see the target will hit the target.
-        /// </remarks>
         public decimal? CountedAmount { get; set; }
 
         /// <summary>

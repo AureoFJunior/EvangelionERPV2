@@ -23,21 +23,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// <summary>
     /// Reads the transaction list out of an OFX statement.
     /// </summary>
-    /// <remarks>
-    /// Hand-written rather than pulled from a package, and the narrowness is the argument: OFX 1.x
-    /// is SGML with unclosed tags, so a conforming XML parser rejects it outright, and a general
-    /// SGML library would be a dependency carried forever to read six tags. The regex below reads
-    /// both dialects for free — <c>[^&lt;\r\n]*</c> stops at the closing tag of OFX 2.0 (XML) and at
-    /// the end of line of OFX 1.x (SGML).
-    ///
-    /// Everything this cannot understand throws <see cref="FormatException"/>, which the controller
-    /// turns into a 400. There is no partial-parse mode on purpose: half a statement reconciled
-    /// against a full balance is a variance figure that lies.
-    /// </remarks>
     public static class OfxStatementParser
     {
-        // The file is uploaded, so the patterns run against untrusted input. All of them are
-        // anchored on literal tags with no nested quantifier, but the timeout is the cheap belt.
         private static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(2);
 
         private static readonly Regex TransactionBlock =
@@ -79,8 +66,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (!ledgerBlock.Success)
                 throw new FormatException("The statement carries no LEDGERBAL closing balance.");
 
-            // Scoped to the LEDGERBAL block: AVAILBAL carries a BALAMT and a DTASOF of its own, and
-            // the available balance is not the one the ERP balance should be compared against.
             var balance = ParseAmount(Required(ledgerBlock.Value, "BALAMT"));
             var balanceAsOf = ParseDate(Required(ledgerBlock.Value, "DTASOF"));
 
@@ -92,7 +77,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     PostedAt: ParseDate(Required(block.Value, "DTPOSTED")),
                     Amount: ParseAmount(Required(block.Value, "TRNAMT")),
                     TrnType: Tag(block.Value, "TRNTYPE") ?? string.Empty,
-                    // NAME is what some banks fill instead of MEMO; either is the counterparty text.
                     Memo: Tag(block.Value, "MEMO") ?? Tag(block.Value, "NAME") ?? string.Empty));
             }
 
@@ -128,8 +112,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             var text = raw.Trim();
 
-            // OFX says the decimal separator is '.', but Brazilian banks ship '1.234,56' anyway.
-            // Whichever of the two appears last is the decimal separator; the other is grouping.
             var lastComma = text.LastIndexOf(',');
             var lastDot = text.LastIndexOf('.');
 
@@ -137,8 +119,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 ? text.Replace(".", string.Empty).Replace(',', '.')
                 : text.Replace(",", string.Empty);
 
-            // Invariant explicitly, never the ambient culture: the server's locale is not the
-            // file's, and on a pt-BR host the ambient parse would read "-1234.56" as -123456.
             if (!decimal.TryParse(
                     text,
                     NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
@@ -148,20 +128,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 throw new FormatException("The statement carries an amount that is not a number.");
             }
 
-            // decimal(18,2) in the column. Rounding here rather than letting the provider truncate
-            // keeps what was matched identical to what was stored.
             return Math.Round(amount, 2, MidpointRounding.AwayFromZero);
         }
 
         /// <summary>
         /// OFX dates are <c>YYYYMMDD[HHMMSS[.SSS]][[±h:TZ]]</c>. Only the date survives.
         /// </summary>
-        /// <remarks>
-        /// Real files carry the timezone suffix — <c>20260810120000[-3:BRT]</c> — and honouring it
-        /// would mean converting into whatever zone the server happens to run in, which can shift a
-        /// transaction across midnight and move it a day inside the ±3-day window. The bank posts
-        /// on a banking day, not an instant, so the date is the whole signal and the clock is noise.
-        /// </remarks>
         private static DateTime ParseDate(string raw)
         {
             var text = raw.Trim();

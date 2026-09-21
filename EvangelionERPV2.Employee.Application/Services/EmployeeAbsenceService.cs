@@ -25,7 +25,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
             {
                 Normalize(absence);
 
-                // The incoming Id is client input, never an identity: the server assigns its own.
                 absence.Id = Guid.NewGuid();
                 absence.Cid = ProtectCid(absence.Type, plainCid);
 
@@ -39,8 +38,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
             }
             catch (Exception ex)
             {
-                // No interpolation of the entity anywhere in this file: the message travels into
-                // logs, and a CID must never get there.
                 throw new InsertDatabaseException("Unexpected error while creating employee absence.", ex);
             }
         }
@@ -58,10 +55,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                 if (existentAbsence == null)
                     throw new NotFoundDatabaseException($"{nameof(EmployeeAbsence)} was not found in database.");
 
-                // An absent CID in the payload means "not provided", never "erase": the stored
-                // ciphertext survives a partial update. Changing the type away from Atestado is
-                // the one thing that does clear it — keeping health data on a falta would be
-                // collecting it with no legal basis.
                 absence.Cid = string.IsNullOrWhiteSpace(plainCid)
                     ? (absence.Type == (int)EnumEmployeeAbsenceType.Atestado ? existentAbsence.Cid : null)
                     : ProtectCid(absence.Type, plainCid);
@@ -93,8 +86,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                 if (absence == null)
                     throw new NotFoundDatabaseException($"{nameof(EmployeeAbsence)} was not found in database.");
 
-                // Soft delete: payroll already billed against these days, and a hard delete would
-                // make a past competência impossible to explain.
                 absence.IsActive = false;
                 absence.UpdatedAt = DateTime.UtcNow;
                 EmployeeAbsence deletedAbsence = _absenceRepository.Update(absence);
@@ -137,11 +128,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         /// Encrypts a diagnosis code with the same AES helper the rest of the codebase uses for
         /// sensitive values, and refuses to persist the row when that fails.
         /// </summary>
-        /// <remarks>
-        /// <c>SharedFunctions.Encrypt</c> returns an empty string on any failure (a missing key,
-        /// most often). Storing the plaintext instead is unthinkable for art. 11 data, and silently
-        /// dropping it would lose the legal justification for a paid absence — so the write fails.
-        /// </remarks>
         private static string? ProtectCid(int type, string? plainCid)
         {
             if (string.IsNullOrWhiteSpace(plainCid))

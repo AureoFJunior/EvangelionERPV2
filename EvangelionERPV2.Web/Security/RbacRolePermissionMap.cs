@@ -14,19 +14,13 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Orders.Read,
             RbacPermissions.Orders.Create,
 
-            // Their own sales row and nothing else. The screen that decides someone's commission
-            // is Manager-only, which left the person being measured unable to see the measurement.
             RbacPermissions.SalesPerformance.ReadSelf,
 
-            // The floor operator. Opens and closes their own till and rings sales, which is the
-            // whole job — but cannot open the drawer for a sangria or void a completed sale.
             RbacPermissions.Pdv.Operate,
             RbacPermissions.Pdv.OpenSession,
             RbacPermissions.Pdv.CloseSession,
             RbacPermissions.Pdv.ApplyDiscount,
 
-            // The bell itself, not its contents: every item is filtered against the caller's own
-            // permissions before it is returned.
             RbacPermissions.Notifications.Read,
         ];
 
@@ -66,9 +60,6 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Products.UploadPicture,
             RbacPermissions.Products.DeletePicture,
 
-            // Quoting is selling: same tier as creating the order it becomes.
-            // Supervisor tier: cash leaving the drawer, a discount past the operator's ceiling,
-            // voiding a sale that already happened, and the readings that show the day's takings.
             RbacPermissions.Pdv.CashMovement,
             RbacPermissions.Pdv.OverrideDiscount,
             RbacPermissions.Pdv.CancelSale,
@@ -84,9 +75,6 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Reports.Read,
             RbacPermissions.Reports.Generate,
 
-            // A supplier is the mirror image of a customer — a counterparty record with a
-            // document that never leaves the API — so it sits at the customer tier, not the
-            // employee one.
             RbacPermissions.Suppliers.Read,
             RbacPermissions.Suppliers.Create,
             RbacPermissions.Suppliers.Update
@@ -98,55 +86,30 @@ namespace EvangelionERPV2.Web.Security
 
             RbacPermissions.Customers.Delete,
 
-            // Overriding a credit limit is a decision about the company's exposure, so it sits
-            // with the tier that already sees the carteira and the payables.
             RbacPermissions.Customers.CreditOverride,
 
-            // The accountant's monthly package is Manager data by construction: it is the payables
-            // and the bank-facing side of the month, and the payroll inside it is aggregated so it
-            // never carries an individual's salary the way admin-only payroll.read does.
             RbacPermissions.Accounting.Export,
 
             RbacPermissions.Suppliers.Delete,
 
-            // What a unit costs is what the company earns on it. A Supervisor sells and quotes
-            // against the price list; the margin behind that price is the same class of company
-            // financial as CurrentBalance and the payables, so it starts here.
             RbacPermissions.Products.ReadCost,
 
-            // Same tier and the same reason: one screen carrying every seller's numbers and what
-            // each of them is owed.
             RbacPermissions.SalesPerformance.Read,
             RbacPermissions.SalesPerformance.ManageGoals,
 
-            // A bank statement exposes the company's whole cash position and every counterparty it
-            // moved money with, so it sits at the tier that already sees CurrentBalance and the
-            // payables — not with customers and products at Supervisor.
             RbacPermissions.BankReconciliation.Read,
             RbacPermissions.BankReconciliation.Import,
             RbacPermissions.BankReconciliation.Resolve,
 
-            // The daily panel puts payables and uncleared bank lines on the same screen as
-            // receivables, so it sits at the tier that already sees both.
             RbacPermissions.Dashboard.Read,
 
-            // Chatting to the agent is Supervisor; letting it propose a write is not. A proposal
-            // is a mutation a human is one tap from applying, so it starts where the other
-            // company-wide financial actions start.
             RbacPermissions.Ai.Act,
 
-            // Declaring a boleto paid and superseding one are financial assertions nothing else
-            // verifies until CNAB retorno exists, so they start at Manager while issuing a boleto
-            // stays at Supervisor.
             RbacPermissions.Bills.Settle,
             RbacPermissions.Bills.Reissue,
 
-            // Enterprise self-read exposes company-level financials (CurrentBalance), so it
-            // starts at Manager instead of the base role set.
             RbacPermissions.Enterprise.ReadSelf,
 
-            // Employee records carry LGPD-sensitive data (document, salary), so the whole
-            // permission group starts at Manager instead of Supervisor.
             RbacPermissions.Employees.Read,
             RbacPermissions.Employees.Create,
             RbacPermissions.Employees.Update,
@@ -162,9 +125,6 @@ namespace EvangelionERPV2.Web.Security
             // stronger reason: scheduling férias writes an absence row, and an accrual that
             // outruns its concessivo deadline is a debt the company owes twice over.
 
-            // Certificate metadata only — subject, expiry, days remaining. Whoever operates
-            // issuance needs the expiry warning without waiting on an admin; uploading and
-            // replacing the certificate stays admin-only.
             RbacPermissions.NFe.CertificateRead,
 
             RbacPermissions.PayableBills.Read,

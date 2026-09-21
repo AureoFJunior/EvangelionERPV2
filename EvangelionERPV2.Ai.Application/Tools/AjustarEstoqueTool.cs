@@ -76,14 +76,9 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (product is null || product.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"produto não encontrado nesta empresa\"}";
 
-                // Re-checked here, not just at propose time: a card can sit for minutes and the
-                // product may have been deactivated in between.
                 if (product.IsActive != true)
                     return "{\"erro\":\"este produto está inativo e não pode ser alterado\"}";
 
-                // The delta is computed here rather than stored on the card, so a sale between the
-                // proposal and the confirmation is not silently undone: the correction lands
-                // relative to what is on hand when the human says yes.
                 var delta = novoEstoque - product.StorageQuantity;
                 if (delta == 0)
                     return "{\"erro\":\"nada para alterar: o estoque já está nessa quantidade\"}";

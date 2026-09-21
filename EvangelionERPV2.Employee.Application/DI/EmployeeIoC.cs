@@ -54,7 +54,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.DI
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<Employee>), typeof(EmployeeRepository));
                 services.AddTransient(typeof(IEmployeeRepository<Employee>), typeof(EmployeeRepository));
 
-
                 #endregion
 
                 #region Services
@@ -65,19 +64,12 @@ namespace EvangelionERPV2.EmployeeModule.Application.DI
                 #region Vacation lapse sweep
                 services.Configure<EmployeeVacationSettings>(configuration.GetSection("EmployeeVacationSettings"));
 
-                // Concrete, no interface: the worker below is its only caller. Lapsing is a
-                // consequence of the calendar that nothing else may trigger, so the module that
-                // owns the accrual owns the check.
                 services.AddScoped<EmployeeVacationLapseService>();
                 services.AddHostedService<EmployeeVacationLapseWorker>();
                 #endregion
 
                 #endregion
 
-                // Logged rather than left to the catch below, for the same reason NFeIoC logs its
-                // fiscal registrations: a swallowed DI failure here means the lapse sweeper never
-                // runs, and an accrual that quietly passes its concessivo deadline is a debt owed
-                // in dobro that nothing in the system will ever mention.
                 Log.Logger.Information("Employee vacation accrual services and lapse sweeper registered.");
 
                 services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));
@@ -86,7 +78,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.DI
             {
                 Log.Logger.Error("Error at DI IoC Employee. ErrorType={ErrorType}", ex.GetType().Name);
             }
-
         }
     }
 }

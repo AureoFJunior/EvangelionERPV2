@@ -12,7 +12,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.EmployeeId)
                 .NotEmpty().WithMessage("EmployeeId is required.");
 
-            // File is optional: an empty payload clears the stored picture.
             RuleFor(x => x.File)
                 .Must(Base64PayloadValidationHelper.IsValidBase64Payload)
                     .WithMessage("File must be a valid base64 payload.")

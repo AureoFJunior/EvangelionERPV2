@@ -8,8 +8,6 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Description { get; set; } = string.Empty;
         public decimal DefaultValue { get; set; }
 
-        // Cost and margin are Manager-tier: nulled by ProductController for a caller without
-        // products.cost.read, the same withholding shape EmployeeDTO uses for salary.
         public decimal? CostPrice { get; set; }
         public decimal? MarginPercent { get; set; }
 
@@ -19,7 +17,6 @@ namespace EvangelionERPV2.Shared.DTOs
         public bool IsService { get; set; }
         public string PictureAdress { get; set; } = string.Empty;
 
-        // Fiscal (NFe/NFCe). Null means "use the enterprise default" — see NFeItemFiscalResolver.
         public string? Ncm { get; set; }
         public string? Cest { get; set; }
         public string? Cean { get; set; }

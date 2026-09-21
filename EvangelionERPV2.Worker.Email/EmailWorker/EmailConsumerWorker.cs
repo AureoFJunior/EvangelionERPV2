@@ -1,4 +1,4 @@
-﻿using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Worker.EmailModule.EmailWorker.RabbitMQ;
 using Microsoft.Extensions.Configuration;
@@ -37,9 +37,6 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 
                     Log.Logger.Information("Email Consumer Worker consuming from {Time}", DateTime.UtcNow);
 
-                    // messageId is accepted but not yet used: unlike an order, a resent e-mail costs a
-                    // duplicate in an inbox rather than duplicate stock and money. Wire it through
-                    // the same way if that stops being acceptable.
                     await rabbitMQManager.ConsumeAsync<string>(async (rawMessage, messageId) =>
                     {
                         if (string.IsNullOrWhiteSpace(rawMessage))
@@ -77,9 +74,6 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
         private static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(5);
         private string? _cachedToken;
 
-        // Ticks in a long, read with Interlocked: handlers now run concurrently, and the fast path
-        // below reads both fields outside the lock. A DateTime field is not guaranteed to be read
-        // atomically, so a torn read could accept an expired token or reject a live one.
         private long _cachedTokenExpiresAtTicks;
 
         private async Task<string?> GetCachedApiTokenAsync(IServiceScope scope, CancellationToken cancellationToken)

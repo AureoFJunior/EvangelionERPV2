@@ -10,11 +10,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
     /// The counter's tenders reaching the note. `NFeXmlBuilderTests` covers what the XML then says;
     /// this covers whether the service bothers to look them up at all.
     /// </summary>
-    /// <remarks>
-    /// It did not, until this landed: `PdvSalePayment` has said since M29a that it is "the source
-    /// NFC-e's pag group is built from", and every note the till issued declared tPag 99 "Outros" —
-    /// on a consumer document, where pag is what the customer and the fisco both read.
-    /// </remarks>
     public class NFCeTenderTests
     {
         [Fact]
@@ -41,8 +36,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task AModelo55_NeverAsksHowTheTillWasPaid()
         {
-            // A back-office note is issued against an order, not a sale. Reading a till's tenders
-            // for it would be two queries for a document that must still declare "Outros".
             var context = new NFeIssuanceWriteAheadTests.IssuanceContext();
             context.SetupAuthorizingProvider();
             context.SeedTillSale(
@@ -65,8 +58,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task AnNFCeForAnOrderNoTillEverRang_FallsBackToOutros()
         {
-            // The back office can issue an NFC-e for an ordinary order. There are no tenders to
-            // read, and the builder's "Outros" branch is the honest answer.
             var context = new NFeIssuanceWriteAheadTests.IssuanceContext();
             context.SetupAuthorizingProvider();
 

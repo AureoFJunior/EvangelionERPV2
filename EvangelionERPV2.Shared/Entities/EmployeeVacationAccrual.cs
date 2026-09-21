@@ -7,15 +7,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// One row per período aquisitivo per employee: the férias entitlement earned by twelve months
     /// of work, and what has since been scheduled, taken or sold against it.
     /// </summary>
-    /// <remarks>
-    /// An entitlement, not an absence. <see cref="EmployeeAbsence"/> records days the employee was
-    /// away; this records days they are owed. Scheduling férias writes both — an absence row so
-    /// payroll stops counting those days as worked, and a decrement here.
-    ///
-    /// The reason this table exists at all is <see cref="ConcessionDeadline"/>. Miss it and CLT
-    /// art. 137 makes the remaining days payable twice, which is a real liability accruing silently
-    /// on a date nobody watches.
-    /// </remarks>
     [Index(nameof(EnterpriseId), nameof(EmployeeId), nameof(AcquisitionStart))]
     [Index(nameof(EnterpriseId), nameof(ConcessionDeadline))]
     public class EmployeeVacationAccrual : BaseEntity

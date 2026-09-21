@@ -164,8 +164,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void NatOp_WhenTheTenantHasNone_IsWhatEveryPastNoteSaid()
         {
-            // A profile saved before the column existed, or one cleared to blank. natOp is
-            // mandatory on the wire, so this can never be empty.
             var settings = Settings();
             settings.DefaultNatOp = "   ";
 
@@ -175,8 +173,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void NatOp_LongerThanTheSchemaAllows_IsCutRatherThanRejected()
         {
-            // 60 is the 4.00 bound. Unlike a tax field, a truncated description misstates nothing
-            // that is computed from it, and refusing the note would cost a sale over wording.
             var settings = Settings();
             settings.DefaultNatOp = new string('A', 80);
 
@@ -204,8 +200,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void Pag_WithoutTenders_StillSaysOutros()
         {
-            // Modelo 55 comes from a back-office order that records no means of payment. Declaring
-            // one would be a claim to the fisco that nobody made.
             var detPag = Assert.Single(Build(Context()).Pag.DetPag);
 
             Assert.Equal(MeioPagamento.Outros, detPag.TPag);
@@ -228,15 +222,12 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal(MeioPagamento.CartaoCredito, infNFe.Pag.DetPag[1].TPag);
             Assert.Equal(150d, infNFe.Pag.DetPag[1].VPag);
 
-            // xPag describes tPag 99 and nothing else.
             Assert.Null(infNFe.Pag.DetPag[0].XPag);
         }
 
         [Fact]
         public void Pag_CashWithChange_DeclaresWhatWasHandedOverAndWhatCameBack()
         {
-            // vPag is the note the customer put on the counter, vTroco what went back. Amount is
-            // what the tender settled, so the two have to be added back together here.
             var infNFe = Build(Context(payments: [Tender(EnumPaymentMethod.Cash, 250m, change: 50m)]));
 
             Assert.Equal(300d, infNFe.Pag.DetPag[0].VPag);
@@ -246,8 +237,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void Pag_ACardTender_CarriesItsAuthorizationAndSaysItIsNotIntegrated()
         {
-            // tpIntegra is mandatory on a card tender, and this till has no TEF: the operator reads
-            // the code off the POS terminal's slip.
             var card = Assert.Single(Build(Context(payments:
                 [Tender(EnumPaymentMethod.Debit, 250m, authorization: " AUT-4242 ")])).Pag.DetPag).Card;
 
@@ -275,8 +264,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void Pag_WhatTheShopIsStillOwed_IsAPrazo()
         {
-            // Everything at a counter is settled as it is rung, except the two tenders that
-            // deliberately leave the shop waiting for the money, and credit in installments.
             Assert.Equal(
                 IndicadorPagamento.PagamentoVista,
                 Assert.Single(Build(Context(payments: [Tender(EnumPaymentMethod.Cash, 250m)])).Pag.DetPag).IndPag);
@@ -294,8 +281,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void Pag_TendersThatDoNotAddUp_AreRefusedBeforeSefazSeesThem()
         {
-            // SEFAZ would reject the whole note, and at a counter that is a customer standing in
-            // front of an operator who cannot fix it.
             var context = Context(payments: [Tender(EnumPaymentMethod.Cash, 249m)]);
 
             var exception = Assert.Throws<InvalidOperationException>(() => Build(context));
@@ -311,8 +296,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void Build_OmitsRespTec_WhenTheInstallationHasNotBeenToldWhoWroteTheSoftware()
         {
-            // The behaviour every note had before the settings existed: no placeholder CNPJ, which
-            // would be a false declaration to the fisco.
             Assert.Null(Build(Context()).InfRespTec);
         }
 
@@ -330,15 +313,12 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal("dev@nerv.jp", respTec.Email);
             Assert.Equal("5199990000", respTec.Fone);
 
-            // Not demanded by this UF, so neither half of the CSRT pair is written.
             Assert.True(string.IsNullOrEmpty(respTec.IdCSRT));
         }
 
         [Fact]
         public void Build_WritesTheCsrtPair_WhenBothHalvesArePresent()
         {
-            // The CSRT goes out raw: the library derives hashCSRT from it and the chave, and a hash
-            // computed here would be a second implementation of a rule the fisco already fixed.
             var technician = new NFeResponsibleTechnician(
                 "12345678000199", "Aureo", "dev@nerv.jp", "5199990000", "01", "G8063VRTNDMPS3W2SPT9V6NEEJ0MYCF7");
 
@@ -347,8 +327,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal("01", respTec!.IdCSRT);
             Assert.Equal("G8063VRTNDMPS3W2SPT9V6NEEJ0MYCF7", respTec.CSRT);
 
-            // hashCSRT is still empty here on purpose: the library derives it from the CSRT and the
-            // chave when the document is serialised, which is after this builder has run.
             Assert.True(string.IsNullOrEmpty(respTec.HashCSRT));
         }
 
@@ -365,9 +343,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal(42, infNFe.Ide.NNF);
             Assert.Equal(1, infNFe.Ide.Serie);
 
-            // cNF is read back out of the chave, and the library derives chave and cDV from Ide.
-            // The two agreeing is the whole point: our mod-11 and the library's are independent
-            // implementations of the same rule, cross-checked on every build.
             Assert.Equal(context.AccessKey.Substring(35, 8), infNFe.Ide.CNF);
             Assert.Equal(context.AccessKey[43] - '0', infNFe.Ide.CDV);
         }
@@ -396,7 +371,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
         [Theory]
         [InlineData("SP")]
-        [InlineData("MG")]   // outside the emitente autorizador allowlist, and still an ordinary sale
+        [InlineData("MG")]
         [InlineData("AM")]
         public void Build_UsesTheInterstateCfop_WhenBuyerIsInAnotherUf(string uf)
         {
@@ -415,8 +390,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal("NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL", infNFe.Dest.XNome);
             Assert.Equal(TipoAmbiente.Homologacao, infNFe.Ide.TpAmb);
 
-            // The address is still the real one — only xNome is mandated — but the real *name* must
-            // not travel in a test document.
             Assert.Equal("AVENIDA BRASIL", infNFe.Dest.EnderDest.XLgr);
         }
 
@@ -443,7 +416,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal(IndicadorIEDestinatario.NaoContribuinte, infNFe.Dest.IndIEDest);
             Assert.Null(infNFe.Dest.IE);
 
-            // …and a consumer purchase is by definition to a final consumer.
             Assert.Equal(SimNao.Sim, infNFe.Ide.IndFinal);
         }
 
@@ -470,7 +442,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal("00", icms.CST);
             Assert.Equal(ModalidadeBaseCalculoICMS.ValorOperacao, icms.ModBC);
 
-            // 0.18 stored as a fraction becomes 18% on the wire, and 18% of 250,00 is 45,00.
             Assert.Equal(18d, icms.PICMS);
             Assert.Equal(250d, icms.VBC);
             Assert.Equal(45d, icms.VICMS);
@@ -492,13 +463,10 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal("20", icms.CST);
             Assert.Equal(26.67d, icms.PRedBC);
 
-            // 250,00 less 26,67% is 183,33, and 18% of that is 33,00 — not 45,00, which is what
-            // the full base would have declared.
             Assert.Equal(183.33d, icms.VBC);
             Assert.Equal(18d, icms.PICMS);
             Assert.Equal(33d, icms.VICMS);
 
-            // The note-level totals have to add up to what the items declare, or SEFAZ rejects them.
             Assert.Equal(183.33d, infNFe.Total.ICMSTot.VBC);
             Assert.Equal(33d, infNFe.Total.ICMSTot.VICMS);
         }
@@ -509,8 +477,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var settings = Settings();
             settings.DefaultCst = "20";
 
-            // Read as zero this would send vBC 250,00 and vICMS 45,00 — more tax than the item
-            // owes, on a note SEFAZ would authorize without complaint.
             var refusal = Assert.Throws<InvalidOperationException>(
                 () => Build(Context(settings, items: [Line(Widget())])));
 
@@ -549,7 +515,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.NotNull(icms.ICMS60);
             Assert.Equal("60", icms.ICMS60.CST);
 
-            // ST was collected further up the chain, so this note charges nothing of its own.
             Assert.Equal(0d, infNFe.Total.ICMSTot.VICMS);
         }
 
@@ -568,7 +533,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal(2.54d, icms.PCredSN);
             Assert.Equal(6.35d, icms.VCredICMSSN);
 
-            // A credit the buyer may take is not tax this note collected.
             Assert.Equal(0d, infNFe.Total.ICMSTot.VICMS);
         }
 
@@ -604,8 +568,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [InlineData(1, "900")]
         public void Build_WithACodeWhoseFiguresAreNotStored_StillRefusesByName(byte crt, string code)
         {
-            // Each of these needs a deferment percentage or an ST base and margin that live nowhere
-            // in this database. Widening the switch without the columns would send zeroes.
             var settings = Settings(crt: crt);
             if (crt == 3) settings.DefaultCst = code; else settings.DefaultCsosn = code;
 
@@ -625,8 +587,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.NotNull(icms.ICMSSN102);
             Assert.Equal("102", icms.ICMSSN102.CSOSN);
 
-            // Simples items carry no ICMS, so the note-level base and tax must stay at zero rather
-            // than inheriting the Regime Normal arithmetic.
             Assert.Equal(0d, infNFe.Total.ICMSTot.VBC);
             Assert.Equal(0d, infNFe.Total.ICMSTot.VICMS);
         }
@@ -634,7 +594,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void Build_RoutesPisAndCofinsByCst_NotByAssumingAnAliquotaGroup()
         {
-            // The enterprise default is CST 07 — isenta — which belongs to the NT group, not Aliq.
             var untaxed = Build(Context()).Det[0].Imposto;
             Assert.NotNull(untaxed.PIS.PISNT);
             Assert.Null(untaxed.PIS.PISAliq);
@@ -725,8 +684,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var buyer = Buyer();
             typeof(Customer).GetProperty(field)!.SetValue(buyer, null);
 
-            // A blank xLgr is accepted by no autorizador and, worse, would be a false declaration if
-            // it were. The failure has to name the field so the operator can fix the record.
             Assert.Throws<InvalidOperationException>(() => NFeXmlBuilder.Build(Context(customer: buyer)));
         }
 
@@ -735,9 +692,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         {
             var product = Widget();
 
-            // Diferimento: the deferred percentage lives nowhere in this database. CST 20 used to
-            // be the example here and is supported since 2026-09-01 — it needs a figure the product
-            // now carries, which is a different thing from needing one nobody records.
             product.Cst = "51";
 
             var exception = Assert.Throws<InvalidOperationException>(() => NFeXmlBuilder.Build(Context(items:
@@ -751,8 +705,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void Build_RefusesAChaveWhoseCompetenciaHasRolledOver()
         {
-            // A chave allocated last month against a document transmitted this month is rejection
-            // 253 at SEFAZ, which burns the number. Better to fail before the socket opens.
             var lastMonth = DateTime.UtcNow.AddHours(-3).AddMonths(-1);
             var staleKey = NFeAccessKeyBuilder.Build(43, lastMonth, EmitterCnpj, 55, 1, 42, 1, "00099887");
 
@@ -774,7 +726,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                 AccessKey = context.AccessKey,
                 Number = context.Number,
                 Series = context.Series,
-                ProcessVersion = "EvangelionERPV2-phase0"   // 22 characters; the XSD allows 20
+                ProcessVersion = "EvangelionERPV2-phase0"
             };
 
             Assert.Throws<InvalidOperationException>(() => NFeXmlBuilder.Build(tooLong));
@@ -797,8 +749,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var context = Context();
             var xml = NFeXmlBuilder.Build(context).GerarXML().OuterXml;
 
-            // The two values that legitimately change every run are normalised away; everything else
-            // is asserted verbatim.
             xml = xml
                 .Replace(context.AccessKey, "{CHAVE}", StringComparison.Ordinal)
                 .Replace(context.AccessKey.Substring(35, 8), "{CNF}", StringComparison.Ordinal);
@@ -822,8 +772,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Contains("<tPag>99</tPag>", xml);
             Assert.Contains("<indSinc>1</indSinc>", xml);
 
-            // infRespTec carries the software developer's CNPJ and CSRT — facts this system has
-            // never been told — so it must be absent rather than filled with a placeholder.
             Assert.DoesNotContain("infRespTec", xml);
         }
     }

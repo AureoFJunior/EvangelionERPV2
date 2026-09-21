@@ -6,12 +6,6 @@ using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Shared.Entities
 {
-    // Two lookup indexes for the till. A checkout scan resolves a product from a barcode on every
-    // single item, so without these it is a table scan per beep. Both lead with EnterpriseId
-    // because every query is already tenant-scoped by the global filter, and neither is unique:
-    // GTIN collisions across tenants are none of our business, and within a tenant a shop that
-    // reuses a code on two products has a data problem the till should surface, not a write the
-    // database should refuse mid-import.
     [Index(nameof(EnterpriseId), nameof(Cean))]
     [Index(nameof(EnterpriseId), nameof(Sku))]
     public class Product : BaseEntity
@@ -41,8 +35,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// </summary>
         public decimal? CostPrice { get; set; } = null;
 
-        // StorageQuantity is not money: UnitOfMeasure allows Kg/Litre/Meter, so the global
-        // decimal(18,2) convention would truncate fractional units like 0.004 Kg to 0.
         [Column(TypeName = "decimal(18,4)")]
         public decimal StorageQuantity { get; set; } = 0;
         public string UnitOfMeasure { get; set; } = nameof(EnumUnitOfMeasure.Unit);
@@ -53,20 +45,10 @@ namespace EvangelionERPV2.Shared.Entities
         /// <summary>
         /// The shop's own code for the item, as printed on a shelf label or an internal barcode.
         /// </summary>
-        /// <remarks>
-        /// Deliberately separate from <see cref="Cean"/>, which is a GTIN the manufacturer owns and
-        /// a loose product (bulk rice, a tailored garment) will never have. The till resolves a
-        /// scan against both, so a store can label its own goods without inventing fake GTINs —
-        /// which is what happens otherwise, and those fake codes then get emitted to SEFAZ.
-        /// </remarks>
         [MaxLength(40)]
         public string? Sku { get; set; }
 
         #region Fiscal (NFe/NFCe)
-
-        // All nullable: blank means "fall back to EnterpriseFiscalSettings.Default*".
-        // NFeItemFiscalResolver is the single place that applies that fallback.
-        // UnitOfMeasure above stays the commercial unit (uCom); UnidadeTributavel is uTrib.
 
         [MaxLength(8)]
         public string? Ncm { get; set; }
@@ -98,8 +80,6 @@ namespace EvangelionERPV2.Shared.Entities
         [MaxLength(3)]
         public string? Csosn { get; set; }
 
-        // decimal(5,4) is mandatory on every rate: the global HavePrecision(18,2) convention in
-        // AppDbContext would truncate a 0.0765 PIS rate to 0.08.
         [Column(TypeName = "decimal(5,4)")]
         public decimal? AliquotaIcms { get; set; }
 
@@ -119,12 +99,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// pRedBC — how much of the ICMS base this item's tax treatment removes, as a fraction
         /// (0.2667 is a 26,67% reduction), like every other rate here.
         /// </summary>
-        /// <remarks>
-        /// Only CST 20 uses it, and only a product knows it: the reduction follows the goods, not
-        /// the company. Null means "this item has no reduction", which is why CST 20 refuses to
-        /// build without it rather than sending a zero — a zero reduction is a full base, so the
-        /// note would declare more tax than the item owes and the error would look like arithmetic.
-        /// </remarks>
         [Column(TypeName = "decimal(5,4)")]
         public decimal? ReducaoBaseIcms { get; set; }
 

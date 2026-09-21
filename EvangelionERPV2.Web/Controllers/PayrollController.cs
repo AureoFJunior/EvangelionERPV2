@@ -138,12 +138,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
-        /// <remarks>
-        /// Reuses <see cref="RbacPermissions.Payroll.Generate"/> rather than minting a permission of
-        /// its own: it is the same authority over the same salary-derived data at the same
-        /// admin-only tier, so a separate one would be granted to exactly the same set and buy
-        /// nothing.
-        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Generate)]
         [HttpPost]
         public async Task<IActionResult> GenerateVacationPay([FromQuery] Guid accrualId)
@@ -198,8 +192,6 @@ namespace EvangelionERPV2.Web.Controllers
 
         private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)
         {
-            // PayrollService only throws static, non-sensitive messages; anything wrapping
-            // an inner exception may leak provider details and gets the generic response.
             if (ex.InnerException != null)
                 return "An internal error occurred. Please try again later.";
 

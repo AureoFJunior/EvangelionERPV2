@@ -15,7 +15,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
         [Fact]
         public async Task RefreshAsync_OpensOnePeriodPerCompletedYearOfTenure()
         {
-            // Hired 30 months ago: two closed aquisitivos plus the one still running.
             var (sut, world) = BuildSut(hiredMonthsAgo: 30);
 
             var ledger = await sut.RefreshAsync(EmployeeId, EnterpriseId);
@@ -34,8 +33,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             await sut.RefreshAsync(EmployeeId, EnterpriseId);
             var second = await sut.RefreshAsync(EmployeeId, EnterpriseId);
 
-            // Matched on AcquisitionStart, so a second run reconciles the same three rows instead
-            // of stacking three more onto the ledger.
             Assert.Equal(3, world.Accruals.Count);
             Assert.Equal(3, second.Count);
             Assert.All(second, accrual => Assert.Equal(30, accrual.EntitledDays));
@@ -47,13 +44,11 @@ namespace EvangelionERPV2.EmployeeModule.Test
             var (sut, world) = BuildSut(hiredMonthsAgo: 30);
             var hireDate = world.Employee.HireDate.Date;
 
-            // Six unjustified days inside the first aquisitivo drops it a whole band, 30 -> 24.
             world.Absences.Add(Absence(EnumEmployeeAbsenceType.Falta, hireDate.AddDays(40), hireDate.AddDays(45), justified: false));
 
             var ledger = await sut.RefreshAsync(EmployeeId, EnterpriseId);
 
             Assert.Equal(24, ledger[0].EntitledDays);
-            // The band is per period: the second one saw none of those faltas.
             Assert.Equal(30, ledger[1].EntitledDays);
         }
 
@@ -67,8 +62,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             lapsed.Status = (int)EnumVacationAccrualStatus.Lapsed;
             lapsed.EntitledDays = 30;
 
-            // A dobro liability someone else already established. Recomputing it would erase the
-            // evidence that the company owes those days twice.
             world.Absences.Add(Absence(EnumEmployeeAbsenceType.Falta, lapsed.AcquisitionStart.AddDays(10), lapsed.AcquisitionStart.AddDays(50), justified: false));
 
             await sut.RefreshAsync(EmployeeId, EnterpriseId);
@@ -91,23 +84,16 @@ namespace EvangelionERPV2.EmployeeModule.Test
             var booked = Assert.Single(world.Absences, x => x.Type == (int)EnumEmployeeAbsenceType.Vacation);
             Assert.Equal(20, (booked.EndDate - booked.StartDate).Days + 1);
 
-            // Paid leave: this row must never travel PayrollService.ReducesPay, which would cut the
-            // salary a second time, nor VacationEntitlement's falta count.
             Assert.True(booked.IsJustified);
         }
 
         [Fact]
         public async Task RefreshAsync_AfterScheduling_KeepsTheBookingInsteadOfDriftingFromIt()
         {
-            // 14 months of tenure: the first aquisitivo closed two months ago and its concessivo
-            // window is still open, so leave booked into the future stays a reservation.
             var (sut, world) = await BuildScheduledSut(hiredMonthsAgo: 14);
             var accrual = world.Accruals[0];
             await sut.ScheduleAsync(accrual.Id, EnterpriseId, DateTime.UtcNow.Date.AddDays(30), 20);
 
-            // Refresh recomputes the counters off the absence rows while ScheduleAsync incremented
-            // them directly. The two derivations have to agree, or a routine read of the ledger
-            // silently gives an employee back leave they have already booked.
             await sut.RefreshAsync(EmployeeId, EnterpriseId);
 
             Assert.Equal(20, accrual.ScheduledDays);
@@ -122,8 +108,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             var (sut, world) = await BuildScheduledSut();
             var accrual = world.Accruals[0];
 
-            // Booked inside a concessivo window that has since closed: a reservation becomes
-            // history, and the ledger says taken rather than still owed.
             world.Absences.Add(Absence(
                 EnumEmployeeAbsenceType.Vacation,
                 accrual.AcquisitionEnd.AddDays(5),
@@ -185,7 +169,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             await sut.ScheduleAsync(accrual.Id, EnterpriseId, window.AddDays(60), 8);
             await sut.ScheduleAsync(accrual.Id, EnterpriseId, window.AddDays(120), 5);
 
-            // Three days still remain, but art. 134 §1 has run out of periods to put them in.
             var exception = await Assert.ThrowsAsync<InsertDatabaseException>(
                 () => sut.ScheduleAsync(accrual.Id, EnterpriseId, window.AddDays(200), 3));
 
@@ -243,17 +226,12 @@ namespace EvangelionERPV2.EmployeeModule.Test
             var inTime = accrual.AcquisitionEnd.AddDays(-30);
             var start = accrual.AcquisitionEnd.AddDays(10);
 
-            // 30 entitled: the whole leave is booked in one stretch and that stretch is already
-            // billed, so the 10 sellable days are the last thing left on the accrual.
             await sut.ScheduleAsync(accrual.Id, EnterpriseId, start, 20);
             world.PayableBills.Add(VacationBill(accrual, start.Date.AddDays(-2)));
 
             var exception = await Assert.ThrowsAsync<InsertDatabaseException>(
                 () => sut.SellDaysAsync(accrual.Id, EnterpriseId, 10, inTime));
 
-            // Nothing would ever issue a bill carrying them: GenerateAsync only hangs the abono on
-            // a stretch it is billing on that run, and there is no unbilled stretch left nor any
-            // day to schedule one with.
             Assert.Contains("no férias payment to be paid on", exception.Message);
             Assert.Equal(0, accrual.SoldDays);
         }
@@ -266,8 +244,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
 
             await sut.ScheduleAsync(accrual.Id, EnterpriseId, accrual.AcquisitionEnd.AddDays(10), 20);
 
-            // Same shape as above minus the bill: the stretch has not been paid yet, so the days
-            // sold now ride it when it is.
             await sut.SellDaysAsync(accrual.Id, EnterpriseId, 10, accrual.AcquisitionEnd.AddDays(-30));
 
             Assert.Equal(10, accrual.SoldDays);
@@ -352,8 +328,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             repository.Setup(x => x.CommitAsync(It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
 
-            // The transaction wrapper runs the body inline: these tests are about the rules the
-            // body enforces, not about the isolation level around it.
             repository.Setup(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
                 .Returns((Func<Task> operation, CancellationToken _) => operation());
 

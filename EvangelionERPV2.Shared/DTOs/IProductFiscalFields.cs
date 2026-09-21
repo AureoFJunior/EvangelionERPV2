@@ -3,11 +3,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// The per-product fiscal overrides, shared by the create and update request bodies.
     /// </summary>
-    /// <remarks>
-    /// Exists so the fifteen field rules live in one validator helper instead of being copied
-    /// into <c>CreateProductRequestValidator</c> and <c>UpdateProductRequestValidator</c>, where
-    /// the two copies would be free to drift.
-    /// </remarks>
     public interface IProductFiscalFields
     {
         string? Ncm { get; }

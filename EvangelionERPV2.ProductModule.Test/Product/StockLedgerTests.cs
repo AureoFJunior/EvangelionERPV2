@@ -85,9 +85,6 @@ namespace EvangelionERPV2.ProductModule.Test
             var seedContext = _database.CreateContext();
             var productId = await SeedProductAsync(seedContext, enterpriseId, "Last One", 1m);
 
-            // Two contexts, the way two requests would have two. Both were built while stock read
-            // as 1, which is exactly the state a read-modify-write decrement would act on — and
-            // exactly the state in which it would sell the same unit twice.
             var first = CreateService(_database.CreateContext());
             var second = CreateService(_database.CreateContext());
 
@@ -123,8 +120,6 @@ namespace EvangelionERPV2.ProductModule.Test
                 }
                 catch (Exception)
                 {
-                    // Rejected for want of stock, or lost a write lock to a sibling. Either way
-                    // the assertions below only care that nothing was sold that did not exist.
                     return false;
                 }
             });
@@ -195,8 +190,6 @@ namespace EvangelionERPV2.ProductModule.Test
                     SecretString = "{\"access-key-id\":\"test\",\"secret-access-key\":\"test\"}"
                 });
 
-            // A real repository, not a mock: the ledger write and the quantity change have to land
-            // in one transaction, and a mocked ExecuteInTransactionAsync would never open one.
             return new ProductService(
                 new Repository<Product>(context),
                 configuration,
@@ -221,7 +214,6 @@ namespace EvangelionERPV2.ProductModule.Test
             var movement = await service.ApplyStockMovementAsync(
                 productId, enterpriseId, -5m, EnumStockMovementType.Sale, Guid.NewGuid(), allowNegative: true);
 
-            // -3 is the honest record: three units left the shelf that the books never knew about.
             Assert.Equal(-3m, await ReadStockAsync(context, productId));
             Assert.Equal(-3m, movement.BalanceAfter);
             Assert.Equal(-5m, movement.Quantity);
@@ -262,7 +254,6 @@ namespace EvangelionERPV2.ProductModule.Test
             await service.ApplyStockMovementAsync(
                 productId, enterpriseId, -4m, EnumStockMovementType.Sale, Guid.NewGuid(), allowNegative: true);
 
-            // The shelf actually holds 6, so the correction is +10 against the -4 on the books.
             var correction = await service.ApplyStockMovementAsync(
                 productId, enterpriseId, 10m, EnumStockMovementType.Adjustment, null);
 
@@ -277,7 +268,6 @@ namespace EvangelionERPV2.ProductModule.Test
         [Fact]
         public async Task ApplyStockMovementAsync_WhenThePeriodIsClosed_WritesNothing()
         {
-            // The ledger is always stamped now, so the only period it can violate is today's.
             var context = _database.CreateContext();
             var service = CreateService(context);
             var enterpriseId = Guid.NewGuid();

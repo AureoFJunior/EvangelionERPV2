@@ -41,8 +41,6 @@ namespace EvangelionERPV2.Shared.Utils
             {
                 try
                 {
-                    // Wait before the first pass: running on startup would repeat the slot on every
-                    // restart and deploy.
                     await Task.Delay(TimeUntilNextRun(DateTime.UtcNow), stoppingToken);
                 }
                 catch (OperationCanceledException)
@@ -50,8 +48,6 @@ namespace EvangelionERPV2.Shared.Utils
                     return;
                 }
 
-                // Task.Delay never returns early, so we are at or past the slot boundary and this is
-                // a whole slot's worth of time — the interval the lease has to cover.
                 await RunOnceUnderLeaseAsync(TimeUntilNextRun(DateTime.UtcNow), stoppingToken);
             }
         }
@@ -81,14 +77,10 @@ namespace EvangelionERPV2.Shared.Utils
             }
             catch (OperationCanceledException)
             {
-                // Shutting down mid-pass keeps the lease: the pass may already have had its effect,
-                // and the replacement replica must not repeat it.
                 throw;
             }
             catch (Exception exception)
             {
-                // A failed pass must not kill the host, and must not sit on the slot either —
-                // handing the lease back lets a healthy replica retry now instead of losing the slot.
                 Log.Logger.Error(exception, "{Worker} pass failed.", GetType().Name);
                 await _lease.ReleaseAsync(LeaseKey, token);
                 return false;

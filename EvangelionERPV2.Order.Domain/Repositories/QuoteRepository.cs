@@ -39,11 +39,6 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
         /// <summary>
         /// The next number for this tenant, creating the counter the first time it is asked for.
         /// </summary>
-        /// <remarks>
-        /// The seed row is inserted only when the allocation matched nothing, and a unique index on
-        /// EnterpriseId makes a race between two first-ever quotes resolve to one row: the loser's
-        /// insert fails, and the retry allocates from the winner's counter.
-        /// </remarks>
         public async Task<long> AllocateNextNumberAsync(Guid enterpriseId, CancellationToken cancellationToken = default)
         {
             if (enterpriseId == Guid.Empty)
@@ -63,8 +58,6 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             }
             catch (DbUpdateException)
             {
-                // Somebody else seeded it between the allocation and this insert. Their row is as
-                // good as ours; fall through and allocate from it.
                 _context.ChangeTracker.Clear();
             }
 
@@ -79,8 +72,6 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
                 .Include(quote => quote.Items!)
                     .ThenInclude(item => item.Product)
                 .Include(quote => quote.Customer)
-                // The PDF prints the issuer's header from here. Cheaper than a second repository
-                // on QuoteService, whose constructor every test double already mirrors.
                 .Include(quote => quote.Enterprise)
                 .AsSplitQuery()
                 .FirstOrDefaultAsync(

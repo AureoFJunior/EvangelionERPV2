@@ -27,11 +27,6 @@ namespace EvangelionERPV2.Web.Logging
             {
                 await _next(context);
             }
-            // A caller who hung up is not a fault. The browser aborting a long request — closing the
-            // assistant mid-answer, navigating away — used to be logged as an unhandled exception
-            // with a stack trace, which sends whoever reads the log looking for a bug that is not
-            // there. Nothing can be written to a socket that is already gone, so there is nothing to
-            // do but say so quietly.
             catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
             {
                 Log.Logger.Information(
@@ -60,7 +55,6 @@ namespace EvangelionERPV2.Web.Logging
                 if (statusCode == StatusCodes.Status503ServiceUnavailable)
                     context.Response.Headers.RetryAfter = "5";
 
-                // Keep 204 fully bodyless by HTTP contract.
                 if (statusCode == StatusCodes.Status204NoContent)
                     return;
 
@@ -91,10 +85,6 @@ namespace EvangelionERPV2.Web.Logging
 
             if (environment.IsDevelopment())
             {
-                // Development only. A 400 whose cause is logged as a bare type name cannot be
-                // debugged at all — the message is the only thing that says which rule rejected the
-                // request. It stays out of every other environment because these messages can echo
-                // submitted values back.
                 Log.Logger.Warning(
                     "Handled client exception. Method={Method}, Path={Path}, TraceId={TraceId}, ErrorType={ErrorType}, ErrorMessage={ErrorMessage}, Source={Source}",
                     context.Request.Method,
@@ -152,9 +142,6 @@ namespace EvangelionERPV2.Web.Logging
             if (statusCode == StatusCodes.Status400BadRequest)
                 return GetSafeBadRequestDetail(ex);
 
-            // The only details echoed verbatim. Both messages are built from dates and amounts
-            // this code chose — never from submitted values — and without them the caller cannot
-            // tell a closed period from a credit block from any other conflict.
             if (statusCode == StatusCodes.Status409Conflict)
                 return ex is PeriodClosedException or CreditLimitExceededException ? ex.Message : null;
 

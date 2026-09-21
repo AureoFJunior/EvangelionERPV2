@@ -132,7 +132,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         public void Resolve_SimplesNacionalCrt_SetsCsosnAndLeavesCstNull(byte crt)
         {
             var product = Product();
-            product.Cst = "00"; // present but irrelevant under Simples Nacional
+            product.Cst = "00";
 
             var resolved = NFeItemFiscalResolver.Resolve(product, Settings(crt), isInterstate: false);
 

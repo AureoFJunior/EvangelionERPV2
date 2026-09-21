@@ -49,8 +49,6 @@ namespace EvangelionERPV2.Web.HealthChecks
             }
             catch (Exception exception)
             {
-                // The message is not echoed: a Redis connection failure carries the host and the
-                // password, and /health is anonymous.
                 return HealthCheckResult.Unhealthy($"Redis probe failed ({exception.GetType().Name}).");
             }
         }

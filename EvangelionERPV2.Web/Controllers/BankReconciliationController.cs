@@ -11,19 +11,11 @@ namespace EvangelionERPV2.Web.Controllers
     /// <summary>
     /// Bank statement import and the variance it produces against the app-computed balance.
     /// </summary>
-    /// <remarks>
-    /// There is no endpoint here that writes a balance, and that is the design. The bank statement
-    /// is the outside opinion <see cref="Shared.Entities.Enterprise.CurrentBalance"/> never had;
-    /// making it authoritative would rewrite every balance write path in the ERP for a number a
-    /// human reads once a day.
-    /// </remarks>
     [Authorize]
     [Route("api/v{version:apiVersion}/[controller]/[action]")]
     [ApiVersion("1.0")]
     public class BankReconciliationController : Controller
     {
-        // OFX is plain text: a year of statements for one account is well under this. The bound is
-        // re-checked here and not only in the validator, because the read into memory happens here.
         private const long MaxStatementUploadSizeInBytes = 8 * 1024 * 1024;
 
         private const int MaxPageSize = 200;
@@ -73,8 +65,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (FormatException ex)
             {
-                // The uploader already holds the file, so a parse complaint tells them nothing they
-                // did not send. The log stays type-only, per the convention in this codebase.
                 Log.Logger.Error("Bank statement import rejected. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest("The file could not be read as an OFX statement.");
             }
@@ -104,10 +94,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// Point one statement line at the document it settles — an Order for money in, a
         /// PayableBill for money out.
         /// </summary>
-        /// <remarks>
-        /// The import's amount-and-window rule is not re-applied: every line that gets here is one
-        /// that rule could not take. See <see cref="ResolveBankStatementLineRequestDTO"/>.
-        /// </remarks>
         [Authorize(Policy = RbacPolicies.BankReconciliation.Resolve)]
         [HttpPut]
         [ProducesResponseType(typeof(BankStatementLineDTO), StatusCodes.Status200OK)]
@@ -131,10 +117,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// Clear a line that corresponds to no ERP document — a bank fee, a tax debit, a transfer
         /// between the company's own accounts.
         /// </summary>
-        /// <remarks>
-        /// Without this the uncleared list can never empty, because those lines have nothing to be
-        /// matched to. It is reversible: a line marked here can still be matched afterwards.
-        /// </remarks>
         [Authorize(Policy = RbacPolicies.BankReconciliation.Resolve)]
         [HttpPut]
         [ProducesResponseType(typeof(BankStatementLineDTO), StatusCodes.Status200OK)]

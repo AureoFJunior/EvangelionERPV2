@@ -74,7 +74,6 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .NotEmpty().WithMessage("Email is required.")
                 .EmailAddress().WithMessage("Email is invalid.");
 
-            // Blank means "keep the stored password", so length only applies to a real change.
             RuleFor(x => x.Password)
                 .MinimumLength(8).WithMessage("Password must have at least 8 characters.")
                 .MaximumLength(128).WithMessage("Password is too long.")
@@ -91,8 +90,6 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .Must(language => Enum.IsDefined(typeof(EnumLanguage), (int)language))
                 .WithMessage("Language is not supported.");
 
-            // A fraction, not a percentage: 0.05 is 5%. Capped at 1 because a rate above 100% pays
-            // the seller more than the sale brought in, which is a typo every time.
             RuleFor(x => x.CommissionRate)
                 .InclusiveBetween(0m, 1m).WithMessage("Commission rate must be between 0 and 1.")
                 .When(x => x.CommissionRate.HasValue);

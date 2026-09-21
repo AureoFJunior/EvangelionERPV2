@@ -9,12 +9,6 @@ namespace EvangelionERPV2.NotificationModule.Application.Interface
         /// Everything the bell renders for one user: the tenant's live broadcasts plus the alerts
         /// the daily panel is firing right now.
         /// </summary>
-        /// <remarks>
-        /// Every item comes back, each carrying its <c>RequiredPermission</c>. Filtering happens in
-        /// the Web layer, which is the only place that can evaluate a permission — and it strips the
-        /// field before responding. An Application project cannot reference `Web/Security` without
-        /// inverting the dependency.
-        /// </remarks>
         Task<NotificationFeedDTO> GetFeedAsync(Guid enterpriseId, Guid userId, CancellationToken cancellation = default);
 
         /// <summary>Idempotent: reading twice is one row, not two.</summary>

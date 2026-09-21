@@ -221,9 +221,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 .Setup(x => x.GetReplenishmentSuggestionsAsync(It.IsAny<Guid>(), It.IsAny<ReplenishmentSuggestionRequestDTO>()))
                 .ReturnsAsync([]);
 
-            // Receivables and payables are read through the context now: the panel projects the few
-            // columns it counts instead of materialising whole Bill and PayableBill entities. These
-            // tests seed a real in-memory context so they exercise that query rather than a mock.
             var options = new DbContextOptionsBuilder<AppDbContext>()
                 .UseInMemoryDatabase($"daily-panel-tests-{Guid.NewGuid():N}")
                 .Options;

@@ -17,10 +17,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
     /// the ordinary retry path, which reuses the number it already allocated.</item>
     /// </list>
     /// </summary>
-    /// <remarks>
-    /// The write-ahead marker is what tells the two apart, so this class reads
-    /// <see cref="NFeDocument.IsOutcomeUnknown"/> and never re-derives the condition.
-    /// </remarks>
     public sealed class NFeReconciliationService
     {
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<NFeDocument> _nfeRepository;
@@ -61,8 +57,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
                 try
                 {
-                    // One bad document must not stop the sweep: the others may be exactly the ones
-                    // sitting on real tax liability.
                     if (document.IsOutcomeUnknown)
                     {
                         if (await ResolveUnknownOutcomeAsync(document))
@@ -89,12 +83,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// Asks SEFAZ for the outcome of a note that was transmitted and never answered for.
         /// </summary>
-        /// <remarks>
-        /// The attempt counter is bumped and committed whatever happens, because it is the only
-        /// brake on a document SEFAZ will never answer for: once it passes
-        /// <see cref="NFeSettings.ReconciliationMaxAttempts"/> the query stops returning it and it
-        /// waits for a human, instead of being consulted forever.
-        /// </remarks>
         private async Task<bool> ResolveUnknownOutcomeAsync(NFeDocument document)
         {
             document.AttemptCount++;
@@ -103,17 +91,12 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             var resolved = false;
             if (string.IsNullOrWhiteSpace(document.AccessKey))
             {
-                // Unreachable through IssueAsync — the key is committed before the marker — but a
-                // hand-edited row would otherwise be consulted with an empty key forever.
                 Log.Logger.Error(
                     "NFe document {DocumentId} has an unknown outcome and no access key; it cannot be consulted.",
                     document.Id);
             }
             else
             {
-                // The consult is signed with the emitting tenant's own certificate and aimed at its
-                // own UF, so the profile has to come from the document's enterprise, not from the
-                // global settings.
                 var fiscalSettings = await _fiscalSettingsService.GetSettingsAsync(document.EnterpriseId);
                 var result = await _provider.ConsultAsync(document.AccessKey, fiscalSettings);
 
@@ -126,10 +109,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 }
                 else
                 {
-                    // Shared with NFeService.ConsultAsync rather than copied: this used to be a
-                    // second, hand-maintained transcription of the same rules, and a verdict the
-                    // two disagreed about is a document in two states. It also carries the cStat 217
-                    // case, which retracts the write-ahead marker so the number can be reused.
                     NFeService.ApplyOutcome(document, result);
 
                     Log.Logger.Information(
@@ -151,11 +130,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// Hands a document that provably never left back to the ordinary retry path.
         /// </summary>
-        /// <remarks>
-        /// Error is the retryable state, and the allocated number, series and chave are left intact:
-        /// nothing was transmitted, so the same number may be sent again, and skipping it would need
-        /// inutilização paperwork. <c>IssueAsync</c> reuses them when they are still current.
-        /// </remarks>
         private async Task ReleaseNeverTransmittedAsync(NFeDocument document)
         {
             document.Status = NFeStatus.Error;

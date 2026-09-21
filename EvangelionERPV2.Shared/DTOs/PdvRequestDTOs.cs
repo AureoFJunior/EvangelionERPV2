@@ -86,11 +86,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// A finished sale on its way up from a terminal. Safe to send more than once.
     /// </summary>
-    /// <remarks>
-    /// <see cref="ClientSaleId"/> is minted at the till before the customer leaves. A retry after a
-    /// lost response carries the same value and returns the order the first attempt created, which
-    /// is the only way a till on a bad connection can avoid selling the same basket twice.
-    /// </remarks>
     public sealed class PdvSaleSyncRequestDTO
     {
         public Guid ClientSaleId { get; set; }
@@ -128,11 +123,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// An operator logging in at a till.
     /// </summary>
-    /// <remarks>
-    /// Deliberately carries no reCAPTCHA field: a desktop terminal has no browser and cannot solve
-    /// one. The enrolled terminal credential in the <c>X-Pdv-Terminal</c> header is what replaces
-    /// the human-presence check, which is why that header is not optional.
-    /// </remarks>
     public sealed class PdvLoginRequestDTO
     {
         public string UserName { get; set; } = string.Empty;
@@ -142,11 +132,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// A user setting the PIN that authorises overrides at a till.
     /// </summary>
-    /// <remarks>
-    /// Self-service: the PIN is the user's own, and only its verifier is ever stored. Six digits is
-    /// the floor because the verifier is handed to terminals, where a shorter one is guessable
-    /// offline no matter how many PBKDF2 iterations sit behind it.
-    /// </remarks>
     public sealed class SetPdvPinRequestDTO
     {
         public string Pin { get; set; } = string.Empty;
@@ -156,11 +141,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// One override a till is reporting: a supervisor was asked to authorise something the operator
     /// could not do alone.
     /// </summary>
-    /// <remarks>
-    /// Refused attempts are reported too, and matter more — see <c>PdvOverrideAudit</c>. The PIN
-    /// itself never leaves the terminal; the till checks it against the cached verifier and sends
-    /// only the outcome.
-    /// </remarks>
     public sealed class RegisterOverrideRequestDTO
     {
         /// <summary>The override as the terminal numbered it. A resend with the same id records once.</summary>
@@ -180,11 +160,6 @@ namespace EvangelionERPV2.Shared.DTOs
     }
 
     /// <summary>Asks the ERP to raise a PIX charge for a basket the till is holding.</summary>
-    /// <remarks>
-    /// Carries no key, no account id and no provider name. The terminal says what it is selling and
-    /// for how much; which provider answers, and on whose account, is the server's business — that
-    /// is the whole reason a till can sit unattended in a shop we do not administer.
-    /// </remarks>
     public sealed class StartPixChargeRequestDTO
     {
         /// <summary>The basket, as the terminal minted it. A resend finds the same charge.</summary>

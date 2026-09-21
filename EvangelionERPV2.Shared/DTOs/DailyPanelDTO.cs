@@ -3,12 +3,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// Everything the morning check needs, in one response.
     /// </summary>
-    /// <remarks>
-    /// One endpoint rather than one per signal, because the client that renders this is a single
-    /// screen: seven round trips to draw one panel is the problem this replaces, not a design.
-    /// Every field is an aggregate — no entity, no personal data, nothing a list endpoint would
-    /// not already show whoever can read the panel.
-    /// </remarks>
     public class DailyPanelDTO
     {
         public DateTime GeneratedAtUtc { get; set; }

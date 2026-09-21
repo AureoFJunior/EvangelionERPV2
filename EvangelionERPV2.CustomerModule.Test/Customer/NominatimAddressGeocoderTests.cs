@@ -42,7 +42,6 @@ namespace EvangelionERPV2.CustomerModule.Test
         private static AddressToLocate BaraoDeTeffe => new(
             "Rua Barão de Teffe", "273", "Menino Deus", "Porto Alegre", "RS", "90160150");
 
-        // The four ways OSM actually splits Rua Barão de Teffé into, trimmed to the fields read.
         private const string FourRoadSegments = """
         [
           {"lat":"-30.0608356","lon":"-51.2202515","addresstype":"road","name":"Rua Barão de Teffé"},
@@ -59,8 +58,6 @@ namespace EvangelionERPV2.CustomerModule.Test
 
             var point = await geocoder.ResolveAsync(BaraoDeTeffe);
 
-            // The mean of the four, not -30.0577754: that is the north end, 350 m from the south one,
-            // and it is first only because the tie between four equal importances broke that way.
             Assert.NotNull(point);
             Assert.Equal(-30.0592572m, point!.Value.Latitude, 6);
             Assert.Equal(-51.2198600m, point!.Value.Longitude, 6);
@@ -103,7 +100,6 @@ namespace EvangelionERPV2.CustomerModule.Test
 
             await geocoder.ResolveAsync(BaraoDeTeffe);
 
-            // A correct street plus a postcode nobody mapped returns nothing at all in Brazil.
             Assert.DoesNotContain("postalcode", handler.RequestedUri);
             Assert.DoesNotContain("90160150", handler.RequestedUri);
             Assert.Contains("street=273 Rua Barão de Teffe", Uri.UnescapeDataString(handler.RequestedUri!));

@@ -7,11 +7,6 @@ namespace EvangelionERPV2.Test.Security
     /// The structured destinatário address on Customer. enderDest needs xLgr, nro, xBairro, cMun,
     /// xMun, UF and CEP as separate fields, and Customer.Adress cannot supply any of them.
     /// </summary>
-    /// <remarks>
-    /// The rules are shape-only and permitted-when-null on purpose: most customers never receive
-    /// an NFe, and making the address mandatory here would break ordinary customer registration.
-    /// A note is refused for an incomplete customer at issuance, before a number is consumed.
-    /// </remarks>
     public class CustomerFiscalAddressRequestTests
     {
         private static readonly CreateCustomerRequestValidator CreateValidator = new();
@@ -65,8 +60,6 @@ namespace EvangelionERPV2.Test.Security
             Assert.True(result.IsValid, string.Join("; ", result.Errors.Select(e => e.ErrorMessage)));
         }
 
-        // A masked CEP is what a form actually posts. NormalizeDocument strips the punctuation, so
-        // "01310-100" and "01310100" are the same eight digits.
         [Theory]
         [InlineData("01310100")]
         [InlineData("01310-100")]
@@ -107,8 +100,6 @@ namespace EvangelionERPV2.Test.Security
             Assert.Contains(result.Errors, e => e.PropertyName == nameof(request.CodigoMunicipioIbge));
         }
 
-        // The v1 allowlist matches the emitente profile's. MG is a real UF and a legal
-        // destinatário; it is refused because nothing here has been exercised outside SP/RS/SC/PR.
         [Theory]
         [InlineData("XX")]
         [InlineData("SPP")]
@@ -124,9 +115,6 @@ namespace EvangelionERPV2.Test.Security
             Assert.Contains(result.Errors, e => e.PropertyName == nameof(request.Uf));
         }
 
-        // MG and AM are outside the SP/RS/SC/PR allowlist that gates the *emitente*. A destinatário
-        // may live in any state — an interstate NFe is ordinary — so that allowlist must not leak
-        // onto the customer record.
         [Theory]
         [InlineData("SP")]
         [InlineData("sp")]

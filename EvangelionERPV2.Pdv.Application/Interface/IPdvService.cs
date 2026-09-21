@@ -7,12 +7,6 @@ namespace EvangelionERPV2.PdvModule.Application.Interface
     /// <summary>
     /// Everything a till asks of the ERP.
     /// </summary>
-    /// <remarks>
-    /// No repository interface sits under this. The module owns no entity of its own that needs a
-    /// custom query language — it composes <c>OrderService</c>, <c>ProductService</c> and the
-    /// generic <c>IRepository&lt;T&gt;</c> — so a per-entity repository contract here would be an
-    /// interface with one implementation and no callers but this file.
-    /// </remarks>
     public interface IPdvService
     {
         /// <summary>Opens a till session, or returns the one already open for that client id.</summary>
@@ -72,11 +66,6 @@ namespace EvangelionERPV2.PdvModule.Application.Interface
         /// <summary>
         /// Moves a charge to what the provider says it now is. False when nothing changed.
         /// </summary>
-        /// <remarks>
-        /// No enterprise id: the tenant comes from the charge row the intent id matches, never from
-        /// the caller. A webhook that could be told which tenant it concerned would be a webhook
-        /// that could move another shop's charges.
-        /// </remarks>
         Task<bool> ApplyChargeEventAsync(string eventId, string providerIntentId, int status,
             string? endToEndId, decimal? feeAmount, DateTime? paidAt);
     }

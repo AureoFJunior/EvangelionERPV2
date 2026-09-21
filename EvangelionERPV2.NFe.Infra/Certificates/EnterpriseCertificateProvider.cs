@@ -15,11 +15,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
     /// Stores each tenant's A1 certificate in AWS Secrets Manager under
     /// <c>{prefix}{enterpriseId}</c> as <c>{"pfxBase64": "...", "password": "..."}</c>.
     /// </summary>
-    /// <remarks>
-    /// The private key exists in exactly three places and nowhere else: the inbound upload
-    /// request body, the PutSecretValue call, and the decrypted certificate held in memory
-    /// below. No database column, no disk write, no log statement, no API response.
-    /// </remarks>
     public sealed class EnterpriseCertificateProvider : IEnterpriseCertificateProvider
     {
         internal const string PfxKey = "pfxBase64";
@@ -55,12 +50,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
         /// Returns the tenant's signing certificate. <b>The returned instance is shared and cached —
         /// callers must not dispose it.</b>
         /// </summary>
-        /// <remarks>
-        /// Writing <c>using var cert = await provider.GetAsync(id)</c> would dispose the cached
-        /// instance and every subsequent signature in the process would fail until the entry expires.
-        /// The cache owns the lifetime and disposes on eviction; call <see cref="Invalidate"/> to
-        /// force a reload.
-        /// </remarks>
         public async Task<X509Certificate2> GetAsync(Guid enterpriseId, CancellationToken cancellationToken = default)
         {
             var cacheKey = BuildCacheKey(enterpriseId);
@@ -72,10 +61,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
 
             var secretId = BuildSecretId(enterpriseId);
 
-            // The `plain:` escape hatch in AWSKMSKeyProvider is gated only by ASPNETCORE_ENVIRONMENT.
-            // That is adequate for a connection string and NOT adequate for a signing identity: a
-            // base64 PFX pasted into configuration is a leaked corporate identity, and one
-            // mis-set environment variable must not be all that stands between us and that.
             if (secretId.StartsWith("plain:", StringComparison.OrdinalIgnoreCase))
                 throw NFeCertificateException.PlainSecretsForbidden();
 
@@ -88,9 +73,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
             }
             catch (ResourceNotFoundException)
             {
-                // A tenant that has not uploaded a certificate yet has no secret at all. That is
-                // an expected state, not a fault — surface it as "not configured" rather than
-                // letting a raw AWS exception become a 500.
                 throw NFeCertificateException.Missing();
             }
 
@@ -104,7 +86,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
             }
             catch (Exception ex) when (ex is FormatException or CryptographicException)
             {
-                // Only the exception type is logged — the message can echo key material.
                 Log.Logger.Error(
                     "Stored NFe certificate could not be loaded. EnterpriseId={EnterpriseId} ErrorType={ErrorType}",
                     enterpriseId, ex.GetType().Name);
@@ -114,12 +95,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
             EnsureNotExpired(certificate, enterpriseId);
             WarnIfExpiringSoon(certificate, enterpriseId);
 
-            // Deliberately NO dispose-on-eviction callback. Instances handed out here are shared, so
-            // a caller can still be mid-signature when a rotation calls Invalidate() or the entry
-            // expires; disposing then throws "m_safeCertContext is an invalid handle" inside a live
-            // SEFAZ transmission. The private key is held by a SafeHandle and reclaimed on
-            // finalization, so the cost of not disposing is a delayed reclaim, not a true leak —
-            // which is strictly preferable to breaking an in-flight fiscal signature.
             _cache.Set(cacheKey, certificate, new MemoryCacheEntryOptions
             {
                 AbsoluteExpirationRelativeToNow = CacheDuration
@@ -145,8 +120,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
                 throw NFeCertificateException.InvalidUpload();
             }
 
-            // Only metadata escapes this method, so the certificate and its key handle are released
-            // here rather than left to the finalizer.
             using (certificate)
             {
                 if (!certificate.HasPrivateKey)
@@ -170,7 +143,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
         public async Task<NFeCertificateMetadata> StoreAsync(
             Guid enterpriseId, byte[] pfxBytes, string password, CancellationToken cancellationToken = default)
         {
-            // Validate before writing: a rejected upload must not replace a working certificate.
             var metadata = Inspect(pfxBytes, password);
 
             var secretId = BuildSecretId(enterpriseId);
@@ -208,7 +180,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
             }
             catch (ResourceNotFoundException)
             {
-                // Already gone. Deleting a certificate that is not there is a success.
             }
 
             Invalidate(enterpriseId);
@@ -237,7 +208,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
             }
             catch (ResourceNotFoundException)
             {
-                // First upload for this tenant — the secret does not exist yet.
                 await _secretsManager.CreateSecretAsync(new CreateSecretRequest
                 {
                     Name = secretId,
@@ -253,12 +223,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
         /// X509CertificateLoader replaces the X509Certificate2 byte[] constructor, obsolete
         /// since .NET 9 (SYSLIB0057).
         /// </summary>
-        /// <remarks>
-        /// Deliberately <b>not</b> <c>Exportable</c>. Signing does not need to re-export the private
-        /// key, and the flag would widen a corporate signing identity to programmatic extraction for
-        /// no gain. The phase-0 gate confirmed EphemeralKeySet alone is enough for
-        /// <c>SignedXml</c> to sign on Linux (docs/nfe/HANDOFF.md §7).
-        /// </remarks>
         private static X509Certificate2 LoadCertificate(byte[] pfxBytes, string? password) =>
             X509CertificateLoader.LoadPkcs12(
                 pfxBytes,
@@ -299,6 +263,5 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
             var commonName = certificate.GetNameInfo(X509NameType.SimpleName, forIssuer: false);
             return string.IsNullOrWhiteSpace(commonName) ? certificate.Subject : commonName;
         }
-
     }
 }

@@ -13,15 +13,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// Aging, inadimplência and the per-customer extrato — three views of one question: who owes
     /// what, and for how long.
     /// </summary>
-    /// <remarks>
-    /// All three read the same position list, built once here, because they must agree: an aging
-    /// total that disagrees with the delinquency list is worse than either being absent.
-    ///
-    /// A receivable is <em>not</em> the same thing as a boleto. `BillsSettings.Enabled` is false in
-    /// production, so most tenants have orders and no titles at all — an aging report driven only
-    /// by <see cref="Bill"/> rows would show an empty carteira for a company that is owed money.
-    /// The order is the receivable; the boleto, where one exists, overrides its date and amount.
-    /// </remarks>
     public class ReceivablesReportService : IReceivablesReportService
     {
         private readonly IRepository<Order> _orderRepository;
@@ -46,12 +37,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// The tenant's open carteira as a query: one row per unsettled order, dated by its live
         /// title where it has one, with what is still owed on it.
         /// </summary>
-        /// <remarks>
-        /// The same rule the in-memory builder applied, kept as an <see cref="IQueryable{T}"/> so
-        /// the callers can aggregate it in SQL instead of materialising a position per open order.
-        /// Building that list cost 1.3 GiB on a tenant with 1.8M of them, which is two concurrent
-        /// report views away from taking a 2 GB container down.
-        /// </remarks>
         private IQueryable<OpenPosition> OpenPositions(Guid enterpriseId, Guid? customerId = null)
         {
             var positions =
@@ -70,14 +55,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                                         && (candidate.Status == BillStatus.Registered || candidate.Status == BillStatus.Paid))
                     .OrderByDescending(candidate => candidate.CreatedAt)
                     .FirstOrDefault()
-                // A settled title means the order is off the carteira.
                 where bill == null || bill.Status != BillStatus.Paid
                 select new OpenPosition
                 {
                     CustomerId = order.CustomerId,
                     DueDate = bill != null ? bill.DueDate : (order.Payday ?? order.PaymentScheduledDate),
-                    // ReceivableResolver.ResolveReceivableAmount with the Paid branch already
-                    // excluded, so the billed amount wins over the order total.
                     Amount = bill != null && bill.Amount > 0m ? bill.Amount : order.TotalValue
                 };
 
@@ -87,19 +69,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// <summary>
         /// The aging bucket boundaries as dates rather than as a day count.
         /// </summary>
-        /// <remarks>
-        /// The buckets used to be picked by <c>(today - DueDate.Date).Days</c> per row; comparing
-        /// the column against precomputed cutoffs is the same partition, and it keeps DueDate
-        /// seekable where DATEDIFF or
-        /// CAST(DueDate AS date) would wrap the column and stop it being. The cutoffs are midnight,
-        /// so dropping <c>.Date</c> off the column changes nothing.
-        /// </remarks>
         private readonly record struct BucketCutoffs(DateTime Today, DateTime Days30, DateTime Days60, DateTime Days90)
         {
             public static BucketCutoffs From(DateTime today) =>
                 new(today, today.AddDays(-30), today.AddDays(-60), today.AddDays(-90));
         }
-
 
         public async Task<ReceivablesAgingCustomerDTO> GetCustomerAgingAsync(
             Guid enterpriseId,
@@ -108,8 +82,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             var cut = BucketCutoffs.From(DateTime.UtcNow.Date);
 
-            // Conditional sums rather than a grouping on the bucket, for the reason GetAgingAsync
-            // gives: grouping on a computed key makes SQL Server sort every row.
             var totals = await OpenPositions(enterpriseId, customerId)
                 .GroupBy(position => 1)
                 .Select(grouped => new
@@ -139,17 +111,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             var cut = BucketCutoffs.From(DateTime.UtcNow.Date);
 
-            // Grouped by customer *and* bucket, so the database returns at most five rows per
-            // customer instead of one per open order. Bucketing once per row and grouping on the
-            // result beats ten conditional aggregates over the same rows: the first version of this
-            // wrote SUM(CASE) and COUNT(CASE) five times each and took 13.8s against 2.9s here.
-            // Grouped by customer, with the buckets as conditional sums inside that grouping.
-            //
-            // Two shapes were measured against 1.84M open positions and both were worse. Grouping
-            // on a computed bucket key — GroupBy(new { CustomerId, CASE ... }) — makes SQL Server
-            // sort every row and the request passed the 30s timeout. Building a position object per
-            // open order, which is what this method used to do, cost 1.285 GiB and is two concurrent
-            // report views from taking a 2 GB container down. This shape is 13.8s and 186 MiB.
             var rows = await OpenPositions(enterpriseId)
                 .GroupBy(position => position.CustomerId)
                 .Select(grouped => new
@@ -184,7 +145,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                                + aging.Days61To90.Count + aging.Days90Plus.Count;
             aging.TotalAmount = aging.NotYetDue.Amount + aging.Days1To30.Amount + aging.Days31To60.Amount
                                 + aging.Days61To90.Amount + aging.Days90Plus.Amount;
-            // Overdue is everything past its due date, which is every bucket but the first.
             aging.TotalOverdueAmount = aging.Days1To30.Amount + aging.Days31To60.Amount
                                        + aging.Days61To90.Amount + aging.Days90Plus.Amount;
 
@@ -214,7 +174,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var today = DateTime.UtcNow.Date;
             var threshold = Math.Max(1, minimumDaysOverdue);
 
-            // (today - DueDate.Date).Days >= threshold, as a date the column can be compared to.
             var cutoffExclusive = today.AddDays(-threshold + 1);
 
             var rows = await OpenPositions(enterpriseId)
@@ -238,8 +197,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 .Select(row =>
                 {
                     var contact = customersById.GetValueOrDefault(row.CustomerId ?? Guid.Empty);
-                    // Min of the raw column then truncated is the same day as the min of the
-                    // truncated values, so this matches what the per-row version produced.
                     var oldest = row.OldestDueDate.Date;
 
                     return new DelinquentCustomerDTO
@@ -268,8 +225,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (customerId == Guid.Empty)
                 return null;
 
-            // GetPagedAsync, not GetAllAsync: the override throws when nothing matches, and an
-            // extrato for an unknown customer must answer "no such customer", not blow up.
             var customer = (await _customerRepository.GetPagedAsync(
                     x => x.Id == customerId && x.EnterpriseId == enterpriseId && x.IsActive == true))
                 .Items
@@ -283,8 +238,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (to < from)
                 (from, to) = (to, from);
 
-            // One customer, so the whole history is a bounded read and the opening balance can be
-            // computed from it rather than stored.
             var orders = (await _orderRepository.GetPagedAsync(
                     x => x.EnterpriseId == enterpriseId && x.CustomerId == customerId && x.IsActive == true))
                 .Items;
@@ -411,6 +364,5 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             public DateTime DueDate { get; init; }
             public decimal Amount { get; init; }
         }
-
     }
 }

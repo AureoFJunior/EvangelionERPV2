@@ -12,13 +12,6 @@ namespace EvangelionERPV2.Web.Controllers
     /// <summary>
     /// Metas e comissão de vendedores: how the month is going, per seller.
     /// </summary>
-    /// <remarks>
-    /// Manager tier, with one exception. A performance table puts every seller's numbers — and what
-    /// each is owed — on one screen, which is the same class of company data as the payables and the
-    /// bank statement, not something a Supervisor sees because they can read orders. The exception is
-    /// <see cref="GetSellerPerformance"/>: a seller reaching their own single row, which carries
-    /// nobody else's numbers and not the enterprise's.
-    /// </remarks>
     [Authorize]
     [Route("api/v{version:apiVersion}/[controller]/[action]")]
     [ApiVersion("1.0")]
@@ -61,11 +54,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// One seller's row. A seller reaches their own through <c>sales.performance.read.self</c>;
         /// anyone holding <c>sales.performance.read</c> reaches any of them.
         /// </summary>
-        /// <remarks>
-        /// The enterprise row is deliberately absent from this response — it is the company's whole
-        /// month, and the point of this endpoint is the person being measured seeing the
-        /// measurement, not the company's total arriving at the base role tier.
-        /// </remarks>
         [Authorize(Policy = RbacPolicies.SalesPerformance.ReadSelfOrRead)]
         [HttpGet("{id}")]
         [ProducesResponseType(typeof(SalesPerformanceRowDTO), StatusCodes.Status200OK)]

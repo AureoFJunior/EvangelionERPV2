@@ -12,8 +12,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void ReadSelf_IsInTheListThatBuildsThePolicies()
         {
-            // A permission missing from All has no policy, and an endpoint naming it answers 403
-            // for everyone including Admin.
             Assert.Contains(RbacPermissions.SalesPerformance.ReadSelf, RbacPermissions.All);
         }
 
@@ -27,8 +25,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void ReadingEveryonesRow_StaysAtManager()
         {
-            // The whole-table read carries every seller's numbers and the enterprise total; adding
-            // a self view must not have widened it.
             Assert.False(RbacRolePermissionMap.HasPermission(
                 (short)EnumAccessLevel.Employee, RbacPermissions.SalesPerformance.Read));
             Assert.False(RbacRolePermissionMap.HasPermission(

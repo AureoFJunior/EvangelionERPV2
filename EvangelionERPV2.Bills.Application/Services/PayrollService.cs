@@ -109,8 +109,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
             catch (NotFoundDatabaseException)
             {
-                // The employee repository throws instead of returning an empty set; without this
-                // the 400 below would surface as a 204 from the exception middleware.
                 employees = [];
             }
 
@@ -119,8 +117,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     ? "Employee is not eligible for this payroll period."
                     : "No active employees with salary were found for this payroll period.");
 
-            // Idempotency: one payroll bill per employee per competência month, tracked
-            // through PayrollBillDetail. Employees whose bill is still alive are skipped.
             var (existingDetails, billsById, orphanedDetails) = await LoadExistingAsync(
                 enterpriseId, year, month, employees.Select(x => x.Id).ToHashSet());
 
@@ -137,10 +133,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var staleDetails = orphanedDetails
                 .Where(detail => pendingEmployees.Any(employee => employee.Id == detail.EmployeeId))
                 .ToList();
-            // One query for the whole run, not one per employee: this is the reason absences are a
-            // single table instead of three. Filtering by kind happens in memory (ReducesPay) so
-            // the pay rule lives in exactly one place. Skipped entirely on a re-run where every
-            // employee is already billed.
             var absencesByEmployee = pendingEmployees.Any()
                 ? await LoadAbsencesAsync(enterpriseId, monthStart, monthEnd)
                 : [];
@@ -150,14 +142,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             if (pendingEmployees.Any())
             {
-                // One transaction for the whole loop: bills and their PayrollBillDetail rows share
-                // the scoped context, so committing per bill would leave a bill without its detail
-                // when a later employee fails — and idempotency keys off the detail, so the retry
-                // would bill that employee twice.
                 await _payrollDetailRepository.ExecuteInTransactionAsync(async () =>
                 {
-                    // Everything is staged inside the delegate: the execution strategy clears the
-                    // change tracker before each attempt.
                     createdResults.Clear();
                     var now = DateTime.UtcNow;
 
@@ -217,13 +203,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             ValidatePeriod(enterpriseId, year, month);
 
-            // Details first, employees second: loading the whole employee history just to build a
-            // name lookup pulled every row (and its joined Enterprise) of the tenant.
             var (details, billsById, _) = await LoadExistingAsync(enterpriseId, year, month);
             if (!details.Any())
                 return [];
 
-            // No IsActive filter: terminated/inactive employees keep their historical payroll.
             var detailEmployeeIds = details.Select(x => x.EmployeeId).ToHashSet();
             List<Employee> employees;
             try
@@ -259,10 +242,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             List<PayrollBillDetail> orphanedDetails)> LoadExistingAsync(
             Guid enterpriseId, int year, int month, HashSet<Guid>? employeeIds = null)
         {
-            // Scoped at the database since 2026-09-01. It used to read every tenant's competência
-            // and discard the rows whose bill was not this enterprise's — right answers, but the
-            // whole installation's salary-derived rows in memory to get them. The bill lookup below
-            // still discards what does not belong here, as the second belt.
             var filterByEmployee = employeeIds != null;
             var filteredEmployeeIds = employeeIds ?? [];
 
@@ -285,8 +264,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                          && billIds.Contains(x.Id)))
                 .ToDictionary(x => x.Id, x => x);
 
-            // Details whose bill was deleted or refunded no longer count — the employee
-            // becomes eligible for regeneration, but the stale row has to be retired first.
             var aliveDetails = details.Where(x => billsById.ContainsKey(x.PayableBillId)).ToList();
             var orphanedDetails = details.Where(x => !billsById.ContainsKey(x.PayableBillId)).ToList();
             return (aliveDetails, billsById, orphanedDetails);
@@ -300,15 +277,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             int month,
             DateTime now)
         {
-            // A mid-month hire or termination is only owed the days actually worked, and so is a
-            // month with faltas in it, so the salary is prorated before any accrual or employer
-            // charge is derived from it.
             var daysInMonth = DateTime.DaysInMonth(year, month);
             var gross = RoundMoney(employee.Salary!.Value * GetWorkedDays(employee, absences, year, month, daysInMonth) / daysInMonth);
 
-            // Monthly accruals per Brazilian labor legislation (CLT): 13º salário (1/12)
-            // and férias plus the 1/3 constitutional bonus (1/12 * 4/3 = 1/9). Employer
-            // charges apply over salary and accruals alike.
             var thirteenth = RoundMoney(gross / 12m);
             var vacation = RoundMoney(gross / 9m);
             var chargeBase = gross + thirteenth + vacation;
@@ -322,9 +293,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             {
                 Id = Guid.NewGuid(),
 
-                // From the employee, who is the only party to this row that is loaded tenant-scoped
-                // already: the bill is created after this and the caller's id would be a second
-                // source of the same truth.
                 EnterpriseId = employee.EnterpriseId ?? Guid.Empty,
                 ReferenceYear = year,
                 ReferenceMonth = month,
@@ -368,11 +336,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// Days inside [<paramref name="start"/>, <paramref name="end"/>] covered by an absence
         /// that costs the employee the day, counted once each.
         /// </summary>
-        /// <remarks>
-        /// A set, not a sum of range lengths: two overlapping rows (a falta someone also filed an
-        /// atestado for, a range edited into another) must never subtract the same day twice and
-        /// underpay.
-        /// </remarks>
         private static int CountUnpaidDays(IReadOnlyCollection<EmployeeAbsence> absences, DateTime start, DateTime end)
         {
             if (absences.Count == 0)
@@ -395,25 +358,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// <summary>
         /// The pay rule, in one place.
         /// </summary>
-        /// <remarks>
-        /// Brazilian labour law does not treat the three kinds alike:
-        /// <list type="bullet">
-        /// <item>A falta injustificada costs the day — CLT art. 473 lists the absences an employer
-        /// must still pay for, and "did not show up" is not one of them.</item>
-        /// <item>A valid atestado is a falta justificada and the day is still owed
-        /// (Lei 605/49 art. 6 §1, CLT art. 131 II), which is why the decision is stored per row as
-        /// <c>IsJustified</c> rather than inferred from the type: HR can reject an atestado, and a
-        /// rejected one costs the day like any other falta.</item>
-        /// <item>An advertência is a disciplinary record, not unworked time. It never costs a day
-        /// on its own — if the employee also missed work, that is a falta row of its own.</item>
-        /// <item>Férias reduce the competência regardless of <c>IsJustified</c>, because they are
-        /// paid <em>separately and up front</em> by <see cref="VacationPayService"/> at salary plus
-        /// the 1/3 constitucional. Leaving them in would pay the salary portion twice — the trap
-        /// docs/employee/SPEC-hr-module.md §4 P5 is written around. Note that the fix is here and
-        /// not on the absence row: writing <c>IsJustified = false</c> instead would make art. 130
-        /// count férias as faltas and shrink the next year's entitlement.</item>
-        /// </list>
-        /// </remarks>
         private static bool ReducesPay(EmployeeAbsence absence)
         {
             if (absence.Type == (int)EnumEmployeeAbsenceType.Vacation)
@@ -426,11 +370,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// <summary>
         /// Every absence overlapping the competência month for the tenant, grouped by employee.
         /// </summary>
-        /// <remarks>
-        /// Deliberately unfiltered by kind or by <c>IsJustified</c>: <see cref="ReducesPay"/> is the
-        /// single definition of what costs a day, and a SQL copy of it here would be free to drift.
-        /// The month bound keeps the row count to what one tenant's HR recorded in one month.
-        /// </remarks>
         private async Task<Dictionary<Guid, List<EmployeeAbsence>>> LoadAbsencesAsync(Guid enterpriseId, DateTime monthStart, DateTime monthEnd)
         {
             try
@@ -447,15 +386,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
             catch (NotFoundDatabaseException)
             {
-                // Same repository contract as employees: an empty result throws. A month with no
-                // absences is the normal case, not an error.
                 return [];
             }
         }
 
         private static decimal RoundMoney(decimal value)
         {
-            // Half away from zero, matching how SQL Server rounds the decimal(18,2) money columns.
             return Math.Round(value, 2, MidpointRounding.AwayFromZero);
         }
 

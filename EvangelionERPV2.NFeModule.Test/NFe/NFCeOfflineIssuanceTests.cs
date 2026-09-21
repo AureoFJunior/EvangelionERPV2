@@ -11,12 +11,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
     /// <summary>
     /// Issuing an NFC-e off-line: the shop keeps trading with SEFAZ unreachable.
     /// </summary>
-    /// <remarks>
-    /// The identity decisions are the whole subject. A contingency note is numbered while SEFAZ
-    /// cannot be asked anything, so it takes its own series; its tpEmis is baked into the chave and
-    /// must reach the transport unchanged; and dhCont/xJust are committed before transmission,
-    /// because a note handed to a customer still owes SEFAZ a transmission that may be days away.
-    /// </remarks>
     public class NFCeOfflineIssuanceTests
     {
         private static readonly DateTime EnteredAt = new(2026, 8, 31, 14, 30, 0, DateTimeKind.Utc);
@@ -28,8 +22,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task AnOfflineNote_TakesTheContingencySeries_NotTheOnlineOne()
         {
-            // Sharing the online series would let the counter and a later online note claim the
-            // same nNF, and the loser is a rejected duplicate for a sale that already happened.
             var context = new NFeIssuanceWriteAheadTests.IssuanceContext();
             Authorize(context);
 
@@ -57,8 +49,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task TheTransportIsToldItIsContingency_AndWhenAndWhy()
         {
-            // The chave's 35th digit is tpEmis. A transport that built the XML as normal would ship
-            // a document whose key describes a different one.
             var context = new NFeIssuanceWriteAheadTests.IssuanceContext();
             NFeIssueContext? seen = null;
 
@@ -80,9 +70,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task TheContingencyIsCommittedBeforeTransmission()
         {
-            // A note printed and handed over still owes SEFAZ a transmission. If dhCont were only
-            // written after a successful round trip, the ones that never made it — precisely the
-            // ones that matter — would carry nothing to find them by.
             var context = new NFeIssuanceWriteAheadTests.IssuanceContext();
             NFeDocument? atTransmission = null;
 
@@ -136,12 +123,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         /// The path the till actually takes: an online attempt that provably never left the
         /// process, then the same sale re-issued off-line.
         /// </summary>
-        /// <remarks>
-        /// The retry reuses an allocation only when it is still safe to send, and an online
-        /// allocation is not — it belongs to the online series and its chave says tpEmis 1. Reusing
-        /// it would transmit a document whose XML says 9 and whose key, printed on the customer's
-        /// receipt, says 1.
-        /// </remarks>
         [Fact]
         public async Task AContingencyRetryOfAFailedOnlineNote_TakesAFreshOfflineAllocation()
         {

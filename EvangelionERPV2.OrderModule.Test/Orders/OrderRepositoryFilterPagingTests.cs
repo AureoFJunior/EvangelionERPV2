@@ -12,17 +12,6 @@ namespace EvangelionERPV2.OrderModule.Test
     /// <summary>
     /// The page has to be taken by the database, not by the caller.
     /// </summary>
-    /// <remarks>
-    /// GetOrdersByFilter used to load every active order for the enterprise — each one with its
-    /// Customer, OrderedProduct and Product — and then filter, sort and page the list in memory.
-    /// A tenant with a real order history answered OutOfMemoryException from
-    /// BufferedDataReader before the controller saw a row. What these pin is that the filter, the
-    /// order and the page are part of the query the provider is handed, not a slice taken off an
-    /// unbounded result — which is the difference that defect turned on.
-    ///
-    /// Sqlite would be closer to production but cannot build this schema: AppDbContext carries
-    /// SQL Server column types, and EnsureCreated fails with "no such function: nvarchar".
-    /// </remarks>
     public class OrderRepositoryFilterPagingTests : IDisposable
     {
         private readonly AppDbContext _context;

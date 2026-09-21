@@ -68,35 +68,23 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             if (tipoEmissao is not (1 or 9))
                 throw new InvalidOperationException($"tpEmis {tipoEmissao} is not supported; only 1 (normal) and 9 (contingência off-line NFC-e) are.");
 
-            // 9 is the NFC-e offline mode by definition. Modelo 55 has its own contingency modes
-            // (FS-DA, EPEC, SVC) and none of them is this one.
             if (tipoEmissao == 9 && !isNFCe)
                 throw new InvalidOperationException("tpEmis 9 is contingência off-line NFC-e and cannot be used for modelo 55.");
 
             var configuracao = new Configuracao
             {
-                // Two different enums, both required, and cross-wiring them compiles silently:
-                // TipoDFe.NFe is 0 and TipoDFe.NFCe is 1, while the 55/65 values live on ModeloDFe
-                // (docs/nfe/HANDOFF.md §7.2). Keep both lines together so they are read together.
                 TipoDFe = isNFCe ? TipoDFe.NFCe : TipoDFe.NFe,
                 Modelo = isNFCe ? ModeloDFe.NFCe : ModeloDFe.NFe,
 
                 CodigoUF = settings.CodigoUfIbge,
                 TipoAmbiente = (TipoAmbiente)settings.Environment,
 
-                // Offline NFC-e only. Still not read from EnterpriseFiscalSettings.ContingencyEnabled,
-                // which remains inert: entering contingency is a decision the issuing path makes and
-                // records on the document, never a config flag that could silently alter tpEmis on
-                // every note a tenant emits.
                 TipoEmissao = tipoEmissao == 9 ? TipoEmissao.ContingenciaOffLine : TipoEmissao.Normal,
 
                 SchemaVersao = settings.SchemaVersion,
 
                 CertificadoDigital = certificate,
 
-                // EphemeralKeySet is what carried the phase-0 Linux signing gate: the private key
-                // never touches a user key store, which is the single most common failure mode for
-                // Brazilian fiscal libraries on Linux (docs/nfe/HANDOFF.md §7, check (b)).
                 CertificadoKeyStorageFlags = X509KeyStorageFlags.EphemeralKeySet,
 
                 TimeOutWebServiceConnect = WebServiceTimeoutMilliseconds
@@ -104,10 +92,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
 
             if (isNFCe)
             {
-                // The consumer QR is an HMAC-SHA1 over the access key keyed by the CSC, so an NFCe
-                // without one is not a document a customer can check. Refused here — before a
-                // number is consumed and before anything reaches SEFAZ — rather than producing a
-                // note whose QR nobody can verify.
                 if (!settings.CscId.HasValue)
                     throw new InvalidOperationException("NFCe requires a CSC id on the enterprise fiscal settings; none is set.");
 
@@ -122,8 +106,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             }
             else if (!string.IsNullOrWhiteSpace(csc))
             {
-                // Modelo 55 has no consumer QR. Passing a CSC here means a caller believes it is
-                // issuing an NFCe and is not — fail rather than silently drop a signing key.
                 throw new InvalidOperationException("A CSC was supplied for modelo 55, which has no consumer QR code.");
             }
 

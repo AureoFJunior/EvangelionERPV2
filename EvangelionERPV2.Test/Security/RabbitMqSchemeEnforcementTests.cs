@@ -22,14 +22,12 @@ namespace EvangelionERPV2.Test.Security
                 () => RabbitMQManagerBase<TestChannelSettings>.EnsureTransportIsSecure(false, environment));
 
             Assert.Contains("amqps", exception.Message);
-            // The message has to say why, or the next person just switches it back.
             Assert.Contains("cleartext", exception.Message);
         }
 
         [Fact]
         public void EnsureTransportIsSecure_UnsetEnvironment_TreatedAsProduction()
         {
-            // "I do not know where I am" must not be the permissive branch.
             Assert.Throws<InvalidOperationException>(
                 () => RabbitMQManagerBase<TestChannelSettings>.EnsureTransportIsSecure(false, null));
 
@@ -42,7 +40,6 @@ namespace EvangelionERPV2.Test.Security
         [InlineData("development")]
         public void EnsureTransportIsSecure_NoTlsInDevelopment_IsAllowed(string environment)
         {
-            // A local broker with no certificate is a normal thing to develop against.
             RabbitMQManagerBase<TestChannelSettings>.EnsureTransportIsSecure(false, environment);
         }
 

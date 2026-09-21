@@ -10,22 +10,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
     /// <summary>
     /// Deletes conversations older than <see cref="AiSettings.MessageRetentionDays"/>.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The setting existed from the first day of this module and nothing ever read it, so every
-    /// question and answer since then was kept for ever. That is not a tidiness problem: a turn
-    /// holds whatever the tools returned — customer names, telephone numbers, cities, credit limits,
-    /// what each person owes — plus whatever the user typed, which may include a CPF used as a
-    /// search term. LGPD art. 15 and 16 do not allow keeping personal data past the purpose that
-    /// justified collecting it, and "we have a retention setting" is not a defence when nothing
-    /// applies it.
-    /// </para>
-    /// <para>
-    /// A hard delete, not the usual soft one. A soft-deleted row is still the personal data, still
-    /// in the backup, still readable by anything that forgets the filter — which is the opposite of
-    /// what retention means.
-    /// </para>
-    /// </remarks>
     public sealed class AiRetentionService : IAiRetentionService
     {
         private readonly IRepository<AiMessage> _messages;
@@ -47,8 +31,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
 
         public async Task<int> PurgeAsync(CancellationToken cancellation = default)
         {
-            // Zero or less disables it rather than deleting everything — an operator who wants to
-            // keep conversations should not lose them to a typo.
             if (_settings.MessageRetentionDays <= 0)
                 return 0;
 
@@ -64,8 +46,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             {
                 cancellation.ThrowIfCancellationRequested();
 
-                // Children first: a message or a card orphaned by its conversation is the same
-                // personal data with nothing left pointing at it.
                 var messages = await OrEmptyAsync(() => _messages.GetAllAsync(
                     message => message.AiConversationId == conversation.Id));
 

@@ -4,14 +4,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// Certificate metadata for the settings screen. Carries no key material and no password —
     /// see EnterpriseFiscalSettingsDtoPrivacyTests for the equivalent guard on the profile DTO.
     /// </summary>
-    /// <remarks>
-    /// Deliberately carries <b>no emitente identity</b> — no CNPJ, no certificate subject. This is
-    /// the one fiscal response readable at Manager (<c>nfe.certificate.read</c>) rather than
-    /// admin-only, because operators need the expiry warning without waiting on an admin. The
-    /// identity fields live on <c>EnterpriseFiscalSettingsDTO</c> behind <c>nfe.settings.read</c>,
-    /// and <see cref="CnpjMatchesFiscalProfile"/> already carries the only operational signal
-    /// derived from them without disclosing the values themselves.
-    /// </remarks>
     public class NFeCertificateStatusDTO
     {
         public bool IsConfigured { get; set; }

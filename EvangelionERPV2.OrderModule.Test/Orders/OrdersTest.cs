@@ -33,10 +33,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIOrderedProductRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<OrderedProduct>>();
             _mockIEnterpriseRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Enterprise>>();
             _mockICustomerRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Customer>>();
-            // The credit guard reads customers through GetPagedAsync — the un-overridden path,
-            // because CustomerRepository's GetAllAsync throws when nothing matches. An unstubbed
-            // GetPagedAsync hands back a default tuple whose Items is null, which is not what the
-            // real repository ever does.
             SetupCustomerLookup(null);
             _mockIBillRepository = new Mock<EvangelionERPV2.Shared.Repositories.IRepository<Bill>>();
             _mockIProductService = new Mock<ProductModule.Application.Interface.IProductService<Product>>();
@@ -50,7 +46,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
 
             _orderReportGeneratorService = new OrderReportGeneratorService(_mockIProductRepository.Object);
 
-            // Build OrderService with mocked parameters
             _orderService = new OrderService(_mockIOrderRepository.Object,
                 _mockIOrderRepositoryCustom.Object,
                 _mockIProductRepository.Object,
@@ -64,7 +59,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 null);
         }
 
-
         #region Unit Tests
 
         [Theory]
@@ -73,17 +67,12 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         {
             try
             {
-                // Arrange
-
-                // Act
                 var result = await _orderService.CreateAsync(order);
 
-                // Assert
                 Assert.Null(result);
             }
             catch (InsertDatabaseException)
             {
-                // Negative or Null values Identified
                 Assert.True(true);
             }
         }
@@ -91,7 +80,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_ValidOrder_ReturnsOrder()
         {
-            // Arrange
             var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
@@ -109,10 +97,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             SetupProductLookupForOrder(_mockIProductRepository, order);
             _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
 
-            // Act
             var result = await _orderService.CreateAsync(order);
 
-            // Assert
             Assert.NotNull(result);
             Assert.Equal(order, result);
         }
@@ -139,8 +125,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             SetupProductLookupForOrder(_mockIProductRepository, order);
             _mockIOrderRepository.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
 
-            // Not an InsertDatabaseException: the request is fine, the books are shut. The
-            // controller layer maps this to 409, so it must survive OrderService's catch-all.
             await Assert.ThrowsAsync<PeriodClosedException>(() => _orderService.CreateAsync(order));
             _mockIOrderRepository.Verify(r => r.CreateAsync(It.IsAny<Order>()), Times.Never);
         }
@@ -194,7 +178,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             var (order, customer) = BuildOrderForCustomer(total: 400, creditLimit: 1000);
             SetupCustomer(customer);
 
-            // 700 already owed plus this 400 is 1100 against a limit of 1000.
             SetupOpenExposure(customer, [BuildOpenOrder(customer, 700)]);
 
             await Assert.ThrowsAsync<CreditLimitExceededException>(() => _orderService.CreateAsync(order));
@@ -224,11 +207,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_LocksTheCustomersRowBeforeReadingTheCarteira()
         {
-            // The two-order race itself is not reproducible here: nothing behind these mocks is a
-            // database, so no lock can make anything wait. What is asserted is the mechanism that
-            // closes it — the customer's row is locked inside the creating transaction, before the
-            // carteira is read, and it is that customer's row and nobody else's, so orders for
-            // other customers are not serialised behind it.
             var (order, customer) = BuildOrderForCustomer(total: 400, creditLimit: 1000);
             SetupCustomer(customer);
             SetupOpenExposure(customer, []);
@@ -269,7 +247,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_WithNoLimitSet_LocksNothing()
         {
-            // A customer with no limit reads nothing and blocks nobody.
             var (order, customer) = BuildOrderForCustomer(total: 9000, creditLimit: null);
             SetupCustomer(customer);
             SetupOpenExposure(customer, []);
@@ -297,8 +274,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_DoesNotCountAnOrderWhoseBoletoIsSettled()
         {
-            // Settling a boleto never moves Order.Status, so the title is the only record of it —
-            // the same rule the aging report uses, or the salesperson is blocked by money we have.
             var (order, customer) = BuildOrderForCustomer(total: 400, creditLimit: 1000);
             SetupCustomer(customer);
 
@@ -366,8 +341,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public void Delete_OfAFinishedOrder_ReportsTheRuleRatherThanCrashing()
         {
-            // It used to rewrap its own refusal with an inner exception, which the controller could
-            // not tell from a crash — a Finished order answered 500 instead of a sentence.
             var order = new Order
             {
                 Id = Guid.NewGuid(),
@@ -476,7 +449,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_IgnoresClientProvidedIds_GeneratesServerIds()
         {
-            // Arrange
             var incomingOrderId = Guid.NewGuid();
             var incomingLineId = Guid.NewGuid();
             var incomingLineOrderId = Guid.NewGuid();
@@ -516,10 +488,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIProductService.Setup(p => p.UpdateForOrder(It.IsAny<Order>())).Returns(Task.CompletedTask);
             SetupProductLookupForOrder(_mockIProductRepository, order);
 
-            // Act
             var result = await _orderService.CreateAsync(order);
 
-            // Assert
             Assert.NotNull(createdOrder);
             Assert.NotEqual(incomingOrderId, result.Id);
             Assert.Equal(result.Id, createdOrder?.Id);
@@ -595,13 +565,11 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [MemberData(nameof(GetInvalidOrders))]
         public async Task CreateAsync_InvalidOrder_ThrowsInsertDatabaseException(Order invalidOrder)
         {
-            // Act & Assert
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(invalidOrder));
         }
 
         public static IEnumerable<object[]> GetInvalidOrders()
         {
-            // Negative quantity
             yield return new object[] { new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
@@ -616,7 +584,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                     }
                 }, Guid.NewGuid())};
 
-            // Zero value
             yield return new object[] { new Order(DateTime.Now, DateTime.Now.AddDays(1), 0, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
@@ -635,7 +602,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public void VerifyValidValues_ValidOrder_DoesNotThrow()
         {
-            // Arrange
             var order = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
@@ -650,7 +616,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                     }
                 }, Guid.NewGuid());
 
-            // Act & Assert
             var refOrder = order;
             _orderService.VerifyValidValues(ref refOrder);
         }
@@ -658,7 +623,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public void Update_ValidOrder_ReturnsUpdatedOrder()
         {
-            // Arrange
             var orderId = Guid.NewGuid();
             var originalOrder = new Order(DateTime.Now, DateTime.Now.AddDays(1), 100, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
@@ -674,22 +638,17 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             }
                 }, Guid.NewGuid());
 
-            // Simulate the order already exists in the repository
             _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns(originalOrder);
 
-            // Simulate updating the order
             var updatedOrder = new Order(originalOrder.Payday, originalOrder.PaymentScheduledDate, 200, originalOrder.EnterpriseId, originalOrder.CustomerId, originalOrder.OrderedProduct!, Guid.NewGuid())
             {
-                // Set the same ID as the original
                 Id = orderId
             };
 
             _mockIOrderRepository.Setup(r => r.Update(It.IsAny<Order>())).Returns(updatedOrder);
 
-            // Act
             var result = _orderService.Update(updatedOrder);
 
-            // Assert
             Assert.NotNull(result);
             Assert.Equal(200, result.TotalValue);
             Assert.Equal(orderId, result.Id);
@@ -724,7 +683,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             int currentStatus,
             int requestedStatus)
         {
-            // Arrange
             var orderId = Guid.NewGuid();
             var enterpriseId = Guid.NewGuid();
             var existentOrder = new Order
@@ -752,12 +710,10 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns(existentOrder);
             _mockIOrderRepository.Setup(r => r.Update(It.IsAny<Order>())).Returns((Order entity) => entity);
 
-            // Act
             var beforeUpdate = DateTime.UtcNow;
             var result = _orderService.Update(payload, enterpriseId);
             var afterUpdate = DateTime.UtcNow;
 
-            // Assert
             Assert.Equal(requestedStatus, result.Status);
             Assert.NotNull(result.Payday);
             Assert.InRange(result.Payday.Value, beforeUpdate, afterUpdate);
@@ -769,7 +725,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public void Update_WhenStatusChangesAwayFromPaydayStatus_ShouldClearPayday()
         {
-            // Arrange
             var orderId = Guid.NewGuid();
             var enterpriseId = Guid.NewGuid();
             var existentOrder = new Order
@@ -797,10 +752,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             _mockIOrderRepository.Setup(r => r.GetById(orderId)).Returns(existentOrder);
             _mockIOrderRepository.Setup(r => r.Update(It.IsAny<Order>())).Returns((Order entity) => entity);
 
-            // Act
             var result = _orderService.Update(payload, enterpriseId);
 
-            // Assert
             Assert.Equal((int)EnumOrderStatus.Processing, result.Status);
             Assert.Null(result.Payday);
             _mockIOrderRepository.Verify(
@@ -888,10 +841,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             Assert.Equal(0, orderedProducts[0].Quantity);
             Assert.Equal(0, orderedProducts[0].Value);
 
-            // The refund no longer writes StorageQuantity here. It hands the change to the one
-            // shared stock path, which is what also writes the StockMovement row and drops the
-            // product cache — so what this test can assert is that the hand-off happened, with
-            // the units going back in (positive) and the order named as the cause.
             _mockIProductService.Verify(
                 s => s.ApplyStockMovementAsync(
                     productId,
@@ -927,8 +876,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 IsActive = true,
                 Status = status,
 
-                // A row can carry the stamp without the status, which is how the guarded UPDATE
-                // leaves a loser of a concurrent refund.
                 RefundedAt = refundedAt ? DateTime.UtcNow : null
             };
 
@@ -941,7 +888,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         #endregion
 
         #region Edge Cases
-        // Order with No OrderedProducts
         [Fact]
         public async Task CreateAsync_OrderWithNoOrderedProducts_ThrowsInsertDatabaseException()
         {
@@ -949,7 +895,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
         }
 
-        // Order with Null OrderedProducts
         [Fact]
         public async Task CreateAsync_OrderWithNullOrderedProducts_ThrowsInsertDatabaseException()
         {
@@ -970,7 +915,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
         }
 
-        // Order with Extremely Large Quantities/Values
         [Fact]
         public async Task CreateAsync_OrderWithLargeQuantityOrValue_ThrowsInsertDatabaseException()
         {
@@ -982,7 +926,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _orderService.CreateAsync(order));
         }
 
-        // Order Update with Nonexistent Order
         [Fact]
         public void Update_NonexistentOrder_ThrowsException()
         {
@@ -1028,7 +971,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
 
         public static IEnumerable<object[]> GetOrdersWithNegativeValues()
         {
-            // Case 01 - Negative Product Quantity
             yield return new object[] { new Order(null, DateTime.Now.AddMonths(2), 10, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
@@ -1044,7 +986,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 }, Guid.NewGuid())
             };
 
-            // Case 02 - Negative Total Value
             yield return new object[] { new Order(null, DateTime.Now.AddMonths(2), 10, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
@@ -1060,7 +1001,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 }, Guid.NewGuid())
             };
 
-            // Case 03 - Negative Product Quantity and Negative Total Value
             yield return new object[] { new Order(null, DateTime.Now.AddMonths(2), 10, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
@@ -1076,7 +1016,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 }, Guid.NewGuid())
             };
 
-            // Case 04 - Empty Quantity
             yield return new object[] { new Order(null, DateTime.Now.AddMonths(2), 10, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
@@ -1092,7 +1031,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 }, Guid.NewGuid())
             };
 
-            // Case 05 - Empty Value
             yield return new object[] { new Order(null, DateTime.Now.AddMonths(2), 10, Guid.NewGuid(), Guid.NewGuid(),
                 new List<OrderedProduct>
                 {
@@ -1126,7 +1064,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_SendsSignalRNotification()
         {
-            // Arrange
             var enterpriseId = Guid.NewGuid();
             var order = new Order(DateTime.UtcNow, DateTime.UtcNow.AddDays(1), 100, enterpriseId, Guid.NewGuid(),
                 new List<OrderedProduct>
@@ -1148,7 +1085,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 .Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
                 .ReturnsAsync((Guid enterpriseId) => new Enterprise { Id = enterpriseId, IsActive = true, Name = "Enterprise", CurrentBalance = 0 });
 
-            // CommitAsync must be setup to avoid awaiting null
             mockOrderRepo.Setup(r => r.CreateAsync(It.IsAny<Order>())).ReturnsAsync(order);
             mockOrderRepo.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
             mockOrderedProductRepo.Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<OrderedProduct>>()))
@@ -1157,7 +1093,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             mockProductService.Setup(p => p.UpdateForOrder(It.IsAny<Order>())).Returns(Task.CompletedTask);
             SetupProductLookupForOrder(mockProductRepo, order);
 
-            // Setup SignalR mocks
             var mockHubContext = new Mock<IHubContext<OrderHub>>();
             var mockClients = new Mock<IHubClients>();
             var mockClientProxy = new Mock<IClientProxy>();
@@ -1186,10 +1121,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
                 orderReportGeneratorService,
                 mockHubContext.Object);
 
-            // Act
             var result = await orderService.CreateAsync(order);
 
-            // Assert
             Assert.NotNull(result);
             mockGroupProxy.Verify(
                 p => p.SendCoreAsync(
@@ -1217,8 +1150,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         [Fact]
         public async Task CreateAsync_SnapshotsTheProductCostOntoEachLine()
         {
-            // The snapshot is what makes margin history stable: editing a product's cost tomorrow
-            // must not change what this order reports it earned today.
             var enterpriseId = Guid.NewGuid();
             var costedProductId = Guid.NewGuid();
             var uncostedProductId = Guid.NewGuid();
@@ -1246,7 +1177,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             Assert.Equal(18.50m, lines.Single(x => x.ProductId == costedProductId).UnitCost);
             Assert.Null(lines.Single(x => x.ProductId == uncostedProductId).UnitCost);
 
-            // One uncosted line makes the whole order's margin unknown rather than overstated.
             Assert.Null(OrderMargin.TotalCost(lines));
         }
 

@@ -3,10 +3,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// The ficha do cliente: everything about one customer that today takes four screens.
     /// </summary>
-    /// <remarks>
-    /// Nothing here is stored. Every figure is derived from orders and boletos that already exist,
-    /// which is what keeps it from disagreeing with the carteira and the aging report.
-    /// </remarks>
     public sealed class CustomerSummaryDTO
     {
         public Guid CustomerId { get; set; }

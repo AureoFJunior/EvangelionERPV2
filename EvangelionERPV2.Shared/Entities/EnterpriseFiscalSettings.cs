@@ -44,10 +44,6 @@ namespace EvangelionERPV2.Shared.Entities
 
         #region Emitente address
 
-        // Enterprise.Adress is a single free-text string and cannot populate enderEmit,
-        // which requires every field below separately. Duplicated deliberately rather than
-        // migrating the tenant root entity.
-
         [MaxLength(60)]
         public string Logradouro { get; set; } = string.Empty;
 
@@ -109,12 +105,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// The series offline NFC-e is issued under. Distinct from <see cref="NFCeSeries"/> on
         /// purpose.
         /// </summary>
-        /// <remarks>
-        /// A contingency note is numbered while SEFAZ cannot be asked anything. Sharing the online
-        /// series would let the counter and a later online note claim the same nNF, and the loser is
-        /// a rejected duplicate for a sale that already happened. Its own series makes the two
-        /// sequences independent — NFeNumberSequence is already keyed per series.
-        /// </remarks>
         [MaxLength(3)]
         public string NFCeContingencySeries { get; set; } = "9";
 
@@ -130,11 +120,6 @@ namespace EvangelionERPV2.Shared.Entities
         #endregion
 
         #region Legal deadlines
-
-        // Configurable rather than constants: the national references below are reliable for
-        // NFe but UNVERIFIED per UF for NFCe (RS and PR have practised different windows).
-        // Each tenant's accountant confirms these against the UF's RICMS before going to
-        // produção. Measured from the SEFAZ authorization timestamp, never from CreatedAt.
 
         /// <summary>NFe model 55 — 24 h (Ajuste SINIEF 07/2005).</summary>
         public int NFeCancellationWindowMinutes { get; set; } = 1440;
@@ -152,10 +137,6 @@ namespace EvangelionERPV2.Shared.Entities
 
         #region Certificate metadata
 
-        // Metadata only. The .pfx and its password exist solely in AWS Secrets Manager at
-        // evangelion/{env}/nfe/cert/{enterpriseId}. Nothing here is secret, so all of it is
-        // safe to return over the API.
-
         [MaxLength(64)]
         public string? CertThumbprint { get; set; }
 
@@ -170,21 +151,9 @@ namespace EvangelionERPV2.Shared.Entities
 
         #region Fiscal defaults
 
-        // Fallback source when a Product leaves the corresponding field blank. Resolution is
-        // Product -> these defaults -> hard validation error. A value is never guessed.
-
         /// <summary>
         /// natOp — the free-text nature of the operation, printed on the DANFE.
         /// </summary>
-        /// <remarks>
-        /// One value per tenant, because v1 issues exactly one kind of document: a sale against an
-        /// Order. It is configuration rather than the constant it used to be because the wording is
-        /// the shop's own and its accountant's, and changing it must not be a release.
-        ///
-        /// It does **not** vary per operation. Devolução and remessa need a natOp that follows the
-        /// CFOP, and `Order` records neither — see ROADMAP-STATUS §A7, which is still a question for
-        /// a human rather than a gap in the code.
-        /// </remarks>
         [MaxLength(60)]
         public string DefaultNatOp { get; set; } = "VENDA DE MERCADORIA";
 
@@ -226,13 +195,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// pCredSN — the ICMS credit a Simples Nacional emitter passes to its buyer, as a fraction
         /// of the item value (0.0254 is 2,54%).
         /// </summary>
-        /// <remarks>
-        /// Company-level, not per product: it is this company's effective Simples ICMS rate for the
-        /// period, which its accountant recalculates as the faixa moves. Only CSOSN 101 uses it,
-        /// and null means nobody has told this system the figure — that CSOSN then refuses to build
-        /// rather than declaring a credit of zero, which would silently deny the buyer a credit
-        /// they are entitled to take.
-        /// </remarks>
         [Column(TypeName = "decimal(5,4)")]
         public decimal? AliquotaCreditoSn { get; set; }
 

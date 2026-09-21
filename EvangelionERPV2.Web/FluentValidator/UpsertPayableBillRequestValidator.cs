@@ -20,14 +20,10 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .Must(x => x != default)
                 .WithMessage("DueDate is required.");
 
-            // 1..12: a chain that repeats less often than yearly is a contract renewal, which is a
-            // human decision, not a sweeper's.
             RuleFor(x => x.RecurrenceMonths)
                 .InclusiveBetween(1, 12).WithMessage("Recurrence must be between 1 and 12 months.")
                 .When(x => x.RecurrenceMonths.HasValue);
 
-            // Required and after the first due date, so every chain ends. Without a bound the
-            // sweeper would generate bills for as long as the installation lives.
             RuleFor(x => x.RecurrenceUntilUtc)
                 .NotNull().WithMessage("A recurring bill needs an end date.")
                 .Must((request, until) => until!.Value.Date > request.DueDate.Date)

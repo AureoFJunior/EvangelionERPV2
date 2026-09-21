@@ -8,10 +8,6 @@ namespace EvangelionERPV2.Shared.Entities
     [Table("EnterprisePayrollSettings")]
     public class EnterprisePayrollSettings : BaseEntity
     {
-        // Employer charge rates stored as fractions of gross salary. Defaults follow the
-        // Brazilian Lucro Presumido/Real regime: INSS patronal 20%, RAT 2%,
-        // Terceiros/Sistema S 5.8%, FGTS 8%. Simples Nacional enterprises can zero the
-        // INSS/RAT/Terceiros rates.
         [Column(TypeName = "decimal(5,4)")]
         public decimal InssRate { get; set; } = 0.20m;
 
@@ -24,7 +20,6 @@ namespace EvangelionERPV2.Shared.Entities
         [Column(TypeName = "decimal(5,4)")]
         public decimal FgtsRate { get; set; } = 0.08m;
 
-        // Day of the following month when the payroll payable is due (CLT: até o 5º dia útil).
         public int PayrollDueDay { get; set; } = 5;
 
         [ForeignKey(nameof(Enterprise))]

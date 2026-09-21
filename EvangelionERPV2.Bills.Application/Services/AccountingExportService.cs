@@ -11,20 +11,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// <summary>
     /// One month of movement as a zip of four CSVs — the "pacote do contador".
     /// </summary>
-    /// <remarks>
-    /// The roadmap's settled position is to <em>export to</em> the accountant's system rather than
-    /// build accounting here, and this is that promise kept: no chart of accounts, no double entry,
-    /// no journal. Four flat tables of what already happened.
-    ///
-    /// Each table is filtered by the date that table is actually booked on, not by one shared rule:
-    /// a sale is booked when it was recorded, a payable when it falls due, a nota when it was
-    /// issued, a stock movement when it moved. The period is half-open [first of month, first of
-    /// next month) so a document on the last day of the month cannot fall into both packages.
-    ///
-    /// Payroll and férias payables are collapsed to one row per due date and kind. There is one
-    /// payable per employee behind them, and the accountant books the folha as a single lançamento
-    /// anyway — the aggregate keeps individual names and salaries out of a file that gets emailed.
-    /// </remarks>
     public class AccountingExportService : IAccountingExportService
     {
         private readonly IRepository<Order> _orderRepository;
@@ -81,8 +67,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             // small business's movement; stream it to the response if a tenant ever makes that hurt.
             using var buffer = new MemoryStream();
 
-            // leaveOpen: the archive must be disposed — that is what writes the central directory —
-            // before ToArray() sees a complete zip, and disposing it must not take the stream with it.
             using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
             {
                 await WriteEntryAsync(zip, "receivables.csv", receivables, cancellation);
@@ -96,9 +80,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         private async Task<string> BuildReceivablesAsync(Guid enterpriseId, DateTime from, DateTime to)
         {
-            // GetPagedAsync, not GetAllAsync: OrderRepository's override Includes Customer,
-            // OrderedProduct and Product, which for a month of sales means dragging every line item
-            // across the wire to read four columns.
             var orders = (await _orderRepository.GetPagedAsync(
                     x => x.EnterpriseId == enterpriseId
                          && x.IsActive == true
@@ -114,10 +95,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                          && x.Order.CreatedAt < to
                          && (x.IsActive == null || x.IsActive == true)));
 
-            // One read of the tenant's customer master, and only when there is something to name.
-            // GetPagedAsync, not GetAllAsync: CustomerRepository's override throws
-            // NotFoundDatabaseException on an empty result, which would turn "this tenant has no
-            // customers yet" into a 204 with no package.
             var customerNames = new Dictionary<Guid, string>();
             if (orders.Count > 0)
             {
@@ -158,8 +135,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                          && x.DueDate < to))
                 .ToList();
 
-            // Same reason as the customers above, and it bites harder here: most tenants have no
-            // suppliers at all, so the throwing override would 204 the whole month's package.
             var supplierNames = new Dictionary<Guid, string>();
             if (payables.Count > 0)
             {
@@ -208,8 +183,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         private async Task<string> BuildNFeAsync(Guid enterpriseId, DateTime from, DateTime to)
         {
-            // No XML blobs: the accountant's system wants the fiscal identity of the note, and one
-            // month of XmlContent is megabytes of payload nothing in the package reads.
             var documents = await _nfeDocumentRepository.GetAllAsync(
                 x => x.EnterpriseId == enterpriseId
                      && (x.IsActive == null || x.IsActive == true)

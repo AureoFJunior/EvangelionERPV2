@@ -184,8 +184,6 @@ namespace EvangelionERPV2.Web.Logging
                    endpoint.Contains("/Enterprise/UpdateEnterprise", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/NFe/Cancel", StringComparison.OrdinalIgnoreCase) ||
 
-                   // The body is a CSC — the key behind every NFC-e consumer QR. Logging it once is
-                   // enough to let anyone with log access mint QR codes that verify as the shop's.
                    endpoint.Contains("/NFeFiscalSettings/UpdateCsc", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Order/AddOrder", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Order/InsertOrder", StringComparison.OrdinalIgnoreCase) ||

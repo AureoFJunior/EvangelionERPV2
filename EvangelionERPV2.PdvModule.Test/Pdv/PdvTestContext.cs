@@ -16,12 +16,6 @@ namespace EvangelionERPV2.PdvModule.Test
     /// A real SQL database for the PDV tests, shared by every <see cref="AppDbContext"/> handed out
     /// by <see cref="CreateContext"/>.
     /// </summary>
-    /// <remarks>
-    /// Same reasoning as the stock ledger's harness, plus one addition that matters here: the
-    /// unique indexes are created too. The idempotency claim <em>is</em> the index — without it a
-    /// test would pass while two concurrent syncs both created an order for the same basket, which
-    /// is the exact failure this module exists to prevent.
-    /// </remarks>
     internal sealed class PdvTestContext : IDisposable
     {
         private readonly string _connectionString;
@@ -55,10 +49,6 @@ namespace EvangelionERPV2.PdvModule.Test
                 .Where(property => property.GetComputedColumnSql() == null)
                 .Select(property =>
                 {
-                    // The DEFAULT matters. EF omits a property whose value is the CLR default from
-                    // the INSERT and reads it back instead, so a column declared here without the
-                    // default its model carries (Enterprise.Currency, Enterprise.CurrentBalance)
-                    // comes back NULL and the save dies in the reader rather than on an assertion.
                     var suffix = property.GetDefaultValue() switch
                     {
                         string text => $" DEFAULT '{text.Replace("'", "''")}'",
@@ -66,9 +56,6 @@ namespace EvangelionERPV2.PdvModule.Test
                         decimal or int or long or double or float or short or byte
                             => $" DEFAULT {Convert.ToString(property.GetDefaultValue(), CultureInfo.InvariantCulture)}",
 
-                        // Anything else (a DateTime, an enum) is left to EF's read-back. No test
-                        // here seeds one, and guessing its SQLite literal is how the last attempt
-                        // produced "near '-': syntax error" out of DateTime.MinValue.
                         _ => string.Empty
                     };
 
@@ -77,9 +64,6 @@ namespace EvangelionERPV2.PdvModule.Test
 
             var table = entityType.GetTableName();
 
-            // EF1002 through to the restore below: this is DDL built from EF's own model metadata
-            // — table, column and index names it just gave us — in a test harness that never sees
-            // outside input. Identifiers cannot be parameters in DDL anyway.
 #pragma warning disable EF1002
             context.Database.ExecuteSqlRaw($"CREATE TABLE \"{table}\" ({string.Join(", ", columns)}, PRIMARY KEY(\"Id\"))");
 
@@ -88,9 +72,6 @@ namespace EvangelionERPV2.PdvModule.Test
             {
                 var names = string.Join(", ", entityIndex.Properties.Select(property => $"\"{property.Name}\""));
 
-                // SQLite has no filtered-index syntax matching SQL Server's, and the filter on the
-                // session index ("one OPEN session per terminal") is not what these tests assert.
-                // The client-key indexes carry no filter, so they translate exactly.
                 if (entityIndex.GetFilter() != null)
                     continue;
 
@@ -138,11 +119,6 @@ namespace EvangelionERPV2.PdvModule.Test
     /// <summary>
     /// A <see cref="StripePixProvider"/> for suites that never charge anything.
     /// </summary>
-    /// <remarks>
-    /// Its methods are virtual, so Moq stands in for them without a hand-rolled interface around
-    /// Stripe.net. Nothing here reaches a network: the KMS provider is handed a mock secrets client
-    /// and is never asked for a key, because no test that uses this stub calls the provider at all.
-    /// </remarks>
     internal static class PixProviderStubs
     {
         public static Mock<StripePixProvider> Mock(MockBehavior behavior = MockBehavior.Loose) =>

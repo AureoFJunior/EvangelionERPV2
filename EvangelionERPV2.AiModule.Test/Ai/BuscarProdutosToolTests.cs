@@ -76,8 +76,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Invoking_WithNoTerm_ListsTheCatalogueInsteadOfRefusing()
         {
-            // "lista os produtos" is a real question. An earlier version answered it with an error
-            // because termo was required.
             var repository = PagedRepository(new[]
             {
                 Row("Coca-Cola 2L"),

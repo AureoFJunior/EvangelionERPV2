@@ -26,8 +26,6 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 
         public override string LeaseKey => "eva:lease:email-monthly-order";
 
-        // Checked daily because the dispatch itself only acts on the last day of the month; a 7-day
-        // tick could skip that day entirely.
         public override TimeSpan TimeUntilNextRun(DateTime utcNow)
             => BroadcastSchedule.TimeUntilNextDaily(utcNow, BroadcastHourUtc);
 

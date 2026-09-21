@@ -29,7 +29,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public AIFunction Create(AiToolContext context) =>
             AIFunctionFactory.Create(async (string? termo = null, int? pagina = null) =>
             {
-                // Empty termo lists rather than refuses — see BuscarProdutosTool for the reasoning.
                 var needle = (termo ?? string.Empty).Trim();
                 var page = Math.Max(1, pagina ?? 1);
 

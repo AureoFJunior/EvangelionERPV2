@@ -16,7 +16,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.Body).NotEmpty().MaximumLength(2000);
             RuleFor(x => x.Severity).IsInEnum();
 
-            // An expiry already past would create a message nobody can ever see.
             RuleFor(x => x.ExpiresAt)
                 .GreaterThan(_ => DateTime.UtcNow)
                 .When(x => x.ExpiresAt.HasValue);

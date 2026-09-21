@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using AutoMapper;
 using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.CustomerModule.Application.Interface;
@@ -56,11 +56,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// Customers within a radius of a point, nearest first. Both limits apply: the radius and
         /// the count.
         /// </summary>
-        /// <remarks>
-        /// <paramref name="place"/> — a município, UF or bairro — replaces the radius rather than
-        /// narrowing it, and is the only mode that can answer with a customer who has no
-        /// coordinates yet. Typing a city is what the map is for; typing a latitude is not.
-        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Read)]
         [HttpGet]
         [ProducesResponseType(typeof(IEnumerable<NearbyCustomerDTO>), StatusCodes.Status200OK)]
@@ -93,10 +88,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Fills in coordinates for customers that have a CEP and no location yet.
         /// </summary>
-        /// <remarks>
-        /// A batch behind customers.update rather than a hook on the write path: geocoding calls a
-        /// public API, and saving a customer must never depend on one being up.
-        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Update)]
         [HttpPost]
         [ProducesResponseType(typeof(GeocodeBackfillResultDTO), StatusCodes.Status200OK)]
@@ -114,13 +105,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Pins a customer exactly where somebody says they are.
         /// </summary>
-        /// <remarks>
-        /// The last few metres the geocoder cannot reach. OpenStreetMap holds no surveyed house
-        /// number for most Brazilian streets, so an address resolves to the middle of its road and
-        /// stops, a couple of hundred metres out; whoever visits the customer knows the door.
-        /// A pin set here is never overwritten — the backfill only fills in customers that have no
-        /// coordinates at all.
-        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Update)]
         [HttpPut]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -139,8 +123,6 @@ namespace EvangelionERPV2.Web.Controllers
                 await _customerLocationService.SetLocationAsync(
                     enterpriseId, request.CustomerId, request.Latitude, request.Longitude, HttpContext.RequestAborted);
 
-                // 204 either way: "no such customer of yours" and "moved it" must not read
-                // differently, or this endpoint enumerates other tenants' customer ids.
                 return NoContent();
             }
             catch (InsertDatabaseException ex)
@@ -181,9 +163,6 @@ namespace EvangelionERPV2.Web.Controllers
             if (!TryGetEnterpriseId(out var enterpriseId))
                 return Unauthorized();
 
-            // Reading a customer and reading what they owe are different permissions. Without
-            // bills.read the identity and history blocks still render and the money block is null,
-            // the same in-controller check QuoteController uses for the credit override.
             var includeFinancial = (await _authorizationService.AuthorizeAsync(User, RbacPolicies.Bills.Read)).Succeeded;
 
             var summary = await _customerSummaryService.GetSummaryAsync(
@@ -266,8 +245,6 @@ namespace EvangelionERPV2.Web.Controllers
                 var isActiveFilter = filter.IsActive;
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
 
-                // string.Contains(..., StringComparison) has no SQL Server translation; this
-                // predicate is executed by the provider, so it must use EF.Functions.Like.
                 var escapedNameFilter = SharedFunctions.EscapeLikePattern(nameFilter ?? string.Empty);
                 var escapedEmailFilter = SharedFunctions.EscapeLikePattern(emailFilter ?? string.Empty);
                 var escapedDocumentFilter = SharedFunctions.EscapeLikePattern(documentFilter ?? string.Empty);
@@ -401,7 +378,6 @@ namespace EvangelionERPV2.Web.Controllers
                 existingCustomer.Uf = Blank(request.Uf)?.ToUpperInvariant();
                 existingCustomer.Cep = Digits(request.Cep);
                 existingCustomer.InscricaoEstadual = Blank(request.InscricaoEstadual);
-                // Null clears the limit; zero is a real value and means cash only.
                 existingCustomer.CreditLimit = request.CreditLimit;
                 existingCustomer.IsActive = request.IsActive;
                 existingCustomer.UpdatedAt = DateTime.UtcNow;
@@ -506,7 +482,6 @@ namespace EvangelionERPV2.Web.Controllers
             return null;
         }
 
-
         private async Task<bool> HasActiveTenantMembershipAsync(Guid? userId, Guid enterpriseId)
         {
             if (!userId.HasValue || enterpriseId == Guid.Empty)
@@ -515,7 +490,6 @@ namespace EvangelionERPV2.Web.Controllers
             var user = await _userRepository.GetByIdAsync(userId.Value);
             return user != null && user.IsActive == true && user.EnterpriseId == enterpriseId;
         }
-
 
         private bool TryGetEnterpriseId(out Guid enterpriseId)
         {

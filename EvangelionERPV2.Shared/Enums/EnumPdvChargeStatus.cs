@@ -3,13 +3,6 @@ namespace EvangelionERPV2.Shared.Enums
     /// <summary>
     /// What became of one attempt to take money through a payment provider.
     /// </summary>
-    /// <remarks>
-    /// Values are explicit because they are persisted in <c>PdvCharge.Status</c>: reordering the
-    /// members must never silently reinterpret rows already written.
-    ///
-    /// Everything but <see cref="Pending"/> is terminal, and a terminal status never changes again.
-    /// That rule is half of the webhook's idempotency — see <c>PdvCharge.ProviderEventId</c>.
-    /// </remarks>
     public enum EnumPdvChargeStatus
     {
         /// <summary>Raised with the provider, not yet paid. The only status a till waits on.</summary>

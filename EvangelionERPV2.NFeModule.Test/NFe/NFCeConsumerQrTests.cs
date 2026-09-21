@@ -42,8 +42,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task AnOutcomeWithNoQr_DoesNotEraseTheOneWeHave()
         {
-            // A consult answers about status, not about supplementary information. The customer may
-            // still be holding the receipt years later, so what authorised once must survive.
             var context = new NFeReconciliationServiceTests.ReconciliationContext();
             var document = context.Stale(NFeReconciliationServiceTests.TransmittedDocument());
             document.QrCode = Qr;
@@ -117,7 +115,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task AModelo55Outcome_CarriesNoQrAtAll()
         {
-            // Modelo 55 has no infNFeSupl. Nothing may invent one.
             var context = new NFeReconciliationServiceTests.ReconciliationContext();
             var document = context.Stale(NFeReconciliationServiceTests.TransmittedDocument());
 

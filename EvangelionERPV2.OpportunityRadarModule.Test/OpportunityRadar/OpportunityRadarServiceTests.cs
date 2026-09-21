@@ -53,7 +53,6 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
                 CreateOrderLine(orders[4].Id, productD.Id, 1, 40),
                 CreateOrderLine(orders[5].Id, productC.Id, 1, 80),
                 CreateOrderLine(orders[5].Id, productD.Id, 1, 40),
-                // open demand on product C
                 CreateOrderLine(orders[6].Id, productC.Id, 4, 80),
                 CreateOrderLine(orders[7].Id, productC.Id, 3, 80)
             };
@@ -143,7 +142,6 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
                 CreateOrderLine(orders[2].Id, productB.Id, 1, 60),
                 CreateOrderLine(orders[2].Id, productC.Id, 10, 80),
 
-                // Open demand pressure on product C
                 CreateOrderLine(orders[3].Id, productC.Id, 30, 80),
                 CreateOrderLine(orders[4].Id, productC.Id, 15, 80)
             };
@@ -669,4 +667,3 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
             List<OpportunityFeedback> FeedbackStore);
     }
 }
-

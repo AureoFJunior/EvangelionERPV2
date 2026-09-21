@@ -34,10 +34,8 @@ namespace EvangelionERPV2.OrderModule.Test
             Assert.Equal((int)EnumQuoteStatus.Draft, quote.Status);
 
             var line = Assert.Single(items);
-            // The quoted price stands: quoting a discount is most of the point.
             Assert.Equal(90m, line.UnitValue);
             Assert.Equal(270m, line.LineAmount);
-            // The unit comes from the catalogue, never from the request.
             Assert.Equal("Unit", line.UnitOfMeasure);
         }
 
@@ -83,7 +81,6 @@ namespace EvangelionERPV2.OrderModule.Test
         [Fact]
         public async Task Update_OfASentQuote_IsRefused()
         {
-            // The customer is holding those lines; editing them under their feet starts a dispute.
             var product = BuildProduct("Plugsuit", defaultValue: 10m);
             var quote = BuildStoredQuote(EnumQuoteStatus.Sent);
             var (service, _, _, _) = BuildSut(products: [product], stored: quote);
@@ -136,7 +133,6 @@ namespace EvangelionERPV2.OrderModule.Test
         [Fact]
         public async Task Convert_OfAnExpiredQuote_IsRefused()
         {
-            // Expired is read off the clock, not off the column — nothing sweeps quotes.
             var product = BuildProduct("Plugsuit", defaultValue: 100m);
             var quote = BuildStoredQuote(EnumQuoteStatus.Sent, product);
             quote.ValidUntil = DateTime.UtcNow.Date.AddDays(-1);
@@ -152,8 +148,6 @@ namespace EvangelionERPV2.OrderModule.Test
         [Fact]
         public async Task Convert_LetsTheOrderGatesRefuse_WithoutTouchingTheQuote()
         {
-            // A closed period or a credit limit refuses the order; the quote must stay convertible
-            // rather than end up marked Converted with no order behind it.
             var product = BuildProduct("Plugsuit", defaultValue: 100m);
             var quote = BuildStoredQuote(EnumQuoteStatus.Accepted, product);
             var (service, _, _, orderService) = BuildSut(products: [product], stored: quote);
@@ -212,7 +206,6 @@ namespace EvangelionERPV2.OrderModule.Test
             Assert.Equal(EnumQuoteStatus.Sent, quote.StatusAsOf(new DateTime(2026, 3, 31)));
             Assert.Equal(EnumQuoteStatus.Expired, quote.StatusAsOf(new DateTime(2026, 4, 1)));
 
-            // A closed quote stays closed: expiry never overwrites a decision somebody made.
             quote.Status = (int)EnumQuoteStatus.Rejected;
             Assert.Equal(EnumQuoteStatus.Rejected, quote.StatusAsOf(new DateTime(2026, 4, 1)));
         }
@@ -220,8 +213,6 @@ namespace EvangelionERPV2.OrderModule.Test
         [Fact]
         public async Task GetPdf_OfAQuoteThatIsNotThisEnterprises_AnswersNothing()
         {
-            // No renderer is reached: the scoping check has to happen before anything is built,
-            // or a wrong id would launch a browser to draw another tenant's quote.
             var quote = BuildStoredQuote(EnumQuoteStatus.Sent, BuildProduct("Plugsuit", 100m));
             var (service, _, _, _) = BuildSut(stored: quote);
 

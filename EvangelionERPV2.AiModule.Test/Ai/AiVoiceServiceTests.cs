@@ -69,8 +69,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             using var payload = JsonDocument.Parse(body!);
             var input = payload.RootElement.GetProperty("input").GetString();
 
-            // Piper reads what it is given: "R$ 9.226,24" comes out as symbols and digits, which is
-            // the one thing the listener called in to hear.
             Assert.Contains("nove mil duzentos e vinte e seis reais e vinte e quatro centavos", input);
             Assert.DoesNotContain("R$", input);
         }
@@ -78,9 +76,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Synthesizing_WhenTheServerAnswers200WithNoAudio_IsAFailure()
         {
-            // Observed on 2026-09-14: Piper answers 200 with a bare 45-byte ID3 header when it cannot
-            // load the voice. Reporting that as success plays silence and the client never falls back
-            // to the device's voice — the exact failure this whole path exists to remove.
             var service = BuildService(_ => Audio(HttpStatusCode.OK, "audio/mpeg", new string('\0', 45)));
 
             var result = await service.SynthesizeAsync("Bom dia.");
@@ -92,8 +87,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Synthesizing_HandsOverEveryByte_IncludingTheOnesItLookedAt()
         {
-            // The emptiness check reads the first bytes, so this pins that it puts them back: a
-            // sentence missing its first 256 bytes is a sentence that starts mid-word.
             var body = string.Concat(Enumerable.Repeat("0123456789", 100));
             var service = BuildService(_ => Audio(HttpStatusCode.OK, "audio/mpeg", body));
 
@@ -132,8 +125,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Synthesizing_WhenItTimesOut_IsATypedFailureNotAnException()
         {
-            // HttpClient surfaces its own timeout as TaskCanceledException with no cancellation of
-            // ours behind it. Letting that through would 500 the endpoint instead of 503-ing it.
             var service = BuildService(_ => throw new TaskCanceledException("timeout"));
 
             var result = await service.SynthesizeAsync("Bom dia.");
@@ -150,7 +141,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             var service = BuildService(_ => Audio(HttpStatusCode.OK, "audio/mpeg", RenderedSentence));
 
-            // A listener who hung up is not a failure to report — it is a turn nobody is waiting for.
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 () => service.SynthesizeAsync("Bom dia.", cancellation.Token));
         }
@@ -188,9 +178,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task Synthesizing_DoesNotReadTheAudioBeforeHandingItOver()
         {
-            // The whole point of the path: the answer is still upstream when the controller gets the
-            // stream. The emptiness probe reads the first bytes and nothing more — a service that
-            // pulled the whole sentence here is one refactor away from caching it.
             var body = new WatchedStream(RenderedSentence);
             var content = new StreamContent(body);
             content.Headers.ContentType = MediaTypeHeaderValue.Parse("audio/mpeg");
@@ -206,15 +193,12 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             await using var stream = result.Audio!;
             var delivered = await new StreamReader(stream).ReadToEndAsync();
 
-            // And every byte still arrives, probe included.
             Assert.Equal(RenderedSentence, delivered);
         }
 
         [Fact]
         public async Task DisposingTheAudio_AlsoReleasesTheUpstreamResponse()
         {
-            // The stream outlives the method that created it, so it carries the response with it.
-            // Without that the connection leaks on every sentence the assistant speaks.
             var body = new WatchedStream(RenderedSentence);
             var content = new StreamContent(body);
             content.Headers.ContentType = MediaTypeHeaderValue.Parse("audio/mpeg");

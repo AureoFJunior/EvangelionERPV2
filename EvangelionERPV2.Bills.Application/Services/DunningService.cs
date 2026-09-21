@@ -13,25 +13,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// <summary>
     /// The régua de cobrança: one reminder per receivable per point on the ladder, and never twice.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The sweep is deliberately cross-tenant. It runs outside a request, where
-    /// <c>AppDbContext.AmbientEnterpriseId</c> is <see cref="Guid.Empty"/> and the tenant query
-    /// filter is disabled by design — the same arrangement <c>EmployeeVacationLapseService</c>
-    /// relies on. Each tenant is then handled explicitly, and only if it opted in.
-    /// </para>
-    /// <para>
-    /// The log row is written <b>before</b> the email is sent, and that order is load-bearing. A
-    /// reminder that was logged but never sent is recoverable — the customer appears on the
-    /// inadimplência list and a human chases them. A reminder sent twice is not recoverable: the
-    /// customer has already read it.
-    /// </para>
-    /// <para>
-    /// The message states the amount and the due date and <b>no late fee</b>. Juros de mora and
-    /// multa are not modelled anywhere in this system (see <c>docs/fiscal/TODO-manual.md</c>,
-    /// M-B12), and inventing a rate in an email to a customer is a claim the ERP cannot back.
-    /// </para>
-    /// </remarks>
     public class DunningService
     {
         private readonly IRepository<Enterprise> _enterpriseRepository;
@@ -86,7 +67,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 }
                 catch (Exception ex)
                 {
-                    // One tenant's bad data must not stop the rest of the installation being chased.
                     Log.Logger.Error(
                         "Dunning sweep failed for one tenant. EnterpriseId={EnterpriseId} ErrorType={ErrorType}",
                         tenant.Id,
@@ -101,8 +81,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             var today = DateTime.UtcNow.Date;
 
-            // The window the ladder can possibly reach, so the date filter stays in SQL. Offsets are
-            // days *past* due, so the earliest due date of interest is today minus the largest one.
             var earliestDueDate = today.AddDays(-offsets.Max());
             var latestDueDate = today.AddDays(-offsets.Min()).AddDays(1);
 
@@ -126,8 +104,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                          && (x.IsActive == null || x.IsActive == true)
                          && (x.Status == BillStatus.Registered || x.Status == BillStatus.Paid)));
 
-            // GetPagedAsync, not GetAllAsync: CustomerRepository's override throws on an empty
-            // result, which would skip a whole tenant's chasing the day its customer list is empty.
             var customersById = (await _customerRepository.GetPagedAsync(
                     x => x.EnterpriseId == tenant.Id && x.IsActive == true))
                 .Items
@@ -195,8 +171,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             try
             {
-                // Logged first, then sent: a lost reminder is recoverable from the inadimplência
-                // list, a duplicated one is already in the customer's inbox.
                 await _dunningLogRepository.CreateAsync(new DunningLog
                 {
                     Id = Guid.NewGuid(),
@@ -213,7 +187,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
             catch (Exception ex)
             {
-                // The unique index landing here means a sibling replica already took this one.
                 Log.Logger.Information(
                     "Dunning reminder skipped, already logged. OrderId={OrderId} Offset={Offset} ErrorType={ErrorType}",
                     order.Id,
@@ -262,8 +235,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 _ => $"<p>Olá {name}, consta em aberto um pagamento vencido em <strong>{dueDate:dd/MM/yyyy}</strong> ({offset} dia(s)).</p>"
             };
 
-            // No juros and no multa: neither is modelled anywhere in this system, and a number
-            // invented here is a claim nobody can honour.
             var body = $"""
                 {lead}
                 <p>Valor: <strong>{amount:N2}</strong></p>

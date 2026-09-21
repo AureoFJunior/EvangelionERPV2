@@ -30,9 +30,6 @@ namespace EvangelionERPV2.Test.Security
             var userService = new Mock<IUserService<User>>(MockBehavior.Strict);
             var userRepository = BuildUserRepository(tenantAUser, tenantBUser);
 
-            // Strict mock: only tenant B's enterprise lookup is set up. If the controller
-            // resolved tenant A's user (or none), this lookup would never happen and the
-            // returned-inactive-enterprise Unauthorized below could not be reached this way.
             var enterpriseRepository = new Mock<IRepository<Enterprise>>(MockBehavior.Strict);
             enterpriseRepository
                 .Setup(x => x.GetByIdAsync(tenantBUser.EnterpriseId!.Value))

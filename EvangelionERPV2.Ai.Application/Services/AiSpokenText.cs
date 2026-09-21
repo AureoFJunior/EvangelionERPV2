@@ -6,21 +6,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
     /// <summary>
     /// Rewrites money into the words a person would say, just before it is spoken.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The spoken-answer prompt already asks the model to write "nove mil duzentos e vinte e seis
-    /// reais" rather than "R$ 9.226,24", and the model mostly complies — but "mostly" is the problem.
-    /// A figure is the whole point of most answers here, and a 14B model that slips back into digits
-    /// once in ten turns produces an answer nobody can use, with no way to tell from the text that
-    /// anything went wrong. This pass is deterministic, so the figure is right every time regardless
-    /// of what the model wrote.
-    /// </para>
-    /// <para>
-    /// Deliberately only currency. Bare numbers are dates, quantities, order numbers and product
-    /// codes, and Piper reads most of those acceptably — rewriting them all would turn "pedido 1234"
-    /// into "pedido mil duzentos e trinta e quatro" and 14/09 into something worse.
-    /// </para>
-    /// </remarks>
     public static class AiSpokenText
     {
         /// <summary>R$ followed by a pt-BR formatted amount: thousands separated by dots, two decimals after a comma.</summary>
@@ -54,7 +39,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             {
                 var reais = long.Parse(match.Groups[1].Value.Replace(".", string.Empty), CultureInfo.InvariantCulture);
 
-                // "R$ 5,5" is five reais and fifty centavos, not five and five.
                 var centavos = match.Groups[2].Success
                     ? int.Parse(match.Groups[2].Value.PadRight(2, '0'), CultureInfo.InvariantCulture)
                     : 0;
@@ -67,7 +51,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
         {
             var parts = new List<string>();
 
-            // Zero reais is only worth saying when there is nothing else to say.
             if (reais > 0 || centavos == 0)
                 parts.Add($"{Spell(reais)} {Reais(reais)}");
 
@@ -106,7 +89,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
 
                 var rest = number % scale;
 
-                // "mil", never "um mil". Every other scale keeps its one.
                 var head = scale == 1000 && count == 1
                     ? "mil"
                     : $"{Spell(count)} {(count == 1 ? singular : plural)}";
@@ -144,7 +126,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 return unit == 0 ? tens : $"{tens} e {Units[unit]}";
             }
 
-            // "cem" alone, "cento e ..." with anything after it.
             if (number == 100)
                 return "cem";
 

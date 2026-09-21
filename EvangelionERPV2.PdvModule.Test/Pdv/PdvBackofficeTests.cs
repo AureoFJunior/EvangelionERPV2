@@ -14,10 +14,6 @@ namespace EvangelionERPV2.PdvModule.Test
     /// <summary>
     /// The reads a backoffice screen needs: which tills exist, which are open, and who overrode what.
     /// </summary>
-    /// <remarks>
-    /// Every one of them is tenant-scoped, and the terminal list is the one that would leak a
-    /// credential verifier if anybody ever returned the entity instead of the projection.
-    /// </remarks>
     public class PdvBackofficeTests : IDisposable
     {
         private readonly PdvTestContext _database = new();
@@ -30,8 +26,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task TheTerminalListNeverCarriesTheCredential()
         {
-            // PdvTerminal stores a PBKDF2 verifier. The DTO has nowhere to put it, and this test
-            // fails the day somebody returns the entity instead.
             using var context = _database.CreateContext();
             context.PdvTerminal.Add(PdvTerminal.Enroll(_enterpriseId, "CAIXA-01", "super-secret-credential"));
             await context.SaveChangesAsync();
@@ -76,8 +70,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task RevokingTwice_AndRevokingSomebodyElsesTill_BothAnswerFalse()
         {
-            // Idempotent, and another tenant's terminal must be indistinguishable from one that
-            // never existed — an error that only fires for real ids is an enumeration oracle.
             using var context = _database.CreateContext();
             var mine = PdvTerminal.Enroll(_enterpriseId, "CAIXA-01", "mine");
             var theirs = PdvTerminal.Enroll(_otherEnterpriseId, "CAIXA-99", "theirs");
@@ -118,11 +110,8 @@ namespace EvangelionERPV2.PdvModule.Test
             var session = Assert.Single(sessions);
             Assert.Equal("CAIXA-01", session.TerminalId);
 
-            // The terminal's own id for the session, which is what every other endpoint takes.
             Assert.Equal(openId, session.Id);
 
-            // And under its own name, so a caller does not have to know that `Id` means something
-            // different here than it does on GetOpenSession.
             Assert.Equal(openId, session.ClientSessionId);
         }
 
@@ -145,7 +134,6 @@ namespace EvangelionERPV2.PdvModule.Test
             Assert.Equal(3, all.Count);
             Assert.True(all[0].OccurredAt > all[1].OccurredAt);
 
-            // The refusals are the reason the table exists: a run of them is somebody guessing a PIN.
             var refused = await service.GetOverrideAuditAsync(_enterpriseId, since: null, onlyRefused: true, take: 50);
             Assert.Equal(2, refused.Count);
             Assert.All(refused, audit => Assert.False(audit.Succeeded));
@@ -168,7 +156,6 @@ namespace EvangelionERPV2.PdvModule.Test
                 _enterpriseId, since: DateTime.UtcNow.AddHours(-1), onlyRefused: null, take: 50);
             Assert.Single(recent);
 
-            // A nonsense page size is clamped rather than refused; this is a screen, not an export.
             Assert.Single(await service.GetOverrideAuditAsync(
                 _enterpriseId, since: null, onlyRefused: null, take: 1));
             Assert.Equal(2, (await service.GetOverrideAuditAsync(

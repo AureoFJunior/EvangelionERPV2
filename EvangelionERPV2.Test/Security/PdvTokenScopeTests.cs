@@ -41,7 +41,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void Grants_StillRefusesWhatTheRoleNeverHad()
         {
-            // The scope narrows; it never widens. An employee's till token gets employee grants.
             var till = Principal(new Claim(PdvTokenScope.ClaimType, PdvTokenScope.ClaimValue));
 
             Assert.False(PdvTokenScope.Grants(till, (short)EnumAccessLevel.Employee, RbacPermissions.Pdv.VoidItem));

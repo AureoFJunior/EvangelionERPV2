@@ -28,9 +28,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 document.RootElement.GetProperty("BillsSettings").GetRawText(),
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
 
-            // Production ships disabled; the settings themselves must still be usable.
             settings.Enabled = true;
-            // Keeps this test off the headless browser.
             settings.AttachPdfToBillEmail = false;
 
             var billRepo = new Mock<IRepository<BillEntity>>();

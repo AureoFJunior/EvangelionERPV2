@@ -17,10 +17,6 @@ namespace EvangelionERPV2.Web.Controllers
     /// <summary>
     /// CRUD over the absence spine: faltas, atestados and advertências.
     /// </summary>
-    /// <remarks>
-    /// Nothing here ever writes an absence field into a log line or a response beyond
-    /// <c>EmployeeAbsenceDTO</c>, which has no CID property at all.
-    /// </remarks>
     [Authorize]
     [Route("api/v{version:apiVersion}/[controller]/[action]")]
     [ApiVersion("1.0")]
@@ -192,8 +188,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                // Read-detached then mutate: the request DTO carries no audit columns and no
-                // EmployeeId, so the stored row is the only source for both.
                 var existingAbsence = await _repository.GetByIdAsync(request.Id);
                 if (existingAbsence == null || existingAbsence.EnterpriseId != enterpriseId || existingAbsence.IsActive != true)
                     return NoContent();
@@ -201,8 +195,6 @@ namespace EvangelionERPV2.Web.Controllers
                 existingAbsence.Type = request.Type;
                 existingAbsence.StartDate = request.StartDate;
                 existingAbsence.EndDate = request.EndDate;
-                // Omitted keeps the stored decision: this flag is what decides whether the days
-                // are paid, so a partial payload must not silently flip it.
                 if (request.IsJustified.HasValue)
                     existingAbsence.IsJustified = request.IsJustified.Value;
                 existingAbsence.Reason = request.Reason?.Trim();

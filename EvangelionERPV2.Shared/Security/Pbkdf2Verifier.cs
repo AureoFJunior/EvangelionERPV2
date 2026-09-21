@@ -5,13 +5,6 @@ namespace EvangelionERPV2.Shared.Security
     /// <summary>
     /// Creates and checks PBKDF2 verifiers, stored as <c>iterations.salt.hash</c>.
     /// </summary>
-    /// <remarks>
-    /// Used for the two secrets a till holds: a terminal's enrollment credential, and a
-    /// supervisor's override PIN. A PIN verifier is handed to the terminal on purpose, because an
-    /// override has to work with the network down — which is only safe because a verifier is not
-    /// the secret. The iteration count is what makes six digits expensive to guess offline; it is
-    /// stored in the string so it can be raised later without invalidating existing rows.
-    /// </remarks>
     public static class Pbkdf2Verifier
     {
         private const int SaltBytes = 16;
@@ -46,7 +39,6 @@ namespace EvangelionERPV2.Shared.Security
             }
             catch (FormatException)
             {
-                // A verifier that will not parse is a corrupt row, not a match.
                 return false;
             }
 

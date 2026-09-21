@@ -10,12 +10,6 @@ namespace EvangelionERPV2.OrderModule.Test
     /// <summary>
     /// The cached order must not outlive the row it copies.
     /// </summary>
-    /// <remarks>
-    /// GetByIdAsync serves from Redis for an hour and nothing used to clear it, so a soft-deleted
-    /// order kept answering 200 as if it were live — the API returned isActive:true while the
-    /// database held IsActive = 0. Cypress found it; no unit test could, because every one of them
-    /// mocked the repository away.
-    /// </remarks>
     public class OrderRepositoryCacheTests
     {
         [Fact]
@@ -53,7 +47,6 @@ namespace EvangelionERPV2.OrderModule.Test
         [Fact]
         public void Update_SurvivesACacheThatIsDown()
         {
-            // A Redis outage must not stop an order being saved; the stale read is the lesser harm.
             var (repository, cache, order) = BuildRepository();
             cache.Setup(x => x.Remove(It.IsAny<string>())).Throws(new InvalidOperationException("redis is gone"));
 
@@ -62,8 +55,6 @@ namespace EvangelionERPV2.OrderModule.Test
 
         private static (OrderRepository Repository, Mock<IDistributedCache> Cache, Order Order) BuildRepository()
         {
-            // A provider that is never connected to: Update and Delete only touch the change
-            // tracker, and the point of these tests is the cache key, not the database.
             var options = new DbContextOptionsBuilder<AppDbContext>()
                 .UseSqlServer("Server=unused;Database=unused;Trusted_Connection=True;")
                 .Options;

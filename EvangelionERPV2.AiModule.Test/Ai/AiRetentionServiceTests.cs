@@ -12,12 +12,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
     /// <summary>
     /// Retention, which the module advertised for months and never applied.
     /// </summary>
-    /// <remarks>
-    /// A conversation holds whatever the tools returned — customer names, telephone numbers, cities,
-    /// credit limits, what each person owes — and whatever the user typed, which may include a CPF
-    /// used as a search term. Keeping that for ever is what LGPD art. 15 and 16 forbid, and a
-    /// setting nobody reads is not a retention policy.
-    /// </remarks>
     public class AiRetentionServiceTests
     {
         [Fact]
@@ -60,7 +54,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task RetentionOfZero_DeletesNothing()
         {
-            // A disabled window must not read as "keep nothing". Somebody will type 0 meaning "off".
             var world = new World(retentionDays: 0);
             world.AddConversation(DateTime.UtcNow.AddYears(-5), messages: 4);
 
@@ -97,7 +90,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                     .ReturnsAsync((Expression<Func<AiConversation, bool>> predicate) =>
                     {
                         var matched = Conversations.Where(predicate.Compile()).ToList();
-                        // The repositories throw rather than answering empty; the service has to cope.
                         return matched.Count > 0 ? matched : throw new NotFoundDatabaseException("none");
                     });
 

@@ -11,23 +11,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// Turns a scheduled férias into money: one <see cref="PayableBill"/> per stretch, due before
     /// the leave starts.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Lives in Bills rather than in the Employee module because Employee owns <em>when</em> the
-    /// férias happen and Bills owns <em>what they cost</em> — the same split
-    /// <see cref="PayrollService"/> already follows.
-    /// </para>
-    /// <para>
-    /// One bill per stretch, not per accrual. CLT art. 145 makes the payment due two days before the
-    /// leave starts, and art. 134 §1 allows the leave to be split into three; a single bill would
-    /// have no honest due date for the second and third.
-    /// </para>
-    /// <para>
-    /// This is only safe because <see cref="PayrollService"/> stops paying ordinary salary for
-    /// férias days. If that ever regresses the company pays the salary portion twice — see the
-    /// blockquote in docs/employee/SPEC-hr-module.md §4 P5.
-    /// </para>
-    /// </remarks>
     public class VacationPayService : IVacationPayService
     {
         private readonly IRepository<EmployeeVacationAccrual> _accrualRepository;
@@ -63,13 +46,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var existingBills = await ExistingBillsAsync(enterpriseId, accrualId);
 
-            // What is still owed on the abono: everything sold, less what the bills already
-            // standing against this accrual carry. Days sold *after* the first bill used to fall
-            // out here — the abono rode that bill or nothing — and were never paid.
-            // Days sold once every scheduled stretch is billed have nothing left to ride, so they
-            // are refused at the source instead: EmployeeVacationService.SellDaysAsync will not
-            // record a sale that leaves no unbilled stretch and no days to schedule one. The
-            // alternative — a stretchless férias bill — is a document with no art. 145 due date.
             var settledDays = existingBills.Sum(bill => SettledAbonoDaysOn(bill, accrual, employee, stretches));
             var abonoDays = Math.Max(0, accrual.SoldDays - settledDays);
 
@@ -81,7 +57,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 if (existingBills.Any(x => x.DueDate.Date == dueDate))
                     continue;
 
-                // Only the first stretch this run bills carries the abono.
                 var soldDays = pending.Count == 0 ? abonoDays : 0;
                 pending.Add((stretch, soldDays, VacationPay.For(
                     employee.Salary!.Value, DaysOf(stretch), soldDays, stretch.StartDate)));
@@ -90,44 +65,29 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (pending.Count == 0)
                 return await GetAsync(enterpriseId, accrualId);
 
-            // One transaction for the whole accrual: a split férias billed halfway through would
-            // leave the employee paid for one stretch and not the next, with no record of which.
             await _payableBillRepository.ExecuteInTransactionAsync(async () =>
             {
                 foreach (var (stretch, soldDays, amounts) in pending)
                 {
                     await _payableBillService.CreateAsync(new PayableBill
                     {
-                        // Recorded, not inferred: the next run has to know these days are paid for
-                        // even after more are sold against the same período.
                         AbonoDaysSettled = soldDays,
 
                         Description = $"Férias {stretch.StartDate:dd/MM/yyyy} a {stretch.EndDate:dd/MM/yyyy} - {employee.Name}",
                         DueDate = VacationPay.DueDateFor(stretch.StartDate),
-                        // Amount is written gross here and netted by the drawdown below, which is
-                        // the only place that knows how much provision this accrual has left to
-                        // give — see docs/employee/SPEC-hr-module.md §4 P5a.
                         Amount = amounts.Total,
                         GrossAmount = amounts.Total,
                         IsPaid = false,
                         BillType = (int)EnumPayableBillType.Vacation,
                         EnterpriseId = enterpriseId,
 
-                        // The back-link that makes the provision drawdown auditable: without it,
-                        // "which competências did this payment consume" is a guess.
                         EmployeeVacationAccrualId = accrual.Id
                     }, useAmbientTransaction: true);
                 }
 
-                // Inside the transaction, after every bill exists: the drawdown recomputes from the
-                // bills standing against this accrual, so it has to see all of them or none. It is
-                // idempotent, so a retry of this whole block lands on the same numbers.
                 await _drawdownService.RecalculateAsync(accrual.Id);
             });
 
-            // Read back rather than reporting what was written: the drawdown nets every standing
-            // bill's Amount, including bills this call did not create, so the amounts in memory
-            // before it ran are stale.
             return await GetAsync(enterpriseId, accrualId);
         }
 
@@ -144,7 +104,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return bills
                 .Select(bill =>
                 {
-                    // The due date is start - 2 days by construction, so it identifies the stretch.
                     var stretch = stretches.FirstOrDefault(x => VacationPay.DueDateFor(x.StartDate) == bill.DueDate.Date);
                     return stretch == null
                         ? Orphan(accrual, employee, bill)
@@ -179,14 +138,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// <summary>
         /// The férias stretches booked against one accrual, oldest first.
         /// </summary>
-        /// <remarks>
-        /// The same calendar link <c>EmployeeVacationService.BookedPeriodLengthsAsync</c> uses:
-        /// <c>EmployeeAbsence</c> carries no accrual FK, and concessivo windows of consecutive
-        /// periods do not overlap, so "starts inside this accrual's concessivo window" is exact.
-        /// Copying the rule rather than sharing it is deliberate — the alternative is a Bills
-        /// dependency on the Employee module, which the layering table in
-        /// docs/employee/SPEC-hr-module.md §5 does not have.
-        /// </remarks>
         private async Task<List<EmployeeAbsence>> ScheduledStretchesAsync(EmployeeVacationAccrual accrual)
         {
             var windowStart = accrual.AcquisitionEnd.Date;
@@ -205,8 +156,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
             catch (NotFoundDatabaseException)
             {
-                // The repositories throw instead of returning an empty set; an accrual with nothing
-                // scheduled yet is the ordinary case, not an error.
                 return [];
             }
         }
@@ -235,12 +184,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// <summary>
         /// How many abono days an already-issued bill settled.
         /// </summary>
-        /// <remarks>
-        /// <see cref="PayableBill.AbonoDaysSettled"/> when the bill carries it. A bill issued before
-        /// that column existed is inferred the old way — a bill worth more than its stretch alone is
-        /// worth is the one that settled the abono — and the inference can only answer "all of what
-        /// had been sold", so it is capped at what the accrual says was sold in total.
-        /// </remarks>
         private static int SoldDaysOn(PayableBill bill, EmployeeVacationAccrual accrual, Employee employee, EmployeeAbsence stretch)
         {
             if (bill.AbonoDaysSettled is { } recorded)
@@ -251,8 +194,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var withoutAbono = VacationPay.For(employee.Salary!.Value, DaysOf(stretch), 0, stretch.StartDate);
 
-            // The gross, not Amount: Amount is netted by the provision drawdown, so a bill that did
-            // settle the abono can still be worth less than the stretch alone.
             return GrossOf(bill) > withoutAbono.Total ? accrual.SoldDays : 0;
         }
 
@@ -261,15 +202,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// start - 2 days by construction, so it identifies it. A bill with no scheduled stretch
         /// left (a cancelled one) settled whatever it recorded.
         /// </summary>
-        /// <remarks>
-        /// A bill that records nothing is a bill issued before the column existed, and the amount
-        /// inference cannot run on it: pricing the stretch it was issued for needs the stretch, and
-        /// the stretch is gone. Read as "settled nothing" it would put the whole abono back on the
-        /// next bill — paying days that are already standing, unrefunded, on this one. So the old
-        /// rule stands for exactly those rows: the abono rode the first bill this accrual produced.
-        /// Under-billing an orphan that never carried it leaves the days visible on the accrual;
-        /// over-billing one that did sends the money twice.
-        /// </remarks>
         private static int SettledAbonoDaysOn(PayableBill bill, EmployeeVacationAccrual accrual,
             Employee employee, IReadOnlyList<EmployeeAbsence> stretches)
         {

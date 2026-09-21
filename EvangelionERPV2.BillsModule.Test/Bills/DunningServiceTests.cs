@@ -25,7 +25,6 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(order.Id, world.Logs[0].OrderId);
             Assert.Equal(7, world.Logs[0].OffsetDays);
 
-            // The whole point of the log table: the same day, the same title, a second replica.
             var second = await world.Service.SweepAsync();
             Assert.Equal(0, second);
             Assert.Single(world.SentEmails);
@@ -98,7 +97,6 @@ namespace EvangelionERPV2.BillsModule.Test
             world.Customers.Single(x => x.Id == order.CustomerId).Email = "   ";
 
             Assert.Equal(0, await world.Service.SweepAsync());
-            // No log row, so the reminder still goes out if somebody fills the email in tomorrow.
             Assert.Empty(world.Logs);
         }
 
@@ -120,7 +118,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Sweep_ShouldChaseAnOrderThatHasNoBoleto()
         {
-            // BillsSettings is disabled in production, so this is the only case that ever fires there.
             var world = new World();
             world.AddOverdueOrder(daysOverdue: 15, amount: 500);
 
@@ -218,7 +215,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 repo.Setup(x => x.CreateAsync(It.IsAny<DunningLog>()))
                     .ReturnsAsync((DunningLog log) =>
                     {
-                        // Stands in for the unique index: a second attempt at the same rung throws.
                         if (Logs.Any(x => x.EnterpriseId == log.EnterpriseId
                                           && x.OrderId == log.OrderId
                                           && x.OffsetDays == log.OffsetDays))

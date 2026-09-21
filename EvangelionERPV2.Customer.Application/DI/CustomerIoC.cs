@@ -53,25 +53,18 @@ namespace EvangelionERPV2.CustomerModule.Application.DI
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<Customer>), typeof(CustomerRepository));
                 services.AddTransient(typeof(ICustomerRepository<Customer>), typeof(CustomerRepository));
 
-
                 #endregion
 
                 #region Services
                 services.AddTransient(typeof(ICustomerService<Customer>), typeof(CustomerService));
 
-                // Mapa de clientes. The geocoder gets its own HttpClient with a short timeout: it
-                // decorates a map, so it must never be the reason a request hangs.
                 services.AddScoped<ICustomerLocationService, CustomerLocationService>();
                 services.AddHttpClient<IAddressGeocoder, NominatimAddressGeocoder>(client =>
                 {
                     client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
-                    // Ten, not five: Nominatim is slower than a CEP lookup, and the caller is a
-                    // batch nobody is watching. Still a ceiling, so it cannot hang a request.
                     client.Timeout = TimeSpan.FromSeconds(10);
-                    // Their usage policy refuses anonymous traffic; an unset agent gets a 403.
                     client.DefaultRequestHeaders.UserAgent.ParseAdd("EvangelionERPV2/1.0 (+https://github.com/evangelion-erp)");
                 });
-
 
                 #endregion
 
@@ -81,7 +74,6 @@ namespace EvangelionERPV2.CustomerModule.Application.DI
             {
                 Log.Logger.Error("Error at DI IoC Customer. ErrorType={ErrorType}", ex.GetType().Name);
             }
-
         }
     }
 }

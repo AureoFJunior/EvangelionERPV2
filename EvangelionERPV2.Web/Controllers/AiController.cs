@@ -109,8 +109,6 @@ namespace EvangelionERPV2.Web.Controllers
             });
         }
 
-
-
         /// <summary>
         /// One spoken utterance in, its text out. The audio is read straight off the request body
         /// and forwarded to the transcription server — it is never bound as an <c>IFormFile</c>,
@@ -119,11 +117,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]
         [HttpPost("transcribe")]
-        // Without this MVC parses the form first: the body arrives here already drained, and the
-        // clip has been spooled to a temp file on the way.
         [DisableFormValueModelBinding]
-        // Kestrel caps a request at 256 KB globally, which is less than a minute of audio. This
-        // raises it for this endpoint only, to the same number the settings advertise.
         [RequestSizeLimit(MaxAudioRequestBodySizeInBytes)]
         [ProducesResponseType(typeof(AiTranscriptDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -137,8 +131,6 @@ namespace EvangelionERPV2.Web.Controllers
             if (!TryGetEnterpriseId(out _) || TryGetUserId() is null)
                 return Unauthorized();
 
-            // Finding: an oversized clip used to be streamed to Whisper and only then refused, so the
-            // server paid for a transcription it was going to throw away.
             if (Request.ContentLength > _settings.MaxAudioBytes)
                 return StatusCode(StatusCodes.Status413PayloadTooLarge, "Áudio longo demais.");
 
@@ -154,8 +146,6 @@ namespace EvangelionERPV2.Web.Controllers
                     && disposition.DispositionType.Equals("form-data")
                     && !string.IsNullOrEmpty(disposition.FileName.Value))
                 {
-                    // Bounded before anything is read: a client that ignores the cap cannot make the
-                    // server hold an arbitrary amount of audio in memory either.
                     await using var bounded = new BoundedReadStream(section.Body, _settings.MaxAudioBytes);
 
                     var result = await _speech.TranscribeAsync(
@@ -170,7 +160,6 @@ namespace EvangelionERPV2.Web.Controllers
                     if (!result.Success)
                         return StatusCode(StatusCodes.Status503ServiceUnavailable, result.Error);
 
-                    // Bytes and duration, never content: the content is someone's voice.
                     Log.Logger.Information(
                         "Speech transcribed. Bytes={Bytes} LatencyMs={LatencyMs} HasSpeech={HasSpeech}",
                         bounded.BytesRead, result.Transcript.LatencyMs, result.Transcript.HasSpeech);
@@ -193,12 +182,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// machine happens to have installed — on a Linux desktop without speech-dispatcher, that is
         /// nothing at all.
         /// </summary>
-        /// <remarks>
-        /// The audio is copied from the synthesis server to the response and exists nowhere else:
-        /// no byte array, no temp file, and deliberately no caching of any kind on this route. The
-        /// client calls this once per sentence, so the first word is heard while the rest of the
-        /// answer is still being rendered.
-        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]
         [HttpPost("speak")]
         [RequestSizeLimit(MaxChatRequestBodySizeInBytes)]
@@ -221,7 +204,6 @@ namespace EvangelionERPV2.Web.Controllers
             if (text.Length == 0)
                 return BadRequest("Nada a falar.");
 
-            // Refused before the synthesis server is asked, the same way an oversized clip is.
             if (text.Length > _settings.MaxSpeechChars)
                 return BadRequest("Texto longo demais para uma frase.");
 
@@ -230,13 +212,9 @@ namespace EvangelionERPV2.Web.Controllers
             if (!result.Success || result.Audio is null)
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, result.Error);
 
-            // Explicitly uncacheable: an answer's audio sitting in a proxy or a browser cache is the
-            // stored artifact this whole path exists to avoid.
             Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
             Response.Headers.Pragma = "no-cache";
 
-            // FileStreamResult copies the stream to the response and disposes it — which, here, also
-            // closes the upstream response. Never File(bytes, …): that is the buffer this avoids.
             return new FileStreamResult(result.Audio, result.ContentType);
         }
 
@@ -286,8 +264,6 @@ namespace EvangelionERPV2.Web.Controllers
 
             var conversation = await _conversations.GetByIdAsync(conversationId);
 
-            // Someone else's conversation is not found rather than forbidden: the id itself is
-            // the only thing an outsider could learn from telling the two apart.
             if (conversation is null || conversation.UserId != userId.Value || conversation.EnterpriseId != enterpriseId)
                 return NotFound();
 
@@ -336,8 +312,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
-
-
         [Authorize(Policy = "rbac:" + RbacPermissions.Ai.Chat)]
         [HttpGet("conversations/{conversationId:guid}/actions")]
         [ProducesResponseType(typeof(IEnumerable<AiPendingActionDTO>), StatusCodes.Status200OK)]
@@ -355,8 +329,6 @@ namespace EvangelionERPV2.Web.Controllers
             if (conversation is null || conversation.UserId != userId.Value || conversation.EnterpriseId != enterpriseId)
                 return NotFound();
 
-            // A proposal outlives the page that showed it: reloading used to hide a card that was
-            // still pending and still confirmable.
             var pending = await _pendingActions.PendingAsync(conversationId);
 
             return Ok(pending.Select(ToDto).ToList());

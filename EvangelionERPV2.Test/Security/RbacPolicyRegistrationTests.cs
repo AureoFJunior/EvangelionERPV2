@@ -10,12 +10,6 @@ namespace EvangelionERPV2.Test.Security
     /// container, or the endpoint answers 500 from <c>AuthorizationPolicy.CombineAsync</c> for
     /// every caller — authenticated or not, permitted or not.
     /// </summary>
-    /// <remarks>
-    /// This is the gap that let <c>dashboard.read</c> ship unregistered. Policies are built by
-    /// iterating <see cref="RbacPermissions.All"/>; the permission had been added to
-    /// <see cref="RbacPolicies.All"/>, to the role map and to the controller coverage test, and
-    /// none of those three is the list that builds them. Nothing failed until a request arrived.
-    /// </remarks>
     public class RbacPolicyRegistrationTests
     {
         [Fact]
@@ -47,7 +41,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void EveryPermissionInTheRoleMap_IsARegisteredPermission()
         {
-            // A role granted a permission that no policy exists for is a permission nobody can use.
             var known = RbacPermissions.All.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             var granted = Enum.GetValues<Shared.Enums.EnumAccessLevel>()

@@ -22,8 +22,6 @@ namespace EvangelionERPV2.Web.FluentValidator
                 item.RuleFor(x => x.UnitValue).GreaterThanOrEqualTo(0).WithMessage("A quoted price cannot be negative.");
             });
 
-            // A validity that has already lapsed produces a quote nobody can convert, which is a
-            // support call rather than a document.
             RuleFor(x => x.ValidUntil)
                 .Must(value => value!.Value.Date >= DateTime.UtcNow.Date)
                 .WithMessage("The validity date cannot be in the past.")
@@ -39,8 +37,6 @@ namespace EvangelionERPV2.Web.FluentValidator
     {
         public QuoteStatusRequestValidator()
         {
-            // Converted is reached by converting, never by asserting it; Draft is where a quote
-            // starts and Expired is read off the clock.
             RuleFor(x => x.Status)
                 .Must(status => status == (int)EnumQuoteStatus.Sent
                                 || status == (int)EnumQuoteStatus.Accepted

@@ -7,12 +7,6 @@ namespace EvangelionERPV2.Web.FluentValidator
     /// <summary>
     /// The per-product fiscal field rules, applied identically to the create and update bodies.
     /// </summary>
-    /// <remarks>
-    /// Front door validation, like <see cref="UpdateFiscalSettingsRequestValidator"/>: the limits
-    /// mirror the entity's column widths and the SEFAZ field formats so a malformed NCM is a 400
-    /// instead of a rejected transmission. Every rule is conditional on the field being present,
-    /// because null means "fall back to the enterprise default".
-    /// </remarks>
     internal static class ProductFiscalRules
     {
         public static void AddTo<TRequest>(AbstractValidator<TRequest> validator)
@@ -26,7 +20,6 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .Must(value => HasDigitCount(value, 7)).WithMessage("Cest must have 7 digits.")
                 .When(x => !string.IsNullOrWhiteSpace(x.Cest));
 
-            // GTIN-8/12/13/14 are all legal, so only the column width is enforced here.
             validator.RuleFor(x => x.Cean)
                 .MaximumLength(14).WithMessage("Cean is too long.")
                 .When(x => !string.IsNullOrWhiteSpace(x.Cean));
@@ -47,8 +40,6 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .MaximumLength(6).WithMessage("UnidadeTributavel is too long.")
                 .When(x => !string.IsNullOrWhiteSpace(x.UnidadeTributavel));
 
-            // Cst vs Csosn is picked by the enterprise's CRT, which this request does not carry —
-            // NFeItemFiscalResolver decides which one is read. Sending both is allowed.
             validator.RuleFor(x => x.Cst)
                 .MaximumLength(3).WithMessage("Cst is too long.")
                 .When(x => !string.IsNullOrWhiteSpace(x.Cst));
@@ -65,14 +56,10 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .MaximumLength(2).WithMessage("CstCofins is too long.")
                 .When(x => !string.IsNullOrWhiteSpace(x.CstCofins));
 
-            // Rates are fractions, not percentages: the columns are decimal(5,4), so 7.65% is
-            // sent as 0.0765. Anything above 1 is a client that used the percentage form.
             validator.RuleFor(x => x.AliquotaIcms)
                 .InclusiveBetween(0m, 1m).WithMessage("AliquotaIcms must be between 0 and 1.")
                 .When(x => x.AliquotaIcms.HasValue);
 
-            // Exclusive on both ends, unlike a rate: a reduction of zero is CST 00 and a reduction
-            // of one is an exemption, and both are a different CST rather than this field.
             validator.RuleFor(x => x.ReducaoBaseIcms)
                 .ExclusiveBetween(0m, 1m).WithMessage("ReducaoBaseIcms must be between 0 and 1, exclusive.")
                 .When(x => x.ReducaoBaseIcms.HasValue);

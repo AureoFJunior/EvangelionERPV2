@@ -179,8 +179,6 @@ namespace EvangelionERPV2.UserModule.Test.User
 
             var deleted = CreateService(userRepository.Object).Delete(existingUser.Id);
 
-            // The row stays: orders, cash sessions and audit trails all name this user, and the
-            // till's session FK is Restrict, so removing it threw there anyway.
             userRepository.Verify(repository => repository.Delete(It.IsAny<Shared.Entities.User>()), Times.Never);
             Assert.NotNull(updatedUser);
             Assert.False(updatedUser!.IsActive);

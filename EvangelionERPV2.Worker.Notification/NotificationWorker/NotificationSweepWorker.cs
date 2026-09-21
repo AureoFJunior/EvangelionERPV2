@@ -9,11 +9,6 @@ namespace EvangelionERPV2.Worker.NotificationModule.NotificationWorker
     /// <summary>
     /// Asks the API to recompute today's alerts and push the tenants whose set changed.
     /// </summary>
-    /// <remarks>
-    /// Fifteen minutes because that is the TTL of the daily panel's own stock cache: sweeping faster
-    /// re-serves the same cached numbers and buys nothing. No database access here — the worker
-    /// speaks HTTP to the API and Redis for the lease, and the API owns every read.
-    /// </remarks>
     public sealed class NotificationSweepWorker : LeasedScheduleWorker
     {
         private static readonly TimeSpan SweepInterval = TimeSpan.FromMinutes(15);

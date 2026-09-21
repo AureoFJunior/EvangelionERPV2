@@ -22,61 +22,32 @@ namespace EvangelionERPV2.Shared.Entities
         /// <summary>
         /// The 44-digit chave of the supplier NF-e this payable was imported from, when it was.
         /// </summary>
-        /// <remarks>
-        /// This column <em>is</em> the import's idempotency: a filtered unique index on
-        /// (EnterpriseId, SupplierNFeAccessKey) means the same XML dropped twice returns the bill
-        /// that already exists instead of a second one. No SupplierInvoice entity — the payable is
-        /// the document, and the chave is the only thing about the nota that has to be unique.
-        /// </remarks>
         [MaxLength(44)]
         public string? SupplierNFeAccessKey { get; set; } = null;
 
         /// <summary>
         /// The duplicata (instalment) of that nota this bill pays, when the nota carried a schedule.
         /// </summary>
-        /// <remarks>
-        /// A nota paid in three instalments is three payables — the bank sees three payments and
-        /// the carteira has to agree. Null when the nota carried no <c>cobr</c> block at all; SQL
-        /// Server treats nulls as equal in a unique index, so a second import of a schedule-less
-        /// nota is still refused.
-        /// </remarks>
         [MaxLength(60)]
         public string? SupplierNFeDuplicata { get; set; } = null;
 
         /// <summary>
         /// How many months apart this bill repeats. Null — the default — means it does not.
         /// </summary>
-        /// <remarks>
-        /// A payable is its own template. Aluguel, internet and the contador are the same bill
-        /// twelve times a year, and a separate template entity would need CRUD, a controller, a
-        /// permission and a screen to hold three fields this row already has room for.
-        /// </remarks>
         public int? RecurrenceMonths { get; set; } = null;
 
         /// <summary>The last due date the chain may reach. Required when the bill repeats.</summary>
-        /// <remarks>
-        /// Required so a chain always ends: a contract that renews is a human deciding to extend
-        /// it, not a sweeper generating bills into the next century.
-        /// </remarks>
         public DateTime? RecurrenceUntilUtc { get; set; } = null;
 
         /// <summary>
         /// The bill this one was cloned from, when it was generated rather than typed.
         /// </summary>
-        /// <remarks>
-        /// Filtered unique: a parent spawns at most one child, and that index <em>is</em> the
-        /// sweeper's idempotency — two passes on the same day cannot produce two bills. The chain
-        /// advances one link per period because each child carries the recurrence forward and
-        /// becomes the next parent once its own due date arrives.
-        /// </remarks>
         public Guid? RecurrenceParentId { get; set; } = null;
 
         [ForeignKey(nameof(Enterprise))]
         public Guid EnterpriseId { get; set; }
         public virtual Enterprise? Enterprise { get; set; }
 
-        // Optional: payables predate suppliers, and payroll or tax bills have no counterparty
-        // at all, so the FK stays nullable rather than forcing a placeholder supplier.
         [ForeignKey(nameof(Supplier))]
         public Guid? SupplierId { get; set; } = null;
         public virtual Supplier? Supplier { get; set; } = null;
@@ -84,13 +55,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// <summary>
         /// Set only on a <c>BillType = Vacation</c> bill: the período aquisitivo it pays out.
         /// </summary>
-        /// <remarks>
-        /// A direct FK rather than a side table, because a férias bill pays exactly one accrual and
-        /// the link is what makes the provision drawdown auditable — without it, "which months did
-        /// this payment consume" is a guess. Nullable and Restrict for the same reasons
-        /// <see cref="SupplierId"/> is: every other kind of payable has no accrual at all, and an
-        /// accrual that was paid out must outlive any attempt to hard-delete it.
-        /// </remarks>
         [ForeignKey(nameof(EmployeeVacationAccrual))]
         public Guid? EmployeeVacationAccrualId { get; set; } = null;
         public virtual EmployeeVacationAccrual? EmployeeVacationAccrual { get; set; } = null;
@@ -99,34 +63,11 @@ namespace EvangelionERPV2.Shared.Entities
         /// What a <c>BillType = Vacation</c> bill is worth before the provision already accrued for
         /// it is netted out: salary + 1/3 + abono, as the employee is actually paid it.
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <see cref="Amount"/> on a férias bill carries the <em>netted</em> figure, because the
-        /// monthly payroll bill already projected the provision as cash leaving — see
-        /// docs/employee/SPEC-hr-module.md §4 P5a. Without the gross stored, the drawdown would sum
-        /// netted amounts and allocate against its own output.
-        /// </para>
-        /// <para>
-        /// Nullable: every other kind of payable has no gross distinct from its amount, and bills
-        /// issued before this column existed read as "gross equals amount", which is what they are.
-        /// </para>
-        /// </remarks>
         public decimal? GrossAmount { get; set; } = null;
 
         /// <summary>
         /// Abono pecuniário days settled by a <c>BillType = Vacation</c> bill (CLT art. 143).
         /// </summary>
-        /// <remarks>
-        /// The abono used to be inferred — a bill worth more than its stretch alone is worth was
-        /// the one that carried it — and the inference could only answer "all of them or none".
-        /// Days sold *after* that bill was issued were therefore never billed and never reported,
-        /// because <c>SoldDays</c> had grown while the bill had not. Recorded here instead, so what
-        /// is left to settle is arithmetic rather than a guess.
-        ///
-        /// Nullable: bills issued before this column existed carry no record, and null keeps the
-        /// old inference for exactly those rows rather than declaring they settled nothing and
-        /// paying the abono a second time.
-        /// </remarks>
         public int? AbonoDaysSettled { get; set; } = null;
 
         public virtual ICollection<PayableBillProduct>? Items { get; set; }

@@ -5,11 +5,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Providers
     /// <summary>
     /// What a transport reports back about one SEFAZ exchange.
     /// </summary>
-    /// <remarks>
-    /// Lives in Infra rather than Application because the interface that returns it does: the
-    /// service layer must be able to swap a real SEFAZ transport for a fake without either of them
-    /// reaching upward.
-    /// </remarks>
     public sealed class NFeProviderResult
     {
         /// <summary>Echoed back for correlation only. The caller allocated it and owns it.</summary>
@@ -38,11 +33,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Providers
         /// <summary>
         /// The consumer QR payload from <c>infNFeSupl/qrCode</c>. NFCe only — modelo 55 has none.
         /// </summary>
-        /// <remarks>
-        /// Read back off the signed XML rather than recomputed: the library builds it with the CSC
-        /// during signing, and a second implementation here would be a second chance to disagree
-        /// with what was actually transmitted.
-        /// </remarks>
         public string QrCode { get; set; } = "";
 
         /// <summary>The UF's consulta-by-chave URL from <c>infNFeSupl/urlChave</c>. NFCe only.</summary>

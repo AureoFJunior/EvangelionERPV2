@@ -47,12 +47,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// The carteira split by how late it is, plus the same split per customer.
         /// </summary>
-        /// <remarks>
-        /// No permission of its own: this is bills.read data aggregated, and whoever holds that can
-        /// already page the same titles one at a time. A receivable here is the order, not the
-        /// boleto — most tenants have no titles at all, and an aging report driven by Bill rows
-        /// would show an empty carteira for a company that is owed money.
-        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.Bills.Read)]
         [HttpGet]
         [ProducesResponseType(typeof(ReceivablesAgingDTO), StatusCodes.Status200OK)]
@@ -99,7 +93,6 @@ namespace EvangelionERPV2.Web.Controllers
             var toUtc = (to ?? DateTime.UtcNow).Date;
             var fromUtc = (from ?? toUtc.AddDays(-90)).Date;
 
-            // Bounded so a mistyped year cannot ask for a decade of ledger in one request.
             if ((toUtc - fromUtc).TotalDays > MaxStatementWindowInDays)
                 return BadRequest("Statement window is too wide.");
 
@@ -252,7 +245,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException exception)
             {
-                // Wrong state, not a fault: already settled, cancelled, or a nonsense amount/date.
                 Log.Logger.Warning("Bill settlement refused. BillId={BillId} ErrorType={ErrorType}", billId, exception.GetType().Name);
                 return BadRequest(exception.Message);
             }
@@ -297,10 +289,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// One month of movement as a zip of four CSVs, ready to hand to the accountant.
         /// </summary>
-        /// <remarks>
-        /// Its own permission rather than bills.read: the package reaches past receivables into
-        /// payables, notas and the stock ledger, and it leaves the building as a file.
-        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.Accounting.Export)]
         [HttpGet]
         [Produces("application/zip")]
@@ -335,9 +323,5 @@ namespace EvangelionERPV2.Web.Controllers
             var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
         }
-
-
-
-
     }
 }

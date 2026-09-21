@@ -14,12 +14,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
     /// <summary>
     /// The sweeper that sends off-line notes after the fact.
     /// </summary>
-    /// <remarks>
-    /// Two rules carry the whole design. It must never retransmit a note whose outcome is unknown —
-    /// that note may already exist at SEFAZ and resending emits the sale twice. And it must never
-    /// give up: past any deadline the note still owes SEFAZ a transmission, so the bound changes how
-    /// loudly this reports and nothing else.
-    /// </remarks>
     public class NFeContingencyServiceTests
     {
         private const string SignedXml = "<enviNFe><NFe /></enviNFe>";
@@ -27,7 +21,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task AnOfflineNote_IsTransmittedFromWhatWasStored()
         {
-            // Never rebuilt: the customer holds a receipt for the document that was signed.
             var context = new SweepContext(Contingency());
             context.Provider
                 .Setup(x => x.TransmitSignedAsync(It.IsAny<string>(), SignedXml, It.IsAny<EnterpriseFiscalSettings>(),
@@ -43,7 +36,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task ANoteWithAnUnknownOutcome_IsNeverRetransmitted()
         {
-            // It may already exist at SEFAZ. Only the reconciler may resolve it, by consulting.
             var document = Contingency();
             document.TransmittedAtUtc = DateTime.UtcNow.AddMinutes(-30);
 
@@ -74,8 +66,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task PastTheDeadline_ItKeepsTrying()
         {
-            // The whole point. A note past the bound is not expired — it still owes SEFAZ a copy,
-            // and a sweeper that stopped would leave a sale with no fiscal document and no alarm.
             var document = Contingency();
             document.ContingencyEnteredAt = DateTime.UtcNow.AddHours(-72);
 

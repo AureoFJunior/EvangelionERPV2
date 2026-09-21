@@ -16,9 +16,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void AllocationSql_ReadsAndIncrementsInOneAtomicStatement()
         {
-            // OUTPUT deleted.* returns the pre-increment value from within the UPDATE itself. A
-            // SELECT-then-UPDATE would be a lost-update race no isolation level below SERIALIZABLE
-            // prevents.
             Assert.Contains("UPDATE dbo.NFeNumberSequence", Sql, StringComparison.Ordinal);
             Assert.Contains("SET NextNumber = NextNumber + 1", Sql, StringComparison.Ordinal);
             Assert.Contains("OUTPUT deleted.NextNumber", Sql, StringComparison.Ordinal);
@@ -29,7 +26,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void AllocationSql_IsASingleStatement()
         {
-            // Two statements would no longer be atomic without an explicit transaction.
             Assert.Equal(1, Sql.Count(character => character == ';'));
             Assert.EndsWith(";", Sql.TrimEnd(), StringComparison.Ordinal);
         }
@@ -47,9 +43,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [InlineData("@environment")]
         public void AllocationSql_ScopesToTheFullSequenceKeyViaParameters(string parameterName)
         {
-            // All four are required: the unique index is on the tuple, so dropping one would let a
-            // counter be shared across tenants, models or environments. Parameterised, never
-            // interpolated — this statement takes a tenant-supplied series string.
             Assert.Contains(parameterName, Sql, StringComparison.Ordinal);
         }
 

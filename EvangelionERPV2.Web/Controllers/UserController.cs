@@ -109,9 +109,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (string.IsNullOrWhiteSpace(normalizedUserName))
                     return BadRequest("userName and password are required.");
 
-                // Usernames are only unique per enterprise, and the login request carries no
-                // tenant discriminator, so the password picks the account. Shared with the till's
-                // own login so the two can never drift apart — see PasswordLoginService.
                 var login = await _passwordLoginService.AuthenticateAsync(normalizedUserName, request.Password);
 
                 var user = login.User;
@@ -166,7 +163,6 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-
                 string? idToken = null;
                 if (payload.ValueKind == JsonValueKind.String)
                 {
@@ -346,7 +342,6 @@ namespace EvangelionERPV2.Web.Controllers
             return (token, refreshToken);
         }
 
-
         private static string NormalizeUserName(string? userName)
         {
             return (userName ?? string.Empty).Trim();
@@ -422,7 +417,6 @@ namespace EvangelionERPV2.Web.Controllers
             dto.ProfilePicture = await _userService.GetProfilePictureBase64Async(user.ProfilePicture);
             return dto;
         }
-
 
         /// <summary>
         /// Return all the users.
@@ -524,9 +518,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                // Built field by field: binding the entity also exposed Id, IsActive and the audit
-                // columns, so a caller could create a user that was already soft-deleted or backdate
-                // its creation.
                 var user = new Shared.Entities.User
                 {
                     FirstName = request.FirstName.Trim(),
@@ -585,15 +576,9 @@ namespace EvangelionERPV2.Web.Controllers
                 if (existentUser == null || existentUser.IsActive != true || existentUser.EnterpriseId != enterpriseId)
                     return NoContent();
 
-                // (int), not the raw short: Enum.IsDefined(Type, object) demands the enum's own
-                // underlying type, and EnumAccessLevel is backed by int while the wire carries a
-                // short. Without the cast every single update threw ArgumentException, which the
-                // middleware turned into a generic 400 — user editing was impossible.
                 if (!Enum.IsDefined(typeof(EnumAccessLevel), (int)request.AccessLevel))
                     return BadRequest("Invalid access level.");
 
-                // The stored row is the base, so the tenant, the login state and the audit columns
-                // stay where they were no matter what the body says.
                 var user = existentUser;
                 user.FirstName = request.FirstName.Trim();
                 user.LastName = request.LastName.Trim();
@@ -604,8 +589,6 @@ namespace EvangelionERPV2.Web.Controllers
                 user.ActualTheme = request.ActualTheme;
                 user.Language = request.Language;
                 user.CommissionRate = request.CommissionRate;
-                // ?? and not a plain assignment: an older client omits the field entirely, and that
-                // must leave a flagged service account flagged.
                 user.IsServiceAccount = request.IsServiceAccount ?? existentUser.IsServiceAccount;
                 user.IsActive = request.IsActive;
                 user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
@@ -899,12 +882,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Update the current user's own name and contact number.
         /// </summary>
-        /// <remarks>
-        /// Self-scoped on purpose: the id comes from the token, never from the body, so this cannot
-        /// be pointed at a colleague. Editing somebody else stays behind Users.Update on the users
-        /// screen. Only the three fields a person owns are writable — role, access level and email
-        /// are the enterprise's to set, which is why they are read-only on the profile screen.
-        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
         [HttpPut]
         [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
@@ -921,9 +898,6 @@ namespace EvangelionERPV2.Web.Controllers
 
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
-                // Repeated here rather than left to UpdateProfileRequestValidator: a name is what
-                // this endpoint writes, and a blank one would rename somebody to nothing if auto
-                // validation were ever turned off.
                 var firstName = request.FirstName?.Trim();
                 var lastName = request.LastName?.Trim();
 
@@ -950,8 +924,6 @@ namespace EvangelionERPV2.Web.Controllers
                 user.FirstName = firstName;
                 user.LastName = lastName;
 
-                // Null means "not sent" — a client updating only the name should not wipe the
-                // number. Empty string is a deliberate clear, and passes through.
                 if (request.PhoneNumber != null)
                     user.PhoneNumber = request.PhoneNumber.Trim();
 
@@ -1191,7 +1163,6 @@ namespace EvangelionERPV2.Web.Controllers
 
             return $"{uri.Scheme}://{uri.Host}:{uri.Port}".ToLowerInvariant();
         }
-
 
         private string BuildResetPasswordRateLimitKey(string? email)
         {

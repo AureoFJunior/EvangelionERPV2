@@ -7,22 +7,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// <summary>
     /// Monotonic nNF counter, one row per (enterprise, model, series, environment).
     /// </summary>
-    /// <remarks>
-    /// Its own table rather than columns on <see cref="EnterpriseFiscalSettings"/> because a
-    /// tenant legitimately runs several series and two environments, and because this is the
-    /// hottest write in the fiscal module — it belongs on a narrow row of its own.
-    ///
-    /// Allocation is a single atomic <c>UPDATE ... OUTPUT deleted.NextNumber</c>, which is
-    /// correct across API instances. The 256 process-static semaphores in NFeService are NOT
-    /// sufficient here: they are in-process and keyed by order, while numbering must serialise
-    /// per (enterprise, model, series).
-    ///
-    /// Gaps are expected and legal — a SEFAZ rejection burns its number and the remedy is
-    /// inutilização (out of scope v1). Never reuse a burned number.
-    ///
-    /// The unique index is NOT filtered on IsActive: a soft-deleted counter row that let a
-    /// second row start over at 1 would re-issue numbers already sent to SEFAZ.
-    /// </remarks>
     [Table("NFeNumberSequence")]
     [Index(nameof(EnterpriseId), nameof(Model), nameof(Series), nameof(Environment), IsUnique = true)]
     public class NFeNumberSequence : BaseEntity

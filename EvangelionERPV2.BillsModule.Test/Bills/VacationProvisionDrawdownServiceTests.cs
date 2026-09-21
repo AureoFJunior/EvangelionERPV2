@@ -22,8 +22,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Recalculate_ConsumesTheOldestCompetenciaFirst()
         {
-            // 300 paid against three months of 200 each: the first is emptied, the second takes the
-            // rest, the third is untouched.
             var context = new DrawdownContext(
                 paid: 300m,
                 competencias: [Month(2025, 1, 200m), Month(2025, 2, 200m), Month(2025, 3, 200m)]);
@@ -38,8 +36,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Recalculate_IgnoresTheOrderRowsArriveIn()
         {
-            // The repository makes no ordering promise, and "oldest first" must be a property of
-            // the allocator rather than of however the rows happened to come back.
             var context = new DrawdownContext(
                 paid: 150m,
                 competencias: [Month(2025, 12, 200m), Month(2025, 3, 200m), Month(2025, 7, 200m)]);
@@ -54,8 +50,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Recalculate_CrossesTheYearBoundaryInRealChronologicalOrder()
         {
-            // A período aquisitivo straddles a new year, so December must come before January of
-            // the following one — which a naive sort on month alone gets backwards.
             var context = new DrawdownContext(
                 paid: 250m,
                 competencias: [Month(2025, 12, 200m), Month(2026, 1, 200m)],
@@ -75,8 +69,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Recalculate_WhenThePaymentIsSmallerThanTheProvision_LeavesTheRemainder()
         {
-            // A split férias paying part of the entitlement: the rest stays available for the next
-            // stretch rather than being written off.
             var context = new DrawdownContext(paid: 120m, competencias: [Month(2025, 1, 200m)]);
 
             var drawdown = await context.Service.RecalculateAsync(AccrualId);
@@ -89,8 +81,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Recalculate_WhenThePaymentExceedsEverythingAccrued_ConsumesAllAndReportsTheShortfall()
         {
-            // Ordinary for a mid-period hire or a raise since the provision was laid down. The cash
-            // is owed either way, so this must not throw.
             var context = new DrawdownContext(
                 paid: 500m,
                 competencias: [Month(2025, 1, 200m), Month(2025, 2, 100m)]);
@@ -121,8 +111,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Recalculate_RunTwice_ConsumesNothingFurther()
         {
-            // The whole idempotency story: the allocation is recomputed from the bills rather than
-            // applied as a delta, so a second run lands on the same numbers with nothing to write.
             var context = new DrawdownContext(
                 paid: 300m,
                 competencias: [Month(2025, 1, 200m), Month(2025, 2, 200m)]);
@@ -165,8 +153,6 @@ namespace EvangelionERPV2.BillsModule.Test
             context.RefundAllBills();
             await context.Service.RecalculateAsync(AccrualId);
 
-            // Reversing the payment gives the months their provision back. Recomputation is what
-            // makes this fall out for free instead of needing a compensating write.
             Assert.Equal(0m, context.Consumed(2025, 1));
         }
 
@@ -177,8 +163,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Recalculate_NetsTheBillByWhatItConsumed()
         {
-            // The monthly payroll bill already projected the provision as cash leaving, so the
-            // férias bill carries only the uncovered remainder — SPEC-hr-module §4 P5a.
             var context = new DrawdownContext(paid: 300m, competencias: [Month(2025, 1, 200m)]);
 
             await context.Service.RecalculateAsync(AccrualId);
@@ -190,8 +174,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Recalculate_AllocatesOnTheGrossRatherThanTheAmountItAlreadyNetted()
         {
-            // The trap P5a exists to avoid: summing the netted Amount makes the allocation feed on
-            // its own output and walk the bill down to zero one run at a time.
             var context = new DrawdownContext(paid: 0m, competencias: [Month(2025, 1, 200m)]);
             var bill = context.AddBill(amount: 100m, gross: 300m);
 
@@ -228,8 +210,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Recalculate_AfterTheFirstBillIsRefunded_ReNetsTheOneStillStanding()
         {
-            // The provision the refunded bill was holding goes to the payment still due, which is
-            // the behaviour recomputation buys and a delta would have to be told about.
             var context = new DrawdownContext(paid: 200m, competencias: [Month(2025, 1, 150m)]);
             var second = context.AddBill(200m);
 
@@ -250,14 +230,13 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Recalculate_SkipsCompetenciasOutsideThePeriodoAquisitivo()
         {
-            // The months the entitlement was earned in, not the months the leave is taken in.
             var context = new DrawdownContext(
                 paid: 1000m,
                 competencias:
                 [
-                    Month(2024, 12, 200m),  // before AcquisitionStart
+                    Month(2024, 12, 200m),
                     Month(2025, 1, 200m),
-                    Month(2026, 2, 200m)    // after AcquisitionEnd
+                    Month(2026, 2, 200m)
                 ]);
 
             await context.Service.RecalculateAsync(AccrualId);
@@ -334,8 +313,6 @@ namespace EvangelionERPV2.BillsModule.Test
             {
                 _details.AddRange(competencias);
 
-                // A twelve-month período aquisitivo through calendar 2025, so the boundary tests
-                // have somewhere obvious to fall outside of.
                 var accrual = new EmployeeVacationAccrual
                 {
                     Id = AccrualId,

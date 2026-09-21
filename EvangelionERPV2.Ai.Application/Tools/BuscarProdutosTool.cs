@@ -28,8 +28,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
         public AIFunction Create(AiToolContext context) =>
             AIFunctionFactory.Create(async (string? termo = null, int? pagina = null) =>
             {
-                // No termo lists the catalogue instead of refusing: "lista os produtos" is a question
-                // people actually ask, and a search tool that demands a needle cannot answer it.
                 var needle = (termo ?? string.Empty).Trim();
                 var page = Math.Max(1, pagina ?? 1);
 

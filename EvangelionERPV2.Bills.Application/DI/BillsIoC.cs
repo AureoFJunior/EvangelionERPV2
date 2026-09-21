@@ -67,22 +67,14 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 services.AddScoped<IDailyPanelService, DailyPanelService>();
                 services.AddScoped<IReceivablesReportService, ReceivablesReportService>();
 
-                // Ficha do cliente. Here rather than in the Customer module because most of the
-                // answer is money and the aging rule it reuses already lives in this module.
                 services.AddScoped<ICustomerSummaryService, CustomerSummaryService>();
                 services.AddScoped<IAccountingExportService, AccountingExportService>();
 
-                // Concrete, no interface: the worker is its only caller, and chasing late payers is
-                // a consequence of the schedule rather than a capability anything else asks for.
                 services.AddScoped<DunningService>();
 
-                // Same reasoning: the sweeper is the only caller, and cloning a fixed bill forward
-                // is a consequence of the schedule rather than a capability anything else asks for.
                 services.AddScoped<RecurringPayableService>();
                 services.AddHostedService<DailySweepWorker>();
 
-                // Concrete, no interface: férias pay is its only caller, and the drawdown is a
-                // consequence of creating that bill rather than a capability anything else asks for.
                 services.AddScoped<VacationProvisionDrawdownService>();
                 services.AddScoped<IVacationPayService, VacationPayService>();
                 #endregion
@@ -98,4 +90,3 @@ namespace EvangelionERPV2.BillsModule.Application.DI
         }
     }
 }
-

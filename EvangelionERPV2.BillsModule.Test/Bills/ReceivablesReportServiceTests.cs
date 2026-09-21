@@ -50,8 +50,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task GetAging_ShouldCountAnOrderWithNoBoleto()
         {
-            // BillsSettings.Enabled is false in production: a carteira driven by Bill rows alone
-            // would report nothing owed for a company that is owed plenty.
             var today = DateTime.UtcNow.Date;
             var order = BuildOrder(800);
             order.PaymentScheduledDate = today.AddDays(-45);
@@ -65,7 +63,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task GetAging_ShouldDropOrdersSettledByTheirBoleto_EvenThoughOrderStatusNeverMoved()
         {
-            // Settling a boleto does not touch Order.Status, so the title is the only record of it.
             var today = DateTime.UtcNow.Date;
             var (order, bill) = BuildOrderWithBill(300, today.AddDays(-10));
             bill.Status = BillStatus.Paid;
@@ -249,18 +246,12 @@ namespace EvangelionERPV2.BillsModule.Test
         /// open order. Same bucket boundaries, same receivable rule — so for one customer they must
         /// produce the same five numbers.
         /// </summary>
-        /// <remarks>
-        /// The scoped overload exists because the tenant-wide one cost 1.1 GiB to read a single
-        /// customer's row on a tenant with 1.8M open orders. That made the bucket rule exist twice.
-        /// This is what keeps the two copies honest; if either side changes alone, it fails.
-        /// </remarks>
         [Fact]
         public async Task TheScopedAgingAndTheTenantWideAging_AgreeForOneCustomer()
         {
             var today = DateTime.UtcNow.Date;
             var customer = BuildCustomer("Asuka");
 
-            // One order per bucket, plus the boundary days themselves, plus two that must not count.
             var notYetDue = BuildOrderWithBillFor(customer, 100m, today.AddDays(10));
             var dueToday = BuildOrderWithBillFor(customer, 200m, today);
             var day1 = BuildOrderWithBillFor(customer, 300m, today.AddDays(-1));
@@ -271,11 +262,9 @@ namespace EvangelionERPV2.BillsModule.Test
             var day90 = BuildOrderWithBillFor(customer, 800m, today.AddDays(-90));
             var day91 = BuildOrderWithBillFor(customer, 900m, today.AddDays(-91));
 
-            // Settled: off the carteira on both sides.
             var settled = BuildOrderWithBillFor(customer, 1000m, today.AddDays(-5));
             settled.bill.Status = BillStatus.Paid;
 
-            // No title at all: dated by the order's own PaymentScheduledDate.
             var untitled = BuildOrder(1100m, customer);
 
             var withBills = new[] { notYetDue, dueToday, day1, day30, day31, day60, day61, day90, day91, settled };
@@ -295,8 +284,6 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(tenantWide.Days90Plus, scoped.Days90Plus);
             Assert.Equal(tenantWide.Total, scoped.Total);
 
-            // Pinned, so a change that moves both sides the same way still fails. Due today counts
-            // as not-yet-due (daysOverdue 0), and the untitled order is scheduled 30 days out.
             Assert.Equal(100m + 200m + 1100m, scoped.NotYetDue);
             Assert.Equal(300m + 400m, scoped.Days1To30);
             Assert.Equal(500m + 600m, scoped.Days31To60);
@@ -342,13 +329,9 @@ namespace EvangelionERPV2.BillsModule.Test
             return new ReceivablesReportService(
                 Repo(orders).Object,
                 Repo(bills).Object,
-                // Like the real CustomerRepository: its GetAllAsync override throws on an empty
-                // result, so a tenant with no customers must not take the carteira down with it.
                 Repo(
                     customers ?? orders.Select(x => x.Customer!).Where(x => x != null).DistinctBy(x => x.Id).ToList(),
                     throwsWhenEmpty: true).Object,
-                // Only GetCustomerAgingAsync reads through EF; the tenant-wide report still goes
-                // through the repositories above, so this stays empty unless a test seeds it.
                 BuildContext(orders, bills));
         }
 
@@ -400,8 +383,6 @@ namespace EvangelionERPV2.BillsModule.Test
                     return result;
                 });
 
-            // The carteira reads orders through GetPagedAsync, which is the un-overridden path
-            // with no Include graph behind it.
             repo.Setup(x => x.GetPagedAsync(
                     It.IsAny<Expression<Func<TEntity, bool>>?>(),
                     It.IsAny<Func<IQueryable<TEntity>, IOrderedQueryable<TEntity>>?>(),

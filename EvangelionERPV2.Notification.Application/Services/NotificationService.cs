@@ -42,8 +42,6 @@ namespace EvangelionERPV2.NotificationModule.Application.Services
                     Body = broadcast.Body,
                     CreatedAtUtc = broadcast.CreatedAt,
                     IsRead = readIds.Contains(broadcast.Id),
-                    // A broadcast is for everyone in the tenant; an alert carries the permission
-                    // that guards the numbers behind it.
                     RequiredPermission = null,
                 })
                 .ToList();
@@ -54,8 +52,6 @@ namespace EvangelionERPV2.NotificationModule.Application.Services
             return new NotificationFeedDTO
             {
                 Items = items.OrderByDescending(item => item.CreatedAtUtc).ToList(),
-                // Counted here over every broadcast; the controller recounts after filtering, which
-                // for broadcasts changes nothing because they carry no permission.
                 UnreadBroadcastCount = items.Count(item =>
                     item.Source == NotificationSources.Broadcast && !item.IsRead),
                 ActiveAlertCount = alerts.Count,
@@ -79,13 +75,9 @@ namespace EvangelionERPV2.NotificationModule.Application.Services
             }
             catch (Exception ex)
             {
-                // A panel that cannot be computed costs the alerts, never the broadcasts: the bell
-                // still opens and still shows what an admin wrote.
                 Log.Logger.Error(
                     "Notification alerts unavailable. ErrorType={ErrorType}", ex.GetType().Name);
 
-                // Null, not empty: a panel that failed must not read as "the alerts cleared", which
-                // would push every browser in the company a change that did not happen.
                 return (Array.Empty<NotificationItemDTO>(), null);
             }
         }
@@ -95,8 +87,6 @@ namespace EvangelionERPV2.NotificationModule.Application.Services
         {
             var broadcast = await ByIdOrNullAsync(notificationId);
 
-            // Someone else's tenant is "nothing to read", not an error: the id is the only thing an
-            // outsider could learn from telling the two apart.
             if (broadcast is null || broadcast.EnterpriseId != enterpriseId || broadcast.IsActive != true)
                 return;
 

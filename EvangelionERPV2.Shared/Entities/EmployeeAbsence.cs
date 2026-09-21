@@ -6,11 +6,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// <summary>
     /// One row per absence event: falta, atestado, or advertência, told apart by <see cref="Type"/>.
     /// </summary>
-    /// <remarks>
-    /// Deliberately one table and not three. Payroll needs the worked-day count for a whole
-    /// enterprise in one round trip, and every kind shares the same shape (an employee, a day
-    /// range, whether it is justified); only the atestado adds a field of its own.
-    /// </remarks>
     [Index(nameof(EnterpriseId), nameof(EmployeeId), nameof(StartDate))]
     public class EmployeeAbsence : BaseEntity
     {

@@ -15,20 +15,6 @@ namespace EvangelionERPV2.BillsModule.Domain.Repositories
         /// generating a boleto at the same moment cannot receive the same number. <c>ROWLOCK</c>
         /// keeps the engine from escalating to a page lock and serialising unrelated wallets.
         /// </summary>
-        /// <remarks>
-        /// Lifted wholesale from <c>NFeRepository.AllocateNextNumberSql</c> — same problem, so the
-        /// same proven statement rather than a second mechanism to get wrong.
-        ///
-        /// The one addition is <c>NextNumber &lt;= Ceiling</c>: an exhausted convênio range must
-        /// hand out nothing rather than a number the bank will not honour, and putting the check in
-        /// the WHERE keeps it inside the same atomic statement instead of a read that could race.
-        ///
-        /// Public only so <c>BillNumberAllocationSqlTests</c> can pin its shape. Every clause is
-        /// load-bearing for collision safety and this is the one piece with no integration test
-        /// behind it, so the text is asserted instead. The caller must execute it with
-        /// <c>ToListAsync</c> and compose nothing onto the <c>IQueryable</c> — a non-composable raw
-        /// SQL query throws at runtime the moment anything is appended.
-        /// </remarks>
         public const string AllocateNextNumberSql = """
             UPDATE dbo.BillNumberSequence WITH (ROWLOCK)
                SET NextNumber = NextNumber + 1
@@ -45,9 +31,6 @@ namespace EvangelionERPV2.BillsModule.Domain.Repositories
 
         public async Task<Bill?> GetByOrderIdAsync(Guid orderId)
         {
-            // Cancelled is excluded so a reissued order resolves to its current title, not to the
-            // superseded one. Ordered because the filtered unique index only guarantees one
-            // non-cancelled row while the rows are live, not while a reissue is mid-flight.
             return await ActiveBills()
                 .Where(x => x.OrderId == orderId && x.Status != BillStatus.Cancelled)
                 .OrderByDescending(x => x.CreatedAt)

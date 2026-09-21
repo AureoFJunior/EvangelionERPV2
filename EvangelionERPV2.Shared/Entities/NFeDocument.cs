@@ -85,33 +85,16 @@ namespace EvangelionERPV2.Shared.Entities
         /// separate query paths, which made a tenant-scoped list impossible without a join.
         /// The Order-based check is kept as defence in depth on the issue path.
         /// </summary>
-        /// <remarks>
-        /// Deliberately a plain indexed column with no navigation property and no foreign key.
-        /// A relationship to Enterprise would introduce a delete cascade onto fiscal documents,
-        /// and an authorized NFe must be retained for five years (Ajuste SINIEF 07/2005) — it
-        /// may not disappear because a tenant row was removed. The Order FK already carries the
-        /// referential relationship.
-        /// </remarks>
         public Guid EnterpriseId { get; set; }
 
         /// <summary>
         /// tpEmis. 1 = emissão normal, 9 = contingência off-line NFC-e.
         /// </summary>
-        /// <remarks>
-        /// Stored because it is baked into the access key's 35th digit: the same note re-keyed with
-        /// a different tpEmis is a different chave. It also decides whether this document still owes
-        /// SEFAZ a transmission — see <see cref="ContingencyEnteredAt"/>.
-        /// </remarks>
         public byte TipoEmissao { get; set; } = 1;
 
         /// <summary>
         /// dhCont — when the shop entered contingency. Null for a normally issued note.
         /// </summary>
-        /// <remarks>
-        /// The regulated transmission window is measured from here, not from the emission time, and
-        /// a contingency note that is never transmitted is a sale the shop cannot account for. This
-        /// is the column a sweeper reads to find them.
-        /// </remarks>
         public DateTime? ContingencyEnteredAt { get; set; }
 
         /// <summary>xJust — why. Mandatory on the wire whenever tpEmis is a contingency mode.</summary>
@@ -170,9 +153,6 @@ namespace EvangelionERPV2.Shared.Entities
         #endregion
 
         #region NFCe
-
-        // Both embed the access key, which carries the emitente CNPJ and the note number.
-        // Neither is exposed on the DTO, and both are redacted in the audit trail.
 
         [MaxLength(1000)]
         public string QrCode { get; set; } = "";

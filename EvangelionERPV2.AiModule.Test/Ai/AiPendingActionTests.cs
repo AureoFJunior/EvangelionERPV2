@@ -82,7 +82,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var action = PendingAction(tool.Name);
             var (service, _) = BuildService(action, tool);
 
-            // ai.act alone: the tool's own permission is gone.
             var outcome = await service.ConfirmAsync(
                 action.Id, new HashSet<string> { AiPermissions.Act }, Context);
 
@@ -171,12 +170,9 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.True(card.ExpiresAt > DateTime.UtcNow);
         }
 
-
         [Fact]
         public async Task Confirm_WhenTheToolRefuses_DoesNotReportItAsDone()
         {
-            // The tool answers {"erro": ...} instead of throwing. Confirming used to say "Feito."
-            // and mark the action Confirmed, so a write that never happened read as applied.
             var tool = RefusingTool("atualizar_produto", "customers.create", "produto não encontrado nesta empresa");
             var action = PendingAction(tool.Name);
             var (service, _) = BuildService(action, tool);

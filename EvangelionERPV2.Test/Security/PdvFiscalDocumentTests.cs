@@ -18,12 +18,6 @@ namespace EvangelionERPV2.Test.Security
     /// <summary>
     /// The till asking the ERP for its NFC-e.
     /// </summary>
-    /// <remarks>
-    /// The subject is what happens when issuance fails. `RejectAsync` on the sync path is terminal,
-    /// so issuance is a separate call and a fiscal failure must cost a fiscal failure and nothing
-    /// else — the sale stays Synced. And the contingency fallback must fire *only* where nothing
-    /// was transmitted, because re-issuing a note that may already exist emits the sale twice.
-    /// </remarks>
     public class PdvFiscalDocumentTests
     {
         private static readonly Guid EnterpriseId = Guid.NewGuid();
@@ -50,7 +44,6 @@ namespace EvangelionERPV2.Test.Security
         {
             var nfe = new Mock<INFeService<NFeDocument>>();
 
-            // Error with no TransmittedAtUtc: the transport proved nothing left this process.
             nfe.Setup(x => x.IssueAsync(OrderId, EnterpriseId, NFeDocumentType.NFCe, null))
                 .ReturnsAsync(Document(NFeStatus.Error, transmittedAt: null));
             nfe.Setup(x => x.IssueAsync(OrderId, EnterpriseId, NFeDocumentType.NFCe, It.IsAny<NFeContingency>()))
@@ -67,9 +60,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task AnUnknownOutcome_IsNeverReissuedOffline()
         {
-            // Pending means the socket was open and nothing can prove the note did not land.
-            // Re-issuing it off-line would emit the same sale twice; only the reconciler may
-            // resolve this.
             var nfe = new Mock<INFeService<NFeDocument>>(MockBehavior.Strict);
             nfe.Setup(x => x.IssueAsync(OrderId, EnterpriseId, NFeDocumentType.NFCe, null))
                 .ReturnsAsync(Document(NFeStatus.Pending, transmittedAt: DateTime.UtcNow));
@@ -80,7 +70,6 @@ namespace EvangelionERPV2.Test.Security
             var payload = Assert.IsType<PdvFiscalDocumentDTO>(Assert.IsType<OkObjectResult>(result).Value);
             Assert.False(payload.IsContingency);
 
-            // The strict mock fails the test if a contingency issue was attempted at all.
             nfe.Verify(x => x.IssueAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<NFeDocumentType>(),
                 It.Is<NFeContingency>(contingency => contingency != null)), Times.Never);
         }
@@ -88,8 +77,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task WithoutAReason_NothingFallsBackToContingency()
         {
-            // xJust is mandatory on the wire. No reason, no contingency — the operator is told why
-            // rather than the till inventing a justification.
             var nfe = new Mock<INFeService<NFeDocument>>(MockBehavior.Strict);
             nfe.Setup(x => x.IssueAsync(OrderId, EnterpriseId, NFeDocumentType.NFCe, null))
                 .ReturnsAsync(Document(NFeStatus.Error, transmittedAt: null));
@@ -101,12 +88,10 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Theory]
-        [InlineData("sem sinal")]                                                   // 9 — too short
-        [InlineData("   caiu a net   ")]                                            // 11 once trimmed
+        [InlineData("sem sinal")]
+        [InlineData("   caiu a net   ")]
         public async Task AReasonTheSchemaWouldReject_IsRefusedHere(string reason)
         {
-            // xJust is bounded at 15..256. Refused before the second issue call, so a short reason
-            // costs a 400 the operator can fix instead of a second fiscal document in Error.
             var nfe = new Mock<INFeService<NFeDocument>>(MockBehavior.Strict);
             nfe.Setup(x => x.IssueAsync(OrderId, EnterpriseId, NFeDocumentType.NFCe, null))
                 .ReturnsAsync(Document(NFeStatus.Error, transmittedAt: null));
@@ -138,8 +123,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task AShopThatHasNotTurnedNFCeOn_IsRefusedEvenIfTheTillAsks()
         {
-            // The till caches this flag off the sync snapshot, so a stale terminal will ask. The
-            // switch is the tenant's, so it is checked here rather than trusted from a shop floor.
             var nfe = new Mock<INFeService<NFeDocument>>(MockBehavior.Strict);
 
             var result = await Controller(SyncedSale(), nfe, enabled: true, nfceEnabled: false)
@@ -147,7 +130,6 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.IsType<BadRequestObjectResult>(result);
 
-            // Strict: nothing was issued, so no number was consumed for a note nobody may have.
             nfe.Verify(x => x.IssueAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<NFeDocumentType>(),
                 It.IsAny<NFeContingency>()), Times.Never);
         }
@@ -239,6 +221,5 @@ namespace EvangelionERPV2.Test.Security
 
             return settings.Object;
         }
-
     }
 }

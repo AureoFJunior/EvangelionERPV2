@@ -15,12 +15,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Providers
         /// Transmits a note that was already built and signed — an off-line contingency note being
         /// sent after the fact.
         /// </summary>
-        /// <remarks>
-        /// Distinct from <see cref="IssueAsync"/> on purpose: it takes the stored document rather
-        /// than rebuilding one. A rebuild would produce a different dhEmi, and the customer is
-        /// holding a receipt for the original. The content — chave, dhEmi, dhCont, xJust — comes
-        /// entirely from the stored XML; only the signature is recomputed over it.
-        /// </remarks>
         Task<NFeProviderResult> TransmitSignedAsync(
             string accessKey,
             string signedXml,

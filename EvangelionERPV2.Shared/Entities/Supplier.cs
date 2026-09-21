@@ -23,7 +23,6 @@ namespace EvangelionERPV2.Shared.Entities
         public string Email { get; set; } = "";
         public string Adress { get; set; } = "";
 
-        // LGPD: CNPJ/CPF — never serialized to API responses (see SupplierDTO).
         public string? Document { get; set; } = null;
 
         [ForeignKey(nameof(Enterprise))]

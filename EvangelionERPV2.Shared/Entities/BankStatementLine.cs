@@ -33,11 +33,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// <summary>
     /// One transaction from an imported OFX statement.
     /// </summary>
-    /// <remarks>
-    /// This table is evidence, not ledger. It never moves money and never writes
-    /// <see cref="Enterprise.CurrentBalance"/>; it exists so an app-computed balance finally has
-    /// something external to be compared against.
-    /// </remarks>
     // (EnterpriseId, BankId, AccountId, FitId) is the idempotency key: FITID is unique per account
     // at the bank, not globally, so the account has to be in the key or two banks reusing a short
     // account number would collide. Deliberately NOT filtered on IsActive — a soft-deleted line
@@ -58,8 +53,6 @@ namespace EvangelionERPV2.Shared.Entities
 
         public virtual BankStatementImport? Import { get; set; }
 
-        // Bounded lengths are load-bearing, not cosmetic: these three sit in the unique index above
-        // and SQL Server cannot index nvarchar(max).
         [MaxLength(32)]
         public string BankId { get; set; } = string.Empty;
 
@@ -67,9 +60,6 @@ namespace EvangelionERPV2.Shared.Entities
         public string AccountId { get; set; } = string.Empty;
 
         /// <summary>OFX <c>FITID</c> — the bank's own id for the transaction.</summary>
-        // 255 because that is the OFX maximum, not a guess at what banks use. This one value is
-        // never truncated to fit: a shortened idempotency key could collide two genuinely different
-        // transactions into one, which is the opposite of what it is here to do.
         [MaxLength(255)]
         public string FitId { get; set; } = string.Empty;
 

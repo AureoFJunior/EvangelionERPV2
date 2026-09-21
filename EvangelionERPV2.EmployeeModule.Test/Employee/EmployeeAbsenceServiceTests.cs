@@ -24,8 +24,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             var stored = Assert.Single(store);
             Assert.Same(created, stored);
             Assert.NotNull(stored.Cid);
-            // The whole point: what lands in the column is ciphertext, and the round trip proves it
-            // is the value that was sent rather than something merely unreadable.
             Assert.NotEqual(PlainCid, stored.Cid);
             Assert.Equal(PlainCid, SharedFunctions.Decrypt(stored.Cid!));
         }
@@ -46,8 +44,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             EnsureEncryptionKeyInitialized();
             var (sut, store) = BuildSut();
 
-            // Health data collected against a plain falta has no legal basis, so the write fails
-            // rather than quietly keeping it.
             await Assert.ThrowsAsync<InsertDatabaseException>(
                 () => sut.CreateAsync(BuildAbsence(EnumEmployeeAbsenceType.Falta), PlainCid));
 
@@ -67,7 +63,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
                 await Assert.ThrowsAsync<InsertDatabaseException>(
                     () => sut.CreateAsync(BuildAbsence(EnumEmployeeAbsenceType.Atestado), PlainCid));
 
-                // Neither plaintext nor a silently blanked row: nothing is written at all.
                 Assert.Empty(store);
             }
             finally
@@ -83,7 +78,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             var absence = BuildAbsence(EnumEmployeeAbsenceType.Falta);
             absence.EndDate = absence.StartDate.AddDays(-1);
 
-            // A backwards range does not fail loudly downstream — it silently mispays someone.
             await Assert.ThrowsAsync<InsertDatabaseException>(() => sut.CreateAsync(absence));
 
             Assert.Empty(store);
@@ -119,7 +113,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
                 IsActive = true
             });
 
-            // A partial payload must not wipe the diagnosis code behind a paid absence.
             Assert.Equal(stored.Cid, updated.Cid);
             Assert.False(updated.IsJustified);
         }
@@ -155,8 +148,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
 
             var deleted = sut.Delete(stored.Id);
 
-            // Payroll already billed against these days; a hard delete would make a past
-            // competência impossible to explain.
             Assert.False(deleted.IsActive);
         }
 

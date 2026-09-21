@@ -33,20 +33,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
     /// Reads a supplier's NF-e XML into a plain record. Parse only: no I/O, no database, no
     /// certificate, no SEFAZ.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <c>System.Xml.Linq</c> rather than the fiscal library's deserializer. The import needs
-    /// eleven values out of a document whose layout has been frozen since NF-e 4.00, and reading
-    /// them by name keeps this file pure and trivially testable — an inbound nota from a stranger's
-    /// ERP is exactly the input that arrives slightly wrong, and a strict object deserializer
-    /// refuses the whole document over a field nothing here reads.
-    /// </para>
-    /// <para>
-    /// It accepts both a <c>nfeProc</c> (the authorized nota, protocol attached — what a supplier
-    /// actually emails) and a bare <c>NFe</c>. Anything else is a <see cref="FormatException"/>:
-    /// the caller holds the file and can look at it.
-    /// </para>
-    /// </remarks>
     public static class SupplierNFeXmlReader
     {
         private static readonly XNamespace Nfe = "http://www.portalfiscal.inf.br/nfe";
@@ -61,7 +47,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             try
             {
                 using var stream = new MemoryStream(xml);
-                // No DTD processing and no external resolver: this is a file from outside.
                 using var reader = System.Xml.XmlReader.Create(stream, new System.Xml.XmlReaderSettings
                 {
                     DtdProcessing = System.Xml.DtdProcessing.Prohibit,
@@ -139,7 +124,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 .Where(prod => prod != null)
                 .Select(prod => new SupplierNFeItem(
                     Code: Text(prod!, "cProd") ?? string.Empty,
-                    // "SEM GTIN" is the literal the layout prescribes when there is no barcode.
                     Ean: NormalizeEan(Text(prod!, "cEAN")),
                     Description: Text(prod!, "xProd") ?? string.Empty,
                     Quantity: ReadDecimal(Text(prod!, "qCom")),
@@ -199,13 +183,9 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             if (string.IsNullOrWhiteSpace(value))
                 return null;
 
-            // A bare date first, and as UTC: dVenc is "2026-04-10" with no offset, and letting the
-            // general parser read it as local midnight moves the due date a day backwards for any
-            // server east of Greenwich.
             if (DateTime.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dateOnly))
                 return DateTime.SpecifyKind(dateOnly, DateTimeKind.Utc);
 
-            // dhEmi (4.00) carries its own offset, so it converts honestly.
             if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var withOffset))
                 return withOffset.UtcDateTime;
 

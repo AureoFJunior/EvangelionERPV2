@@ -6,12 +6,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Providers
     /// Everything a transport needs to build and send one note, including the identity the service
     /// already allocated and committed.
     /// </summary>
-    /// <remarks>
-    /// The identity fields are inputs, not outputs. The chave, number and series are written to the
-    /// database before the first byte leaves precisely so a timed-out request can be reconciled
-    /// against them (docs/nfe/HANDOFF.md §4); a transport that invented its own would put the
-    /// recovery key back under SEFAZ's control.
-    /// </remarks>
     public sealed class NFeIssueContext
     {
         public required Order Order { get; init; }
@@ -50,23 +44,12 @@ namespace EvangelionERPV2.NFeModule.Infra.Providers
         /// How the counter was actually paid — one row per tender, cash and card and PIX together.
         /// Null for anything that is not a till sale, which is every modelo 55.
         /// </summary>
-        /// <remarks>
-        /// A counter sale knows its means of payment; a back-office order does not, which is why
-        /// <c>pag</c> falls back to a single "Outros" line without this. The till has recorded the
-        /// breakdown since M29a and the note has been claiming "Outros" ever since — on a consumer
-        /// document, where <c>pag</c> is what the customer and the fisco both read.
-        /// </remarks>
         public IReadOnlyList<PdvSalePayment>? Payments { get; init; }
 
         /// <summary>
         /// The value at or above which an NFCe must identify its consumer. R$ 10.000 is the national
         /// reference.
         /// </summary>
-        /// <remarks>
-        /// Configuration rather than a constant, deliberately: the figure is **unverified per UF**
-        /// (docs/fiscal/TODO-manual.md §M11), so a wrong answer must cost an edit rather than a
-        /// release. Below it the dest group is omitted entirely, which is the ordinary counter sale.
-        /// </remarks>
         public decimal ConsumerIdentificationThreshold { get; init; } = 10_000m;
 
         /// <summary>

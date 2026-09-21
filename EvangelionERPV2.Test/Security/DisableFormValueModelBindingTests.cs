@@ -46,7 +46,6 @@ namespace EvangelionERPV2.Test.Security
 
             new DisableFormValueModelBindingAttribute().OnResourceExecuting(context);
 
-            // Route and query still bind: the action's own parameters must keep working.
             Assert.Contains(context.ValueProviderFactories, factory => factory is QueryStringValueProviderFactory);
             Assert.Contains(context.ValueProviderFactories, factory => factory is RouteValueProviderFactory);
         }

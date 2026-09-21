@@ -3,14 +3,6 @@ namespace EvangelionERPV2.Shared.Enums
     /// <summary>
     /// Where a quote is in its short life.
     /// </summary>
-    /// <remarks>
-    /// Values are explicit because they are persisted in <c>Quote.Status</c>: reordering the
-    /// members must never silently reinterpret rows already written.
-    ///
-    /// <c>Expired</c> is stored but also derived — a quote past its ValidUntil is treated as
-    /// expired whatever the column says, the same way <c>Bill.Overdue</c> is read off the clock.
-    /// A sweeper that writes the column is not worth a daily job for a document nobody chases.
-    /// </remarks>
     public enum EnumQuoteStatus
     {
         /// <summary>Being written. The only state in which items can still change.</summary>

@@ -36,20 +36,11 @@ namespace EvangelionERPV2.NFeModule.Application.Configs
         #region Contingency
 
         /// <summary>How often untransmitted off-line notes are retried. Clamped to at least one minute.</summary>
-        /// <remarks>
-        /// Short on purpose. The obligation is to transmit as soon as connectivity returns, not to
-        /// wait for a deadline, so this is a "send whatever is outstanding" cadence rather than a
-        /// countdown.
-        /// </remarks>
         public int ContingencyIntervalMinutes { get; set; } = 5;
 
         /// <summary>
         /// Hours after dhCont at which an untransmitted note is logged as a warning.
         /// </summary>
-        /// <remarks>
-        /// Deliberately far below <see cref="ContingencyDeadlineHours"/>. A first signal that fires
-        /// at the legal limit is useless — a shop offline for a day needs a human long before then.
-        /// </remarks>
         public int ContingencyWarnAfterHours { get; set; } = 1;
 
         /// <summary>Hours after dhCont at which it is logged as an error.</summary>
@@ -59,12 +50,6 @@ namespace EvangelionERPV2.NFeModule.Application.Configs
         /// The outer bound, in hours, after which an untransmitted note is a compliance breach.
         /// 24 is the national reference and is **unverified per UF**.
         /// </summary>
-        /// <remarks>
-        /// Configuration, not a constant, for the same reason as the consumer-identification
-        /// threshold: a UF that disagrees must cost an edit rather than a release. Passing it
-        /// changes nothing about what the sweeper does — the note still owes SEFAZ a transmission
-        /// and is still retried forever. It only changes how loudly this is reported.
-        /// </remarks>
         public int ContingencyDeadlineHours { get; set; } = 24;
 
         #endregion

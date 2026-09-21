@@ -22,7 +22,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.Days)
                 .GreaterThanOrEqualTo(VacationEntitlement.MinPeriodDays)
                     .WithMessage($"A férias period cannot be shorter than {VacationEntitlement.MinPeriodDays} days (CLT art. 134 §1).")
-                // A full entitlement is 30 days; anything longer is a typo, not a schedule.
                 .LessThanOrEqualTo(MaxVacationDays)
                     .WithMessage($"A férias period cannot exceed {MaxVacationDays} days.");
         }

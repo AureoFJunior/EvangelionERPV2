@@ -18,8 +18,6 @@ namespace EvangelionERPV2.Test.Workers
         #region Schedule
 
         [Theory]
-        // Mid-week, before and after the broadcast hour, and the boundary itself: the next slot is
-        // always the coming Monday 08:00 UTC, never "now + 7 days" from whenever the pod started.
         [InlineData("2026-08-19T09:30:00Z", "2026-08-24T08:00:00Z")]
         [InlineData("2026-08-24T07:59:59Z", "2026-08-24T08:00:00Z")]
         [InlineData("2026-08-24T08:00:00Z", "2026-08-31T08:00:00Z")]
@@ -50,7 +48,6 @@ namespace EvangelionERPV2.Test.Workers
             var stock = new EmailStockSenderWorker(ScopeFactoryFor(Mock.Of<IAmazonSecretsManager>(), "unused"), EmptyConfiguration(), Mock.Of<IDistributedLease>());
             var monthly = new EmailMonthlyOrderSenderWorker(ScopeFactoryFor(Mock.Of<IAmazonSecretsManager>(), "unused"), EmptyConfiguration(), Mock.Of<IDistributedLease>());
 
-            // Sharing a key would make the weekly broadcast block the daily one.
             Assert.NotEqual(stock.LeaseKey, monthly.LeaseKey);
         }
 
@@ -76,8 +73,6 @@ namespace EvangelionERPV2.Test.Workers
             Assert.True(ran);
             secretsManager.Verify(x => x.GetSecretValueAsync(It.IsAny<GetSecretValueRequest>(), It.IsAny<CancellationToken>()), Times.Once);
 
-            // A successful pass keeps the lease: handing it back would let the next replica, whose
-            // timer fires milliseconds later, send the same broadcast again.
             lease.Verify(x => x.ReleaseAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         }
 
@@ -123,8 +118,6 @@ namespace EvangelionERPV2.Test.Workers
             var secretName = UniqueSecretName();
             var secretsManager = StubSecretsManager();
 
-            // RedisLease reports an unreachable Redis as "no lease": failing open here would put the
-            // double-send back exactly during an incident.
             var lease = new Mock<IDistributedLease>();
             lease.Setup(x => x.TryAcquireAsync(It.IsAny<string>(), It.IsAny<TimeSpan>())).ReturnsAsync((string?)null);
 
@@ -140,7 +133,6 @@ namespace EvangelionERPV2.Test.Workers
         [Fact]
         public async Task TwoReplicas_OnTheSameSlot_SendOnlyOnce()
         {
-            // The bug this milestone exists to fix: both replicas wake for the same slot.
             var lease = new InMemoryLease();
 
             var firstSecretName = UniqueSecretName();
@@ -191,7 +183,6 @@ namespace EvangelionERPV2.Test.Workers
 
             Assert.False(await worker.RunOnceUnderLeaseAsync(TimeSpan.FromMinutes(5), CancellationToken.None));
 
-            // Released, so the retry below gets the lease rather than losing the slot entirely.
             Assert.NotNull(await lease.TryAcquireAsync(worker.LeaseKey, TimeSpan.FromMinutes(5)));
         }
 
@@ -201,8 +192,6 @@ namespace EvangelionERPV2.Test.Workers
 
         private static string UniqueSecretName()
         {
-            // AWSKMSKeyProvider caches resolved secrets in a process-static dictionary, so a name
-            // reused across tests would be served from the cache and never reach the mock.
             return $"evatest-{Guid.NewGuid():N}";
         }
 
@@ -257,7 +246,6 @@ namespace EvangelionERPV2.Test.Workers
             {
                 lock (_held)
                 {
-                    // Same compare-and-delete contract RedisLease implements in Lua.
                     if (_held.TryGetValue(key, out var held) && held == token)
                         _held.Remove(key);
                 }

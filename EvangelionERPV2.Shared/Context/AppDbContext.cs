@@ -1,4 +1,4 @@
-﻿using EvangelionERPV2.Shared.Auditing;
+using EvangelionERPV2.Shared.Auditing;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Security;
@@ -28,27 +28,6 @@ namespace EvangelionERPV2.Shared.Context
         /// flight (a hosted service, a worker, or the login path, which runs before any tenant is
         /// known).
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Read through <see cref="IHttpContextAccessor"/> on purpose. That service is a singleton
-        /// backed by an AsyncLocal, so even though EF caches the model — and with it the context
-        /// instance the query filters closed over — the value resolved here is always the one
-        /// belonging to the request executing the query, not the one that happened to build the
-        /// model. TenantQueryFilterTests pins exactly that.
-        /// </para>
-        /// <para>
-        /// A self-API worker is the one authenticated caller that is not acting for a tenant. Its
-        /// token still carries its service account's enterprise — every token does, and
-        /// <c>ActiveTenantEnforcementMiddleware</c> requires one — but reading that as the ambient
-        /// tenant silently confined the scheduled jobs to whichever company the service account
-        /// happened to belong to, and those jobs are cross-tenant by definition. Every endpoint
-        /// behind <c>machine:self-api-broadcast</c> passes an explicit enterprise into each read
-        /// (the stock and monthly-billing emails, the queued order, the notification sweep), so the
-        /// ambient filter is not what keeps tenants apart there; standing it down restores the reach
-        /// those jobs were written to have. Only that claim does this, and it is minted only for a
-        /// machine login.
-        /// </para>
-        /// </remarks>
         public Guid AmbientEnterpriseId
         {
             get
@@ -119,9 +98,6 @@ namespace EvangelionERPV2.Shared.Context
         {
             base.ConfigureConventions(configurationBuilder);
 
-            // Money columns are decimal(18,2). Without this, EF only infers a provider default
-            // and warns that values may be silently truncated. Properties that declare their own
-            // [Column(TypeName = ...)] — the payroll rates at decimal(5,4) — still win over this.
             configurationBuilder.Properties<decimal>().HavePrecision(18, 2);
         }
 
@@ -141,14 +117,6 @@ namespace EvangelionERPV2.Shared.Context
             modelBuilder.Entity<Bill>()
                 .ToTable("Boleto");
 
-            // One live boleto per order, but not one boleto per order for all time: a cancelled
-            // title drops out of the index so a reissue can supersede it instead of the API having
-            // to mutate a document a payer may already be holding. Filtered on Status rather than
-            // IsActive because IsActive is nullable — legacy rows carry NULL, which SQL Server
-            // excludes from a "[IsActive] = 1" filter and would silently stop guarding them.
-            // The constraint that makes queue handling idempotent. Unique on (Handler, MessageId)
-            // rather than MessageId alone so two pipelines consuming the same message are not read
-            // as duplicates of each other.
             modelBuilder.Entity<ProcessedMessage>()
                 .HasIndex(processed => new { processed.Handler, processed.MessageId })
                 .IsUnique();
@@ -163,7 +131,6 @@ namespace EvangelionERPV2.Shared.Context
                 .HasMaxLength(64)
                 .IsRequired();
 
-            // Retention sweeps by age, so the index it scans should lead with the date.
             modelBuilder.Entity<ProcessedMessage>()
                 .HasIndex(processed => processed.ProcessedAt);
 
@@ -181,19 +148,12 @@ namespace EvangelionERPV2.Shared.Context
                 .HasForeignKey(sequence => sequence.EnterpriseId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Restrict on the tenant, Cascade on the title. Two cascade paths would reach
-            // Enterprise (directly, and through Bill → Order), which SQL Server rejects outright —
-            // and the evidence of what a customer was told should outlive a tenant row anyway.
             modelBuilder.Entity<DunningLog>()
                 .HasOne(log => log.Enterprise)
                 .WithMany()
                 .HasForeignKey(log => log.EnterpriseId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Cascade down the tenant (retiring a company takes its broadcasts and their read rows
-            // with it), Restrict on both author and reader. Cascading from User as well would give
-            // SQL Server two paths into NotificationRead — User → NotificationRead directly, and
-            // User → Notification → NotificationRead — which it rejects outright at create time.
             modelBuilder.Entity<Notification>()
                 .HasOne(notification => notification.CreatedByUser)
                 .WithMany()
@@ -222,9 +182,6 @@ namespace EvangelionERPV2.Shared.Context
                 .HasForeignKey(item => item.PayableBillId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Restrict on both, declared here and not only in the migration: a quote is evidence of
-            // what was offered, and deleting the tenant or the customer must not take it with them.
-            // Left to EF's defaults these become Cascade and NoAction.
             modelBuilder.Entity<Quote>()
                 .HasOne(quote => quote.Enterprise)
                 .WithMany()
@@ -243,23 +200,17 @@ namespace EvangelionERPV2.Shared.Context
                 .HasForeignKey(item => item.QuoteId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Restrict, like every other line pointing at a product: a quote must never be the
-            // reason a product row can be deleted out from under the catalogue.
             modelBuilder.Entity<QuoteItem>()
                 .HasOne(item => item.Product)
                 .WithMany()
                 .HasForeignKey(item => item.ProductId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // A quote converts exactly once. Filtered because almost every row is null, and unique
-            // because two orders from one promise is the failure this whole entity exists to avoid.
             modelBuilder.Entity<Quote>()
                 .HasIndex(quote => quote.ConvertedOrderId)
                 .HasFilter("[ConvertedOrderId] IS NOT NULL")
                 .IsUnique();
 
-            // Covers the bounding-box filter the customer map runs. Filtered because a tenant that
-            // has never geocoded anything should not carry an index full of nulls.
             modelBuilder.Entity<Customer>()
                 .HasIndex(customer => new { customer.EnterpriseId, customer.Latitude, customer.Longitude })
                 .HasFilter("[Latitude] IS NOT NULL AND [Longitude] IS NOT NULL");
@@ -299,8 +250,6 @@ namespace EvangelionERPV2.Shared.Context
                     order.TotalValue
                 });
 
-            // Cannot be served by the filtered unique index on OrderId above: that filter excludes
-            // cancelled rows, which the per-order bill lookup still has to read.
             modelBuilder.Entity<Bill>()
                 .HasIndex(bill => new { bill.OrderId, bill.IsActive, bill.Status })
                 .IncludeProperties(bill => new { bill.CreatedAt, bill.Amount, bill.PaidAmount });
@@ -321,18 +270,12 @@ namespace EvangelionERPV2.Shared.Context
                 .HasFilter("[IsActive] = 1")
                 .IsUnique();
 
-            // Restrict, not the Cascade EF would infer from a required FK: a ledger row whose
-            // product row vanished stops being reconstructable, which is the one thing this table
-            // exists to prevent. Products are soft-deleted anyway, so nothing legitimate trips it.
             modelBuilder.Entity<StockMovement>()
                 .HasOne(movement => movement.Product)
                 .WithMany()
                 .HasForeignKey(movement => movement.ProductId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Restrict, not the Cascade EF infers from a required FK: the import row carries the
-            // bank's closing balance, and deleting it out from under its lines would leave imported
-            // movement with nothing to reconcile against.
             modelBuilder.Entity<BankStatementLine>()
                 .HasOne(line => line.Import)
                 .WithMany()
@@ -345,70 +288,48 @@ namespace EvangelionERPV2.Shared.Context
                 .HasForeignKey(detail => detail.EmployeeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Restrict for the same reason as PayrollBillDetail: absences are the evidence behind
-            // a payroll amount, so they must outlive any attempt to hard-delete the employee.
             modelBuilder.Entity<EmployeeAbsence>()
                 .HasOne(absence => absence.Employee)
                 .WithMany()
                 .HasForeignKey(absence => absence.EmployeeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Same reasoning again: an accrual is the evidence behind a férias payment, and a
-            // lapsed one is evidence of a debt owed in dobro.
             modelBuilder.Entity<EmployeeVacationAccrual>()
                 .HasOne(accrual => accrual.Employee)
                 .WithMany()
                 .HasForeignKey(accrual => accrual.EmployeeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Restrict again: an accrual that has been paid out is the evidence behind the payment,
-            // so it must outlive any attempt to hard-delete it.
             modelBuilder.Entity<PayableBill>()
                 .HasOne(bill => bill.EmployeeVacationAccrual)
                 .WithMany()
                 .HasForeignKey(bill => bill.EmployeeVacationAccrualId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Filtered, because only a férias bill carries the link and every other payable would
-            // otherwise pile NULLs into the index. Declared fluently — [Index] cannot express
-            // HasFilter, same as the PayrollBillDetail competência index below.
             modelBuilder.Entity<PayableBill>()
                 .HasIndex(bill => bill.EmployeeVacationAccrualId)
                 .HasFilter("[EmployeeVacationAccrualId] IS NOT NULL");
 
-            // The supplier-NF-e import's idempotency key: one payable per duplicata of a nota.
-            // Filtered on the access key, not on IsActive: a soft-deleted import must still block a
-            // re-import, or deleting the bill would let the same instalment back in as a second one.
             modelBuilder.Entity<PayableBill>()
                 .HasIndex(bill => new { bill.EnterpriseId, bill.SupplierNFeAccessKey, bill.SupplierNFeDuplicata })
                 .HasFilter("[SupplierNFeAccessKey] IS NOT NULL")
                 .IsUnique();
 
-            // One child per parent, which is what makes the recurring-payable sweep idempotent.
-            // No foreign key: it points at the same table, and a self-referencing FK would drag a
-            // delete behaviour decision into a column that is only ever read forward.
             modelBuilder.Entity<PayableBill>()
                 .HasIndex(bill => bill.RecurrenceParentId)
                 .HasFilter("[RecurrenceParentId] IS NOT NULL")
                 .IsUnique();
 
-            // Transactional guard against concurrent GeneratePayroll calls double-billing the
-            // same employee for the same competência. Filtered so soft-deleted rows do not block
-            // a regeneration.
             modelBuilder.Entity<PayrollBillDetail>()
                 .HasIndex(detail => new { detail.ReferenceYear, detail.ReferenceMonth, detail.EmployeeId })
                 .HasFilter("[IsActive] = 1")
                 .IsUnique();
 
-            // Soft-deleted settings rows must not block the create branch of UpsertSettingsAsync,
-            // which only looks up rows with IsActive = 1.
             modelBuilder.Entity<EnterprisePayrollSettings>()
                 .HasIndex(settings => settings.EnterpriseId)
                 .HasFilter("[IsActive] = 1")
                 .IsUnique();
 
-            // Same reasoning as payroll: soft-deleted rows must not block the create branch of
-            // UpsertSettingsAsync, which only looks up rows with IsActive = 1.
             modelBuilder.Entity<EnterpriseFiscalSettings>()
                 .HasIndex(settings => settings.EnterpriseId)
                 .HasFilter("[IsActive] = 1")
@@ -461,9 +382,6 @@ namespace EvangelionERPV2.Shared.Context
                 .IsUnique()
                 .HasFilter("[IsActive] = 1 AND [EnterpriseId] IS NOT NULL");
 
-            // Filter cannot reference [NormalizedActiveEmail]: SQL Server rejects computed
-            // columns in filtered-index predicates. [Email] is NOT NULL, so [IsActive] = 1
-            // alone already excludes every row where the computed value is NULL.
             modelBuilder.Entity<User>()
                 .HasIndex("NormalizedActiveEmail")
                 .HasDatabaseName("IX_User_NormalizedActiveEmail_Active")
@@ -617,19 +535,11 @@ namespace EvangelionERPV2.Shared.Context
                 .HasForeignKey(audit => audit.UserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            // One open session per till, not one session per till for all time: a closed session
-            // drops out of the index so tomorrow's shift can open a new one. Filtered on Status
-            // rather than IsActive for the reason spelled out on the Bill index above — IsActive is
-            // nullable, and SQL Server excludes NULL from an "[IsActive] = 1" filter, which would
-            // quietly stop guarding exactly the rows nobody looked at.
             modelBuilder.Entity<CashSession>()
                 .HasIndex(session => new { session.EnterpriseId, session.TerminalId })
                 .HasFilter($"[Status] = {(int)EnumCashSessionStatus.Open}")
                 .IsUnique();
 
-            // Restrict, not Cascade: a session is the evidence of who was accountable for a
-            // drawer, and deleting the operator's user row must not take the shift's cash history
-            // with it. Also avoids a second cascade path into Enterprise via User.
             modelBuilder.Entity<CashSession>()
                 .HasOne(session => session.User)
                 .WithMany()
@@ -642,9 +552,6 @@ namespace EvangelionERPV2.Shared.Context
                 .HasForeignKey(movement => movement.CashSessionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Restrict on both sides. A PdvSale is the idempotency key for an order that was
-            // already rung up and paid for; if it could be cascaded away, the terminal's retry of
-            // that sale would find nothing in the unique index and sell the basket a second time.
             modelBuilder.Entity<PdvSale>()
                 .HasOne(sale => sale.Order)
                 .WithMany()
@@ -669,33 +576,13 @@ namespace EvangelionERPV2.Shared.Context
         /// <summary>
         /// Scopes every tenant-owned entity to <see cref="AmbientEnterpriseId"/> in the model itself.
         /// </summary>
-        /// <remarks>
-        /// Isolation used to be hand-written in every controller, with regression tests as the only
-        /// safety net — which means a new controller is isolated exactly as long as someone remembers.
-        /// Applied as a convention rather than entity by entity so that a module added later inherits
-        /// it without opting in, which is the whole point of landing this before the controller
-        /// surface grows. The hand-written filters stay: redundant, harmless, second belt.
-        ///
-        /// Guid.Empty disables the filter instead of hiding everything. Out-of-request work is
-        /// legitimately cross-tenant — the NFe reconciliation sweeper, the email workers, the login
-        /// lookup that runs before a tenant is known — and a filter that returned nothing there would
-        /// break them silently at runtime rather than loudly at compile time. Inside a request the
-        /// value is never empty: ActiveTenantEnforcementMiddleware 401s an authenticated request whose
-        /// enterprise claim is missing before any handler runs.
-        ///
-        /// A row whose EnterpriseId is NULL is invisible to every request. That matches what the
-        /// hand-written filters already did — they all compare for equality — so this changes no API
-        /// behaviour, and a row belonging to nobody must not surface for everybody.
-        /// </remarks>
         private void ApplyTenantQueryFilters(ModelBuilder modelBuilder)
         {
             foreach (var entityType in modelBuilder.Model.GetEntityTypes())
             {
-                // Derived types in a hierarchy inherit the root's filter; EF rejects one of their own.
                 if (entityType.BaseType != null || entityType.ClrType == null)
                     continue;
 
-                // Enterprise is the tenant itself, so its own key is what has to match.
                 var tenantProperty = entityType.ClrType == typeof(Enterprise)
                     ? nameof(BaseEntity.Id)
                     : entityType.ClrType.GetProperty(TenantPropertyName) == null ? null : TenantPropertyName;
@@ -757,16 +644,6 @@ namespace EvangelionERPV2.Shared.Context
         /// Reloads database original values for audited entities that were attached from a detached
         /// instance, so the audit trail can tell what actually changed.
         /// </summary>
-        /// <remarks>
-        /// Every read in <c>RepositoryBase</c> is <c>AsNoTracking</c>, so an update flow is
-        /// read-detached → mutate → <c>Update</c>. For an untracked entity that lands on
-        /// <c>DbSet.Update</c>, EF seeds OriginalValues from the very instance being saved: every
-        /// property is marked modified, yet <c>OriginalValue == CurrentValue</c> for all of them.
-        /// <see cref="Auditing.IAuditTrailEntryFactory"/> skips unchanged properties, so the change
-        /// set came out empty and <b>no EDIT row was written at all</b> — for any audited entity,
-        /// not just fiscal ones. One extra SELECT per audited modified entity buys a real trail;
-        /// non-audited entities are untouched, which is why this is not a blanket cost.
-        /// </remarks>
         private async Task RestoreOriginalValuesForAuditAsync(CancellationToken cancellationToken)
         {
             foreach (var entry in CollectAuditedEntriesNeedingOriginalValues())
@@ -794,8 +671,6 @@ namespace EvangelionERPV2.Shared.Context
             return ChangeTracker.Entries<BaseEntity>()
                 .Where(entry => entry.State == EntityState.Modified
                                 && AuditedEntities.Contains(entry.Metadata.ClrType)
-                                // Nothing to recover when EF already holds real originals from a
-                                // tracked read; only the attach-from-detached case is degenerate.
                                 && entry.Properties.All(property =>
                                     !property.IsModified || Equals(property.OriginalValue, property.CurrentValue)))
                 .ToList();
@@ -879,6 +754,5 @@ namespace EvangelionERPV2.Shared.Context
                 ? enterpriseId
                 : null;
         }
-
     }
 }

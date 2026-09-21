@@ -17,10 +17,6 @@ namespace EvangelionERPV2.Shared.DTOs
         public string? File { get; set; }
         public LegacyCreateProductRequestDTO? Product { get; set; }
 
-        // Fiscal (NFe/NFCe). All nullable and all optional: null means "fall back to
-        // EnterpriseFiscalSettings.Default*", which is the same contract Product and ProductDTO
-        // already carry. Deliberately absent from LegacyCreateProductRequestDTO below — the
-        // legacy shape predates fiscal data and nothing sends it there.
         public string? Ncm { get; set; }
         public string? Cest { get; set; }
         public string? Cean { get; set; }

@@ -19,13 +19,6 @@ namespace EvangelionERPV2.Web.Controllers
     /// <summary>
     /// The bell: what an admin wrote to everyone, plus what today's numbers are shouting about.
     /// </summary>
-    /// <remarks>
-    /// Permission filtering lives here rather than in the service because this is the only layer
-    /// that can evaluate a permission — an Application project referencing <c>Web/Security</c> would
-    /// invert the dependency. The service hands every item over carrying its
-    /// <c>RequiredPermission</c>; this controller drops the ones the caller may not see, and the
-    /// field itself is <c>[JsonIgnore]</c>d so the gate never reaches the wire.
-    /// </remarks>
     [Authorize]
     [Route("api/v{version:apiVersion}/[controller]/[action]")]
     [ApiVersion("1.0")]
@@ -82,8 +75,6 @@ namespace EvangelionERPV2.Web.Controllers
                                || PdvTokenScope.Grants(User, accessLevel.Value, item.RequiredPermission))
                 .ToList();
 
-            // Recounted after filtering: a badge counting what the user cannot open is a badge that
-            // never reaches zero for them.
             feed.ActiveAlertCount = feed.Items.Count(item => item.Source == NotificationSources.Alert);
             feed.UnreadBroadcastCount = feed.Items.Count(item =>
                 item.Source == NotificationSources.Broadcast && !item.IsRead);
@@ -220,7 +211,6 @@ namespace EvangelionERPV2.Web.Controllers
                 }
                 catch (Exception ex)
                 {
-                    // One tenant's panel failing must not cost every other tenant its sweep.
                     result.EnterprisesFailed++;
                     Log.Logger.Error(
                         "Notification sweep failed for one tenant. ErrorType={ErrorType}", ex.GetType().Name);
@@ -251,8 +241,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (Exception ex)
             {
-                // A push that does not land costs a bell that updates on the next poll, never the
-                // write that just succeeded.
                 Log.Logger.Warning(
                     "Notification push failed. ErrorType={ErrorType}", ex.GetType().Name);
             }

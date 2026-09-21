@@ -3,10 +3,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// One férias payment: the stretch it covers, how it breaks down, and the bill that pays it.
     /// </summary>
-    /// <remarks>
-    /// LGPD: carries a salary-derived amount per named employee, so it is only ever returned from
-    /// the admin-only payroll surface.
-    /// </remarks>
     public class VacationPayDTO
     {
         public Guid PayableBillId { get; set; }

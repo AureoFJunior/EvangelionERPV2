@@ -113,7 +113,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             var stored = BuildEmployee(employeeId);
             stored.Picture = "employees/stored-key";
 
-            // Distinct instance: asserting on the one handed in only proves Commit was called.
             var incoming = BuildEmployee(employeeId);
             incoming.Name = "Renamed";
             incoming.Picture = string.Empty;
@@ -132,7 +131,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
 
             Assert.NotNull(persisted);
             Assert.Equal("Renamed", persisted!.Name);
-            // An empty picture means "not provided": the stored S3 key must survive.
             Assert.Equal("employees/stored-key", persisted.Picture);
             Assert.NotEqual(DateTime.MinValue, result.UpdatedAt ?? DateTime.MinValue);
             _employeeRepository.Verify(r => r.Commit(), Times.Once);

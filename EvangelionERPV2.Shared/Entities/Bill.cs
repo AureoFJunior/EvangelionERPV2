@@ -37,9 +37,6 @@ namespace EvangelionERPV2.Shared.Entities
         Rejected = 5
     }
 
-    // Uniqueness on OrderId is declared fluently in AppDbContext, not here: it needs a filter on
-    // [Status] and the [Index] attribute cannot express one. Without that filter one order gets
-    // exactly one boleto forever and a wrong due date is unrecoverable through the API.
     [Index(nameof(CreatedAt), nameof(UpdatedAt), nameof(IsActive), nameof(OrderId))]
     [Table("Boleto")]
     public class Bill : BaseEntity
@@ -100,11 +97,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// <summary>
         /// <see cref="Status"/> as seen at <paramref name="asOfUtc"/>.
         /// </summary>
-        /// <remarks>
-        /// Overdue is a function of the clock, so storing it would make the column wrong from the
-        /// first midnight nobody ran a sweep job. Derived here instead, and the persisted column
-        /// keeps saying Registered until something actually settles or cancels the title.
-        /// </remarks>
         public BillStatus StatusAsOf(DateTime asOfUtc) =>
             Status == BillStatus.Registered && DueDate.Date < asOfUtc.Date
                 ? BillStatus.Overdue

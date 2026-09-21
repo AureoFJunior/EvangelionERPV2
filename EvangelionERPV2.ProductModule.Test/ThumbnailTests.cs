@@ -12,10 +12,6 @@ namespace EvangelionERPV2.ProductModule.Test;
 /// <summary>
 /// Shrinking a product photo to something a till can hold thousands of.
 /// </summary>
-/// <remarks>
-/// The resize is pure and separable from S3, so it is tested without touching AWS. What S3 does
-/// with the result is Task 2's problem.
-/// </remarks>
 public class ThumbnailTests
 {
     private static byte[] Png(int width, int height)
@@ -50,7 +46,6 @@ public class ThumbnailTests
     [Fact]
     public void AnImageSmallerThanTheTargetIsLeftAlone()
     {
-        // Upscaling costs bytes and adds nothing: the till renders at 56 px either way.
         var original = Png(120, 90);
 
         var thumb = ProductService.ResizeToThumbnail(original, 200);
@@ -74,7 +69,6 @@ public class ThumbnailTests
     [Fact]
     public void RubbishBytesReturnEmptyRatherThanThrowing()
     {
-        // A corrupt object in the bucket must not take down a catalog page.
         Assert.Empty(ProductService.ResizeToThumbnail([1, 2, 3, 4], 200));
     }
 }

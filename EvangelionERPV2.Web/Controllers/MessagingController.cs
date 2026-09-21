@@ -68,9 +68,6 @@ namespace EvangelionERPV2.Web.Controllers
 
             var target = (queue ?? string.Empty).Trim().ToLowerInvariant();
 
-            // Logged before the work, and at Warning: a redrive is a deliberate intervention on a
-            // shared pipeline, and the record of who asked for it should survive the request
-            // failing halfway through.
             Log.Logger.Warning(
                 "Dead-letter redrive requested. Queue={Queue} Max={Max} User={User}",
                 target,

@@ -22,7 +22,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UploadAsync_WithoutFiscalProfile_ShouldThrow()
         {
-            // Without a configured CNPJ there is nothing to match the certificate against.
             var (sut, _, _) = BuildSut();
 
             var ex = await Assert.ThrowsAsync<InsertDatabaseException>(
@@ -34,8 +33,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UploadAsync_WhenCertificateCnpjDiffersFromProfile_ShouldThrowAndStoreNothing()
         {
-            // SEFAZ rejects every note in this state; catching it here beats discovering it at
-            // issuance, after a number has been burned.
             var enterpriseId = Guid.NewGuid();
             var (sut, _, provider) = BuildSut(
                 settings: [BuildSettings(enterpriseId)],
@@ -52,8 +49,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UploadAsync_WhenCertificateHasNoCnpj_ShouldNotBlockTheUpload()
         {
-            // A subject without a parseable CNPJ cannot be checked; refusing it would lock out
-            // legitimate certificates whose CN is formatted differently.
             var enterpriseId = Guid.NewGuid();
             var (sut, _, provider) = BuildSut(
                 settings: [BuildSettings(enterpriseId)],
@@ -92,8 +87,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UploadAsync_ShouldNeverPersistKeyMaterial()
         {
-            // The entity has no column that could hold a pfx or a password; this asserts the
-            // shape stays that way.
             var enterpriseId = Guid.NewGuid();
             var settings = BuildSettings(enterpriseId);
             var (sut, _, _) = BuildSut(settings: [settings], metadata: BuildMetadata(Cnpj));
@@ -182,7 +175,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task GetStatusAsync_WhenStoredCertificateCnpjDiverged_ShouldReportMismatch()
         {
-            // Reachable by editing the profile's CNPJ after uploading a certificate.
             var enterpriseId = Guid.NewGuid();
             var settings = BuildSettings(enterpriseId);
             settings.CertThumbprint = "THUMB";
@@ -195,8 +187,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
             Assert.False(status.CnpjMatchesFiscalProfile);
 
-            // The mismatch is reported without disclosing either CNPJ: this response is readable at
-            // Manager, while emitente identity stays behind the admin-only settings endpoint.
             Assert.DoesNotContain(
                 OtherCnpj,
                 System.Text.Json.JsonSerializer.Serialize(status),
@@ -210,8 +200,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task DeleteAsync_ShouldClearMetadataAndDisableIssuance()
         {
-            // Without a signing identity every note would fail at transmission; disabling here
-            // makes the reason visible in the settings screen instead.
             var enterpriseId = Guid.NewGuid();
             var settings = BuildSettings(enterpriseId);
             settings.CertThumbprint = "THUMB";

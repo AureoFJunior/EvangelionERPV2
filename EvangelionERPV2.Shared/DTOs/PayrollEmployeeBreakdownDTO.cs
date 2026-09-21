@@ -1,7 +1,5 @@
 namespace EvangelionERPV2.Shared.DTOs
 {
-    // Full split of the monthly employer cost for one employee (LGPD-sensitive:
-    // salary-derived values, only returned by payroll endpoints).
     public class PayrollEmployeeBreakdownDTO
     {
         public Guid PayableBillId { get; set; }

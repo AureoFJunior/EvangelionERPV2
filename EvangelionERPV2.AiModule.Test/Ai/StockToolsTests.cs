@@ -40,7 +40,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             var result = await Invoke(tool, new() { ["produtoId"] = id.ToString(), ["novoEstoque"] = 25m });
 
-            // 7 on hand, 25 counted: the movement is +18, never "set to 25".
             service.Verify(x => x.ApplyStockMovementAsync(
                 id, Tenant, 18m, EnumStockMovementType.Adjustment, null, It.IsAny<bool>()), Times.Once);
             Assert.Contains("Ajuste", result);

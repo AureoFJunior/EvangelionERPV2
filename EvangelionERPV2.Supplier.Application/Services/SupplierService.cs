@@ -17,7 +17,6 @@ namespace EvangelionERPV2.SupplierModule.Application.Services
         {
             try
             {
-                // The incoming Id is client input, never an identity: the server assigns its own.
                 supplier.Id = Guid.NewGuid();
                 Supplier includedSupplier = await _supplierRepository.CreateAsync(supplier);
                 await _supplierRepository.CommitAsync();
@@ -62,8 +61,6 @@ namespace EvangelionERPV2.SupplierModule.Application.Services
                 if (supplier == null)
                     throw new NotFoundDatabaseException($"{nameof(Supplier)} was not found in database.");
 
-                // Soft delete only: payable bills keep pointing at the supplier that issued them,
-                // so the row has to survive for the payables history to stay readable.
                 supplier.IsActive = false;
                 supplier.UpdatedAt = DateTime.UtcNow;
                 Supplier deletedSupplier = _supplierRepository.Update(supplier);

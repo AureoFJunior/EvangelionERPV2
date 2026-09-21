@@ -15,20 +15,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
     /// Turns one <see cref="NFeIssueContext"/> into the <c>enviNFe</c> object graph the fiscal
     /// library transmits. Pure and offline: no certificate, no network, no database.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Nothing here is inferred. Every fiscal value arrives already resolved by
-    /// <see cref="NFeItemFiscalResolver"/> (product → enterprise default → hard error), and a
-    /// combination this builder cannot express faithfully — an ICMS CST it does not model, a PIS
-    /// regime that needs a quantity base — throws rather than emitting an approximation. A note
-    /// SEFAZ authorizes and that is wrong on the tax return costs far more than a rejected one.
-    /// </para>
-    /// <para>
-    /// The identity is an input. The chave, nNF and série were allocated and committed before this
-    /// call (docs/nfe/HANDOFF.md §4), so cNF and cDV are read back out of the chave rather than
-    /// minted again — the library would happily compute its own and the two would disagree.
-    /// </para>
-    /// </remarks>
     public static class NFeXmlBuilder
     {
         /// <summary>Mandated by the NFe 4.00 manual: in homologação the destinatário carries this exact name.</summary>
@@ -39,7 +25,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         /// <summary>verProc, capped at 20 characters by the 4.00 XSD.</summary>
         private const int MaxProcessVersionLength = 20;
 
-        // Offsets into the 44-digit chave: cUF(2) AAMM(4) CNPJ(14) mod(2) série(3) nNF(9) tpEmis(1) cNF(8) cDV(1).
         private const int AamMonthOffset = 2;
         private const int CodigoNumericoOffset = 35;
         private const int CodigoNumericoLength = 8;
@@ -74,16 +59,12 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             var model = context.Type == NFeDocumentType.NFCe ? ModeloDFe.NFCe : ModeloDFe.NFe;
             var emission = EmissionInstant(context.AccessKey);
 
-            // Chave and Id are read-only on InfNFe: the library derives both from Ide. That is a
-            // feature, not an obstacle — it means the chave committed before transmission and the
-            // chave that actually ships are independently computed, and CrossCheckAccessKey below
-            // refuses to transmit if they ever disagree.
             var infNFe = new InfNFe
             {
                 Versao = settings.SchemaVersion,
                 Ide = BuildIde(context, model, emission),
                 Emit = BuildEmit(settings),
-                Dest = BuildDest(context),   // null for an anonymous NFCe below the threshold
+                Dest = BuildDest(context),
                 Det = [],
                 Transp = new Transp { ModFrete = ModalidadeFrete.SemOcorrenciaTransporte }
             };
@@ -101,10 +82,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
 
             CrossCheckAccessKey(infNFe, context.AccessKey);
 
-            // infRespTec carries the *software developer's* CNPJ and contact — facts about this
-            // installation, not about the tenant. It is written when configured and omitted when
-            // not: a placeholder CNPJ would be a false declaration to the fisco. See
-            // docs/fiscal/TODO-manual.md §M13 for the values still owed.
             if (responsibleTechnician != null)
             {
                 infNFe.InfRespTec = BuildRespTec(responsibleTechnician);
@@ -115,8 +92,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 Versao = settings.SchemaVersion,
                 IdLote = context.Number,
 
-                // Synchronous batch: SEFAZ answers with the protocol on the same round trip, so the
-                // outcome is known before Executar() returns instead of needing a RetAutorizacao poll.
                 IndSinc = SimNao.Sim,
                 NFe = [new NFe { InfNFeField = infNFe }]
             };
@@ -141,9 +116,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 CMunFG = ParseIbgeMunicipality(settings.CodigoMunicipioIbge),
                 TpImp = model == ModeloDFe.NFCe ? FormatoImpressaoDANFE.NFCe : FormatoImpressaoDANFE.NormalRetrato,
 
-                // Must match the tpEmis already baked into the chave's 35th digit. The service
-                // decided it; disagreeing here produces a note whose key describes a different
-                // document, which SEFAZ rejects with a motivo that points at neither.
                 TpEmis = context.IsOfflineContingency ? TipoEmissao.ContingenciaOffLine : TipoEmissao.Normal,
                 TpAmb = context.Environment == HomologationEnvironment ? TipoAmbiente.Homologacao : TipoAmbiente.Producao,
                 FinNFe = FinalidadeNFe.Normal,
@@ -157,9 +129,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 VerProc = context.ProcessVersion
             };
 
-            // Both mandatory whenever tpEmis is a contingency mode, and both meaningless otherwise
-            // — an ordinary note carrying dhCont is rejected. Assigned after construction because
-            // DhCont is a non-nullable value type the library omits when it is left at default.
             if (context.IsOfflineContingency)
             {
                 ide.DhCont = ToOffset(context.ContingencyEnteredAt);
@@ -191,8 +160,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             if (value is null)
                 throw new InvalidOperationException("A contingency note needs dhCont — when the shop entered contingency.");
 
-            // Same single national offset EmissionInstant uses, and for the same reason: no DST
-            // since 2019 and a v1 allowlist that is entirely UTC-3.
             return new DateTimeOffset(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc))
                 .ToOffset(TimeSpan.FromHours(-3));
         }
@@ -200,12 +167,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         /// <summary>
         /// natOp — the tenant's wording, falling back to the one this was hard-coded to.
         /// </summary>
-        /// <remarks>
-        /// Still one nature per tenant, because v1 issues exactly one kind of document: a sale
-        /// against an Order. It becomes a per-CFOP lookup the day devolução or remessa is in scope,
-        /// which needs a field on `Order` that does not exist — see ROADMAP-STATUS §A7. What changed
-        /// is only that the wording is the shop's to set, and 60 characters is the schema's bound.
-        /// </remarks>
         private static string OperationNature(EnterpriseFiscalSettings settings)
         {
             var natOp = (settings.DefaultNatOp ?? string.Empty).Trim();
@@ -254,28 +215,17 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             };
         }
 
-        /// <remarks>
-        /// The destinatário is where personal data enters the document. Everything here comes from
-        /// the customer record as stored; nothing is parsed out of the free-text
-        /// <see cref="Customer.Adress"/>, because a guessed address is a false declaration.
-        /// </remarks>
         private static Dest? BuildDest(NFeIssueContext context)
         {
             var customer = context.Customer;
 
             if (customer is null)
             {
-                // A counter sale is anonymous by default: on an NFCe the whole dest group is simply
-                // omitted, which is the ordinary case at a till and not a missing field. Modelo 55
-                // has no such notion and still demands one.
                 if (context.Type != NFeDocumentType.NFCe)
                     throw new InvalidOperationException($"Order {context.Order.Id} has no customer; an NFe needs an identified destinatário.");
 
                 if (context.Order.TotalValue >= context.ConsumerIdentificationThreshold)
                 {
-                    // Above the threshold the consumer must be identified. Refused while the note is
-                    // still being built — the operator can still ask for a CPF; once it is printed
-                    // and handed over, nobody can.
                     throw new InvalidOperationException(
                         $"An NFCe of {context.Order.TotalValue:0.00} is at or above the consumer-identification threshold of " +
                         $"{context.ConsumerIdentificationThreshold:0.00}; the consumer's CPF or CNPJ is required.");
@@ -287,8 +237,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             var document = DocumentValidationHelper.NormalizeDocument(customer.Document ?? string.Empty);
             var dest = new Dest
             {
-                // In homologação the mandated name replaces the real one — both because the manual
-                // requires it and because it keeps a real customer's name out of a test document.
                 XNome = context.Environment == HomologationEnvironment
                     ? HomologationDestinationName
                     : Required(customer.Name, "the customer's name"),
@@ -387,19 +335,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             return det;
         }
 
-        /// <remarks>
-        /// Every code here is one this system can populate from data it actually holds. Two carry
-        /// arithmetic — CST 00 (integrally taxed) and CST 20 (reduced base) — one carries a credit
-        /// the buyer may take (CSOSN 101), and the rest are declarations with no value attached:
-        /// the item is exempt, untaxed, suspended, or its ICMS was already collected under
-        /// substituição tributária further up the chain.
-        ///
-        /// What is still refused is refused for the same reason as before: CST 51, 70 and 90 and
-        /// CSOSN 201/202/203/900 need a deferment percentage or an ST base and margin that live
-        /// nowhere in this database, and a zero for any of them under-declares tax. A code that
-        /// needs a figure this system does not hold throws by name — <see cref="Unsupported"/> —
-        /// rather than guessing one.
-        /// </remarks>
         private static ICMS BuildIcms(ResolvedItemFiscal fiscal, EnterpriseFiscalSettings settings, decimal lineValue, RunningTotals totals)
         {
             var origem = (OrigemMercadoria)fiscal.Origem;
@@ -444,14 +379,9 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 case "20":
                     return new ICMS { ICMS20 = BuildIcms20(fiscal, origem, lineValue, totals) };
 
-                // Isenta, não tributada, suspensão. One group for all three, which is what the
-                // schema does: the whole content is origem and the CST. Desoneração is not modelled
-                // — vICMSDeson needs a motive code nobody has recorded — so an item that was
-                // actually desonerado still declares only the exemption, never a made-up relief.
                 case "40" or "41" or "50":
                     return new ICMS { ICMS40 = new ICMS40 { Orig = origem, CST = fiscal.Cst } };
 
-                // Same shape and the same ceiling as CSOSN 500 above.
                 case "60":
                     return new ICMS { ICMS60 = new ICMS60 { Orig = origem, CST = fiscal.Cst } };
 
@@ -461,11 +391,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         }
 
         /// <summary>CST 20 — the base is reduced before the rate is applied to it.</summary>
-        /// <remarks>
-        /// The reduction is refused rather than defaulted. A missing pRedBC read as zero is a full
-        /// base, so the note would declare more tax than the item owes; a reduction of 100% or more
-        /// is not a reduction but an exemption, which is a different CST and a different decision.
-        /// </remarks>
         private static ICMS20 BuildIcms20(ResolvedItemFiscal fiscal, OrigemMercadoria origem, decimal lineValue, RunningTotals totals)
         {
             var reduction = fiscal.ReducaoBaseIcms
@@ -483,8 +408,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             var reducedBase = Math.Round(lineValue * (1m - reduction), 2, MidpointRounding.AwayFromZero);
             var tax = Math.Round(reducedBase * fiscal.AliquotaIcms, 2, MidpointRounding.AwayFromZero);
 
-            // The reduced base, not the line value: vBC and vICMS at the note level have to add up
-            // to what the items actually declare, or SEFAZ rejects the totals.
             totals.IcmsBase += reducedBase;
             totals.Icms += tax;
 
@@ -501,12 +424,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         }
 
         /// <summary>CSOSN 101 — Simples with a credit the buyer may take.</summary>
-        /// <remarks>
-        /// The credit is the emitter's own effective Simples rate for the period, so it comes from
-        /// the enterprise profile and not from the product. It carries no ICMS into the note totals:
-        /// the company did not collect this tax on this note, it is telling the buyer what may be
-        /// credited, and adding it to vICMS would claim tax that was never charged.
-        /// </remarks>
         private static ICMSSN101 BuildCsosn101(ResolvedItemFiscal fiscal, OrigemMercadoria origem, decimal lineValue)
         {
             var rate = fiscal.AliquotaCreditoSn
@@ -651,17 +568,11 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 };
             }
 
-            // vPag is what the customer handed over, and vTroco what came back — not the same thing
-            // as PdvSalePayment.Amount, which is what the tender *settled*. A R$ 50 note against a
-            // R$ 43 basket is Amount 43 with ChangeGiven 7, so on the wire it is vPag 50 and
-            // vTroco 7. Σ vPag − vTroco is then vNF, which is the rule SEFAZ checks.
             var settled = tenders.Sum(x => x.Amount);
             var change = tenders.Sum(x => x.ChangeGiven);
 
             if (Round(settled) != Round(total))
             {
-                // Refused here rather than at SEFAZ: this fails the whole note, and at a counter
-                // that means a customer standing in front of an operator who cannot fix it.
                 throw new InvalidOperationException(
                     $"The sale's tenders settle {Round(settled)} but the note totals {Round(total)}; " +
                     "a fiscal document cannot claim a payment that does not add up.");
@@ -681,8 +592,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
 
             var detPag = new DetPag
             {
-                // A counter sale is settled as it is rung. The exceptions are the two tenders that
-                // deliberately leave the shop owed money.
                 IndPag = method is EnumPaymentMethod.StoreCredit or EnumPaymentMethod.Boleto
                     || (method == EnumPaymentMethod.Credit && payment.Installments > 1)
                         ? IndicadorPagamento.PagamentoPrazo
@@ -692,13 +601,9 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 VPag = (double)Round(payment.Amount + payment.ChangeGiven)
             };
 
-            // xPag is what tPag 99 means; it is meaningless on any other code.
             if (detPag.TPag == MeioPagamento.Outros)
                 detPag.XPag = "OUTROS";
 
-            // tpIntegra is mandatory on a card tender. This till has no TEF — the operator reads the
-            // code off the POS terminal's own slip — so it is always "not integrated", and cAut is
-            // that code. The till refuses a card tender without one, so it is here in practice.
             if (method is EnumPaymentMethod.Credit or EnumPaymentMethod.Debit)
             {
                 detPag.Card = new Card
@@ -717,12 +622,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         /// The till's vocabulary is the tPag table collapsed to what a counter offers, so this is a
         /// total function with no default that guesses.
         /// </summary>
-        /// <remarks>
-        /// <c>Voucher</c> is 10 (vale alimentação), not the 05 an older comment on
-        /// <see cref="EnumPaymentMethod"/> claimed: 05 is crédito loja, which is what
-        /// <c>StoreCredit</c> is. 05 for a Sodexo card would misdeclare a third-party voucher as the
-        /// shop's own credit.
-        /// </remarks>
         private static MeioPagamento TPagFor(EnumPaymentMethod method) => method switch
         {
             EnumPaymentMethod.Cash => MeioPagamento.Dinheiro,
@@ -741,13 +640,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         /// dhEmi in the emitter's own timezone, cross-checked against the AAMM already baked into
         /// the chave.
         /// </summary>
-        /// <remarks>
-        /// The chave was built at allocation time and the document is transmitted moments later, but
-        /// "moments" can straddle midnight on the first of a month. A dhEmi whose competência
-        /// disagrees with the chave is rejection 253 (chave divergente), which burns the number.
-        /// Throwing here costs nothing — the caller has not transmitted yet, and its retry path
-        /// re-allocates when the AAMM no longer matches.
-        /// </remarks>
         private static DateTimeOffset EmissionInstant(string accessKey)
         {
             // ponytail: one national offset. Brazil has had no DST since 2019 and the v1 UF
@@ -781,13 +673,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         /// <summary>
         /// Refuses to hand over a document whose chave is not the one already committed.
         /// </summary>
-        /// <remarks>
-        /// The database row, the reconciler and any future consult all key off the chave written
-        /// before transmission. If the library derives a different one from the same fields, the
-        /// note would be authorized under a key this system cannot look up — unrecoverable without
-        /// a manual SEFAZ query. Cheap to check, and it also catches a cUF/CNPJ/série mismatch
-        /// between the fiscal profile and the allocation.
-        /// </remarks>
         /// <summary>
         /// <c>infRespTec</c>. The CSRT is handed over raw on purpose: the library derives
         /// <c>hashCSRT</c> from it and the chave, and a hash computed here would be a second
@@ -803,8 +688,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 Fone = technician.Phone
             };
 
-            // Both or neither: an idCSRT without its CSRT produces a hash the autorizador cannot
-            // verify, which is a rejection with a confusing motivo.
             if (!string.IsNullOrWhiteSpace(technician.IdCsrt) && !string.IsNullOrWhiteSpace(technician.Csrt))
             {
                 respTec.IdCSRT = technician.IdCsrt;

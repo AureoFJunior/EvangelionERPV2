@@ -127,8 +127,6 @@ namespace EvangelionERPV2.EmployeeModule.Domain.Repositories
             else if (employee.UpdatedAt.HasValue && employee.UpdatedAt.Value != DateTime.MinValue)
                 return x => x.UpdatedAt ?? DateTime.MinValue;
 
-            // An all-empty filter is a plain "list the enterprise's employees" call: fall back to
-            // the primary key so it pages deterministically instead of failing.
             return x => x.Id;
         }
     }

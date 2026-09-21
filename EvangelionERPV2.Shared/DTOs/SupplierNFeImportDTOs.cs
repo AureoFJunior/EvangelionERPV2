@@ -11,10 +11,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// A line of the nota that matched no product in the inventory.
     /// </summary>
-    /// <remarks>
-    /// Reported, never auto-created. A product invented from a supplier's description arrives with
-    /// no NCM, no CFOP and no cost, and then quietly takes part in issuing our own notes.
-    /// </remarks>
     public sealed class SupplierNFeUnmatchedItemDTO
     {
         public string Code { get; set; } = string.Empty;

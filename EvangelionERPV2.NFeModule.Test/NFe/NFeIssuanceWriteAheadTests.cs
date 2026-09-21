@@ -17,12 +17,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
     /// The transmit-safe ordering from docs/nfe/HANDOFF.md §4: number and chave are allocated and
     /// committed, then the write-ahead marker is committed, and only then is anything transmitted.
     /// </summary>
-    /// <remarks>
-    /// These tests exist because the failure they guard against is invisible and expensive: a
-    /// transmission whose outcome is unknown, retried as if it had never happened, emits the note
-    /// twice with real tax liability. Everything asserted here is state that must be durable
-    /// <em>before</em> the provider is called, so the assertions are about ordering, not values.
-    /// </remarks>
     public class NFeIssuanceWriteAheadTests
     {
         private const short NFeModel = 55;
@@ -52,8 +46,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.NotNull(result);
             Assert.Equal(NFeStatus.Authorized, result!.Status);
 
-            // The state as it stood at the moment of transmission — this is the assertion that
-            // actually pins the ordering.
             Assert.NotNull(documentSeenByProvider);
             Assert.True(NFeAccessKeyBuilder.IsValid(documentSeenByProvider!.AccessKey));
             Assert.Equal(AllocatedNumber.ToString(), documentSeenByProvider.Number);
@@ -62,7 +54,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.NotNull(documentSeenByProvider.TransmittedAtUtc);
             Assert.Equal(NFeStatus.Pending, documentSeenByProvider.Status);
 
-            // Claim, number + chave, marker, outcome.
             Assert.Equal(4, context.CommitCalls);
         }
 
@@ -76,12 +67,12 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
             var accessKey = result!.AccessKey;
             Assert.Equal(44, accessKey.Length);
-            Assert.Equal("43", accessKey.Substring(0, 2));                      // cUF
-            Assert.Equal("11222333000181", accessKey.Substring(6, 14));         // CNPJ
-            Assert.Equal("55", accessKey.Substring(20, 2));                     // mod
-            Assert.Equal("001", accessKey.Substring(22, 3));                    // serie
-            Assert.Equal("000000007", accessKey.Substring(25, 9));              // nNF
-            Assert.Equal("1", accessKey.Substring(34, 1));                      // tpEmis
+            Assert.Equal("43", accessKey.Substring(0, 2));
+            Assert.Equal("11222333000181", accessKey.Substring(6, 14));
+            Assert.Equal("55", accessKey.Substring(20, 2));
+            Assert.Equal("001", accessKey.Substring(22, 3));
+            Assert.Equal("000000007", accessKey.Substring(25, 9));
+            Assert.Equal("1", accessKey.Substring(34, 1));
         }
 
         [Fact]
@@ -98,9 +89,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
             var document = context.Persisted!;
 
-            // Not Error. Error would make the document eligible for ResetErroredDocumentForRetry,
-            // which clears the chave and the marker — the two things that make a duplicate emission
-            // detectable — and the next attempt would then transmit the same note a second time.
             Assert.Equal(NFeStatus.Pending, document.Status);
             Assert.NotNull(document.TransmittedAtUtc);
             Assert.True(document.IsOutcomeUnknown);
@@ -109,8 +97,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
             context.VerifyAllocations(Times.Once());
 
-            // The claim, the number and the marker are durable; the failure adds no fourth commit,
-            // because there is nothing safe to record about an unknown outcome.
             Assert.Equal(3, context.CommitCalls);
         }
 
@@ -120,9 +106,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var context = new IssuanceContext();
             context.SetupAuthorizingProvider();
 
-            // A profile that is switched on but has never been filled in: the emitter's CNPJ and
-            // cUF are what the chave is built from, so this fails after the claim and before any
-            // allocation.
             context.FiscalSettings
                 .Setup(x => x.GetSettingsAsync(context.EnterpriseId))
                 .ReturnsAsync(new EnterpriseFiscalSettings { EnterpriseId = context.EnterpriseId, Enabled = true });
@@ -141,9 +124,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task IssueAsync_WhenTheTenantsSwitchIsOff_CreatesNoDocumentAtAll()
         {
-            // NFeCertificateService sets Enabled = false when a certificate is removed. Until this
-            // was enforced here, that stopped nothing: modelo 55 read only the global switch, and a
-            // tenant with no certificate went on claiming numbers it could not sign.
             var context = new IssuanceContext();
             context.SetupAuthorizingProvider();
             context.FiscalSettings
@@ -167,8 +147,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task IssueAsync_WhenNFCeIsOffButNFeIsOn_RefusesOnlyTheNFCe()
         {
-            // Two switches, two documents. A shop may issue modelo 55 from the back office while
-            // its counter has never been turned on.
             var context = new IssuanceContext();
             context.SetupAuthorizingProvider();
             context.FiscalSettings
@@ -208,7 +186,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             await Assert.ThrowsAsync<InsertDatabaseException>(
                 () => context.Service.IssueAsync(context.OrderId, context.EnterpriseId));
 
-            // Error, not an unknown outcome: nothing was transmitted, so retrying is safe.
             Assert.Equal(NFeStatus.Error, context.Persisted!.Status);
             Assert.Null(context.Persisted.TransmittedAtUtc);
             Assert.False(context.Persisted.IsOutcomeUnknown);
@@ -225,8 +202,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
             var result = await context.Service.IssueAsync(context.OrderId, context.EnterpriseId);
 
-            // Nothing was ever transmitted, so the number it already holds is still unused. Burning
-            // it and taking a new one would leave a gap that only inutilização can close.
             context.VerifyAllocations(Times.Never());
             Assert.Equal(accessKey, result!.AccessKey);
             Assert.Equal(AllocatedNumber.ToString(), result.Number);
@@ -239,8 +214,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var context = new IssuanceContext();
             context.SetupAuthorizingProvider();
 
-            // AAMM in the chave is the emission month. Retransmitting a stale one is a rejection,
-            // so the allocation is only reused inside the month it was made.
             var staleKey = KeyFor(EmitterNow().AddMonths(-2));
             context.Seed(ErroredDocument(context, staleKey));
 
@@ -370,14 +343,10 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                     .Setup(x => x.GetByIdAsync(EnterpriseId))
                     .ReturnsAsync(new Enterprise { Id = EnterpriseId, Name = "Enterprise" });
 
-                // The claim is read back on the existing-document branch, so it has to become
-                // visible the moment it is created, exactly as a committed row would.
                 NFeRepositoryCustom
                     .Setup(x => x.GetByOrderIdAsync(OrderId, It.IsAny<NFeDocumentType>()))
                     .ReturnsAsync(() => Persisted);
 
-                // Model and series left open so the same harness serves modelo 55, NFC-e and the
-                // contingency series. Tests that care assert the arguments explicitly.
                 NFeRepositoryCustom
                     .Setup(x => x.AllocateNextNumberAsync(
                         EnterpriseId,
@@ -413,7 +382,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                         NFCeSeries = "1",
                         NFCeContingencySeries = "9",
 
-                        // Both tenant switches, because both are enforced before a claim is made.
                         Enabled = true,
                         NFCeEnabled = true
                     });

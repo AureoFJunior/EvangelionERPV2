@@ -71,9 +71,6 @@ namespace EvangelionERPV2.Shared.DTOs
         [JsonIgnore]
         public string XmlContent { get; set; } = "";
 
-        // QrCode, UrlChave and DigestValue are deliberately absent: the first two embed the
-        // access key, which carries the emitente CNPJ and the note number.
-
         /// <summary>Maps persisted state plus timestamps onto the label the UI shows.</summary>
         public static NFeDisplayStatus ResolveDisplayStatus(NFeDocument document)
         {
@@ -86,8 +83,6 @@ namespace EvangelionERPV2.Shared.DTOs
                 NFeStatus.Rejected => NFeDisplayStatus.Rejected,
                 NFeStatus.Denied => NFeDisplayStatus.Denied,
                 NFeStatus.Error => NFeDisplayStatus.Error,
-                // Pending splits on the write-ahead marker: "not sent yet" and "sent, outcome
-                // unknown" look identical in the enum but demand opposite operator behaviour.
                 NFeStatus.Pending when document.TransmittedAtUtc != null => NFeDisplayStatus.AwaitingSefaz,
                 _ => NFeDisplayStatus.Processing
             };

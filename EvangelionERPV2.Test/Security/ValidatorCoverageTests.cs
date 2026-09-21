@@ -68,8 +68,6 @@ namespace EvangelionERPV2.Test.Security
                 .Select(result => result.ValidatorType)
                 .ToHashSet();
 
-            // Guards the swap from the hand list to AddValidatorsFromAssemblyContaining: if the scan
-            // ever stopped seeing a validator, every rule in it would go quiet with nothing failing.
             var invisible = declared
                 .Where(type => !scanned.Contains(type))
                 .Select(type => type.Name)

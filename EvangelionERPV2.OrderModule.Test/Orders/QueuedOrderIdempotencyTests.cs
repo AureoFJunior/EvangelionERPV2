@@ -9,15 +9,6 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
     /// <summary>
     /// Guards the idempotency key itself.
     /// </summary>
-    /// <remarks>
-    /// Measured 2026-09-17 against the running system: replaying one order message created a second
-    /// order and decremented stock twice, because <c>CreateAsync</c> mints a new <c>Order.Id</c> on
-    /// every call. The unique index on (Handler, MessageId) is what makes the replay a no-op, so a
-    /// change that drops it silently restores duplicate orders on any dropped HTTP response.
-    ///
-    /// The in-memory provider does not enforce unique indexes, so these assert the model rather than
-    /// the database behaviour. The constraint is verified end to end against SQL Server.
-    /// </remarks>
     public class QueuedOrderIdempotencyTests
     {
         [Fact]
@@ -52,8 +43,6 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         [Fact]
         public void RetentionWindow_OutlivesTheDeadLetterTtl()
         {
-            // The DLQ holds a message for 30 days, and a redrive replays it. A retention window
-            // shorter than that would forget the key while the message it guards is still alive.
             Assert.True(
                 Shared.Utils.ProcessedMessageRetentionWorker.RetentionWindow > TimeSpan.FromDays(30),
                 "Retention must outlive the 30-day dead-letter TTL or a redrive can duplicate.");

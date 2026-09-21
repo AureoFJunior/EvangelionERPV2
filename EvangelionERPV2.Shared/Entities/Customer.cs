@@ -29,24 +29,9 @@ namespace EvangelionERPV2.Shared.Entities
         /// How much this customer may owe at once. Null means no limit — the default, and what
         /// every existing customer keeps.
         /// </summary>
-        /// <remarks>
-        /// Exposure is computed, never stored: a stored running total drifts the moment a boleto is
-        /// settled outside the app, and the receivable rule already lives in
-        /// <see cref="Utils.ReceivableResolver"/>. Zero is a real value here and means cash only.
-        /// </remarks>
         public decimal? CreditLimit { get; set; } = null;
 
         #region Fiscal address
-
-        // enderDest on an NFe 4.00 needs xLgr, nro, xCpl, xBairro, cMun, xMun, UF and CEP as
-        // separate fields; Adress above is one free-text blob and cannot populate any of them.
-        // Structured here rather than on a separate profile entity because the destinatário needs
-        // an address and an IE and nothing else — the emitente's EnterpriseFiscalSettings earns its
-        // own table by also carrying CRT, certificate metadata and every tax default.
-        //
-        // All nullable and additive: a customer who never receives an NFe needs none of it, and
-        // existing rows stay valid without a backfill. Completeness is enforced at issuance, where
-        // the failure can name the missing field, not at the customer-registration boundary.
 
         [MaxLength(60)]
         public string? Logradouro { get; set; }
@@ -88,11 +73,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// geocoding backfill — nothing on the write path calls out to the internet, so saving a
         /// customer never waits on a third party or fails because one is down.
         /// </summary>
-        /// <remarks>
-        /// decimal(9,6) is roughly 11 cm of precision and is mandatory here: the global
-        /// HavePrecision(18,2) convention would round -23.5505 to -23.55, which is about half a
-        /// kilometre — enough to put a customer on the wrong side of a radius.
-        /// </remarks>
         [Column(TypeName = "decimal(9,6)")]
         public decimal? Latitude { get; set; } = null;
 

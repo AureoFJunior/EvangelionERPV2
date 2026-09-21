@@ -11,12 +11,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
     /// Two housekeeping jobs on one schedule and one lease: expiring proposals nobody answered, and
     /// deleting conversations past their retention window.
     /// </summary>
-    /// <remarks>
-    /// The expiry half is bookkeeping — <see cref="IAiPendingActionService.ConfirmAsync"/> already
-    /// refuses a past-TTL action, so a pass that never runs cannot let a stale write through. The
-    /// retention half is not: nothing else deletes a conversation, and a conversation holds personal
-    /// data. See <see cref="AiRetentionService"/>.
-    /// </remarks>
     public sealed class AiPendingActionExpiryWorker : LeasedScheduleWorker
     {
         private readonly IServiceScopeFactory _scopeFactory;

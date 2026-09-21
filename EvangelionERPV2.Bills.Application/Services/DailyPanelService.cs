@@ -15,12 +15,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// <summary>
     /// The "painel do dia": what needs a human today, in one call.
     /// </summary>
-    /// <remarks>
-    /// It lives in the Bills module because six of the seven signals are money — the fiscal and
-    /// bank ones are read straight off their own tables and need no service of their own. Nothing
-    /// here writes; every signal is a view of a document that already exists, which is also why
-    /// there is no notification table behind it: settling the bill is what clears the alert.
-    /// </remarks>
     public class DailyPanelService : IDailyPanelService
     {
         private const string StockCacheKeyPrefix = "DailyPanel:Stock:";
@@ -109,8 +103,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                             && x.Order.Status != (int)EnumOrderStatus.Refund
                             && (x.IsActive == null || x.IsActive == true)
                             && x.Status == BillStatus.Registered)
-                // Newest bill per order, which is what SelectLiveBillsByOrder picked in memory. The
-                // status filter above already excludes Cancelled.
                 .Where(x => x.CreatedAt == _context.Set<Bill>().AsNoTracking()
                     .Where(other => other.OrderId == x.OrderId
                                     && (other.IsActive == null || other.IsActive == true)
@@ -149,9 +141,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             var horizon = today.AddDays(PayablesHorizonInDays);
 
-            // Counted in SQL for the same reason as the receivables above: the number of unpaid
-            // payables inside the horizon is a tenant-sized quantity, and this only ever needed six
-            // numbers from it.
             var totals = await _context.Set<PayableBill>().AsNoTracking()
                 .Where(x => x.EnterpriseId == enterpriseId
                             && x.IsActive == true
@@ -248,8 +237,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     x => x.EnterpriseId == enterpriseId && x.IsActive == true))
                 .FirstOrDefault();
 
-            // A missing certificate reports "not configured" rather than "expired": the two mean
-            // different things to whoever reads the panel, and only one of them is an emergency.
             if (settings?.CertNotAfterUtc != null)
             {
                 panel.CertificateConfigured = true;
@@ -282,7 +269,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
             catch (Exception ex)
             {
-                // A cache that is down must not take the panel with it.
                 Log.Logger.Warning("Daily panel stock cache read failed. ErrorType={ErrorType}", ex.GetType().Name);
                 return null;
             }
@@ -302,6 +288,5 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 Log.Logger.Warning("Daily panel stock cache write failed. ErrorType={ErrorType}", ex.GetType().Name);
             }
         }
-
     }
 }

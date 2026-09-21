@@ -8,15 +8,6 @@ namespace EvangelionERPV2.Shared.Utils
     /// <summary>
     /// Deletes idempotency rows older than the retention window.
     /// </summary>
-    /// <remarks>
-    /// The table grows with throughput and nothing else prunes it. The window only has to outlive
-    /// the longest path by which the same message can come back: three retries, plus however long a
-    /// message can sit in the dead-letter queue before an operator redrives it — which is 30 days,
-    /// the DLQ TTL. Seven days would quietly re-open the duplicate it was built to prevent for
-    /// anything redriven after a week.
-    ///
-    /// Leased, so ten replicas run one sweep rather than ten.
-    /// </remarks>
     public sealed class ProcessedMessageRetentionWorker : LeasedScheduleWorker
     {
         /// <summary>Comfortably past the 30-day dead-letter TTL, which is the real bound.</summary>
@@ -44,8 +35,6 @@ namespace EvangelionERPV2.Shared.Utils
             var cutoff = DateTime.UtcNow - RetentionWindow;
             var deleted = 0;
 
-            // Batched so a first pass against a long-neglected table does not take a lock big enough
-            // to stall the publishers writing into it.
             while (!stoppingToken.IsCancellationRequested)
             {
                 var batch = await context.ProcessedMessage

@@ -11,19 +11,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
     /// Owner of the CLT art. 137 consequence: when a período concessivo closes with days still
     /// owed, those days become payable <b>in dobro</b>.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <see cref="EnumVacationAccrualStatus.Lapsed"/> is set here and nowhere else, because it is a
-    /// consequence of the calendar rather than a decision anybody makes. A person cannot choose not
-    /// to owe it, so a person must not be able to set or clear it.
-    /// </para>
-    /// <para>
-    /// The sweep is deliberately cross-tenant. It runs outside a request, where
-    /// <c>AppDbContext.AmbientEnterpriseId</c> is <see cref="Guid.Empty"/> and the tenant query
-    /// filter is disabled by design — see the remarks on <c>ApplyTenantQueryFilters</c>. A liability
-    /// that only accrued for whichever tenant happened to be in scope would be worse than none.
-    /// </para>
-    /// </remarks>
     public class EmployeeVacationLapseService
     {
         private readonly IRepository<EmployeeVacationAccrual> _accrualRepository;
@@ -44,9 +31,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
             var today = DateTime.UtcNow.Date;
             var batchSize = Math.Max(1, _settings.LapseSweepBatchSize);
 
-            // The paged overload so the cap reaches SQL. Taking it client-side would still read
-            // every lapsed-but-unmarked accrual in the installation into memory first, which is
-            // precisely the set that grows without bound if the sweeper has ever been down.
             var candidates = (await _accrualRepository.GetAllAsync(
                     pageNumber: 1,
                     pageSize: batchSize,
@@ -55,8 +39,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                         && accrual.ConcessionDeadline < today
                         && accrual.Status != (int)EnumVacationAccrualStatus.Lapsed
                         && accrual.Status != (int)EnumVacationAccrualStatus.Closed
-                        // RemainingDays is [NotMapped], so the arithmetic is spelled out to keep
-                        // the filter in SQL rather than evaluating it per row in memory.
                         && accrual.EntitledDays - accrual.ScheduledDays - accrual.TakenDays - accrual.SoldDays > 0))
                 .OrderBy(accrual => accrual.ConcessionDeadline)
                 .ToList();
@@ -77,10 +59,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                     await _accrualRepository.CommitAsync(cancellationToken);
                     lapsed++;
 
-                    // After the commit, not before. Warning rather than Information because past
-                    // this line the company owes these days twice, and that has to reach whoever
-                    // reads the logs rather than only whoever queries the table — which makes a
-                    // false positive from a failed write the one thing this message must never be.
                     Log.Logger.Warning(
                         "Vacation accrual {AccrualId} for employee {EmployeeId} lapsed: concessivo closed {ConcessionDeadline:yyyy-MM-dd} " +
                         "with {RemainingDays} day(s) outstanding, now owed in dobro (CLT art. 137).",
@@ -91,8 +69,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    // One unwritable row must not stop the sweep: the others are exactly the ones
-                    // sitting on a liability nobody has noticed yet.
                     Log.Logger.Error(
                         exception,
                         "Failed to lapse vacation accrual {AccrualId}.",
@@ -107,12 +83,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         /// Accruals whose concessivo deadline falls inside the warning horizon and that still have
         /// days outstanding — the ones a human can still act on before they cost double.
         /// </summary>
-        /// <remarks>
-        /// Request-path, so it is tenant-scoped twice: the ambient query filter does it in the
-        /// model, and <paramref name="enterpriseId"/> repeats it here as the same second belt the
-        /// rest of the solution keeps. Already-lapsed accruals are excluded — they are a debt to
-        /// settle, not a deadline to meet, and mixing the two hides both.
-        /// </remarks>
         public async Task<IReadOnlyList<EmployeeVacationAccrual>> GetApproachingDeadlineAsync(Guid enterpriseId)
         {
             if (enterpriseId == Guid.Empty)

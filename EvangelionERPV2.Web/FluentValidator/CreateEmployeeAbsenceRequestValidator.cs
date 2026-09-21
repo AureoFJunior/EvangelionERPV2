@@ -22,7 +22,6 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .NotEmpty().WithMessage("Employee absence end date is required.")
                 .GreaterThanOrEqualTo(x => x.StartDate)
                     .WithMessage("Employee absence end date cannot be before the start date.")
-                // An open-ended range would let one row zero out every future payroll.
                 .Must((request, endDate) => (endDate.Date - request.StartDate.Date).TotalDays <= MaxAbsenceDays)
                     .WithMessage("Employee absence cannot span more than a year.");
 

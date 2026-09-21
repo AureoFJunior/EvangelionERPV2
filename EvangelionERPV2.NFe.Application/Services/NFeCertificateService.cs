@@ -42,8 +42,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (pfxBytes.Length > MaxCertificateBytes)
                 throw new InsertDatabaseException("Certificate file is too large.");
 
-            // The profile must exist first: without a configured CNPJ there is nothing to match
-            // the certificate against, and a mismatch is only discovered when SEFAZ rejects.
             var settings = await RequireSettingsAsync(enterpriseId);
 
             var metadata = _certificateProvider.Inspect(pfxBytes, password);
@@ -51,7 +49,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (!string.IsNullOrEmpty(metadata.Cnpj) &&
                 !string.Equals(metadata.Cnpj, settings.Cnpj, StringComparison.Ordinal))
             {
-                // Not logged with either CNPJ — both identify a legal entity.
                 throw new InsertDatabaseException(
                     "The certificate belongs to a different CNPJ than the configured fiscal profile.");
             }
@@ -99,8 +96,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             settings.CertNotAfterUtc = null;
             settings.CertUploadedAtUtc = null;
 
-            // Removing the signing identity must stop issuance — leaving the tenant enabled
-            // would fail every note at transmission time instead of saying why here.
             settings.Enabled = false;
             settings.UpdatedAt = _timeProvider.GetUtcNow().UtcDateTime;
 

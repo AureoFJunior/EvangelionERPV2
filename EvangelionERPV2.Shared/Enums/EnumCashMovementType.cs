@@ -3,14 +3,6 @@ namespace EvangelionERPV2.Shared.Enums
     /// <summary>
     /// Why cash moved in or out of an open <c>CashSession</c>.
     /// </summary>
-    /// <remarks>
-    /// Values are explicit because they are persisted in <c>CashMovement.Type</c>: reordering the
-    /// members must never silently reinterpret rows already written.
-    ///
-    /// Together these are the whole expected-drawer calculation. Nothing else may move cash, which
-    /// is what makes a blind close meaningful — a difference is then always either a miscount or a
-    /// movement somebody failed to register, never a gap in the model.
-    /// </remarks>
     public enum EnumCashMovementType
     {
         /// <summary>The opening float the operator started the session with.</summary>

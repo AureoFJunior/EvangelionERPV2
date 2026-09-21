@@ -1,4 +1,4 @@
-﻿using EvangelionERPV2.PdvModule.Application.Services;
+using EvangelionERPV2.PdvModule.Application.Services;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.Configs;
@@ -117,7 +117,6 @@ namespace EvangelionERPV2.PdvModule.Test
                 Method = (int)method,
                 Amount = amount,
 
-                // Card tenders are refused without one, and this file is not about that rule.
                 AuthorizationCode = method is EnumPaymentMethod.Credit or EnumPaymentMethod.Debit
                     ? "AUTH-1"
                     : null
@@ -131,8 +130,6 @@ namespace EvangelionERPV2.PdvModule.Test
             Assert.Equal((int)EnumPdvSaleStatus.Synced, result.Status);
             Assert.NotNull(order);
 
-            // Not Paid. The customer has the goods and has left; there is nothing left to do to
-            // this order but reverse it.
             Assert.Equal((int)EnumOrderStatus.Finished, order.Status);
         }
 
@@ -153,7 +150,6 @@ namespace EvangelionERPV2.PdvModule.Test
                 Tender(EnumPaymentMethod.Cash, 20m)
             ]);
 
-            // Distinct methods, not tenders. Two notes are one cash sale.
             Assert.Equal((int)EnumPaymentMethod.Cash, order!.PaymentMethod);
         }
 
@@ -172,8 +168,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ATenderSubmittedAsMixed_IsRejectedAndNoOrderIsCreated()
         {
-            // Mixed describes an order, not a tender, and NFeXmlBuilder.TPagFor would silently map
-            // it to tPag 99 — the note would declare a hand-settled payment that never happened.
             var (result, order) = await SyncAsync([Tender(EnumPaymentMethod.Mixed, 25m)]);
 
             Assert.Equal((int)EnumPdvSaleStatus.Rejected, result.Status);
@@ -191,8 +185,6 @@ namespace EvangelionERPV2.PdvModule.Test
 
             var mapper = MapperConfig.RegisterMaps().CreateMapper();
 
-            // "Cliente Desconhecido" is what a null used to read as, and it described a data
-            // problem rather than a walk-in at the till.
             Assert.Equal("Venda PDV", mapper.Map<OrderDTO>(order).CustomerName);
         }
 
@@ -216,9 +208,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public void AnOrderWhoseCustomerWasNotLoaded_IsNotAWalkIn()
         {
-            // RepositoryBase.GetById does not Include the customer, and it is what the delete and
-            // update responses map. A backoffice order read that way must answer null, not claim
-            // the till rang it up.
             var order = new Order
             {
                 Id = Guid.NewGuid(),

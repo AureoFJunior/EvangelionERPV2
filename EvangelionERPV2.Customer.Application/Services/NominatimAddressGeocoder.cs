@@ -30,14 +30,10 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
     /// </remarks>
     public sealed class NominatimAddressGeocoder : IAddressGeocoder
     {
-        // The trailing number is the shape of the answer, not of the request: a cached point was
-        // produced by whatever ParseBestPoint did at the time, so changing how a result is chosen
-        // has to leave the old points behind. Bump it whenever that method's output could move.
         private const string CacheKeyPrefix = "Geocode:Address:2:";
         private static readonly TimeSpan CacheTtl = TimeSpan.FromDays(30);
         private const string NoCoordinatesMarker = "-";
 
-        // Nominatim's usage policy: an absolute maximum of one request per second, from everybody.
         private static readonly TimeSpan MinimumInterval = TimeSpan.FromSeconds(1);
         private static readonly SemaphoreSlim Throttle = new(1, 1);
         private static DateTime _lastRequestUtc = DateTime.MinValue;
@@ -54,7 +50,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
         public async Task<GeocodedPoint?> ResolveAsync(AddressToLocate address, CancellationToken cancellation = default)
         {
             var query = BuildQuery(address);
-            // A município is the least that places anybody. Below that there is nothing to ask.
             if (query == null)
                 return null;
 
@@ -69,8 +64,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
             {
                 await WaitForTurnAsync(cancellation);
 
-                // limit=5, not 1: a named street is usually several OSM ways, all with the same
-                // importance, so "the first" is whichever the tie broke towards. See ParseBestPoint.
                 using var response = await _httpClient.GetAsync($"search?{query}&format=jsonv2&limit=5", cancellation);
 
                 point = response.IsSuccessStatusCode
@@ -83,8 +76,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
             }
             catch (Exception ex)
             {
-                // Absorbed on purpose: this decorates a map. Nothing upstream should fail because a
-                // public API was slow, and the next backfill will try again.
                 Log.Logger.Warning(ex, "Address geocoding failed. ErrorType={ErrorType}", ex.GetType().Name);
                 return null;
             }
@@ -111,7 +102,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
 
             var parameters = new List<string>();
 
-            // "273 Rua Barão de Teffe" — house number first is the form Nominatim documents.
             var street = string.Join(' ', new[] { Clean(address.Numero), Clean(address.Logradouro) }.Where(part => part != null));
             if (street.Length > 0)
                 parameters.Add("street=" + Uri.EscapeDataString(street));
@@ -174,7 +164,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
                     ? typeElement.GetString()
                     : null;
 
-                // An actual address beats any amount of averaging, and Nominatim ranks it first.
                 if (addressType is "building" or "house" or "amenity" or "shop")
                     return point;
 
@@ -183,8 +172,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
 
                 var name = result.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
 
-                // Only segments of one street. A query that matched two different roads is a query
-                // whose answer is a guess, and averaging across them would invent a point on neither.
                 roadName ??= name;
                 if (name == roadName)
                     roads.Add(point.Value);
@@ -197,7 +184,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
                     roads.Average(road => road.Longitude));
             }
 
-            // Neither a building nor a road: a bairro or a city, which is still where the customer is.
             return ReadPoint(document.RootElement[0]);
         }
 
@@ -214,7 +200,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
                 : null;
         }
 
-        // Nominatim returns them as strings ("-30.0577754"), always with a dot regardless of locale.
         private static decimal? ReadDecimal(JsonElement element)
         {
             if (element.ValueKind == JsonValueKind.Number)
@@ -251,8 +236,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
                 if (cached == null)
                     return null;
 
-                // An address with no coordinates is cached too: re-asking every backfill for an
-                // answer that will not change is the slow path this marker exists to skip.
                 if (cached == NoCoordinatesMarker)
                     return (null, true);
 

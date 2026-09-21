@@ -19,8 +19,6 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(4, EnumLanguage.Chinese)]
         public void TheStoredIntegerMeansTheSameLanguageOnBothSides(int value, EnumLanguage expected)
         {
-            // Pinned, not derived: these are written to User.Language, so reordering the enum would
-            // silently change the language of every existing row.
             Assert.Equal(expected, (EnumLanguage)value);
             Assert.True(Enum.IsDefined(typeof(EnumLanguage), value));
         }

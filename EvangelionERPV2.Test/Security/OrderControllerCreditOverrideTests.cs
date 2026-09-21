@@ -18,10 +18,6 @@ namespace EvangelionERPV2.Test.Security
     /// The credit-limit override is a permission check the controller performs and hands down, not
     /// something the service can read for itself.
     /// </summary>
-    /// <remarks>
-    /// It has to be asked of the authorization service: PermissionAuthorizationHandler derives
-    /// permissions from the user's access level, so there is no claim in the token to inspect.
-    /// </remarks>
     public class OrderControllerCreditOverrideTests
     {
         [Theory]
@@ -55,8 +51,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task InsertQueuedOrder_NeverOverrides()
         {
-            // The machine user persists what the queue carried. Nobody is standing there to make
-            // the call, so the limit is enforced even if the enqueuing user could have overridden.
             var enterpriseId = Guid.NewGuid();
             var userId = Guid.NewGuid();
             bool? overrideSeen = null;
@@ -118,8 +112,6 @@ namespace EvangelionERPV2.Test.Security
                 new Claim(ClaimTypes.Sid, userId.ToString())
             ], "TestAuth"));
 
-            // InsertQueuedOrder re-checks the payload tenant by resolving the enterprise
-            // repository off RequestServices, so the context needs a real provider behind it.
             var services = new ServiceCollection();
             services.AddSingleton(enterpriseRepository.Object);
 

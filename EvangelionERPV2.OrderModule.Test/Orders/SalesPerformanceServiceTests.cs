@@ -30,20 +30,10 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         private readonly Mock<IRepository<User>> _users = new();
         private readonly Mock<IRepository<SalesGoal>> _goals = new();
 
-        // The monthly aggregate reads through the context now rather than through the repositories:
-        // it projects the columns the money rules need and joins the live bill in SQL, instead of
-        // materialising a month of entities. These tests therefore seed a real (in-memory) context,
-        // which means they exercise the actual query rather than a mock of it.
         private AppDbContext _context = null!;
 
-        // A recording cache: tests stay deterministic because every read misses, while the keys
-        // written are captured so the tenant-scoping can be asserted. A cache that actually
-        // returned values would hide the query these tests exist to cover.
         private readonly RecordingCache _cache = new();
 
-        // Cache switched ON for tests even though it ships off: the RecordingCache always misses,
-        // so the query is still what runs, while the keys it would write are captured. Testing with
-        // it off would leave the tenant-scoping unasserted.
         private static IConfiguration CacheConfig(bool enabled) =>
             new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?> { ["SalesPerformance:CacheEnabled"] = enabled ? "true" : "false" })
@@ -163,8 +153,6 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         [Fact]
         public async Task GetSellerPerformance_AgreesWithTheManagersTable()
         {
-            // The two screens are read by two people looking at the same commission. They share the
-            // calculation precisely so they cannot disagree.
             Given([Sale(1000m, payday: new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc))], [], commissionRate: 0.05m, target: 800m);
 
             var service = BuildService();
@@ -272,9 +260,6 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         [Fact]
         public async Task AMonthWithNoOrders_IsAnEmptyReport_NotAFailure()
         {
-            // OrderRepository.GetAllAsync throws NotFoundDatabaseException on an empty result and
-            // that maps to 204; this service reads through the un-overridden generic repository for
-            // exactly that reason. A quiet month must render as zeros.
             Given(Array.Empty<Order>(), Array.Empty<Bill>(), commissionRate: 0.05m, target: 1000m);
 
             var performance = await BuildService().GetPerformanceAsync(EnterpriseId, 2026, 8);
@@ -384,7 +369,6 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
             var performance = await BuildService().GetPerformanceAsync(EnterpriseId, 2026, 8);
 
             Assert.Equal([SellerId], performance.Sellers.Select(row => row.UserId).ToArray());
-            // The money was real even though the seller was not a person, so the company keeps it.
             Assert.Equal(1400m, performance.Enterprise.SoldAmount);
             Assert.Equal(2, performance.Enterprise.OrderCount);
         }
@@ -414,8 +398,6 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
 
             var goals = await BuildService().GetGoalsAsync(EnterpriseId, 2026);
 
-            // The seller's and the company's own, never the robot's — a target set before the flag
-            // existed must not keep the account visible on the metas screen.
             Assert.Equal(2, goals.Count);
             Assert.DoesNotContain(goals, goal => goal.UserId == robotId);
         }
@@ -439,7 +421,6 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
             Assert.Equal(2, _cache.WrittenKeys.Count);
             Assert.Contains(_cache.WrittenKeys, key => key.Contains(EnterpriseId.ToString()));
             Assert.Contains(_cache.WrittenKeys, key => key.Contains(otherEnterprise.ToString()));
-            // Two tenants, two different keys - never one shared entry.
             Assert.Equal(2, _cache.WrittenKeys.Distinct().Count());
         }
 
@@ -495,14 +476,11 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
 
             var performance = await BuildService().GetPerformanceAsync(EnterpriseId, 2026, 8);
 
-            // The caller still sees the name.
             Assert.Equal("Rei Ayanami", performance.Sellers.Single().SellerName);
 
-            // The cache does not.
             var written = Assert.Single(_cache.WrittenValues);
             Assert.DoesNotContain("Rei", written);
             Assert.DoesNotContain("Ayanami", written);
-            // ...but keeps what makes it worth caching.
             Assert.Contains(SellerId.ToString(), written);
             Assert.Contains("1000", written);
         }
@@ -521,7 +499,6 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         /// </para>
         /// </summary>
         [Theory]
-        // refunded, hasPayday, bill status, bill paid, bill amount
         [InlineData(false, false, null, null, null)]
         [InlineData(false, true, null, null, null)]
         [InlineData(true, true, null, null, null)]
@@ -557,7 +534,6 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
 
             var performance = await BuildService().GetPerformanceAsync(EnterpriseId, 2026, 8);
 
-            // What the C# rule says, computed independently of the query.
             var expectedReceived = ReceivableResolver.ResolveReceivedAmount(
                 total,
                 ReceivableResolver.IsOrderRefunded(order.RefundedAt, order.Status),

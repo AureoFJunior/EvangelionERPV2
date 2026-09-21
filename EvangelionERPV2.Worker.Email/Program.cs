@@ -1,4 +1,4 @@
-﻿using Amazon.SecretsManager;
+using Amazon.SecretsManager;
 using Prometheus;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Entities.RabbitMQ;
@@ -10,16 +10,11 @@ using Microsoft.Extensions.Hosting;
 
 namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 {
-
     public class Program
     {
         public static async Task Main(string[] args)
         {
             EmailLogConfig.Configure();
-            // A worker is the one process nobody looks at until something is missing. This serves
-            // the same registry the API does, on the same unpublished port, so Prometheus can see
-            // that it is alive and what it has consumed. Started before the host so a host that
-            // fails to build is still visible as a target that answers.
             new KestrelMetricServer(port: 9101).Start();
 
             var host = CreateHostBuilder(args).Build();
@@ -52,7 +47,6 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                         return new AmazonSecretsManagerClient(region);
                     });
                     services.AddSingleton<AWSKMSKeyProvider>();
-                    // Singleton so both broadcast workers share one Redis connection.
                     services.AddSingleton<IDistributedLease, RedisLease>();
                     services.Configure<EmailChannelSettings>(
                         hostContext.Configuration.GetSection("EmailChannelSettings"));

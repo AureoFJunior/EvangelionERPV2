@@ -18,8 +18,6 @@ namespace EvangelionERPV2.Shared.Entities
             ProductId = productId;
         }
 
-        // Quantity is not money: UnitOfMeasure allows Kg/Litre/Meter, so the global
-        // decimal(18,2) convention would truncate fractional units like 0.004 Kg to 0.
         [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; } = 0;
         public decimal Value { get; set; } = 0;
@@ -29,11 +27,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// join. Reading the product's current cost would rewrite the margin of every past order the
         /// next time somebody edits a price.
         /// </summary>
-        /// <remarks>
-        /// [JsonIgnore] because cost is Manager-tier data: order lines are serialized inside OrderDTO
-        /// for every caller who can read an order, and this is the one field in them that must not
-        /// be. The gated totals on OrderDTO are how cost reaches a caller entitled to see it.
-        /// </remarks>
         [JsonIgnore]
         public decimal? UnitCost { get; set; } = null;
 

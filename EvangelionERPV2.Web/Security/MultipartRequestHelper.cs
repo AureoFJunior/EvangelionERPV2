@@ -87,8 +87,6 @@ namespace EvangelionERPV2.Web.Security
             if (BytesRead <= _limit)
                 return read;
 
-            // Truncate rather than throw: the caller turns this into 413, and a half-read clip is
-            // discarded anyway. Throwing here would surface as a 500 for a client's own mistake.
             ExceededLimit = true;
             return 0;
         }

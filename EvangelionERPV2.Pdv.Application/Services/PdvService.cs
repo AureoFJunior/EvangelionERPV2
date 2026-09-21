@@ -65,8 +65,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (request.OpeningFloat < 0)
                 throw new ArgumentException("An opening float cannot be negative.");
 
-            // Idempotent by the terminal's own id: a re-sent open returns the session it already
-            // created rather than opening a second one for the same shift.
             var existing = await _appDbContext.CashSession
                 .FirstOrDefaultAsync(session =>
                     session.EnterpriseId == enterpriseId && session.ClientSessionId == request.ClientSessionId);
@@ -74,15 +72,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (existing != null)
                 return existing;
 
-            // One open shift per till is a filtered unique index, so a second one arrives here as
-            // a DbUpdateException whose message names a constraint. Caught by hand instead, for the
-            // log line below — but deliberately *not* as an ArgumentException. A 400 is final at the
-            // till: SyncEngine marks it Rejected and discards the outbox entry, and for a non-Sale
-            // kind it keeps no record of it at all, so the shift would never open even after
-            // somebody closes the stale one. This stays retryable, which is the honest behaviour —
-            // the remedy happens elsewhere and then the queued open succeeds on its own. The reason
-            // reaches a human through the log, because the middleware sanitises every 4xx body to a
-            // fixed string and logs a 5xx by type alone.
             var openOnTerminal = await _appDbContext.CashSession
                 .AsNoTracking()
                 .FirstOrDefaultAsync(session =>
@@ -117,8 +106,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             {
                 await _sessionRepository.CreateAsync(opened);
 
-                // The float is a movement like any other, so expected cash is the ledger and
-                // nothing but the ledger.
                 await _movementRepository.CreateAsync(new CashMovement
                 {
                     Id = Guid.NewGuid(),
@@ -146,8 +133,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
 
             var type = (EnumCashMovementType)request.Type;
 
-            // Only these two are typed by a human. Letting a client post a Sale movement would let
-            // an operator inflate the drawer to cover a shortfall.
             if (type is not (EnumCashMovementType.Sangria or EnumCashMovementType.Suprimento))
                 throw new ArgumentException("Only a sangria or a suprimento may be registered by hand.");
 
@@ -196,10 +181,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
 
             var session = await RequireSessionAsync(request.ClientSessionId, enterpriseId);
 
-            // Idempotent, like every other write a terminal makes: the till queues the close and
-            // resends it until it is acknowledged, so a lost response must not come back as a
-            // refusal on a shift that closed correctly. The stored count is not touched — the
-            // reading the operator was held to on the night stands.
             if (session.Status != (int)EnumCashSessionStatus.Open)
                 return await BuildSummaryAsync(session, includeExpectedCash: true);
 
@@ -207,8 +188,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
 
             var closedAt = request.ClosedAt == default ? DateTime.UtcNow : request.ClosedAt;
 
-            // Stored rather than derived. A later correction to a movement must not silently rewrite
-            // what the operator was held to on the night.
             session.CountedAmount = request.CountedAmount;
             session.ExpectedAmount = summary.ExpectedCash;
             session.Difference = decimal.Round(
@@ -257,8 +236,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         {
             AssertTenant(enterpriseId);
 
-            // Projected, never the entity: PdvTerminal carries the PBKDF2 verifier, and a backoffice
-            // screen that renders the whole row would put it in a browser and in every log between.
             return await _appDbContext.PdvTerminal
                 .AsNoTracking()
                 .Where(terminal => terminal.EnterpriseId == enterpriseId)
@@ -282,16 +259,12 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             var terminal = await _appDbContext.PdvTerminal
                 .FirstOrDefaultAsync(row => row.Id == terminalId && row.EnterpriseId == enterpriseId);
 
-            // Idempotent, and a terminal belonging to another tenant is indistinguishable from one
-            // that never existed.
             if (terminal == null || terminal.IsRevoked)
                 return false;
 
             terminal.IsRevoked = true;
             terminal.UpdatedAt = DateTime.UtcNow;
 
-            // The entity is tracked by this context, which every repository here wraps; saving it
-            // directly is the same write without a ninth constructor argument.
             await _appDbContext.SaveChangesAsync();
 
             return true;
@@ -309,11 +282,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 .OrderBy(session => session.TerminalId)
                 .Select(session => new CashSessionDTO
                 {
-                    // Id has meant the terminal's own id on this list since it was written, because
-                    // that is the one every other endpoint takes — while ToDto on the singular
-                    // routes puts the server row id in the same field. One name, two meanings,
-                    // which is a trap however long it has been true. ClientSessionId is now
-                    // populated on both, so a caller never has to know which endpoint it came from.
                     Id = session.ClientSessionId,
                     ClientSessionId = session.ClientSessionId,
                     TerminalId = session.TerminalId,
@@ -342,8 +310,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (since != null)
                 query = query.Where(audit => audit.OccurredAt >= since);
 
-            // The refused ones are the reason this table exists: a run of them against one
-            // supervisor is somebody guessing a PIN.
             if (onlyRefused == true)
                 query = query.Where(audit => !audit.Succeeded);
 
@@ -426,25 +392,18 @@ namespace EvangelionERPV2.PdvModule.Application.Services
 
             var claimed = await ClaimAsync(request, enterpriseId, userId);
 
-            // Already finished, by an earlier call or by another request that raced this one.
             if (claimed.Sale.Status == (int)EnumPdvSaleStatus.Synced || claimed.Sale.Status == (int)EnumPdvSaleStatus.Rejected)
                 return Describe(claimed.Sale, wasAlreadyRecorded: true);
 
             var expectedTotal = items.Sum(item => decimal.Round(item.Value * item.Quantity, 2, MidpointRounding.AwayFromZero));
             var tendered = payments.Sum(payment => payment.Amount);
 
-            // The books have to balance before anything else happens. Change given is not part of
-            // it: a R$50 note against a R$43 basket is 43 tendered and 7 back.
             if (decimal.Round(tendered, 2, MidpointRounding.AwayFromZero) != expectedTotal)
             {
                 return await RejectAsync(claimed.Sale,
                     $"Payments total {tendered:0.00} but the sale is worth {expectedTotal:0.00}.");
             }
 
-            // Card only, and rejected rather than thrown: this is a payload the server will never
-            // accept however many times the terminal resends it, which is exactly what Rejected
-            // means. The till refuses it first (TenderSheet.Take); this is the assertion that makes
-            // the rule true of anything that reaches the database, including a hand-built request.
             var uncodedCard = payments.FirstOrDefault(payment =>
                 (payment.Method == (int)EnumPaymentMethod.Debit || payment.Method == (int)EnumPaymentMethod.Credit)
                 && string.IsNullOrWhiteSpace(payment.AuthorizationCode));
@@ -455,10 +414,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     "Um pagamento em cartão precisa do código de autorização.");
             }
 
-            // Mixed describes an order, not a tender, and has no NFC-e tPag. The validator refuses
-            // it first; this is the assertion that makes it true of anything reaching the database,
-            // including a request built by hand. Rejected for the same reason the card check is:
-            // resending it will never help.
             if (payments.Any(payment => payment.Method == (int)EnumPaymentMethod.Mixed))
             {
                 return await RejectAsync(claimed.Sale,
@@ -467,12 +422,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
 
             try
             {
-                // The order id is committed on its own, before the payments and the drawer
-                // movement, for the same reason the claim is: OrderService.CreateAsync commits in
-                // its own transaction, so a crash between it and CompleteAsync would otherwise
-                // leave a Pending claim with no trace of the order it already rang up — and the
-                // retry, finding only a Pending row, would sell the basket a second time. Stock,
-                // revenue and the drawer would all count it twice.
                 if (claimed.Sale.OrderId == null)
                 {
                     var order = await _orderService.CreateAsync(
@@ -493,7 +442,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             }
             catch (PeriodClosedException exception)
             {
-                // Final: the period will not reopen because a terminal asked again.
                 return await RejectAsync(claimed.Sale, exception.Message);
             }
             catch (CreditLimitExceededException exception)
@@ -502,9 +450,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             }
             catch (Exception exception)
             {
-                // Everything else stays Pending on purpose. The terminal will resend, the claim is
-                // still here, and a human can see a sale that never resolved — which is far better
-                // than a sale marked failed that actually went through.
                 Log.Logger.Error("PDV sale [{ClientSaleId}] failed to sync. ErrorType={ErrorType}",
                     request.ClientSaleId, exception.GetType().Name);
                 throw;
@@ -549,15 +494,12 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             }
             catch (DbUpdateException)
             {
-                // Lost the race on the unique index. Whoever won is authoritative.
                 _saleRepository.DetachEntity(sale);
 
                 var winner = await _appDbContext.PdvSale
                     .AsNoTracking()
                     .FirstOrDefaultAsync(item => item.EnterpriseId == enterpriseId && item.ClientSaleId == request.ClientSaleId);
 
-                // No winner means the write failed for some reason other than the idempotency
-                // index, so the original exception is the honest answer rather than a made-up one.
                 if (winner == null)
                     throw;
 
@@ -576,11 +518,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 CustomerId = request.CustomerId,
                 UserId = userId,
 
-                // A till sale is over, not merely paid: the customer has the goods and has left.
-                // Paid is a way-station on the backoffice ladder where an order can still be
-                // re-priced or deleted, and no sale that walked out of the shop belongs there.
-                // Finished is immutable in OrderService — edits and deletes are refused, refunds
-                // are not, which is the one correction a till actually needs.
                 Status = (int)EnumOrderStatus.Finished,
                 PaymentMethod = ResolvePaymentMethod(payments),
                 Payday = soldAt,
@@ -590,8 +527,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     ProductId = item.ProductId,
                     Quantity = item.Quantity,
 
-                    // The discount already lives in the unit price, because Order.TotalValue is
-                    // Σ(Value × Quantity) and nothing may make that untrue.
                     Value = item.Value,
                     CreatedAt = DateTime.UtcNow,
                     IsActive = true
@@ -603,11 +538,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         /// The one method that settled the sale, or <see cref="EnumPaymentMethod.Mixed"/> when
         /// several did.
         /// </summary>
-        /// <remarks>
-        /// Distinct methods, not tenders: two cash notes are still a cash sale. Null is
-        /// unreachable here — <c>SyncSaleAsync</c> refuses a sale with no payments — but is the
-        /// honest answer if it ever were, and it matches what a backoffice order stores.
-        /// </remarks>
         private static int? ResolvePaymentMethod(List<PdvSalePaymentRequestDTO> payments)
         {
             var methods = payments.Select(payment => payment.Method).Distinct().Take(2).ToList();
@@ -627,18 +557,12 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             sale.SyncedAt = DateTime.UtcNow;
             sale.UpdatedAt = DateTime.UtcNow;
 
-            // Which of the named charges we can actually prove were paid. Asked once, here, rather
-            // than per tender: a sale has a handful of payments and this is one round trip.
             var namedCharges = payments
                 .Where(payment => payment.ChargeId != null)
                 .Select(payment => payment.ChargeId!.Value)
                 .Distinct()
                 .ToList();
 
-            // Scoped to this basket and matched on the amount, not merely "a paid charge of ours".
-            // A terminal names the charge id, so anything the id alone can reach is something the
-            // terminal can choose: without the ClientSaleId a R$ 500 tender could point at a paid
-            // R$ 1 charge from yesterday's sale and be recorded as proven.
             var paidCharges = namedCharges.Count == 0
                 ? []
                 : await _appDbContext.PdvCharge
@@ -665,12 +589,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     Installments = payment.Installments,
                     PdvChargeId = payment.ChargeId,
 
-                    // Never the raw flag. Proof is a charge that exists, belongs to this shop,
-                    // was raised for this basket, reached Paid and settled this much — checked
-                    // here against our own rows, because a terminal that could mint proof by
-                    // setting a bool would make the column worthless. A tender that fails any of
-                    // those is recorded unverified, never refused: the sale itself is fine and
-                    // RejectAsync is terminal.
                     IsVerified = payment.ChargeId != null
                         && paidCharges.Any(charge => charge.Id == payment.ChargeId.Value
                                                      && charge.Amount == payment.Amount),
@@ -678,8 +596,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                     IsActive = true
                 }));
 
-                // Only the cash leg reaches the drawer. A card tender is money received but not
-                // money to count, and recording it would guarantee a difference at every close.
                 var cash = payments
                     .Where(payment => payment.Method == (int)EnumPaymentMethod.Cash)
                     .Sum(payment => payment.Amount);
@@ -742,8 +658,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 .AsNoTracking()
                 .Where(product => product.EnterpriseId == enterpriseId);
 
-            // Changed since the cursor. UpdatedAt is null on a row never edited, so CreatedAt is the
-            // fallback — without it a freshly imported catalog looks unchanged and never syncs.
             if (since is { } cursor)
                 query = query.Where(product => (product.UpdatedAt ?? product.CreatedAt) > cursor);
 
@@ -771,8 +685,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 })
                 .ToListAsync();
 
-            // One row over the page size is how "is there more" is answered without a second COUNT
-            // over the whole catalog.
             var hasMore = page.Count > size;
             if (hasMore)
                 page.RemoveAt(page.Count - 1);
@@ -782,8 +694,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 Items = page,
                 ServerTimeUtc = serverTime,
 
-                // The cursor is the last row's own timestamp, not the server clock: advancing past
-                // rows that were written while this page was being read would skip them forever.
                 NextCursor = hasMore && page.Count > 0 ? page[^1].ChangedAt : null,
                 HasMore = hasMore
             };
@@ -792,11 +702,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         /// <summary>
         /// A page of product thumbnails, oldest change first, for a till filling its image cache.
         /// </summary>
-        /// <remarks>
-        /// Thumbnails are fetched one product at a time rather than in parallel: this runs in the
-        /// background on a till that is selling, and the ERP serving twenty shops has better uses
-        /// for its S3 connections than filling one terminal's cache faster.
-        /// </remarks>
         public async Task<PdvProductImagePageDTO> GetProductImagesAsync(DateTime? since, Guid enterpriseId, int pageSize)
         {
             AssertTenant(enterpriseId);
@@ -902,7 +807,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 .Where(order => orderIds.Contains(order.Id))
                 .SumAsync(order => (decimal?)order.TotalValue) ?? 0m;
 
-            // Closing is excluded: it is the count being removed, not money the drawer took in.
             var ledger = movements.Where(movement => movement.Type != (int)EnumCashMovementType.Closing).ToList();
 
             return new CashSessionSummaryDTO
@@ -915,8 +819,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 CashIn = ledger.Where(movement => movement.Amount > 0).Sum(movement => movement.Amount),
                 CashOut = ledger.Where(movement => movement.Amount < 0).Sum(movement => movement.Amount),
 
-                // Withheld while the session is open and uncounted: an operator who can read the
-                // target will hit the target, and a close that always balances tells nobody anything.
                 ExpectedCash = includeExpectedCash
                     ? ledger.Sum(movement => movement.Amount)
                     : null,
@@ -971,17 +873,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         /// <summary>
         /// Raises a PIX charge for a basket, or hands back the one already raised for it.
         /// </summary>
-        /// <remarks>
-        /// Every gate runs before the provider is touched. A shop that cannot take PIX must find
-        /// that out from a greyed-out button, not from a customer standing at the counter with a
-        /// bank app open — and the amount bounds are Stripe's, so sending a request we know it will
-        /// refuse only costs the customer time.
-        ///
-        /// The lookup on <c>ClientSaleId</c> is what makes a resend safe: a terminal that lost the
-        /// response to its first call must find that intent rather than open a second one against
-        /// the same basket. A customer who pays twice is the failure this method exists to prevent,
-        /// and the unique index on <c>(EnterpriseId, ProviderIntentId)</c> is the backstop.
-        /// </remarks>
         public async Task<PdvChargeDTO> StartPixChargeAsync(StartPixChargeRequestDTO request, Guid enterpriseId)
         {
             ArgumentNullException.ThrowIfNull(request);
@@ -1002,14 +893,8 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 .OrderByDescending(charge => charge.CreatedAt)
                 .FirstOrDefaultAsync();
 
-            // A window that has closed is the same dead QR as an abandoned one, so it is written
-            // down here rather than left Pending forever — nothing else in the system does it.
             await ExpireIfElapsedAsync(existing);
 
-            // A charge that was abandoned, refused or timed out is not an answer to "take PIX for
-            // this basket". Handing it back left the operator with a dead QR and a poll that reports
-            // "cancelado" forever — PIX permanently unavailable for a basket the customer is still
-            // standing at. Those get a fresh attempt; Pending and Paid do not.
             var settledOrAbandoned = existing != null
                 && existing.Status is (int)EnumPdvChargeStatus.Cancelled
                     or (int)EnumPdvChargeStatus.Failed
@@ -1017,9 +902,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
 
             if (existing != null && !settledOrAbandoned)
             {
-                // Paid: never a second charge for a basket the customer already paid for.
-                // Pending: the live intent, and only if it is for the amount being asked. Returning
-                // a QR for a different figure is how a customer pays the wrong price.
                 if (existing.Status == (int)EnumPdvChargeStatus.Pending && existing.Amount != request.Amount)
                 {
                     throw new ArgumentException(
@@ -1032,8 +914,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             var enterprise = await _appDbContext.Enterprise
                 .FirstOrDefaultAsync(shop => shop.Id == enterpriseId);
 
-            // Both halves. A connected account is not the same as Stripe having let this shop
-            // through the invite-only PIX programme, and neither is worth a failed payment.
             if (enterprise?.PixPaymentsEnabled != true
                 || string.IsNullOrWhiteSpace(enterprise.StripeConnectedAccountId))
             {
@@ -1067,11 +947,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         /// <summary>
         /// The charge as we last recorded it.
         /// </summary>
-        /// <remarks>
-        /// Reads our own row and never the provider. The till polls this every second or so while a
-        /// customer pays, and a poll that reached Stripe would put its rate limit on the path of
-        /// every sale — the webhook is what moves the row, and this only reports it.
-        /// </remarks>
         public async Task<PdvChargeDTO?> GetChargeAsync(Guid chargeId, Guid enterpriseId)
         {
             AssertTenant(enterpriseId);
@@ -1079,8 +954,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             var charge = await _appDbContext.PdvCharge
                 .FirstOrDefaultAsync(row => row.Id == chargeId && row.EnterpriseId == enterpriseId);
 
-            // The till polls this while the customer pays. Without it a closed window answers
-            // Pending forever and the operator waits on a QR nobody can still scan.
             await ExpireIfElapsedAsync(charge);
 
             return charge == null ? null : ToDto(charge);
@@ -1089,17 +962,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         /// <summary>
         /// Writes down that a charge's window closed. One row, at most once.
         /// </summary>
-        /// <remarks>
-        /// Lazily, on the two paths that care — the till's poll and the next attempt on the same
-        /// basket — rather than in a sweeper. A charge nobody is looking at costs nothing by staying
-        /// Pending, and a background pass over every open charge in every tenant would exist to
-        /// change rows no one is waiting on.
-        ///
-        /// **Expired is our inference, not the provider's verdict**, which is why
-        /// <see cref="ApplyChargeEventAsync"/> still lets a Paid event settle a row this marked. The
-        /// clocks are not the same and the money is what matters: a customer whose PIX landed in the
-        /// last second of the window is paid, whatever we had written down by then.
-        /// </remarks>
         private async Task ExpireIfElapsedAsync(PdvCharge? charge)
         {
             if (charge == null
@@ -1119,11 +981,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         /// <summary>
         /// Abandons a charge nobody paid.
         /// </summary>
-        /// <remarks>
-        /// A charge that already reached a terminal status is returned untouched. The race is real
-        /// and it is one-sided: a customer whose payment landed a second before the operator pressed
-        /// Esc must not have it marked cancelled, so anything already settled wins over the cancel.
-        /// </remarks>
         public async Task<PdvChargeDTO> CancelPixChargeAsync(Guid chargeId, Guid enterpriseId)
         {
             AssertTenant(enterpriseId);
@@ -1135,8 +992,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (charge.Status != (int)EnumPdvChargeStatus.Pending)
                 return ToDto(charge);
 
-            // Stripe first: if it refuses because the intent already succeeded, our row must not
-            // claim otherwise, and the exception carries that to the operator.
             await _pixProvider.CancelAsync(charge.ProviderIntentId);
 
             charge.Status = (int)EnumPdvChargeStatus.Cancelled;
@@ -1150,19 +1005,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         /// <summary>
         /// Moves a charge to what the provider says it now is. Returns false when nothing changed.
         /// </summary>
-        /// <remarks>
-        /// Idempotent twice over: an event id already recorded on the row is a no-op, and a charge
-        /// already in a terminal status is never moved again. Between them, a replay and a late
-        /// delivery both cost one indexed read — and expiry racing settlement cannot un-pay a
-        /// customer, because the terminal status that got there first wins.
-        ///
-        /// A charge we have no row for returns false and is not an error. Our endpoint may be
-        /// receiving events for another integration on the same account, and answering 500 to those
-        /// buys an endlessly retried queue.
-        ///
-        /// No tenant argument by design: the row carries the EnterpriseId, and nothing the caller
-        /// says can change which shop this concerns.
-        /// </remarks>
         public async Task<bool> ApplyChargeEventAsync(string eventId, string providerIntentId, int status,
             string? endToEndId, decimal? feeAmount, DateTime? paidAt)
         {
@@ -1172,10 +1014,6 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             var charge = await _appDbContext.PdvCharge
                 .FirstOrDefaultAsync(row => row.ProviderIntentId == providerIntentId);
 
-            // Pending is the ordinary case. Expired is the one exception, because unlike Cancelled
-            // (we called the provider and it agreed) and Failed (the provider's own verdict), it is
-            // a conclusion this system drew from a clock. A settlement event outranks it: the money
-            // arrived, and a paid customer must never be filed as timed out.
             var settlesAnExpiredCharge = charge != null
                 && charge.Status == (int)EnumPdvChargeStatus.Expired
                 && status == (int)EnumPdvChargeStatus.Paid;

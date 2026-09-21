@@ -36,7 +36,6 @@ namespace EvangelionERPV2.Test.Security
 
             var result = await service.AuthenticateAsync(SharedUserName, "same-password");
 
-            // Logging either one in would be a coin toss between two companies' data.
             Assert.Null(result.User);
             Assert.Equal(PasswordLoginFailure.Ambiguous, result.Failure);
         }
@@ -72,16 +71,12 @@ namespace EvangelionERPV2.Test.Security
 
             var result = await service.AuthenticateAsync(SharedUserName, "");
 
-            // MockBehavior.Strict means any repository call at all fails this test: an empty
-            // password must be refused before it costs a query.
             Assert.Equal(PasswordLoginFailure.NotFound, result.Failure);
         }
 
         [Fact]
         public void NormalizeUserName_TrimsButDoesNotLowercase()
         {
-            // Lowercasing happens in the query predicate, not here. Changing that would silently
-            // alter which rows the candidate lookup returns.
             Assert.Equal("Caixa01", PasswordLoginService.NormalizeUserName("  Caixa01  "));
         }
 

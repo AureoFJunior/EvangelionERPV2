@@ -34,8 +34,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _customerRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _enterpriseRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<BillNumberSequence> _sequenceRepository;
-        // Resolved lazily: the email stack (RabbitMQ, SMTP settings) must never be able to fail a
-        // bill generation request just by being constructed.
         private readonly Func<IEmailService<EmailStructure>> _emailServiceFactory;
         private readonly BillsSettings _settings;
         private bool disposed;
@@ -92,8 +90,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var customer = order.CustomerId.HasValue ? await _customerRepository.GetByIdAsync(order.CustomerId.Value) : null;
 
-            // Allocated only after the existing-bill check, so a repeated generate call does not
-            // burn a number for a boleto that already exists.
             var billNet = BuildBill(order, customer, await AllocateNossoNumeroAsync(enterpriseId));
 
             var billBancario = new BoletoBancario
@@ -176,7 +172,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (bill == null || bill.IsActive == false)
                 return null;
 
-            // Bill carries no EnterpriseId of its own; the order it belongs to is the tenant gate.
             if (!await IsOrderWithinEnterpriseAsync(bill.OrderId, enterpriseId))
                 return null;
 
@@ -188,7 +183,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var settledAt = paidAt ?? DateTime.UtcNow;
 
-            // A settlement dated in the future would be projected as cash that has not arrived.
             if (settledAt.Date > DateTime.UtcNow.Date)
                 throw new InsertDatabaseException("Settlement date cannot be in the future.");
 
@@ -207,12 +201,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// <summary>
         /// Cancels the order's live boleto and issues a fresh one.
         /// </summary>
-        /// <remarks>
-        /// Supersede, never mutate: the payer may already be holding the old document, and a
-        /// silently edited due date leaves them with a barcode that no longer matches anything.
-        /// Cancelling first is also what frees the filtered unique index on OrderId so the new row
-        /// can be inserted at all.
-        /// </remarks>
         public async Task<BillEntity?> ReissueAsync(Guid orderId, Guid enterpriseId)
         {
             if (orderId == Guid.Empty)
@@ -258,8 +246,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     $"Boleto - Documento {bill.DocumentNumber}",
                     new List<string> { recipient })
                 {
-                    // Mail clients strip data: URIs, so the rendered bill only survives as an
-                    // attachment. The body carries the digitable line as the readable fallback.
                     Attachments = await BuildBillAttachmentsAsync(bill)
                 };
 
@@ -284,8 +270,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 <hr/>
                 """;
 
-            // The full bill, barcode included, so it can be paid straight from the email. The email
-            // layer turns its embedded images into cid: resources that mail clients render.
             return summary + NormalizeEmbeddedImageMimeTypes(bill.HtmlContent ?? string.Empty);
         }
 
@@ -317,18 +301,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
             catch (Exception ex)
             {
-                // No headless browser available: still send the mail, just without the PDF. Sending
-                // it is the right call - the digitable line in the body is payable on its own - but
-                // it used to happen at Warning with nothing counting it, so a renderer that was
-                // broken for a week looked exactly like a renderer that worked.
                 ReportMissingPdf(bill, "render_failed", ex.GetType().Name);
                 return [];
             }
 
             if (pdf.Length == 0)
             {
-                // A renderer that returns nothing without throwing is the same outage wearing a
-                // different hat, and this branch used to be entirely silent.
                 ReportMissingPdf(bill, "empty_pdf", "None");
                 return [];
             }
@@ -372,8 +350,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         private static string? DetectImageMimeType(string base64Payload)
         {
-            // A 12-byte prefix is enough for every magic number below, and base64 decodes in
-            // 4-character blocks.
             var prefix = base64Payload.Length <= 16 ? base64Payload : base64Payload[..16];
             prefix = prefix[..(prefix.Length - prefix.Length % 4)];
 
@@ -420,16 +396,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (existing == null)
                 return null;
 
-            // Bills stored before the relabelling fix still carry the mismatched barcode MIME.
             var html = NormalizeEmbeddedImageMimeTypes(existing.HtmlContent);
             if (string.IsNullOrWhiteSpace(html))
             {
                 var customer = order.CustomerId.HasValue
                     ? await _customerRepository.GetByIdAsync(order.CustomerId.Value)
                     : null;
-                // The stored NossoNumero, never a fresh allocation: this branch only re-renders a
-                // boleto the payer may already hold, and re-numbering it would make the barcode
-                // disagree with the title the bank was told about.
                 var billNet = BuildBill(order, customer, existing.OurNumber);
                 var billBancario = new BoletoBancario
                 {
@@ -561,14 +533,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// Hands out the next NossoNumero for this enterprise's (bank, wallet) range, zero-padded to
         /// the contracted field width.
         /// </summary>
-        /// <remarks>
-        /// This used to be derived — the last N digits of the order GUID plus its creation
-        /// timestamp. Two different orders can produce the same N digits, and the value lands
-        /// wherever it lands rather than inside the range the convênio grants; a collision at the
-        /// bank rejects the title or credits the wrong one. Allocation is the only shape that is
-        /// both unique and in-range, so the counter is authoritative and the order id is not used
-        /// at all any more.
-        /// </remarks>
         private async Task<string> AllocateNossoNumeroAsync(Guid enterpriseId)
         {
             var length = NossoNumeroLength;
@@ -578,9 +542,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             if (allocated == null)
             {
-                // No row yet, or the range ran out — the statement cannot tell those apart on its
-                // own, and they need opposite reactions: one is seeded here, the other must stop
-                // issuance loudly rather than emit a number the bank will not honour.
                 await EnsureSequenceAsync(enterpriseId);
 
                 allocated = await _billRepositoryCustom.AllocateNextNumberAsync(
@@ -591,9 +552,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var number = allocated.Value.ToString(CultureInfo.InvariantCulture);
 
-            // Wider than the field the bank reads means a truncated, therefore wrong, title. The
-            // ceiling should already have stopped this; belt and braces because the ceiling is
-            // operator-configurable.
             if (number.Length > length)
                 throw new InsertDatabaseException(
                     $"Allocated NossoNumero {number} does not fit {length} digits. Check BillsSettings.NossoNumeroLength against the convênio.");
@@ -641,8 +599,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
             catch (DbUpdateException)
             {
-                // Another instance seeded the same range first. Its row is the one that counts;
-                // the caller re-runs the allocation against it.
                 Log.Logger.Information(
                     "Bill number sequence for enterprise {EnterpriseId} was seeded concurrently.",
                     enterpriseId);

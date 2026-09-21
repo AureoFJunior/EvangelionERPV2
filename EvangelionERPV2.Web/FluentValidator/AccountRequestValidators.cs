@@ -21,8 +21,6 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .NotEmpty().WithMessage("Password is required.")
                 .MaximumLength(128).WithMessage("Password is too long.");
 
-            // Not required: RecaptchaVerifier decides whether a token is needed for this
-            // environment, and duplicating that decision here would break local runs.
             RuleFor(x => x.RecaptchaToken)
                 .MaximumLength(4096).WithMessage("Recaptcha token is too long.");
         }
@@ -85,8 +83,6 @@ namespace EvangelionERPV2.Web.FluentValidator
     {
         public UpdateThemeRequestValidator()
         {
-            // The theme is an opaque client preference with no server-side enum, so this only keeps
-            // it in a sane range rather than pretending to know the palette.
             RuleFor(x => x.Theme)
                 .InclusiveBetween((short)0, (short)10).WithMessage("Theme is not supported.");
         }
@@ -108,7 +104,6 @@ namespace EvangelionERPV2.Web.FluentValidator
 
         public UpdateProfilePictureRequestValidator()
         {
-            // Optional: an empty payload clears the stored picture.
             RuleFor(x => x.ProfilePicture)
                 .Must(Base64PayloadValidationHelper.IsValidBase64Payload)
                     .WithMessage("Profile picture must be a valid base64 payload.")
@@ -132,8 +127,6 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .NotEmpty().WithMessage("Last name is required.")
                 .MaximumLength(100).WithMessage("Last name is too long.");
 
-            // Optional, unlike the customer and supplier numbers: a person can have no phone, and
-            // an empty string is how they clear one. The 30-character ceiling matches the column.
             RuleFor(x => x.PhoneNumber)
                 .MaximumLength(30).WithMessage("Phone is too long.")
                 .When(x => x.PhoneNumber != null);

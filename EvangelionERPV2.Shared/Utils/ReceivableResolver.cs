@@ -6,27 +6,11 @@ namespace EvangelionERPV2.Shared.Utils
     /// <summary>
     /// The single answer to "what does this order still owe us, and when".
     /// </summary>
-    /// <remarks>
-    /// It lives on its own because four readers need the same answer — the cash-flow forecast, the
-    /// daily panel, the receivables aging report and the credit-limit check — and a second copy of
-    /// this rule would be a second opinion about money. The rule itself: where an order has a
-    /// boleto, the boleto is the truth about the receivable; the order's own dates only ever said
-    /// when we <em>hoped</em> to be paid.
-    ///
-    /// It lives in Shared rather than in Bills because the credit-limit guard on order creation
-    /// needs the same exposure figure, and one module reaching into another's services to ask what
-    /// a customer owes is how a second copy of this rule gets written.
-    /// </remarks>
     public static class ReceivableResolver
     {
         /// <summary>
         /// The live title per order: the newest one that is not cancelled.
         /// </summary>
-        /// <remarks>
-        /// Cancelled is skipped so a reissued order resolves to the title the payer is actually
-        /// holding. Callers scope the query by order id because <see cref="Bill"/> carries no
-        /// <c>EnterpriseId</c> of its own — it is tenant-scoped through <see cref="Order"/>.
-        /// </remarks>
         public static Dictionary<Guid, Bill> SelectLiveBillsByOrder(IEnumerable<Bill> bills)
         {
             return bills
@@ -38,13 +22,6 @@ namespace EvangelionERPV2.Shared.Utils
         /// <summary>
         /// When the money is expected, or null when this order projects no cash from today on.
         /// </summary>
-        /// <remarks>
-        /// The boleto branch is the point of this method. Before it existed the forecast could not
-        /// tell an issued boleto from a paid one: <c>Order.Payday</c> is the date fed to the boleto
-        /// as its <em>vencimento</em>, so merely printing a document made the money look received.
-        /// Now an unsettled title only ever projects on its own due date, and a settled one
-        /// projects on the day the money actually landed.
-        /// </remarks>
         public static DateTime? ResolveOrderReceivableDate(Order order, Bill? bill, DateTime today)
         {
             return ResolveOrderReceivableDate(
@@ -60,12 +37,6 @@ namespace EvangelionERPV2.Shared.Utils
         /// The same rule over plain values, so a caller that projected only the columns it needs
         /// does not have to restate it.
         /// </summary>
-        /// <remarks>
-        /// The cash-flow forecast reads this way: materialising whole Order entities for every
-        /// order inside the horizon is what made a 1.84M-order tenant expensive even after the
-        /// window moved into SQL. <paramref name="billStatus"/> is null when the order has no live
-        /// title, which is what selects the order's own dates.
-        /// </remarks>
         public static DateTime? ResolveOrderReceivableDate(
             DateTime? orderPayday,
             DateTime orderPaymentScheduledDate,
@@ -79,19 +50,13 @@ namespace EvangelionERPV2.Shared.Utils
                 switch (billStatus.Value)
                 {
                     case BillStatus.Paid:
-                        // Same rule the payables side uses: cash that landed before today is already
-                        // inside the current balance and must not be counted a second time.
                         var settledDate = billPaidAt?.Date;
                         return settledDate >= today ? settledDate : null;
 
                     case BillStatus.Rejected:
-                        // The bank refused the title. There is no receivable until it is reissued.
                         return null;
 
                     default:
-                        // Open, overdue included. Past due is dropped rather than pulled forward:
-                        // a boleto nobody paid on time is not evidence of cash arriving today, and
-                        // the receivables side of this forecast is deliberately the conservative one.
                         var dueDate = billDueDate!.Value.Date;
                         return dueDate < today ? null : dueDate;
                 }
@@ -104,7 +69,6 @@ namespace EvangelionERPV2.Shared.Utils
             }
 
             var scheduledDate = orderPaymentScheduledDate.Date;
-            // When using persisted current balance, realized receivables in the past must not be projected again.
             return scheduledDate < today ? null : scheduledDate;
         }
 
@@ -194,14 +158,6 @@ namespace EvangelionERPV2.Shared.Utils
         /// What has actually been collected on this order. The mirror of
         /// <see cref="ResolveOpenExposure"/>: exposure is what is still owed, this is what came in.
         /// </summary>
-        /// <remarks>
-        /// Commission is paid on this, not on the order total. Paying a seller for an invoice
-        /// nobody has settled is how a small company ends up funding its own bad debt.
-        ///
-        /// An order with a boleto is answered by the boleto — an unsettled one has collected
-        /// nothing however old it is. An order without one falls back to Payday, which OrderService
-        /// only ever sets for a status that means the money arrived.
-        /// </remarks>
         public static decimal ResolveReceivedAmount(Order order, Bill? bill)
         {
             return ResolveReceivedAmount(

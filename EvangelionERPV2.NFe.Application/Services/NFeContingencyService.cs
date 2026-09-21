@@ -12,18 +12,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
     /// <summary>
     /// Transmits off-line NFC-e notes that were printed at a counter and still owe SEFAZ a copy.
     /// </summary>
-    /// <remarks>
-    /// The obligation is to transmit as soon as connectivity returns, so this sweeps often and
-    /// sends whatever is outstanding rather than counting down to a deadline.
-    ///
-    /// **Nothing here ever gives up, and nothing here ever discards.** Past the configured deadline
-    /// a note is not expired: it still has to reach SEFAZ, and it may then be rejected, which is a
-    /// problem for a human rather than for a retry loop. So the deadline changes only how loudly
-    /// this reports — never whether it keeps trying.
-    ///
-    /// It transmits the **stored** document and never rebuilds one. The note was signed and printed
-    /// with a particular dhEmi and chave, and the customer is holding a receipt for that one.
-    /// </remarks>
     public sealed class NFeContingencyService
     {
         private readonly IRepository<NFeDocument> _nfeRepository;
@@ -67,19 +55,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 {
                     ReportAge(document);
 
-                    // Provable non-transmission is the only safe licence to send. TransmittedAtUtc
-                    // is the write-ahead marker and it is cleared only when a transport proves
-                    // nothing left the process, so anything with it set may already exist at SEFAZ
-                    // — including an Error raised after the socket opened, which IsOutcomeUnknown
-                    // does not cover because that only describes Pending. Those belong to the
-                    // reconciler, which consults instead of resending.
                     if (document.TransmittedAtUtc != null)
                         continue;
 
                     if (string.IsNullOrWhiteSpace(document.XmlContent))
                     {
-                        // Nothing signed was kept, so there is nothing to send and nothing was
-                        // printed either. Loud, because it is a sale with no fiscal document.
                         Log.Logger.Error(
                             "Contingency note {DocumentId} has no stored XML; it cannot be transmitted.",
                             document.Id);
@@ -106,8 +86,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 }
                 catch (Exception exception)
                 {
-                    // One bad note must not stop the sweep: the others are sitting on real tax
-                    // liability and a printed receipt in somebody's hand.
                     Log.Logger.Error(exception,
                         "Contingency transmission failed for document {DocumentId}.", document.Id);
                 }

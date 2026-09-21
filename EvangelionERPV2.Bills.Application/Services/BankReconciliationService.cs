@@ -10,13 +10,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// <summary>
     /// Imports bank statements and reconciles them against what the ERP already believes.
     /// </summary>
-    /// <remarks>
-    /// The bank is a witness, not the authority. Nothing in here writes
-    /// <see cref="Enterprise.CurrentBalance"/>: that number stays app-computed, and the deliverable
-    /// is the *variance* between it and the statement. Making the imported ledger authoritative
-    /// would mean rewriting every balance write path in the system for a figure a human reads once
-    /// a day, which is why it is not done here.
-    /// </remarks>
     public class BankReconciliationService : IBankReconciliationService
     {
         /// <summary>
@@ -54,8 +47,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         {
             var statement = OfxStatementParser.Parse(content);
 
-            // A file may repeat a FITID; the first occurrence wins, so the in-file duplicate is
-            // dropped here rather than blowing up on the unique index halfway through the insert.
             var transactions = statement.Transactions
                 .GroupBy(transaction => transaction.FitId, StringComparer.Ordinal)
                 .Select(group => group.First())
@@ -77,9 +68,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var fitIds = transactions.Select(transaction => transaction.FitId).ToList();
 
-            // The idempotency read. Bounded by the file, not by history, and deliberately without an
-            // IsActive filter: a soft-deleted line still occupies its FITID, and reinserting behind
-            // it would double-count the transaction.
             var alreadyImported = (await _lineRepository.GetAllAsync(line =>
                     line.EnterpriseId == enterpriseId
                     && line.BankId == statement.BankId
@@ -116,9 +104,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (newLines.Count > 0)
                 await _lineRepository.CreateRangeAsync(newLines);
 
-            // One commit for both: the repositories share the request's AppDbContext, so the import
-            // row and its lines land in the same transaction. A half-written import would leave a
-            // balance with no movement behind it.
             await _lineRepository.CommitAsync(cancellationToken);
 
             return new BankStatementImportResultDTO
@@ -140,26 +125,15 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// Exact amount, ±<see cref="MatchWindowInDays"/> days, and exactly one candidate. Anything
         /// else is left for a human.
         /// </summary>
-        /// <remarks>
-        /// Amount equality is not a heuristic that can be loosened later without thought: it is what
-        /// makes a single candidate mean something. Fuzzy memo matching was considered and cut —
-        /// bank memo text is bank-specific free-form, so a similarity score would be tuned against
-        /// one bank's format and quietly mis-reconcile every other one.
-        /// </remarks>
         private async Task MatchAsync(Guid enterpriseId, List<BankStatementLine> lines)
         {
             var candidateLines = lines.Where(line => line.Amount != 0).ToList();
             if (candidateLines.Count == 0)
                 return;
 
-            // Widened by a day on each side of the window: the stored order and payable dates carry
-            // a time component, and the exact ±3 comparison below is done on whole dates.
             var from = candidateLines.Min(line => line.PostedAt).AddDays(-MatchWindowInDays - 1);
             var to = candidateLines.Max(line => line.PostedAt).AddDays(MatchWindowInDays + 1);
 
-            // GetPagedAsync, not GetAllAsync: OrderRepository overrides GetAllAsync to Include
-            // Customer, OrderedProduct and Product, so matching a bank statement would drag every
-            // line item of every order in the window across the wire to read three columns.
             var orders = (await _orderRepository.GetPagedAsync(order =>
                     order.EnterpriseId == enterpriseId
                     && order.IsActive == true
@@ -183,15 +157,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 .Select(payable => new Candidate(
                     payable.Id,
                     (payable.PaidAt ?? payable.DueDate).Date,
-                    // The gross, where one is recorded: a férias bill's Amount is netted by the
-                    // provision payroll already accrued (SPEC-hr-module §4 P5a), but the bank sees
-                    // the whole payment leave. Null on every other kind of payable, so this is a
-                    // no-op for them.
                     payable.GrossAmount ?? payable.Amount))
                 .ToList();
 
-            // A document already reconciled against an earlier statement line must not be offered
-            // again, or two bank transactions of the same amount would both claim the one invoice.
             var candidateIds = orders.Select(x => x.Id).Concat(payables.Select(x => x.Id)).ToList();
             var consumed = (await _lineRepository.GetAllAsync(line =>
                     line.EnterpriseId == enterpriseId
@@ -202,7 +170,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             foreach (var line in candidateLines)
             {
-                // Sign decides the side: money in can only settle a receivable, money out a payable.
                 var pool = line.Amount > 0 ? orders : payables;
                 var target = Math.Abs(line.Amount);
 
@@ -247,17 +214,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// Clears one line a human has judged: pointed at the document it settles, or marked as
         /// corresponding to nothing in the ERP.
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Deliberately does not re-apply the import-time rule — see
-        /// <see cref="ResolveBankStatementLineRequestDTO"/>. Every line that reaches here is one the
-        /// automatic match could not take, so re-checking amount and window would refuse them all.
-        /// </para>
-        /// <para>
-        /// A line already Matched or Ignored can be resolved again. Nothing here moves money, so a
-        /// mistaken judgement has to be correctable; the audit trail carries who changed what.
-        /// </para>
-        /// </remarks>
         public async Task<BankStatementLineDTO> ResolveAsync(
             Guid enterpriseId,
             Guid lineId,
@@ -269,8 +225,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var line = await _lineRepository.GetByIdAsync(lineId);
 
-            // Tenant scoped here as well as by the ambient filter: this is a write, and a line id
-            // is guessable in a way an enterprise id is not.
             if (line == null || line.IsActive != true || line.EnterpriseId != enterpriseId)
                 throw new NotFoundDatabaseException($"{nameof(BankStatementLine)} was not found in database.");
 
@@ -283,8 +237,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             }
             else
             {
-                // The reference is dropped, not kept: a line the human says corresponds to nothing
-                // must not leave a stale claim behind holding a document hostage.
                 line.Status = (int)BankStatementLineStatus.Ignored;
                 line.MatchedReferenceId = null;
             }
@@ -301,11 +253,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// The document has to exist, belong to this tenant, sit on the side of the statement the
         /// line's sign implies, and not already be claimed by a different line.
         /// </summary>
-        /// <remarks>
-        /// The sign check is not pedantry: money arriving can only settle a receivable and money
-        /// leaving can only settle a payable, so a credit pointed at a payable is a typo that would
-        /// otherwise reconcile two documents in opposite directions.
-        /// </remarks>
         private async Task EnsureReferenceIsClaimableAsync(Guid enterpriseId, BankStatementLine line, Guid referenceId)
         {
             if (referenceId == Guid.Empty)
@@ -314,8 +261,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (line.Amount == 0)
                 throw new InsertDatabaseException("A zero-amount statement line settles no document.");
 
-            // One row, and only to know whether it is there. GetAllAsync would fetch the order
-            // with its customer and every line item to answer a yes/no.
             var exists = line.Amount > 0
                 ? (await _orderRepository.GetPagedAsync(order =>
                         order.Id == referenceId && order.EnterpriseId == enterpriseId && order.IsActive == true,
@@ -376,8 +321,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             {
                 CurrentBalance = currentBalance,
                 StatementBalance = latest?.LedgerBalance,
-                // Null rather than the raw balance when nothing has been imported: a "variance" of
-                // the whole balance would read as a catastrophic break rather than as no data.
                 Variance = latest == null ? null : currentBalance - latest.LedgerBalance,
                 StatementAsOf = latest?.BalanceAsOf,
                 BankId = latest?.BankId,

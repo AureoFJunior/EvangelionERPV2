@@ -186,8 +186,6 @@ namespace EvangelionERPV2.UserModule.Test.User
 
             Assert.NotNull(result);
             Assert.NotNull(persistedUser);
-            // The clear must survive Update's "empty means not provided" fallback; otherwise the
-            // database keeps pointing at the S3 object deleted below.
             Assert.Equal(string.Empty, persistedUser!.ProfilePicture);
             userRepository.Verify(r => r.Update(It.IsAny<Shared.Entities.User>()), Times.Once);
             userRepository.Verify(r => r.Commit(It.IsAny<CancellationToken>()), Times.Once);

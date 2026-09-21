@@ -14,9 +14,6 @@ namespace EvangelionERPV2.Test.HealthChecks
         [Fact]
         public void ToGaugeValue_Degraded_IsBetween()
         {
-            // The alert reads `< 1`, so Degraded has to sit below Healthy or a database with
-            // pending migrations - which DatabaseHealthCheck reports as Degraded by design - would
-            // never raise anything.
             var degraded = PrometheusHealthPublisher.ToGaugeValue(HealthStatus.Degraded);
 
             Assert.True(degraded < PrometheusHealthPublisher.ToGaugeValue(HealthStatus.Healthy));

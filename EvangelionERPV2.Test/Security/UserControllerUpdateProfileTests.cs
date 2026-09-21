@@ -63,10 +63,6 @@ namespace EvangelionERPV2.Test.Security
             userService.VerifyNoOtherCalls();
         }
 
-        /// <remarks>
-        /// The one that matters. The id comes from the token, so a caller cannot aim this at
-        /// somebody else — but a user whose row belongs to another tenant must still be refused.
-        /// </remarks>
         [Fact]
         public async Task UpdateProfile_ForAUserInAnotherEnterprise_IsForbidden()
         {
@@ -108,10 +104,6 @@ namespace EvangelionERPV2.Test.Security
             Assert.Equal("11 98888-7777", stored.PhoneNumber);
         }
 
-        /// <remarks>
-        /// A client that sends only the name must not wipe the number as a side effect — which is
-        /// what a plain assignment from a null field would do.
-        /// </remarks>
         [Fact]
         public async Task UpdateProfile_WithNoPhoneField_LeavesTheStoredPhoneAlone()
         {

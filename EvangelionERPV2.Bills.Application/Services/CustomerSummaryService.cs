@@ -12,19 +12,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// <summary>
     /// The ficha do cliente: who this customer is, what they have bought, and what they still owe.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// It lives in the Bills module for the same reason <see cref="DailyPanelService"/> does: most
-    /// of the answer is money, and the aging rule already lives here in
-    /// <see cref="ReceivablesReportService"/>. Putting it in the Customer module would mean either a
-    /// project reference into Bills or a second copy of the aging buckets, and a second opinion
-    /// about what a customer owes is exactly what <see cref="ReceivableResolver"/> exists to prevent.
-    /// </para>
-    /// <para>
-    /// Nothing here is stored. Every figure is derived on read, so the ficha cannot drift from the
-    /// carteira the way a cached customer balance would.
-    /// </para>
-    /// </remarks>
     public class CustomerSummaryService : ICustomerSummaryService
     {
         private const int RecentOrderCount = 10;
@@ -62,9 +49,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             bool includeFinancial,
             CancellationToken cancellation = default)
         {
-            // GetPagedAsync, never GetAllAsync: CustomerRepository throws NotFoundDatabaseException
-            // on an empty result and that maps to 204, so a miss would answer "no content" from
-            // deep inside instead of letting the caller decide.
             var (customers, _) = await _customerRepository.GetPagedAsync(
                 customer => customer.Id == customerId && customer.EnterpriseId == enterpriseId && customer.IsActive == true,
                 pageNumber: 1,
@@ -74,16 +58,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (customer == null)
                 return null;
 
-            // Every figure below is an aggregate over the customer's whole history, so it is
-            // computed in SQL. Loading the orders to add them up here is what made this endpoint
-            // answer OutOfMemoryException for a customer with 1.8M of them.
             var customerOrders = _context.Set<Order>().AsNoTracking()
                 .Where(order => order.IsActive == true
                                 && order.EnterpriseId == enterpriseId
                                 && order.CustomerId == customerId);
 
-            // Refunds are excluded from what the customer "bought": the money went back.
-            // ReceivableResolver.IsOrderRefunded, in the query.
             var realOrders = customerOrders
                 .Where(order => order.RefundedAt == null && order.Status != (int)EnumOrderStatus.Refund);
 
@@ -134,12 +113,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             Guid enterpriseId,
             CancellationToken cancellation)
         {
-            // ReceivableResolver.ResolveOpenExposure, in the query. Refunded orders are already out
-            // of realOrders, so what is left is: a settled title owes nothing, and anything else
-            // owes the billed amount where there is one and the order total where there is not.
-            // CustomerSummaryExposureAgreementTests runs both this and the resolver over the same
-            // cases and asserts they agree — keep that test, it is the only thing holding the two
-            // definitions of exposure together.
             var exposure = Round(await (
                 from order in realOrders
                 let bill = _context.Set<Bill>().AsNoTracking()
@@ -159,15 +132,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             {
                 OpenExposure = exposure,
                 CreditLimit = customer.CreditLimit,
-                // Null, not zero, when no limit is set: an unlimited customer has no "available"
-                // figure, and showing zero would read as "blocked".
                 CreditAvailable = customer.CreditLimit.HasValue ? Round(customer.CreditLimit.Value - exposure) : null
             };
 
-            // The aging rule is reused rather than repeated — one opinion about which bucket a
-            // receivable falls in. The customer-scoped overload, because the tenant-wide one builds
-            // a position object per open order to read this single row: 1.1 GiB for a customer with
-            // 1.8M of them. That was the ponytail note this used to carry, and a big tenant felt it.
             var row = await _receivablesReportService.GetCustomerAgingAsync(enterpriseId, customer.Id, cancellation);
 
             financial.NotYetDue = row.NotYetDue;
@@ -220,8 +187,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             Guid enterpriseId,
             CancellationToken cancellation)
         {
-            // Ranked in SQL. Reading every line of every order to rank five products is the same
-            // defect as the one above, one join further out.
             var ranked = await (
                 from line in _context.Set<OrderedProduct>().AsNoTracking()
                 join order in realOrders on line.OrderId equals order.Id
@@ -254,8 +219,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return ranked;
         }
 
-        // BRL convention, half away from zero — Math.Round defaults to banker's and would disagree
-        // with the enterprise balance.
         private static decimal Round(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
     }
 }

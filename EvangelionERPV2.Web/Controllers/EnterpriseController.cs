@@ -163,8 +163,6 @@ namespace EvangelionERPV2.Web.Controllers
 
                 EnterpriseDTO enterpriseDTO = _mapper.Map<EnterpriseDTO>(enterprise);
 
-                // Balance is financial data already visible through the cash flow forecast;
-                // roles without that permission get the enterprise details with balance hidden.
                 var canSeeBalance = (await _authorizationService.AuthorizeAsync(User, RbacPolicies.CashFlowForecast.Read)).Succeeded;
                 if (!canSeeBalance)
                     enterpriseDTO.CurrentBalance = 0;
@@ -231,8 +229,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                // Built field by field rather than bound: the entity carries CurrentBalance and the
-                // audit columns, and a request body has no business setting either.
                 var enterprise = new Enterprise
                 {
                     Name = request.Name.Trim(),
@@ -281,9 +277,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (request.Id != enterpriseId)
                     return Forbid();
 
-                // The stored row is the base, so CurrentBalance keeps whatever the cash flow
-                // computed. Binding the entity used to let the caller write it directly, and
-                // CashFlowForecastService reads it.
                 Enterprise existingEnterprise = await _repository.GetByIdAsync(request.Id);
                 if (existingEnterprise == null || existingEnterprise.IsActive != true)
                     return NoContent();
@@ -312,14 +305,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Closes the books through a date, or reopens them when the date is null.
         /// </summary>
-        /// <remarks>
-        /// Admin-only, reusing enterprise.manage: freezing what the accountant already received is
-        /// the same class of act as the other settings behind that permission, and reopening one
-        /// matters more than closing it — which is why Enterprise is audited from this milestone on.
-        ///
-        /// It is a dedicated action rather than a field on the general update so that whoever can
-        /// edit a phone number cannot move the lock.
-        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.Enterprise.Manage)]
         [HttpPut]
         [RequestSizeLimit(MaxEnterpriseWriteRequestBodySizeInBytes)]
@@ -341,8 +326,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (existingEnterprise == null || existingEnterprise.IsActive != true)
                     return NoContent();
 
-                // Date only: the lock is a day, and a stray time component would make "closed
-                // through the 31st" mean 31st 00:00 for one caller and 31st 23:59 for the next.
                 existingEnterprise.ClosedThroughUtc = request.ClosedThroughUtc?.Date;
 
                 Enterprise updatedEnterprise = _enterpriseService.Update(existingEnterprise);
@@ -395,9 +378,5 @@ namespace EvangelionERPV2.Web.Controllers
             var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
         }
-
-
-
-
     }
 }

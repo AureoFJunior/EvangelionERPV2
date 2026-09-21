@@ -1,4 +1,4 @@
-﻿using System.Linq.Expressions;
+using System.Linq.Expressions;
 using EvangelionERPV2.CustomerModule.Application.Interface;
 using EvangelionERPV2.CustomerModule.Application.Services;
 using EvangelionERPV2.Shared.Entities;
@@ -13,7 +13,6 @@ namespace EvangelionERPV2.CustomerModule.Test
     {
         private static readonly Guid EnterpriseId = Guid.NewGuid();
 
-        // Praça da Sé, São Paulo.
         private const decimal OriginLatitude = -23.550520m;
         private const decimal OriginLongitude = -46.633308m;
 
@@ -88,7 +87,6 @@ namespace EvangelionERPV2.CustomerModule.Test
         [Fact]
         public void Haversine_MatchesAKnownDistance()
         {
-            // Praça da Sé to Cristo Redentor is about 360 km in a straight line.
             var km = GeoDistance.KilometresBetween(-23.550520, -46.633308, -22.951916, -43.210487);
 
             Assert.InRange(km, 355, 365);
@@ -101,11 +99,8 @@ namespace EvangelionERPV2.CustomerModule.Test
             var high = GeoDistance.BoundingBox(60, 0, 100);
             var pole = GeoDistance.BoundingBox(89.999, 0, 100);
 
-            // A degree of longitude is shorter further from the equator, so the same radius needs a
-            // wider span of degrees to cover it.
             Assert.True(high.MaxLongitude - high.MinLongitude > equator.MaxLongitude - equator.MinLongitude);
 
-            // At the pole cos(latitude) approaches zero; the span is clamped instead of dividing by it.
             Assert.Equal(-180, pole.MinLongitude);
             Assert.Equal(180, pole.MaxLongitude);
         }
@@ -113,8 +108,6 @@ namespace EvangelionERPV2.CustomerModule.Test
         [Fact]
         public async Task Nearby_CutsTheCornersTheBoundingBoxLetThrough()
         {
-            // ~1 km away, and ~40 km away. With a 5 km radius the far one is inside the box the
-            // database filtered but outside the circle.
             var near = At("Perto", -23.5595m, -46.6335m);
             var far = At("Longe", -23.9000m, -46.6335m);
 
@@ -156,7 +149,6 @@ namespace EvangelionERPV2.CustomerModule.Test
         [Fact]
         public async Task NearbyByPlace_MatchesCityStateOrNeighbourhood_CaseInsensitively()
         {
-            // Campinas is ~90 km from the Praça da Sé, so the radius below would exclude it.
             var campinas = In("Padaria de Campinas", "Cambuí", "Campinas", "SP", -22.9050m, -47.0600m);
             var santos = In("Mercado de Santos", "Gonzaga", "Santos", "SP", -23.9670m, -46.3330m);
             var curitiba = In("Loja de Curitiba", "Batel", "Curitiba", "PR", -25.4290m, -49.2710m);
@@ -171,8 +163,6 @@ namespace EvangelionERPV2.CustomerModule.Test
             var byState = await service.GetNearbyAsync(
                 EnterpriseId, OriginLatitude, OriginLongitude, radiusKm: 5, take: 50, place: "pr");
 
-            // The radius is 5 km and every one of these is further than that: a place search
-            // replaces the circle rather than being cut by it.
             Assert.Equal("Padaria de Campinas", Assert.Single(byCity).CustomerName);
             Assert.Equal("Mercado de Santos", Assert.Single(byNeighbourhood).CustomerName);
             Assert.Equal("Loja de Curitiba", Assert.Single(byState).CustomerName);
@@ -189,8 +179,6 @@ namespace EvangelionERPV2.CustomerModule.Test
             var result = await BuildService().GetNearbyAsync(
                 EnterpriseId, OriginLatitude, OriginLongitude, radiusKm: 50, take: 50, place: "campinas");
 
-            // The whole point: a customer with no coordinates is the one whose absence from the map
-            // needs explaining, so the list carries them — after everyone it could place.
             Assert.Equal(2, result.Count);
             Assert.Equal("Com coordenada", result[0].CustomerName);
             Assert.Equal("Sem coordenada", result[1].CustomerName);
@@ -222,8 +210,6 @@ namespace EvangelionERPV2.CustomerModule.Test
             var result = await BuildService().GetNearbyAsync(
                 EnterpriseId, OriginLatitude, OriginLongitude, radiusKm: 5, take: 50, place: "   ");
 
-            // Whitespace must not turn into a LIKE '%%' that matches the whole tenant and ignores
-            // the radius the user did set.
             Assert.Empty(result);
         }
 
@@ -251,7 +237,6 @@ namespace EvangelionERPV2.CustomerModule.Test
             Assert.Equal(2, result.Examined);
             Assert.Equal(1, result.Located);
             Assert.Equal(-23.550520m, locatable.Latitude);
-            // An address the service cannot place stays null rather than getting a made-up point.
             Assert.Null(unknown.Latitude);
         }
 
@@ -274,8 +259,6 @@ namespace EvangelionERPV2.CustomerModule.Test
         [Fact]
         public async Task Backfill_HandsOverTheWholeAddress_NotJustTheCep()
         {
-            // The bug this replaced: asked for a CEP alone, every CEP in Porto Alegre came back with
-            // the city centroid, so a customer in Menino Deus was pinned in Centro Histórico.
             var customer = At("Menino Deus", 0m, 0m, "Porto Alegre");
             customer.Latitude = null;
             customer.Longitude = null;
@@ -344,7 +327,6 @@ namespace EvangelionERPV2.CustomerModule.Test
         [Fact]
         public async Task Backfill_LeavesAHandPlacedPinAlone()
         {
-            // The whole point of setting one by hand: the next backfill must not undo it.
             var placed = At("Fixado à mão", -30.058100m, -51.219300m, "Porto Alegre");
 
             GivenFilteredCustomers(placed);
@@ -360,14 +342,10 @@ namespace EvangelionERPV2.CustomerModule.Test
         [Fact]
         public async Task Backfill_SkipsACustomerWithNothingToGeocode()
         {
-            // A blank address is not a pending customer — it is one nobody could place, and asking
-            // about it burns the one-request-a-second budget on a guaranteed miss.
             var blank = At("Sem endereço", 0m, 0m);
             blank.Latitude = null;
             blank.Longitude = null;
 
-            // Filtered, not stubbed: the skip lives in the predicate the service builds, so a mock
-            // that answers every query with the same list cannot tell whether it works.
             GivenFilteredCustomers(blank);
 
             var result = await BuildService().GeocodePendingAsync(EnterpriseId, take: 25);

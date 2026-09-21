@@ -46,7 +46,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                                   && AiArguments.Text(arguments, "email").Length == 0
                                   && AiArguments.Number(arguments, "limiteCredito") is null;
 
-            // An id on its own used to reach the tool, change nothing and still answer "Feito.".
             if (nothingToChange)
                 return AiToolArguments.Refused("informe telefone, email ou limiteCredito.");
 
@@ -69,7 +68,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (customer is null || customer.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"cliente não encontrado nesta empresa\"}";
 
-                // See AtualizarProdutoTool: re-checked because the card outlives the proposal.
                 if (customer.IsActive != true)
                     return "{\"erro\":\"este cliente está inativo e não pode ser alterado\"}";
 
@@ -93,8 +91,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                     changed = true;
                 }
 
-                // The model tends to echo the values it just read alongside the one being changed.
-                // Writing nothing and reporting success is how "Feito." came to mean nothing happened.
                 if (!changed)
                     return "{\"erro\":\"nada para alterar: o cliente já está com esses valores\"}";
 

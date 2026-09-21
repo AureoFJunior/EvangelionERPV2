@@ -25,9 +25,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var monthEnd = monthStart.AddMonths(1).AddTicks(-1);
             var today = now.Date;
 
-            // LGPD: payroll bills are excluded. This report is reachable with bills.pdf.download
-            // (no payroll.read), it has no caller identity to gate on, and for a small enterprise
-            // the "Payroll" aggregate row is effectively an individual salary.
             var payrollBillType = (int)EnumPayableBillType.Payroll;
 
             var bills = (await _payableBillRepository.GetAllAsyncByFilter(

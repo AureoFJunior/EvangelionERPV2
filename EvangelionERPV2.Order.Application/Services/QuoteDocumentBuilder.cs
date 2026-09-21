@@ -9,18 +9,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
     /// <summary>
     /// A quote as a document a customer can be sent.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Deliberately a plain HTML string with its styles inlined, rendered by the one shared
-    /// <see cref="Shared.Utils.HtmlPdfRenderer"/>: the renderer blocks every outbound request the
-    /// page tries to make, so a stylesheet or a font from a CDN would silently not arrive.
-    /// </para>
-    /// <para>
-    /// It states what the quote is worth and until when, and nothing about stock or credit — a
-    /// quote reserves nothing, and a document that implies otherwise is a promise the ERP has not
-    /// made.
-    /// </para>
-    /// </remarks>
     public static class QuoteDocumentBuilder
     {
         private static readonly CultureInfo Culture = CultureInfo.GetCultureInfo("pt-BR");
@@ -50,8 +38,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             var enterprise = quote.Enterprise;
             var status = quote.StatusAsOf(utcNow);
 
-            // An expired quote still renders — somebody asking for the PDF of one is usually asking
-            // precisely because it lapsed — but it says so on its face rather than looking current.
             var expiredBanner = status == EnumQuoteStatus.Expired
                 ? $"<p class='expired'>Orçamento vencido em {Format(quote.ValidUntil)}.</p>"
                 : string.Empty;
@@ -109,8 +95,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     """);
             }
 
-            // The stored total, not the sum of the lines: it is what the customer was quoted, and
-            // recomputing here would let a rounding rule drift between the screen and the document.
             return $"""
                 <table>
                   <thead>

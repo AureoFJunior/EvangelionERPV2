@@ -41,8 +41,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
         [Fact]
         public async Task Sweep_WhenNoDaysAreOutstanding_LeavesItAlone()
         {
-            // Every entitled day accounted for: the deadline passed with nothing owed, which is the
-            // ordinary happy ending, not a liability.
             var accrual = Accrual(deadline: Today.AddDays(-30), entitled: 30, taken: 20, sold: 10);
             var context = new LapseContext(accrual);
 
@@ -96,8 +94,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
         [Fact]
         public async Task Sweep_LeavesTheDeadlineDayItselfAlone()
         {
-            // ConcessionDeadline is the last legal day to start the férias, not the first illegal
-            // one. Lapsing on the day itself would invent a debt that is not owed yet.
             var accrual = Accrual(deadline: Today, entitled: 30);
             var context = new LapseContext(accrual);
 
@@ -107,8 +103,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
         [Fact]
         public async Task Sweep_SweepsEveryTenant()
         {
-            // Runs outside a request, where the ambient tenant filter is deliberately disabled. A
-            // liability that only accrued for one tenant would be worse than none.
             var mine = Accrual(deadline: Today.AddDays(-5), entitled: 30, tenantId: TenantId);
             var theirs = Accrual(deadline: Today.AddDays(-5), entitled: 30, tenantId: OtherTenantId);
             var context = new LapseContext(mine, theirs);
@@ -123,7 +117,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             var healthy = Accrual(deadline: Today.AddDays(-5), entitled: 30);
             var context = new LapseContext(doomed, healthy);
 
-            // The oldest deadline is swept first, so the throwing row is the first one reached.
             context.FailCommitFor(doomed.Id);
 
             var lapsed = await context.Service.SweepLapsedAsync();
@@ -174,8 +167,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
         [Fact]
         public async Task Approaching_ExcludesAccrualsThatAlreadyLapsed()
         {
-            // Past the deadline it is a debt to settle, not a deadline to meet. Listing both
-            // together hides which is which.
             var context = new LapseContext(
                 Accrual(deadline: Today.AddDays(-1), entitled: 30, status: EnumVacationAccrualStatus.Lapsed));
 
@@ -243,8 +234,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
 
             Assert.False(ran);
 
-            // Strict mock: touching the scope factory at all would have thrown. Two replicas both
-            // sweeping would log the same liability twice.
             scopeFactory.Verify(x => x.CreateScope(), Times.Never);
         }
 
@@ -256,7 +245,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
                 Options.Create(new EmployeeVacationSettings()),
                 Mock.Of<IDistributedLease>());
 
-            // Sharing a key with the NFe sweeper would make each block the other.
             Assert.Equal("eva:lease:vacation-lapse", worker.LeaseKey);
             Assert.NotEqual("eva:lease:nfe-reconciliation", worker.LeaseKey);
         }
@@ -314,10 +302,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
             {
                 _ledger = [.. accruals];
 
-                // The paged overload, because that is the one the sweeper calls: the batch cap has
-                // to reach SQL rather than trimming a list already pulled into memory. Compiling
-                // the service's real predicate against an in-memory ledger keeps the business rule
-                // itself under test instead of a mocked-out answer.
                 Repository
                     .Setup(x => x.GetAllAsync(
                         It.IsAny<int?>(),
@@ -334,8 +318,6 @@ namespace EvangelionERPV2.EmployeeModule.Test
                         return rows.ToList();
                     });
 
-                // The unpaged overload too: GetApproachingDeadlineAsync is a request-path read with
-                // no batch cap, so it calls the other one.
                 Repository
                     .Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<EmployeeVacationAccrual, bool>>>()))
                     .ReturnsAsync((Expression<Func<EmployeeVacationAccrual, bool>>? predicate) =>

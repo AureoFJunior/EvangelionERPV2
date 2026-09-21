@@ -95,9 +95,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
                 await ExecuteInTransactionAsync(async () =>
                 {
-                    // Claimed inside the transaction, before any work: if this message has already
-                    // been handled the unique index rejects the row and the whole order rolls back,
-                    // so the duplicate never reaches stock or the enterprise balance.
                     await ClaimMessageAsync(messageId);
 
                     VerifyValidValues(ref order);
@@ -108,7 +105,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     await _orderRepository.CreateAsync(order);
                     await _orderedProductRepository.CreateRangeAsync(order.OrderedProduct ?? Enumerable.Empty<OrderedProduct>());
 
-                    // Update product quantity and needed fields for this flow
                     await _productService.UpdateForOrder(order, allowNegativeStock);
 
                     await _orderRepository.CommitAsync();
@@ -127,10 +123,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             {
                 throw;
             }
-            // Must pass through, like the two above. Wrapped in InsertDatabaseException it reaches
-            // the controller as a 400, the worker reads that as a failure and retries, and the
-            // message it already handled ends up dead-lettered - which is what happened the first
-            // time this was tested.
             catch (DuplicateMessageException)
             {
                 throw;
@@ -152,7 +144,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             Log.Logger.Information($"Order [{order.Id}] created at: {DateTime.UtcNow}");
 
-            // Send notification to Order Hub
             await SendOrderUpdate(order.Id.ToString(), "Created", order.EnterpriseId ?? Guid.Empty);
 
             return order;
@@ -185,10 +176,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             var isActive = filter.IsActive;
             var startDate = filter.StartDate?.Date;
 
-            // Half-open upper bound rather than CreatedAt.Date <= EndDate: comparing the column
-            // against a value keeps the (EnterpriseId, IsActive, CreatedAt) index seekable, while
-            // CAST(CreatedAt AS date) on every row does not. Same rows either way - a whole day is
-            // still included, because the bound is the start of the next one.
             var endDateExclusive = filter.EndDate?.Date.AddDays(1);
 
             return await _orderRepository.GetAllAsyncByFilter(
@@ -289,8 +276,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (existentOrder.Status == (int)EnumOrderStatus.Refund || existentOrder.RefundedAt.HasValue)
                         throw new InsertDatabaseException("Order was already refunded.");
 
-                    // The order's own date, not today: a refund reverses revenue in the month the
-                    // order was booked into, which is the month that must still be open.
                     await AssertPeriodOpenAsync(enterpriseId, existentOrder.PaymentScheduledDate, "The order being refunded");
 
                     var orderedProducts = (await _orderedProductRepository.GetAllAsync(
@@ -326,10 +311,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
                         var quantityToRestore = Math.Max(0m, orderedProduct.Quantity);
 
-                        // Goes through the shared stock path rather than mutating the entity here:
-                        // a refund that puts units back is a stock movement like any other and has
-                        // to leave a ledger row and drop the product cache, same as the sale did.
-                        // A zero-quantity line moved nothing, and the ledger only records changes.
                         if (quantityToRestore > 0)
                         {
                             await _productService.ApplyStockMovementAsync(
@@ -423,8 +404,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (!Enum.IsDefined(typeof(EnumOrderStatus), order.Status))
                         throw new InsertDatabaseException("Invalid order status.");
 
-                    // Both dates: the month it sits in has to be open, and so does the month it is
-                    // being moved to — otherwise an edit could carry a document into closed books.
                     var lockedThrough = GetClosedThroughUtc(existentOrder.EnterpriseId ?? enterpriseId);
                     PeriodLock.Assert(lockedThrough, existentOrder.PaymentScheduledDate, "This order");
                     if (order.PaymentScheduledDate != default)
@@ -442,7 +421,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                             throw new InsertDatabaseException("Order was concurrently finalized or already refunded.");
                     }
 
-                    // Use tracked merge to avoid detached-entity overwrite and preserve immutable fields.
                     existentOrder.CustomerId = order.CustomerId ?? existentOrder.CustomerId;
                     existentOrder.UserId = order.UserId ?? existentOrder.UserId;
                     existentOrder.Payday = ResolvePaydayForStatus(
@@ -477,9 +455,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             }
             catch (InsertDatabaseException)
             {
-                // A business rule saying no — "this order is Finished", "stock is short". Rewrapping
-                // it hid the reason behind an inner exception and the controller answered 500 to
-                // what is a 400 with a sentence the caller can act on.
                 throw;
             }
             catch (Exception ex)
@@ -512,7 +487,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (IsImmutableStatus(order.Status))
                         throw new InsertDatabaseException("Orders with status Finished or Refund cannot be edited.");
 
-                    // Deleting is how revenue leaves a month, so it is governed exactly like an edit.
                     PeriodLock.Assert(
                         GetClosedThroughUtc(order.EnterpriseId ?? enterpriseId),
                         order.PaymentScheduledDate,
@@ -548,9 +522,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             }
             catch (InsertDatabaseException)
             {
-                // A business rule saying no — "this order is Finished", "stock is short". Rewrapping
-                // it hid the reason behind an inner exception and the controller answered 500 to
-                // what is a 400 with a sentence the caller can act on.
                 throw;
             }
             catch (Exception ex)
@@ -562,13 +533,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// <summary>
         /// Publishes the order as a flat message contract rather than as the entity.
         /// </summary>
-        /// <remarks>
-        /// The entity was serialized with <c>ReferenceHandler.Preserve</c> because its navigation
-        /// properties cycle, which put <c>$id</c>/<c>$ref</c> on the wire and made the queue format
-        /// an accident of the EF model: any new navigation property changed what consumers received.
-        /// <see cref="CreateQueuedOrderRequestDTO"/> is what the worker has always reduced the
-        /// message to, so nothing is lost by sending it directly.
-        /// </remarks>
         public async Task InsertOrderInQueue(Order order)
         {
             try
@@ -611,15 +575,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// Records that a queue message has been handled, or throws
         /// <see cref="DuplicateMessageException"/> if it already was.
         /// </summary>
-        /// <remarks>
-        /// The unique index on (Handler, MessageId) is what settles the race between two concurrent
-        /// deliveries: both read an empty table, one commits, the other violates the constraint.
-        /// A check without the constraint would be a race, and a constraint without the transaction
-        /// would leave the row behind when the order failed for some other reason.
-        ///
-        /// A null or empty id means the caller is not a queue consumer - the direct API path - and
-        /// there is nothing to deduplicate.
-        /// </remarks>
         private async Task ClaimMessageAsync(string? messageId)
         {
             if (string.IsNullOrWhiteSpace(messageId) || _appDbContext == null)
@@ -646,15 +601,12 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             }
             catch (DbUpdateException exception) when (IsUniqueViolation(exception))
             {
-                // The other delivery won. Same outcome as the check above, reached the only way that
-                // is safe when two workers are processing the same message at once.
                 throw new DuplicateMessageException(messageId);
             }
         }
 
         private static bool IsUniqueViolation(DbUpdateException exception)
         {
-            // 2601 duplicate key in a unique index, 2627 unique constraint violation.
             return exception.InnerException is SqlException sql && (sql.Number == 2601 || sql.Number == 2627);
         }
 
@@ -757,8 +709,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             if (_appDbContext != null)
             {
                 var now = DateTime.UtcNow;
-                // BRL convention is half-away-from-zero, and SQL Server's ROUND() below rounds
-                // that way too — Math.Round defaults to banker's rounding and would disagree.
                 var roundedDelta = Math.Round(delta, 2, MidpointRounding.AwayFromZero);
                 var affectedRows = _appDbContext.Database.ExecuteSqlInterpolated(
                     $"UPDATE Enterprise SET CurrentBalance = ROUND(CurrentBalance + {roundedDelta}, 2), UpdatedAt = {now} WHERE Id = {enterpriseId}");
@@ -791,19 +741,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// <summary>
         /// Refuses an order that would put the customer past the limit set for them.
         /// </summary>
-        /// <remarks>
-        /// Exposure is computed here rather than stored: a running total on Customer drifts the
-        /// moment a boleto is settled outside the app. The rule for what an order still owes is
-        /// <see cref="ReceivableResolver.ResolveOpenExposure"/> — the same one the aging report,
-        /// the panel and the forecast use, so the number a salesperson is blocked by is the number
-        /// the carteira shows.
-        ///
-        /// Inside the creation transaction, and the customer's own row is locked before the
-        /// carteira is read, so two simultaneous orders for the same customer queue behind each
-        /// other: the second reads the carteira with the first order already in it instead of
-        /// both reading the total from before either. Only that customer's row is held — orders
-        /// for anyone else never wait on it.
-        /// </remarks>
         private async Task AssertWithinCreditLimitAsync(Order order, bool allowCreditOverride)
         {
             if (allowCreditOverride)
@@ -814,9 +751,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             if (enterpriseId == Guid.Empty || customerId == Guid.Empty)
                 return;
 
-            // GetPagedAsync, not GetAllAsync: CustomerRepository's override throws on an empty
-            // result, and a missing customer must leave the order to the foreign key to refuse —
-            // not turn into a generic "unexpected error while creating the order".
             var customer = (await _customerRepository.GetPagedAsync(
                     x => x.Id == customerId && x.EnterpriseId == enterpriseId))
                 .Items
@@ -826,10 +760,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             if (creditLimit == null)
                 return;
 
-            // The gate between the read below and the insert this transaction is about to make.
-            // Without it two orders for this customer both read the carteira before either is in
-            // it, both fit, and the pair goes over. Taken only once a limit is actually set, so a
-            // customer with no limit still contends with nobody.
             await _customerRepository.LockForUpdateAsync(customerId);
 
             var exposure = await GetOpenExposureAsync(enterpriseId, customerId);
@@ -837,8 +767,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             if (projected <= creditLimit.Value)
                 return;
 
-            // Amounts only. The message reaches the caller through the 409, and it is the
-            // company's own figures — never anything the request submitted.
             throw new CreditLimitExceededException(
                 $"This order would take the customer to {projected:0.00} against a credit limit of {creditLimit.Value:0.00}.");
         }
@@ -846,8 +774,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// <summary>Everything this customer still owes, boleto first, refunds excluded.</summary>
         private async Task<decimal> GetOpenExposureAsync(Guid enterpriseId, Guid customerId)
         {
-            // GetPagedAsync deliberately: OrderRepository's GetAllAsync override drags the whole
-            // item graph across the wire, and this reads four columns.
             var openOrders = (await _orderRepository.GetPagedAsync(
                     x => x.EnterpriseId == enterpriseId
                          && x.CustomerId == customerId
@@ -862,7 +788,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             if (openOrders.Count == 0)
                 return 0m;
 
-            // Bill carries no EnterpriseId of its own; it is tenant-scoped through Order.
             var liveBills = ReceivableResolver.SelectLiveBillsByOrder(
                 await _billRepository.GetAllAsync(
                     x => x.Order != null
@@ -890,8 +815,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             if (_appDbContext != null)
             {
                 var now = DateTime.UtcNow;
-                // BRL convention is half-away-from-zero, and SQL Server's ROUND() below rounds
-                // that way too — Math.Round defaults to banker's rounding and would disagree.
                 var roundedDelta = Math.Round(delta, 2, MidpointRounding.AwayFromZero);
                 var affectedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
                     $"UPDATE Enterprise SET CurrentBalance = ROUND(CurrentBalance + {roundedDelta}, 2), UpdatedAt = {now} WHERE Id = {enterpriseId}");
@@ -953,21 +876,11 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             {
                 if (disposing)
                 {
-                    // Nothing is disposed here on purpose. Every dependency of this service is
-                    // injected, so the container owns it and disposes it: this class disposing them
-                    // reached past its own lifetime. It disposed the singleton RabbitMQ manager at
-                    // the end of the first request that used it, which closed the broker connection
-                    // for the rest of the process.
                 }
-
-                // Dispose unmanaged resources here.
-                // For example:
-                // Close file handles, release COM objects.
 
                 disposed = true;
             }
         }
-
 
         #endregion
     }

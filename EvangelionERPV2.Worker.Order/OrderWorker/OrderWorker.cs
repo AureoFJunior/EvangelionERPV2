@@ -1,4 +1,4 @@
-﻿using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Worker.OrderModule.OrderWorker.RabbitMQ;
@@ -89,9 +89,6 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
         private static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(5);
         private string? _cachedToken;
 
-        // Ticks in a long, read with Interlocked: handlers now run concurrently, and the fast path
-        // below reads both fields outside the lock. A DateTime field is not guaranteed to be read
-        // atomically, so a torn read could accept an expired token or reject a live one.
         private long _cachedTokenExpiresAtTicks;
 
         private async Task<string?> GetCachedApiTokenAsync(string key, CancellationToken cancellationToken)
@@ -136,12 +133,6 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
         /// <summary>
         /// Validates a queued order before it is replayed against the API.
         /// </summary>
-        /// <remarks>
-        /// The worker posts with the self-API machine token, so the original tenant and user must
-        /// travel in the payload; the API validates them against the database. Checked here so a
-        /// malformed message fails on this side with a message naming the missing field, rather
-        /// than as an opaque 400 from the API.
-        /// </remarks>
         private static CreateQueuedOrderRequestDTO ValidateQueuedOrder(CreateQueuedOrderRequestDTO order)
         {
             if (order == null)

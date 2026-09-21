@@ -6,12 +6,6 @@ namespace EvangelionERPV2.Web.FluentValidator
     /// <summary>
     /// A hand-placed pin, checked at the boundary.
     /// </summary>
-    /// <remarks>
-    /// The same range lives in <c>CustomerLocationService.SetLocationAsync</c> and is not duplicated
-    /// by accident: this one turns a bad body into a 400 before anything runs, and that one holds
-    /// the invariant for every caller the HTTP boundary does not cover. A point off the globe is not
-    /// a typo worth storing either way.
-    /// </remarks>
     public sealed class SetCustomerLocationRequestValidator : AbstractValidator<SetCustomerLocationRequestDTO>
     {
         public SetCustomerLocationRequestValidator()

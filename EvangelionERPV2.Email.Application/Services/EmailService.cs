@@ -69,7 +69,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 includedEmail = await _emailRepository.CreateAsync(email);
                 await _emailRepository.CommitAsync();
                 return includedEmail;
-
             }
             catch (Exception ex)
             {
@@ -81,8 +80,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         {
             try
             {
-                // Create the Email object
-
                 var message = new MimeMessage();
                 var emailSettings = (await ResolveEmailSettingsCandidatesAsync(enterpriseId)).FirstOrDefault();
                 if (emailSettings == null)
@@ -114,7 +111,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 message.Body = bodyBuilder.ToMessageBody();
 
                 return message;
-
             }
             catch (Exception ex)
             {
@@ -222,7 +218,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                             }
                         }
 
-                        // Ensure visible sender is consistent with the authenticated account.
                         message.From.Clear();
                         message.From.Add(new MailboxAddress(userEmail, userEmail));
 
@@ -308,8 +303,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 candidates.Add(configuredCandidate);
             }
 
-            // Stored per-enterprise rows are kept as a fallback, after the configured account, so a
-            // tenant that has its own mailbox still sends when EmailSettings is not configured.
             foreach (var stored in storedSettings)
             {
                 var duplicate = candidates.Any(x =>
@@ -677,7 +670,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                 var enterpriseId = enterprise.Id;
 
-                // Validate email
                 if (email.RecipientEmails == null || email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
                 {
                     Log.Logger.Warning($"Shouldn't send email.");
@@ -696,7 +688,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                     Date = message.Date
                 };
 
-                // Put in the Email Queue
                 Log.Logger.Information("Sending email to the Queue");
                 using (var stream = new MemoryStream())
                 {
@@ -744,7 +735,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                 foreach (Enterprise enterprise in enterprises)
                 {
-
                     var body = await _orderService.GetOrdersBodyAsync(enterprise);
 
                     if (!string.IsNullOrEmpty(body))
@@ -753,7 +743,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                         var email = new EmailStructure(body.ToString(), "Monthly Email", recipientEmails);
 
-                        // Validate email
                         if (email.RecipientEmails == null || email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
                         {
                             Log.Logger.Warning($"Shouldn't send email.");
@@ -816,15 +805,12 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
         private async Task<bool> ShouldSendEmail(EmailStructure email, Enterprise enterprise)
         {
-            // Validate the Email
-
             if (string.IsNullOrEmpty(email.Body))
             {
                 Log.Logger.Error($"Invalid Email Body.");
                 return false;
             }
 
-            // Validate recipients's email
             var validRecipients = new List<string>();
 
             foreach (var recipientEmail in email.RecipientEmails ?? Enumerable.Empty<string>())
@@ -850,13 +836,12 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         {
             var secrets = new ClientSecrets
             {
-                ClientId = clientId,       // OAuth Desktop App
+                ClientId = clientId,
                 ClientSecret = clientSecret
             };
 
             var scopes = new[] { "https://mail.google.com/" };
 
-            // Porta fixa + Edge InPrivate
             var receiver = new FixedPortEdgeReceiver(54373);
 
                 var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
@@ -871,7 +856,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             return await credential.GetAccessTokenForRequestAsync();
         }
 
-
         #region Dispose Pattern
         public void Dispose()
         {
@@ -885,21 +869,11 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             {
                 if (disposing)
                 {
-                    // Nothing is disposed here on purpose. Every dependency of this service is
-                    // injected, so the container owns it and disposes it: this class disposing them
-                    // reached past its own lifetime. It disposed the singleton RabbitMQ manager at
-                    // the end of the first request that used it, which closed the broker connection
-                    // for the rest of the process.
                 }
-
-                // Dispose unmanaged resources here.
-                // For example:
-                // Close file handles, release COM objects.
 
                 disposed = true;
             }
         }
-
 
         #endregion
     }

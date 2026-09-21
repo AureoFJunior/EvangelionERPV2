@@ -31,7 +31,6 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(parent.BillType, child.BillType);
             Assert.False(child.IsPaid);
 
-            // The child carries the recurrence forward: it becomes the next parent in its turn.
             Assert.Equal(parent.RecurrenceMonths, child.RecurrenceMonths);
             Assert.Equal(parent.RecurrenceUntilUtc, child.RecurrenceUntilUtc);
         }
@@ -39,8 +38,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Sweep_TwiceInOneDay_GeneratesOneBill()
         {
-            // The filtered unique index on RecurrenceParentId is the idempotency; the pre-check
-            // just makes it graceful.
             var parent = BuildRecurring(dueDate: Today.AddDays(-1), months: 1);
             var (service, bills, _) = BuildSut([parent]);
 
@@ -63,7 +60,6 @@ namespace EvangelionERPV2.BillsModule.Test
         public async Task Sweep_StopsAtTheEndDate()
         {
             var parent = BuildRecurring(dueDate: Today.AddDays(-1), months: 1);
-            // The next link would fall a month past the end of the chain.
             parent.RecurrenceUntilUtc = parent.DueDate.AddDays(3);
 
             var (service, _, _) = BuildSut([parent]);
@@ -100,8 +96,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Sweep_NeverGeneratesIntoAClosedPeriod()
         {
-            // The interaction that matters: a chain must not put a bill inside a month the
-            // accountant already received.
             var parent = BuildRecurring(dueDate: Today.AddDays(-1), months: 1);
             var (service, bills, _) = BuildSut([parent], closedThroughUtc: parent.DueDate.AddMonths(2));
 
@@ -130,8 +124,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task Sweep_DoesNotCarryItemLinesForward()
         {
-            // Rent and internet deliver nothing; cloned lines would tell the stock ledger a
-            // delivery is pending every month.
             var parent = BuildRecurring(dueDate: Today.AddDays(-1), months: 1);
             parent.Items = [new PayableBillProduct { ProductId = Guid.NewGuid(), Quantity = 1, UnitValue = 10 }];
 

@@ -31,8 +31,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             using var certificate = request.CreateSelfSigned(
                 DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
 
-            // Round-tripped through PKCS#12 so the instance carries an exportable private key,
-            // which is the shape a real A1 certificate arrives in.
             return X509CertificateLoader.LoadPkcs12(
                 certificate.Export(X509ContentType.Pkcs12, "test"), "test", X509KeyStorageFlags.EphemeralKeySet);
         }
@@ -89,7 +87,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         {
             using var certificate = SelfSigned();
 
-            // MG (31): a perfectly real UF whose autorizador this system has never spoken to.
             var exception = Assert.Throws<InvalidOperationException>(
                 () => UnimakeConfiguracaoFactory.Create(Settings(31), NFeDocumentType.NFe, certificate));
 

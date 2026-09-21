@@ -4,8 +4,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 {
     public class NFeAccessKeyBuilderTests
     {
-        // cUF 35 | AAMM 2601 | CNPJ 12345678000195 | mod 55 | serie 001 | nNF 000000123 |
-        // tpEmis 1 | cNF 12345678 -> 43-digit body, mod-11 sum 633, 633 % 11 = 6, DV = 11 - 6 = 5.
         private const string KnownBody = "3526011234567800019555001000000123112345678";
         private const string KnownKey = KnownBody + "5";
 
@@ -48,12 +46,9 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.True(NFeAccessKeyBuilder.IsValid(key));
         }
 
-        // Both mod-11 boundaries collapse to DV 0. Derived from the KnownBody sum of 633: dropping
-        // the last digit leaves 617, so sum = 617 + 2 * lastDigit.
-        // lastDigit 5 -> 627, 627 % 11 = 0. lastDigit 0 -> 617, 617 % 11 = 1.
         [Theory]
-        [InlineData("12345675")] // rest == 0
-        [InlineData("12345670")] // rest == 1
+        [InlineData("12345675")]
+        [InlineData("12345670")]
         public void Build_CheckDigitBoundaries_ProduceZero(string codigoNumerico)
         {
             var key = BuildKnown(codigoNumerico);
@@ -74,8 +69,8 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         }
 
         [Theory]
-        [InlineData("1234567800019")]   // 13 digits
-        [InlineData("123456780001955")] // 15 digits
+        [InlineData("1234567800019")]
+        [InlineData("123456780001955")]
         [InlineData("")]
         public void Build_CnpjWithWrongDigitCount_Throws(string cnpj)
         {
@@ -131,8 +126,8 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         }
 
         [Theory]
-        [InlineData("1234567")]  // 7 digits
-        [InlineData("123456789")] // 9 digits
+        [InlineData("1234567")]
+        [InlineData("123456789")]
         [InlineData("1234567a")]
         [InlineData("")]
         [InlineData(null)]
@@ -157,7 +152,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void IsValid_SingleFlippedDigit_IsRejected()
         {
-            // Flip one digit inside the body; the mod-11 DV no longer matches.
             var tampered = KnownKey.Remove(20, 1).Insert(20, KnownKey[20] == '9' ? "8" : "9");
 
             Assert.NotEqual(KnownKey, tampered);
@@ -168,9 +162,9 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Theory]
         [InlineData(null)]
         [InlineData("")]
-        [InlineData("3526011234567800019555001000000123112345678")]   // 43 digits
-        [InlineData("352601123456780001955500100000012311234567855")] // 45 digits
-        [InlineData("3526011234567800019555001000000123112345678X")]  // non-digit
+        [InlineData("3526011234567800019555001000000123112345678")]
+        [InlineData("352601123456780001955500100000012311234567855")]
+        [InlineData("3526011234567800019555001000000123112345678X")]
         public void IsValid_MalformedKey_IsRejected(string? accessKey)
         {
             Assert.False(NFeAccessKeyBuilder.IsValid(accessKey));

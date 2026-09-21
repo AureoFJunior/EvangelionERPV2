@@ -5,13 +5,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// Admin-facing fiscal profile payload.
     /// </summary>
-    /// <remarks>
-    /// Deliberately carries NO secret material: no certificate bytes, no certificate password,
-    /// no NFCe CSC token. Those live only in AWS Secrets Manager. The certificate fields below
-    /// are read-only metadata, written by the certificate upload flow rather than by this DTO.
-    /// EnterpriseFiscalSettingsDtoPrivacyTests fails the build if a secret-looking property
-    /// is ever added here.
-    /// </remarks>
     public class EnterpriseFiscalSettingsDTO
     {
         #region Emitente identity
@@ -37,7 +30,6 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Cep { get; set; } = string.Empty;
         public string? Telefone { get; set; }
 
-        // CodigoUfIbge is derived from Uf server-side and is not accepted from the client.
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public short CodigoUfIbge { get; set; }
 

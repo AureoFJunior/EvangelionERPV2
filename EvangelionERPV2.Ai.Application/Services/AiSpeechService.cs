@@ -12,10 +12,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
     /// Speech-to-text against a local Whisper server, over the OpenAI-compatible
     /// <c>/v1/audio/transcriptions</c> shape that both faster-whisper-server and whisper.cpp speak.
     /// </summary>
-    /// <remarks>
-    /// The audio is streamed straight from the request body to the transcription server: it is
-    /// never buffered to a file, never logged, and never returned. Only the text comes back.
-    /// </remarks>
     public sealed class AiSpeechService : IAiSpeechService
     {
         private readonly HttpClient _client;
@@ -48,13 +44,8 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 content.Add(file, "file", fileName);
                 content.Add(new StringContent(_settings.SpeechModel), "model");
                 content.Add(new StringContent(_settings.SpeechLanguage), "language");
-                // json, not verbose_json: we want the words and nothing else — no segments, no
-                // timings, nothing that could be mistaken for a recording of the utterance.
                 content.Add(new StringContent("json"), "response_format");
 
-                // Both measured rather than assumed — see AiSettings. The prompt is what stops this
-                // system's own vocabulary coming back as nonsense; the VAD filter is what stops
-                // silence coming back as a question.
                 if (_settings.SpeechVadFilter)
                     content.Add(new StringContent("true"), "vad_filter");
 
@@ -74,10 +65,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 var payload = await response.Content.ReadAsStringAsync(cancellation);
                 var text = ReadText(payload);
 
-                // Silence does not come back empty from Whisper; it comes back as one phrase repeated
-                // until the buffer runs out. Treated as speech it becomes a question the person never
-                // asked, costs a turn, and stays in their history. Treated as what it is, the client's
-                // existing "nothing was said" path simply does not send a turn.
                 if (AiTranscriptSanity.IsRepetitionLoop(text))
                 {
                     Log.Logger.Information(
@@ -95,16 +82,12 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 return AiTranscriptionResult.Ok(
                     new AiTranscript(text, _settings.SpeechModel, stopwatch.ElapsedMilliseconds));
             }
-            // Only the caller hanging up is a cancellation. HttpClient reports its own timeout the
-            // same way, with no token of ours behind it, and rethrowing that 500s the endpoint over a
-            // slow Whisper instead of answering 503.
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
             {
                 throw;
             }
             catch (Exception ex)
             {
-                // Never the message: it can carry the request, and the request is someone's voice.
                 Log.Logger.Error("Speech transcription failed. ErrorType={ErrorType}", ex.GetType().Name);
 
                 return AiTranscriptionResult.Failed("O serviço de voz está indisponível.");

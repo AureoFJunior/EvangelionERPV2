@@ -5,15 +5,6 @@ namespace EvangelionERPV2.Web.Security
     /// <summary>
     /// Marks a token as issued to a till, and confines what such a token can authorise.
     /// </summary>
-    /// <remarks>
-    /// Both authorization handlers derive permissions from the persisted <c>AccessLevel</c>, not
-    /// from claims — deliberately, so a stale token cannot outlive a demotion. The consequence is
-    /// that listing <c>pdv.*</c> permissions in a token would scope nothing at all: a supervisor's
-    /// till token would still open payroll, because the handler never reads that list.
-    ///
-    /// So the scope is one claim the handlers actually check. A credential lifted off a shop-floor
-    /// machine buys the attacker the till, and only the till.
-    /// </remarks>
     public static class PdvTokenScope
     {
         public const string ClaimType = "token_scope";

@@ -7,21 +7,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// <summary>
     /// An orçamento: what a sale would cost, before anything is committed to.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Its own entity rather than an <c>EnumOrderStatus.Quote</c>, and the reason is worth keeping.
-    /// <c>OrderService.CreateAsync</c> moves stock and the enterprise balance on every order, and
-    /// the cash-flow forecast, the daily panel, the aging report, the accountant's package, the
-    /// order report and the replenishment engine all read Order rows. Appending a status would have
-    /// meant a new <c>!= Quote</c> exclusion in each of them — and missing one makes a financial
-    /// report count money nobody promised.
-    /// </para>
-    /// <para>
-    /// So a quote reserves nothing, moves nothing and appears in no financial read. It becomes real
-    /// exactly once, through <c>ConvertAsync</c>, which creates an ordinary Order and records its id
-    /// here.
-    /// </para>
-    /// </remarks>
     [Index(nameof(EnterpriseId), nameof(Status))]
     public class Quote : BaseEntity
     {

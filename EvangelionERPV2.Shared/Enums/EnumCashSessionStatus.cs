@@ -3,10 +3,6 @@ namespace EvangelionERPV2.Shared.Enums
     /// <summary>
     /// Lifecycle of a till session (caixa).
     /// </summary>
-    /// <remarks>
-    /// Values are explicit because they are persisted in <c>CashSession.Status</c>: reordering the
-    /// members must never silently reinterpret rows already written.
-    /// </remarks>
     public enum EnumCashSessionStatus
     {
         /// <summary>Accepting sales. At most one per terminal per enterprise, enforced by index.</summary>

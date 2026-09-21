@@ -7,14 +7,6 @@ namespace EvangelionERPV2.Shared.DTOs
         /// <summary>
         /// The id the terminal minted for this shift, which is the only key that closes it.
         /// </summary>
-        /// <remarks>
-        /// Published because <c>CloseSession</c> matches on it and nothing else did. Without it an
-        /// open shift was visible from the backoffice and closable only from the one machine that
-        /// still held the value in its local database — so a till that was reinstalled, or whose
-        /// disk failed, left a shift nobody could close, and <c>OpenSessionAsync</c> then refused to
-        /// open another on that terminal for ever. Seeing it costs nothing: it is the tenant's own
-        /// data, and closing still needs the CloseSession grant and a counted amount.
-        /// </remarks>
         public Guid ClientSessionId { get; set; }
         public string TerminalId { get; set; } = string.Empty;
         public Guid UserId { get; set; }
@@ -61,12 +53,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// The fiscal document for one till sale, as the terminal needs it to print.
     /// </summary>
-    /// <remarks>
-    /// This is the one place <c>QrCode</c> and <c>UrlChave</c> deliberately leave the server: they
-    /// are printed on the customer's own receipt, which is the entire point of an NFC-e. They stay
-    /// absent from <c>NFeDocumentDTO</c>, where the same values would only leak an access key —
-    /// and with it a CNPJ and a note number — to a back-office caller with no use for them.
-    /// </remarks>
     public sealed class PdvFiscalDocumentDTO
     {
         public string AccessKey { get; set; } = string.Empty;
@@ -111,11 +97,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// The X-reading while a session is open, and the Z-reading once it is closed.
     /// </summary>
-    /// <remarks>
-    /// <see cref="ExpectedCash"/> is withheld while the session is open and the caller has not yet
-    /// counted, because an operator who can see the target will hit the target — that is the whole
-    /// value of a blind close.
-    /// </remarks>
     public sealed class CashSessionSummaryDTO
     {
         public CashSessionDTO Session { get; set; } = new();
@@ -198,11 +179,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// A page of catalog changes plus the cursor to resume from.
     /// </summary>
-    /// <remarks>
-    /// The cursor is server time, echoed rather than computed at the till, for the reason on
-    /// <see cref="PdvCatalogItemDTO.ChangedAt"/>. <see cref="HasMore"/> lets a terminal that has
-    /// been off for a month pull the catalog in pages instead of one enormous response.
-    /// </remarks>
     public sealed class PdvCatalogPageDTO
     {
         public IEnumerable<PdvCatalogItemDTO> Items { get; set; } = [];
@@ -214,11 +190,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// One product's thumbnail, and the hash that lets a till skip it next time.
     /// </summary>
-    /// <remarks>
-    /// A product with no usable picture is returned with an empty <see cref="ThumbnailBase64"/> and
-    /// a null <see cref="Hash"/> rather than being left out of the page. The till records "there is
-    /// no picture here" and stops asking; omitting it would make every sync try again forever.
-    /// </remarks>
     public sealed class PdvProductImageDTO
     {
         public Guid ProductId { get; set; }
@@ -239,11 +210,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// The credential for a newly enrolled till.
     /// </summary>
-    /// <remarks>
-    /// Returned exactly once. Only a PBKDF2 verifier is stored, so nothing can retrieve this value
-    /// afterwards — a lost credential means re-enrolling the terminal, which is the correct cost of
-    /// storing it properly.
-    /// </remarks>
     public sealed class EnrollTerminalResponseDTO
     {
         public string TerminalId { get; set; } = string.Empty;
@@ -253,11 +219,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// What a till gets back from a successful login.
     /// </summary>
-    /// <remarks>
-    /// <c>Permissions</c> is the operator's <c>pdv.*</c> grants and nothing else — the till caches
-    /// them so it can grey out a button while offline. They are a mirror of the server's decision,
-    /// never the decision itself: every call is still authorised server-side.
-    /// </remarks>
     public sealed class PdvLoginResponseDTO
     {
         public string Token { get; set; } = string.Empty;
@@ -271,11 +232,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// One supervisor a till may ask to authorise an override, and the verifier it checks the PIN
     /// against.
     /// </summary>
-    /// <remarks>
-    /// The verifier travels to the terminal on purpose: an override has to work with the network
-    /// down, which is the case it exists for. A verifier is not a PIN — 210,000 PBKDF2 iterations
-    /// is what stands between a stolen terminal database and six digits.
-    /// </remarks>
     public sealed class SupervisorVerifierDTO
     {
         public Guid UserId { get; set; }
@@ -287,13 +243,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// Everything a till needs to decide, on its own, who may do what.
     /// </summary>
-    /// <remarks>
-    /// Refreshed on every sync rather than at login: a terminal can run for days on one token, and
-    /// a till that never hears about a sacking keeps honouring that person's overrides.
-    ///
-    /// <c>ServerTimeUtc</c> is what the terminal measures its own staleness against — a shop-floor
-    /// clock is nobody's source of truth.
-    /// </remarks>
     public sealed class PdvSyncStateDTO
     {
         public DateTime ServerTimeUtc { get; set; }
@@ -311,22 +260,11 @@ namespace EvangelionERPV2.Shared.DTOs
         /// <summary>
         /// Whether confirmed PIX is available at this shop's tills right now.
         /// </summary>
-        /// <remarks>
-        /// Carried on the snapshot the till already pulls every sync rather than on a new endpoint:
-        /// the terminal must be able to grey the button out and say why *before* an operator presses
-        /// it, and asking a server at press time cannot answer when the reason is "no connection".
-        /// </remarks>
         public bool PixEnabled { get; set; }
 
         /// <summary>
         /// Whether a sale rung at this shop's tills gets an NFC-e.
         /// </summary>
-        /// <remarks>
-        /// Both of the tenant's switches AND-ed into one answer, because the till has only one
-        /// question: is the paper it hands the customer a DANFE NFC-e or a non-fiscal coupon? It
-        /// has to know that before the sale, and a terminal that cannot reach the ERP is exactly
-        /// the terminal that most needs the previous answer.
-        /// </remarks>
         public bool NFCeEnabled { get; set; }
     }
 
@@ -363,11 +301,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// A refused override, as the till is told about it.
     /// </summary>
-    /// <remarks>
-    /// The lockout counts per supervisor rather than per terminal, or the guesser simply walks to
-    /// the next till. A terminal only ever sees its own refusals, so the server ships back what
-    /// happened on the others.
-    /// </remarks>
     public sealed class PdvFailedOverrideDTO
     {
         public Guid SupervisorUserId { get; set; }
@@ -377,12 +310,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// A charge as the terminal is allowed to see it.
     /// </summary>
-    /// <remarks>
-    /// Everything here is safe on a shop floor: an opaque id, a status, an amount the customer is
-    /// looking at anyway, and the copia-e-cola string, which is printed on receipts. No key, no
-    /// connected account, no provider intent id — a terminal that knew those could talk to Stripe,
-    /// and a terminal that can talk to Stripe is a terminal holding something worth stealing.
-    /// </remarks>
     public sealed class PdvChargeDTO
     {
         public Guid ChargeId { get; set; }

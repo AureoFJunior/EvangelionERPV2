@@ -18,7 +18,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
         {
             var alerts = NotificationAlerts.From(new DailyPanelDTO(), Now);
 
-            // Never an item that says zero of anything.
             Assert.Empty(alerts);
         }
 
@@ -47,7 +46,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
 
             Assert.Equal("payables.overdue", alert.Key);
             Assert.Equal(EnumNotificationSeverity.Critical, alert.Severity);
-            // One of something reads as one, not "1 contas".
             Assert.Contains("1 conta vencida", alert.Body);
         }
 
@@ -58,8 +56,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
             panel.Fiscal.CertificateDaysRemaining = null;
             panel.Fiscal.CertificateConfigured = false;
 
-            // Null means nobody uploaded one. That is a different fact from one about to expire,
-            // and the panel already says so through CertificateConfigured.
             Assert.Empty(NotificationAlerts.From(panel, Now));
         }
 
@@ -109,7 +105,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
             Assert.Equal(10, alerts.Count);
             Assert.All(alerts, alert => Assert.False(string.IsNullOrWhiteSpace(alert.RequiredPermission)));
             Assert.All(alerts, alert => Assert.Equal(NotificationSources.Alert, alert.Source));
-            // An alert has no row, so it can never be "read".
             Assert.All(alerts, alert => Assert.Null(alert.Id));
             Assert.All(alerts, alert => Assert.False(alert.IsRead));
             Assert.Equal(alerts.Count, alerts.Select(alert => alert.Key).Distinct().Count());
@@ -124,7 +119,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
 
             var alerts = NotificationAlerts.From(panel, Now);
 
-            // The tenant group contains Employees; these two are not equally readable.
             Assert.Equal("dashboard.read", alerts.Single(a => a.Key == "payables.overdue").RequiredPermission);
             Assert.Equal("products.read", alerts.Single(a => a.Key == "stock.critical").RequiredPermission);
         }
@@ -138,8 +132,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
             var four = new DailyPanelDTO();
             four.Payables.OverdueCount = 4;
 
-            // 3 overdue becoming 4 is the same alert. Re-pinging every open browser for it would
-            // teach people to ignore the bell.
             Assert.Equal(
                 NotificationAlerts.Fingerprint(NotificationAlerts.From(three, Now)),
                 NotificationAlerts.Fingerprint(NotificationAlerts.From(four, Now)));

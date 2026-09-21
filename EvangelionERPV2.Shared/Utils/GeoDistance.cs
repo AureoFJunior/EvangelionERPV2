@@ -3,11 +3,6 @@ namespace EvangelionERPV2.Shared.Utils
     /// <summary>
     /// Distance between two points on the globe, and the box that bounds a radius around one.
     /// </summary>
-    /// <remarks>
-    /// Haversine on a spherical earth. Good to a few tenths of a percent, which is far inside the
-    /// error already carried by CEP-level coordinates — the customer map's radius is a sales
-    /// question ("who is near this route?"), not a survey.
-    /// </remarks>
     public static class GeoDistance
     {
         private const double EarthRadiusKm = 6371.0088;
@@ -27,15 +22,6 @@ namespace EvangelionERPV2.Shared.Utils
         /// <summary>
         /// The latitude/longitude box that contains every point within <paramref name="radiusKm"/>.
         /// </summary>
-        /// <remarks>
-        /// The box is what the database filters on — a Haversine in SQL cannot use an index, and a
-        /// box comparison can. It over-selects at the corners by design; the caller then measures
-        /// the real distance in memory and drops what falls outside the circle.
-        ///
-        /// Longitude degrees narrow towards the poles, hence the cos(latitude) term. Near either
-        /// pole that term collapses, so the longitude span is clamped to the whole globe rather
-        /// than dividing by something approaching zero.
-        /// </remarks>
         public static (double MinLatitude, double MaxLatitude, double MinLongitude, double MaxLongitude) BoundingBox(
             double latitude,
             double longitude,

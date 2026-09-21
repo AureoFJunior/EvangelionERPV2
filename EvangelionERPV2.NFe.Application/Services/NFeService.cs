@@ -38,9 +38,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         private readonly INFeFiscalSettingsService _fiscalSettingsService;
         private readonly NFeSettings _settings;
 
-        // The till's own rows, read through Shared repositories rather than through the Pdv module:
-        // EvangelionERPV2.Pdv.Application already references this project, so a reference back
-        // would be a cycle. Entities, not services — the same way Order and Customer arrive here.
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<PdvSale> _pdvSaleRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<PdvSalePayment> _pdvPaymentRepository;
 
@@ -102,12 +99,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
             var fiscalSettings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
 
-            // The tenant's own switches, AND-ed with the global one above. Read before the claim so
-            // a shop that has issuance turned off never leaves a Pending document behind, and
-            // checked here rather than only at the till's endpoint: NFeCertificateService sets
-            // Enabled = false when a certificate is removed, and until this existed that stopped
-            // nothing. A tenant that never configured a profile is refused here too — it was
-            // already refused a few lines further on, for having no CNPJ.
             if (!fiscalSettings.Enabled || (type == NFeDocumentType.NFCe && !fiscalSettings.NFCeEnabled))
             {
                 Log.Logger.Information(
@@ -134,7 +125,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
                     pendingDocument = ResetErroredDocumentForRetry(existing);
 
-                    // Backfills rows created before these columns existed.
                     pendingDocument.EnterpriseId = enterpriseId;
                     pendingDocument.Model = NFeDocument.ModelFor(type);
 
@@ -148,8 +138,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     {
                         Id = Guid.NewGuid(),
                         OrderId = order.Id,
-                        // GetScopedOrderAsync only returns an order whose EnterpriseId equals
-                        // the caller's, so this is the verified tenant, not a hopeful copy.
                         EnterpriseId = enterpriseId,
                         Type = type,
                         Model = NFeDocument.ModelFor(type),
@@ -196,9 +184,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
                 try
                 {
-                    // Steps 2-5 of the transmit-safe ordering (docs/nfe/HANDOFF.md §4). Both commit
-                    // before the provider is called, and both are inside this try so that a failure
-                    // here — where nothing can have been transmitted — still lands as Error.
                     var tipoEmissao = contingency is null ? NormalEmission : OfflineNFCeEmission;
 
                     if (contingency is not null && type != NFeDocumentType.NFCe)
@@ -206,9 +191,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
                     await AssignNumberAndAccessKeyAsync(pendingDocument, fiscalSettings, type, tipoEmissao);
 
-                    // Recorded before transmission like every other identity field: a contingency
-                    // note that is printed and handed over still owes SEFAZ a transmission, and this
-                    // is what a later sweep reads to find the ones that never made it.
                     pendingDocument.ContingencyEnteredAt = contingency?.EnteredAt;
                     pendingDocument.ContingencyJustification = contingency?.Justification;
                     await MarkTransmittedAsync(pendingDocument);
@@ -230,24 +212,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                         ContingencyJustification = pendingDocument.ContingencyJustification
                     });
 
-                    // The identity fields are NOT adopted from the result. The chave, number and
-                    // series were allocated and committed before transmission precisely so that a
-                    // timed-out request can be reconciled against them; taking the provider's word
-                    // for them afterwards would put the recovery key back under SEFAZ's control.
-                    //
-                    // Everything else goes through the one adoption path the reconciler and the
-                    // contingency sweeper use. A hand-copied version stood here and had already
-                    // drifted from it in two ways that mattered: it dropped the consumer QR, so an
-                    // NFC-e authorised at a counter had nothing for the customer to scan, and it
-                    // ignored NeverTransmitted, so a failure that provably never reached the wire
-                    // kept its write-ahead marker — burning the allocated number on the next
-                    // attempt and hiding the one state the till reads to fall back to contingency.
                     ApplyOutcome(pendingDocument, result);
 
                     pendingDocument.ReceiptNumber = result.ReceiptNumber;
                     pendingDocument.TotalValue = result.TotalValue;
 
-                    // Issuance always stamps an attempt time; a later consult may answer without one.
                     pendingDocument.IssuedAt ??= DateTime.UtcNow;
 
                     _nfeRepository.Update(pendingDocument);
@@ -276,13 +245,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 }
                 catch
                 {
-                    // Only downgrade to Error while the write-ahead marker says nothing can have
-                    // been transmitted. Once TransmittedAtUtc is set the outcome is UNKNOWN, not
-                    // failed — the bytes may have reached SEFAZ. Marking it Error would make
-                    // ResetErroredDocumentForRetry legal on the next attempt, and that clears the
-                    // access key and the marker, i.e. exactly the two things that make a duplicate
-                    // emission detectable. Leave it Pending and let the reconciler consult SEFAZ
-                    // and adopt the answer. See docs/nfe/HANDOFF.md §4.
                     if (!pendingDocument.IsOutcomeUnknown)
                     {
                         pendingDocument.Status = NFeStatus.Error;
@@ -324,12 +286,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// Reads the document and, when SEFAZ is the only thing that can settle its state, asks.
         /// </summary>
-        /// <remarks>
-        /// A pure database read was the old behaviour and it was misleading: the one case where a
-        /// caller actually needs a consult is a document whose outcome is unknown, and that is
-        /// exactly the case a local read cannot answer. Terminal documents are still answered from
-        /// the database — SEFAZ's verdict on them cannot change, so a round trip would buy nothing.
-        /// </remarks>
         public async Task<NFeDocument?> ConsultAsync(string accessKey, Guid enterpriseId)
         {
             if (string.IsNullOrWhiteSpace(accessKey))
@@ -356,13 +312,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// Sends event 110111 and adopts SEFAZ's answer.
         /// </summary>
-        /// <remarks>
-        /// This used to write Status = Cancelled locally and invent a "CANCEL-{timestamp}" protocol
-        /// without contacting anybody, which meant the database said cancelled while the note stayed
-        /// valid at SEFAZ and the tax liability stayed real. Nothing is written now unless the event
-        /// was homologated, and the cancellation window comes from the tenant's profile rather than
-        /// a constant, because it differs between NFe and NFCe and is a per-UF rule.
-        /// </remarks>
         public async Task<NFeDocument?> CancelAsync(string accessKey, Guid enterpriseId, string reason = "")
         {
             if (string.IsNullOrWhiteSpace(accessKey))
@@ -384,14 +333,10 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 ? fiscalSettings.NFCeCancellationWindowMinutes
                 : fiscalSettings.NFeCancellationWindowMinutes;
 
-            // Measured from dhRecbto, which is SEFAZ's clock, not ours. AuthorizedAtUtc is null on
-            // documents authorized before that column existed; those fall back to IssuedAt.
             var authorizedAt = document.AuthorizedAtUtc ?? document.IssuedAt;
             if (authorizedAt.HasValue && DateTime.UtcNow > authorizedAt.Value.AddMinutes(windowMinutes))
                 throw new InsertDatabaseException("The cancellation window for this document has closed.");
 
-            // Written before the round trip for the same reason TransmittedAtUtc is: a cancellation
-            // whose answer is lost must be recognisable as attempted rather than as never sent.
             document.CancelRequestedAt = DateTime.UtcNow;
             document.CancelReason = reason ?? string.Empty;
             document.UpdatedAt = DateTime.UtcNow;
@@ -405,7 +350,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             document.CancelXMotivo = result.XMotivo;
             document.UpdatedAt = DateTime.UtcNow;
 
-            // 135 (evento registrado) and 155 (registrado fora de prazo) are the only homologations.
             if (result.Status == NFeStatus.Cancelled)
             {
                 document.Status = NFeStatus.Cancelled;
@@ -430,12 +374,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// How the counter was paid, for the note's <c>pag</c> group. Null for anything that is not
         /// a till sale.
         /// </summary>
-        /// <remarks>
-        /// NFC-e only. A modelo 55 is issued from a back office against an order that records no
-        /// means of payment, and inventing one would be a claim to the fisco; the till, by contrast,
-        /// has recorded a tender breakdown since M29a. Without this the consumer note said tPag 99
-        /// "Outros" for every sale, including the card ones whose authorisation code it holds.
-        /// </remarks>
         private async Task<IReadOnlyList<PdvSalePayment>?> GetTillTendersAsync(Guid orderId, NFeDocumentType type)
         {
             if (type != NFeDocumentType.NFCe)
@@ -447,8 +385,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
             var tenders = (await _pdvPaymentRepository.GetAllAsync(x => x.PdvSaleId == sale.Id)).ToList();
 
-            // An NFC-e for a till sale whose tenders are missing would otherwise fall back to
-            // "Outros" silently, which is the state this exists to end.
             if (tenders.Count == 0)
             {
                 Log.Logger.Warning(
@@ -461,10 +397,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         }
 
         /// <summary>Copies a SEFAZ verdict onto the document. One place, so consult and the reconciler agree.</summary>
-        /// <remarks>
-        /// Internal rather than private because <see cref="NFeReconciliationService"/> adopts a
-        /// verdict through exactly the same rules; two copies of this drifted once already.
-        /// </remarks>
         internal static void ApplyOutcome(NFeDocument document, EvangelionERPV2.NFeModule.Infra.Providers.NFeProviderResult result)
         {
             document.Status = result.Status;
@@ -477,9 +409,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             if (!string.IsNullOrWhiteSpace(result.XmlContent))
                 document.XmlContent = result.XmlContent;
 
-            // NFCe only, and only ever set — never cleared here. A note that authorised once carries
-            // a QR the customer may check for years; a later consult that answers without one must
-            // not erase it.
             if (!string.IsNullOrWhiteSpace(result.QrCode))
                 document.QrCode = result.QrCode;
 
@@ -494,11 +423,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     document.AuthorizedAtUtc = result.IssuedAt;
             }
 
-            // SEFAZ answering "this chave does not exist" (cStat 217) is the only evidence strong
-            // enough to retract the write-ahead marker. Clearing it is what lets the allocated
-            // number be sent again instead of being burned: CanReuseAllocation reads exactly this
-            // column, so leaving it set would quietly re-allocate and leak the number to
-            // inutilização paperwork nobody is going to file.
             if (result.NeverTransmitted)
                 document.TransmittedAtUtc = null;
 
@@ -509,12 +433,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// Steps 2-4: allocate the nNF, build the chave from it, and commit both while the document
         /// is still provably untransmitted.
         /// </summary>
-        /// <remarks>
-        /// The chave has to exist in the database <em>before</em> the first byte leaves, because it
-        /// is the only handle a reconciler has on a note whose outcome is unknown. Everything that
-        /// can fail without consuming a number is done before the allocation — a burnt number is
-        /// legal but permanent, and the remedy (inutilização) is out of scope for v1.
-        /// </remarks>
         private async Task AssignNumberAndAccessKeyAsync(
             NFeDocument document,
             EnterpriseFiscalSettings fiscalSettings,
@@ -523,9 +441,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         {
             var emission = EmitterNow();
 
-            // A retry of a document that was claimed but provably never transmitted keeps the number
-            // it already allocated. Skipping it instead would need inutilização paperwork for a
-            // number nobody ever used — see NFeReconciliationService.
             if (CanReuseAllocation(document, emission, tipoEmissao))
             {
                 Log.Logger.Information(
@@ -537,16 +452,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
             var enterpriseId = fiscalSettings.EnterpriseId;
 
-            // GetSettingsAsync returns a transient default for a tenant that never configured
-            // anything, so an unconfigured tenant would otherwise reach NFeAccessKeyBuilder with an
-            // empty CNPJ and a cUF of 0. Rejected here rather than there, to keep the message about
-            // the tenant instead of about an argument.
             if (string.IsNullOrWhiteSpace(fiscalSettings.Cnpj) || fiscalSettings.CodigoUfIbge <= 0)
                 throw new InsertDatabaseException("Fiscal settings are not configured for this enterprise.");
 
             var model = NFeDocument.ModelFor(type);
 
-            // Contingency has its own series so its numbering cannot collide with the online one.
             var series = type switch
             {
                 NFeDocumentType.NFCe when tipoEmissao == OfflineNFCeEmission => fiscalSettings.NFCeContingencySeries,
@@ -567,8 +477,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             document.Series = series;
             document.Environment = EnvironmentName(fiscalSettings.Environment);
 
-            // cNF is not persisted separately: it is digits 36-43 of the chave, so the key itself is
-            // enough to rebuild or verify the document.
             document.AccessKey = NFeAccessKeyBuilder.Build(
                 fiscalSettings.CodigoUfIbge,
                 emission,
@@ -590,19 +498,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// True when the document already carries an allocation that is still safe to transmit.
         /// </summary>
-        /// <remarks>
-        /// Four conditions, all load-bearing: the write-ahead marker must be NULL (otherwise the
-        /// note may already exist at SEFAZ and reusing the key double-emits), the chave must still
-        /// describe this document's number, its AAMM must be the current month — an old chave
-        /// re-transmitted in a new month is rejected — and its tpEmis must be the one being issued
-        /// now. Anything else falls through to a fresh allocation, which burns a number but is
-        /// never wrong.
-        ///
-        /// The tpEmis condition is what makes the till's contingency fallback work at all: the
-        /// retry that follows a failed online attempt asks for tpEmis 9, and reusing the online
-        /// allocation would keep the online series and a chave that says tpEmis 1 while the XML
-        /// says 9 — a note that contradicts the key printed on the customer's receipt.
-        /// </remarks>
         private static bool CanReuseAllocation(NFeDocument document, DateTime emission, int tipoEmissao)
         {
             if (document.TransmittedAtUtc != null || string.IsNullOrWhiteSpace(document.Number))
@@ -615,7 +510,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 == emission.ToString("yyMM", CultureInfo.InvariantCulture);
             var sameNumber = document.AccessKey.Substring(25, 9) == document.Number.PadLeft(9, '0');
 
-            // Digit 35 of the chave (index 34) is tpEmis.
             var sameEmissionType = document.AccessKey[34] == (char)('0' + tipoEmissao);
 
             return sameMonth && sameNumber && sameEmissionType;
@@ -624,12 +518,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// Step 5 — the write-ahead marker, committed on its own immediately before transmission.
         /// </summary>
-        /// <remarks>
-        /// A separate commit on purpose. The fiscal library is fully synchronous and a cancelled or
-        /// timed-out call cannot recall bytes already on the wire, so this has to be durable before
-        /// the call rather than alongside it. It is what makes <see cref="NFeDocument.IsOutcomeUnknown"/>
-        /// mean something.
-        /// </remarks>
         private async Task MarkTransmittedAsync(NFeDocument document)
         {
             var now = DateTime.UtcNow;
@@ -693,14 +581,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// The single access-key read path for <c>Consult</c> and <c>Cancel</c>, tenant-scoped in SQL.
         /// </summary>
-        /// <remarks>
-        /// Scoping in the query rather than in the caller is the point: this is the only defence
-        /// against reading another tenant's fiscal document by access key, and a caller that forgets
-        /// the check is an IDOR. The common path never materialises a foreign row at all. The
-        /// unscoped fallback exists only for rows predating the denormalised <c>EnterpriseId</c>
-        /// column (backfilled by <c>20260801130000</c>), and it still verifies ownership through the
-        /// Order before returning anything.
-        /// </remarks>
         private async Task<NFeDocument?> GetScopedDocumentByAccessKeyAsync(string accessKey, Guid enterpriseId)
         {
             if (string.IsNullOrWhiteSpace(accessKey) || enterpriseId == Guid.Empty)
@@ -721,21 +601,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// Returns an Error document to a clean claimed state so it can be issued again.
         /// </summary>
-        /// <remarks>
-        /// Only ever valid for <see cref="NFeStatus.Error"/> — our own failure, before any
-        /// certainty of transmission. Resetting a document whose outcome is unknown would clear
-        /// the access key and the write-ahead marker that make duplicate emission detectable,
-        /// so the guard below is a correctness control, not defensive style.
-        /// </remarks>
         private static NFeDocument ResetErroredDocumentForRetry(NFeDocument document)
         {
             if (document.Status != NFeStatus.Error)
                 throw new InvalidOperationException("Only documents in Error state may be reset for retry.");
 
-            // An Error document was never transmitted — a failure after transmission stays Pending
-            // with an unknown outcome — so its allocation is still unused and is kept for reuse.
-            // AssignNumberAndAccessKeyAsync decides whether it is still valid; clearing it here
-            // would burn the number unconditionally.
             var neverTransmitted = document.TransmittedAtUtc == null;
 
             document.Status = NFeStatus.Pending;

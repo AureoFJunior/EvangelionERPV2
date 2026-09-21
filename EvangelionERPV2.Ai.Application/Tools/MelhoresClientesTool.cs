@@ -47,7 +47,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                     .Select(group => new
                     {
                         id = group.Key,
-                        // OrderRepository includes Customer, so the name comes with the order.
                         nome = group.Select(order => order.Customer?.Name).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name))
                                ?? "cliente removido",
                         totalComprado = group.Sum(order => order.TotalValue),

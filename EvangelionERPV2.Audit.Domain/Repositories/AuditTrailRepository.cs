@@ -30,9 +30,6 @@ namespace EvangelionERPV2.AuditModule.Domain.Repositories
             IQueryable<AuditTrail> query = _context.Set<AuditTrail>()
                 .AsNoTracking()
                 .Include(x => x.User)
-                // AuditedEntities.Names, not AuditedEntities.Contains: EF cannot translate a
-                // custom static method, and the query threw at execution time rather than at
-                // compile time. This one becomes an IN (...).
                 .Where(x => x.EnterpriseId == enterpriseId
                             && AuditedEntities.Names.Contains(x.EntityName));
 

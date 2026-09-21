@@ -22,7 +22,6 @@ namespace EvangelionERPV2.OrderModule.Test
             Assert.Contains("Shinji Ikari", html);
             Assert.Contains("Plugsuit", html);
 
-            // The stored TotalValue, not a re-sum of the lines: it is what the customer was quoted.
             Assert.Contains("1.234,50", html);
         }
 
@@ -48,7 +47,6 @@ namespace EvangelionERPV2.OrderModule.Test
 
             var html = QuoteDocumentBuilder.BuildHtml(quote, Now);
 
-            // Asking for the PDF of an expired quote is usually asking precisely because it lapsed.
             Assert.Contains("Orçamento vencido", html);
         }
 
@@ -63,7 +61,6 @@ namespace EvangelionERPV2.OrderModule.Test
         [Fact]
         public void BuildHtml_OfAQuoteWithNoCustomer_StillRenders()
         {
-            // A quote can be drafted before anyone decides who it is for.
             var quote = BuildQuote();
             quote.Customer = null;
             quote.CustomerId = null;

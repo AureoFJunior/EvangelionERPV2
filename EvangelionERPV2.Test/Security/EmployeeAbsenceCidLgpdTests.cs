@@ -20,8 +20,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void EmployeeAbsenceDTO_HasNoCidPropertyAtAll()
         {
-            // Structural, not a [JsonIgnore] check: a property that does not exist cannot be
-            // reintroduced to the wire by a serializer setting or a mapper someone adds later.
             Assert.Null(typeof(EmployeeAbsenceDTO).GetProperty("Cid"));
         }
 
@@ -77,7 +75,6 @@ namespace EvangelionERPV2.Test.Security
                 enterpriseId: absence.EnterpriseId,
                 changedAt: DateTime.UtcNow));
 
-            // The trail records that a health record was written and by whom — never its contents.
             Assert.DoesNotContain(Cid, trail.ChangesJson, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("lombalgia", trail.ChangesJson, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("[redacted]", trail.ChangesJson);

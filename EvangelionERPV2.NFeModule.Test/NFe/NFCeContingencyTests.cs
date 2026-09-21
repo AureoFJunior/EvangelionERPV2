@@ -14,11 +14,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
     /// Contingência off-line NFC-e (tpEmis 9): the shop keeps selling with SEFAZ unreachable, the
     /// customer walks out with a printed note, and the note is transmitted afterwards.
     /// </summary>
-    /// <remarks>
-    /// Every assertion here is about something that cannot be fixed after the fact. A contingency
-    /// note is handed over at a counter seconds after it is built; by the time SEFAZ rejects it for
-    /// a missing xJust the customer is gone.
-    /// </remarks>
     public class NFCeContingencyTests
     {
         private static readonly DateTime EnteredAt = new(2026, 8, 31, 14, 30, 0, DateTimeKind.Utc);
@@ -33,8 +28,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal(9, (int)ide.TpEmis);
             Assert.Equal(Justification, ide.XJust);
 
-            // Recorded in Brazil's offset, not UTC: the whole document is built in local time and a
-            // dhCont three hours off is a different moment to an auditor.
             Assert.Equal(TimeSpan.FromHours(-3), ide.DhCont.Offset);
             Assert.Equal(EnteredAt, ide.DhCont.UtcDateTime);
         }
@@ -42,8 +35,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void AnOrdinaryNote_CarriesNeitherDhContNorXJust()
         {
-            // An ordinary note carrying dhCont is rejected, so the absence matters as much as the
-            // presence.
             var ide = IdeOf(NFCeContext());
 
             Assert.Equal(TipoEmissao.Normal, ide.TpEmis);
@@ -82,8 +73,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void TheConfiguration_AgreesWithTheDocumentAboutTpEmis()
         {
-            // The chave's 35th digit is tpEmis. A configuration that disagrees with the XML builds
-            // a note whose key describes a different document.
             using var certificate = SelfSigned();
             var settings = NFeXmlBuilderTestSettings();
             settings.CscId = 7;
@@ -112,21 +101,17 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void AtOrAboveTheThreshold_TheConsumerMustBeIdentified()
         {
-            // Refused while the note is still being built — the operator can still ask for a CPF.
-            // Once it is printed and handed over, nobody can.
             var context = WithTotal(10_000m);
 
             var exception = Assert.Throws<InvalidOperationException>(() => NFeXmlBuilder.Build(context, null));
             Assert.Contains("CPF", exception.Message);
 
-            // And a centavo below it is an ordinary anonymous sale.
             Assert.Null(NFeXmlBuilder.Build(WithTotal(9_999.99m), null).NFe[0].InfNFeField.Dest);
         }
 
         [Fact]
         public void Modelo55_StillDemandsADestinatario()
         {
-            // The omission is an NFCe rule. Nothing here relaxes modelo 55.
             var source = NFCeContext();
             var context = new NFeIssueContext
             {
@@ -155,8 +140,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void AnUnsupportedTpEmis_IsRefusedRatherThanTreatedAsNormal()
         {
-            // Silently falling back to Normal would emit a note claiming it was issued online when
-            // it was not.
             using var certificate = SelfSigned();
 
             Assert.Throws<InvalidOperationException>(() => UnimakeConfiguracaoFactory.Create(

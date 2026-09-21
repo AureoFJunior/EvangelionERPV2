@@ -37,7 +37,6 @@ namespace EvangelionERPV2.AuditModule.Test
         [InlineData(0, 50)]
         [InlineData(-1, 50)]
         [InlineData(25, 25)]
-        // The cap is what keeps one caller from asking for the whole history in a single query.
         [InlineData(500, 200)]
         public async Task GetAllAsyncFiltering_ClampsThePageSize(int? requested, int expected)
         {
@@ -68,8 +67,6 @@ namespace EvangelionERPV2.AuditModule.Test
         [Fact]
         public async Task DeleteOlderThanAsync_WithoutATenant_DeletesNothingAndAsksNothing()
         {
-            // A retention sweep with no tenant would be a cross-company delete. It has to be
-            // refused before the repository sees it, not filtered inside it.
             var context = new ServiceContext();
 
             var deleted = await context.Service.DeleteOlderThanAsync(Guid.Empty, DateTime.UtcNow);
@@ -81,9 +78,6 @@ namespace EvangelionERPV2.AuditModule.Test
         [Fact]
         public async Task DeleteOlderThanAsync_WithAnUnspecifiedKind_TreatsTheCutoffAsUtc()
         {
-            // Everything in this system stores UTC. A DateTime that arrived over the wire with no
-            // kind must not be shifted by the server's local offset, or the sweep deletes hours of
-            // trail nobody asked it to.
             var context = new ServiceContext();
             var cutoff = new DateTime(2026, 5, 1, 12, 0, 0, DateTimeKind.Unspecified);
 

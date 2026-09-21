@@ -108,8 +108,6 @@ namespace EvangelionERPV2.Test.Security
             var orders = Assert.IsAssignableFrom<IEnumerable<OrderDTO>>(ok.Value);
             Assert.Equal(50, orders.Count());
 
-            // The page has to reach the query, not be sliced off an unbounded result: loading every
-            // order for the enterprise and paging in memory is what ran the process out of memory.
             Assert.Equal(1, capturedPageNumber);
             Assert.Equal(50, capturedPageSize);
         }

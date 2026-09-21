@@ -14,7 +14,6 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
 {
     public class ProductRepository : Repository<Product>, IProductRepository<Product>
     {
-        // v2: money moved from double to decimal, so payloads cached under v1 are not readable.
         private const string CacheKeyPrefix = "Product:v2:";
 
         private readonly IDistributedCache _cache;
@@ -33,7 +32,6 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             {
                 try
                 {
-                    // Deserialize the cached product and return it
                     var productFromCache = JsonSerializer.Deserialize<Product>(cachedProduct);
                     if (productFromCache != null)
                     {
@@ -50,8 +48,6 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
                         ex.GetType().Name);
                 }
             }
-
-            // If not found in cache, query the database
 
             IQueryable<Product> query = _context.Set<Product>().Where(e => e.Id == id).AsNoTracking();
 
@@ -83,12 +79,11 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
         {
             try
             {
-                // Serialize the product and store it in Redis cache for future use
                 var productToCache = JsonSerializer.Serialize(product);
 
                 await _cache.SetStringAsync(cacheKey, productToCache, new DistributedCacheEntryOptions
                 {
-                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60) // Cache for 60 minutes
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60)
                 });
             }
             catch (Exception ex)
@@ -103,12 +98,10 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
 
         private async Task<Tuple<string, string?>> GetCachedProductById(Guid id)
         {
-            // Define the cache key using the product ID
             string cacheKey = $"{CacheKeyPrefix}{id}";
 
             try
             {
-                // Try to get the product from Redis cache
                 string? cachedProduct = await _cache.GetStringAsync(cacheKey);
                 return Tuple.Create(cacheKey, cachedProduct);
             }
@@ -203,7 +196,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             if (product == null)
                 throw new NotFoundDatabaseException("Empty filter with no data found.");
 
-            if (product.Id != Guid.Empty) // Filter in cache by ID to optimize query time
+            if (product.Id != Guid.Empty)
             {
                 string? cacheKey, cachedProduct = "";
                 (cacheKey, cachedProduct) = await GetCachedProductById(product.Id);
@@ -212,7 +205,6 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
                 {
                     try
                     {
-                        // Deserialize the cached product and return it
                         var productFromCache = JsonSerializer.Deserialize<Product>(cachedProduct);
                         if (productFromCache != null)
                         {
@@ -250,9 +242,6 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
             foreach (var item in productList)
                 NormalizePictureAddress(item);
 
-            // Warm the by-id read path with the first 10 hits. Keyed by Id (not Name) because
-            // that is the only key GetCachedProductById reads and RemoveCachedProduct evicts —
-            // name-keyed entries were unreadable and survived every invalidation.
             foreach (var item in productList.Take(10))
             {
                 await SetCachedProduct($"{CacheKeyPrefix}{item.Id}", item);

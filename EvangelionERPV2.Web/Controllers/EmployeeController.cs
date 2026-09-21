@@ -242,17 +242,12 @@ namespace EvangelionERPV2.Web.Controllers
                 existingEmployee.Email = request.Email.Trim();
                 existingEmployee.PhoneNumber = request.PhoneNumber.Trim();
                 existingEmployee.Position = request.Position.Trim();
-                // Sensitive fields (LGPD): only overwrite when the caller sent a value, so a
-                // partial update payload does not wipe stored document/salary.
                 if (!string.IsNullOrWhiteSpace(request.Document))
                     existingEmployee.Document = request.Document.Trim();
                 if (request.Salary.HasValue)
                     existingEmployee.Salary = request.Salary;
                 if (request.HireDate.HasValue)
                     existingEmployee.HireDate = request.HireDate.Value;
-                // Guarded like the other sensitive fields: an absent termination date means "not
-                // provided", never "reinstate". The validator only compares it to the payload's
-                // hire date, so it is re-checked here against the stored one.
                 if (request.TerminationDate.HasValue)
                 {
                     if (request.TerminationDate.Value.Date < existingEmployee.HireDate.Date)
@@ -349,9 +344,6 @@ namespace EvangelionERPV2.Web.Controllers
 
         private async Task<IEnumerable<EmployeeDTO>> ToEmployeeDtosAsync(IEnumerable<Employee> employees, bool includePictures = false)
         {
-            // Picture hydration is one S3 round-trip each: sequentially that is seconds of latency
-            // for a full page. GetPictureBase64Async swallows its own failures, so a missing
-            // object still only blanks that one picture.
             return await Task.WhenAll(employees.Select(employee => ToEmployeeDtoAsync(employee, includePictures)));
         }
 
@@ -395,7 +387,6 @@ namespace EvangelionERPV2.Web.Controllers
             return null;
         }
 
-
         private async Task<bool> HasActiveTenantMembershipAsync(Guid? userId, Guid enterpriseId)
         {
             if (!userId.HasValue || enterpriseId == Guid.Empty)
@@ -404,7 +395,6 @@ namespace EvangelionERPV2.Web.Controllers
             var user = await _userRepository.GetByIdAsync(userId.Value);
             return user != null && user.IsActive == true && user.EnterpriseId == enterpriseId;
         }
-
 
         private bool TryGetEnterpriseId(out Guid enterpriseId)
         {

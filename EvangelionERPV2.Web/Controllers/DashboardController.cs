@@ -10,11 +10,6 @@ namespace EvangelionERPV2.Web.Controllers
     /// <summary>
     /// The morning check: what needs a human today, in one call.
     /// </summary>
-    /// <remarks>
-    /// One endpoint, deliberately. The client that renders this used to page every product, order
-    /// and customer into the browser to compute four numbers; the cost of that grows with the
-    /// tenant, and it could never show the receivables, fiscal or stock signals at all.
-    /// </remarks>
     [Authorize]
     [Route("api/v{version:apiVersion}/[controller]/[action]")]
     [ApiVersion("1.0")]
@@ -40,7 +35,6 @@ namespace EvangelionERPV2.Web.Controllers
             if (!TryGetEnterpriseId(out var enterpriseId))
                 return Unauthorized();
 
-            // Failures bubble to ExceptionHandlingMiddleware, same as every other read here.
             return Ok(await _dailyPanelService.GetTodayAsync(enterpriseId, HttpContext.RequestAborted));
         }
 

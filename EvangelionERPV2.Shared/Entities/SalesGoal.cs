@@ -5,19 +5,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// <summary>
     /// A monthly sales target, for one seller or for the whole company.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The only stored part of the performance layer. Everything else on that screen — what was
-    /// sold, what was received, what commission is due — is derived from orders that already exist,
-    /// so storing it would create a second copy that goes stale the moment a boleto is settled.
-    /// </para>
-    /// <para>
-    /// <see cref="UserId"/> null means the target belongs to the enterprise rather than to a person.
-    /// Deliberately one amount per month rather than per product, per customer or per region: an
-    /// amount is the number a small company actually manages against, and the others are a reporting
-    /// cube nobody has asked for.
-    /// </para>
-    /// </remarks>
     [Index(nameof(EnterpriseId), nameof(Year), nameof(Month))]
     public class SalesGoal : BaseEntity
     {

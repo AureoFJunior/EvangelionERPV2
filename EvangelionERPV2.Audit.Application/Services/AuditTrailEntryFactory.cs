@@ -20,16 +20,11 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             "CancelProtocol",
             "Series",
             "Number",
-            // The NFCe QR payload and its lookup URL both embed the access key, which carries
-            // the emitente CNPJ and the note number.
             "QrCode",
             "UrlChave",
             "DigestValue",
-            // SEFAZ reason strings are mostly canned, but rejection motives can echo back submitted
-            // values (CNPJ, IE, item data), so they are not safe to store verbatim.
             "XMotivo",
             "CancelXMotivo",
-            // Emitente identifiers on the fiscal profile.
             "Cnpj",
             "InscricaoEstadual",
             "InscricaoMunicipal",
@@ -40,11 +35,6 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             "Document",
             "Adress",
             "Address",
-            // The structured destinatário address on Customer. Adress above is the same personal
-            // data in one free-text column and is already redacted; splitting it into named fields
-            // must not be a way around that. Also catches the emitente address on
-            // EnterpriseFiscalSettings, which shares these property names — a company address is
-            // less sensitive, but losing it from a change log costs nothing.
             "Logradouro",
             "Numero",
             "Complemento",
@@ -60,8 +50,6 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             "ProfilePicture",
             "RefundReason",
             "HtmlContent",
-            // LGPD art. 11: the diagnosis code on an atestado is special-category health data and
-            // has no business being reconstructable from a change log.
             "Cid"
         };
 
@@ -213,9 +201,6 @@ namespace EvangelionERPV2.AuditModule.Application.Services
 
             if (entityType == typeof(EmployeeAbsence))
             {
-                // Cid is already covered by the shared name set; Reason is free text an HR user
-                // types, and "back pain, second time this month" is health data whether or not it
-                // was entered in the CID field.
                 return propertyName.Equals(nameof(EmployeeAbsence.Cid), StringComparison.OrdinalIgnoreCase)
                     || propertyName.Equals(nameof(EmployeeAbsence.Reason), StringComparison.OrdinalIgnoreCase);
             }

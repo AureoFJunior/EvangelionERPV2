@@ -9,12 +9,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// <summary>
     /// The once-a-day pass over the money: the régua de cobrança and the contas fixas.
     /// </summary>
-    /// <remarks>
-    /// One worker and one lease for the whole daily slot, not one per job. Two workers waking at
-    /// the same hour would be two Redis keys racing for the same wall-clock moment, and each new
-    /// daily job would add another. Each job gets its own try/catch instead, so a failure in one
-    /// does not cost the others their slot.
-    /// </remarks>
     public sealed class DailySweepWorker : LeasedScheduleWorker
     {
         private readonly IServiceScopeFactory _scopeFactory;
@@ -34,10 +28,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         public override TimeSpan TimeUntilNextRun(DateTime utcNow)
             => BroadcastSchedule.TimeUntilNextDaily(utcNow, Math.Clamp(_settings.SweepHourUtc, 0, 23));
-
-        // No slot-level gate: dunning gates itself inside DunningService, and recurring payables
-        // must still run for an installation that never turned dunning on. A clone of a bill sends
-        // nothing to anybody, so there is nothing to opt into.
 
         protected override async Task RunPassAsync(CancellationToken stoppingToken)
         {

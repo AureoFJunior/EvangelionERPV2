@@ -57,8 +57,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                         cliente = x.Customer?.Name,
                     }).ToList();
 
-                // The whole window's numbers, not just the twenty rows shown: a model asked for a
-                // total must not have to add up a truncated list to answer.
                 var sold = orders.Where(order => !ReceivableResolver.IsOrderRefunded(order)).ToList();
                 var revenue = sold.Sum(order => order.TotalValue);
 

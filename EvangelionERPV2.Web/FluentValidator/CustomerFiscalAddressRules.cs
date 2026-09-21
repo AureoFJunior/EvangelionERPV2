@@ -8,12 +8,6 @@ namespace EvangelionERPV2.Web.FluentValidator
     /// The structured destinatário address rules, applied identically to the create and update
     /// customer bodies.
     /// </summary>
-    /// <remarks>
-    /// Shape only, and every rule is conditional on the field being present. A customer who never
-    /// receives an NFe needs none of these, so requiring them here would break ordinary customer
-    /// registration. Completeness is checked at issuance instead, where the error can name the
-    /// missing field and the note is refused before a number is consumed.
-    /// </remarks>
     internal static class CustomerFiscalAddressRules
     {
         // Every Brazilian UF, deliberately NOT the SP/RS/SC/PR allowlist that gates the *emitente*.

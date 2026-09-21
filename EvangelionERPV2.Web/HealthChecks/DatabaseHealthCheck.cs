@@ -78,8 +78,6 @@ namespace EvangelionERPV2.Web.HealthChecks
             }
             catch (Exception exception)
             {
-                // The message is not echoed: a connection failure carries the server name and the
-                // login, and /health is anonymous.
                 return HealthCheckResult.Unhealthy($"Database probe failed ({exception.GetType().Name}).");
             }
         }

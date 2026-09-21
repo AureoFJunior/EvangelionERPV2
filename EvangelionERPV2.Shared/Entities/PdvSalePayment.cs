@@ -8,11 +8,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// <summary>
     /// One tender against a <see cref="PdvSale"/>. A sale split across cash and PIX has two rows.
     /// </summary>
-    /// <remarks>
-    /// Split payment is the normal case at a till, not an edge case, which is why this is a table
-    /// and not a pair of columns on the sale. It is also the source NFC-e's <c>pag</c> group is
-    /// built from, so the shape has to survive contact with the fiscal schema.
-    /// </remarks>
     [Index(nameof(PdvSaleId))]
     [Table("PdvSalePayment")]
     public class PdvSalePayment : BaseEntity
@@ -31,11 +26,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// <summary>
         /// What this tender settled — never more than the sale still owes.
         /// </summary>
-        /// <remarks>
-        /// For cash this is the amount applied to the sale, not what the customer handed over. A
-        /// R$ 50 note against a R$ 43 basket is Amount 43 and <see cref="ChangeGiven"/> 7, so the
-        /// tenders sum to the order total exactly and the sum can be asserted.
-        /// </remarks>
         public decimal Amount { get; set; }
 
         /// <summary>Change handed back. Non-zero only for cash.</summary>
@@ -55,22 +45,11 @@ namespace EvangelionERPV2.Shared.Entities
         /// <summary>
         /// The <c>PdvCharge</c> this tender was settled by, when there was one.
         /// </summary>
-        /// <remarks>
-        /// Deliberately a bare Guid rather than a navigation property. A charge is created by one
-        /// request and moved to Paid by a webhook from a third party; the sale that references it
-        /// arrives from a terminal that may have been offline for a week. Tying the sale's write to
-        /// the charge row's existence would make a network hiccup at the PSP into a rejected sale.
-        /// </remarks>
         public Guid? PdvChargeId { get; set; }
 
         /// <summary>
         /// True when money can be proved to have arrived; false when this is the operator's word.
         /// </summary>
-        /// <remarks>
-        /// False is the honest default and the historical truth: every row written before this
-        /// column existed was an assertion. True is set only where the ERP itself saw a settled
-        /// charge — never from a flag a terminal chose for itself.
-        /// </remarks>
         public bool IsVerified { get; set; }
     }
 }

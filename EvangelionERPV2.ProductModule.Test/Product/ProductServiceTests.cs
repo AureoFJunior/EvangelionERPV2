@@ -18,8 +18,6 @@ namespace EvangelionERPV2.ProductModule.Test
 {
     public class ProductServiceTests : IDisposable
     {
-        // A real (SQLite) database, because ProductService now always needs a context: the stock
-        // path runs SQL, and there is no longer a mock-friendly fallback that skips it.
         private readonly StockLedgerTestContext _database = new();
 
         public void Dispose()
@@ -94,10 +92,6 @@ namespace EvangelionERPV2.ProductModule.Test
             Assert.NotEqual(DateTime.MinValue, updatedAt);
             productRepository.Verify(r => r.Commit(), Times.Once);
         }
-
-        // The stock decrement moved out of here and into StockLedgerTests: it now runs real SQL
-        // against a real database, because a mocked repository cannot show whether the conditional
-        // UPDATE actually refused to oversell.
 
         [Fact]
         public async Task GetProductsBodyAsync_WhenEnterpriseNull_Throws()

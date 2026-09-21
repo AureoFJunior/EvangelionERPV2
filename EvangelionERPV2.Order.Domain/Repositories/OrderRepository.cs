@@ -14,7 +14,6 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
 {
     public class OrderRepository : Repository<Order>, IOrderRepository<Order>
     {
-        // v2: money moved from double to decimal, so payloads cached under v1 are not readable.
         private const string CacheKeyPrefix = "Order:v2:";
 
         private readonly IDistributedCache _cache;
@@ -38,7 +37,6 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
                 }
                 catch (Exception ex)
                 {
-                    // A payload written by an older schema must not break reads: fall through to the database.
                     Log.Logger.Warning(
                         ex,
                         "Order cache payload is invalid and will be ignored. CacheKey={CacheKey} ErrorType={ErrorType}",
@@ -119,12 +117,6 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
         /// Filters, orders and pages in SQL, keeping the same eager loads and the same implicit
         /// <c>IsActive</c> filter as the <c>GetAllAsync</c> overrides above.
         /// </summary>
-        /// <remarks>
-        /// The base implementation reads straight off <c>DbSet&lt;Order&gt;</c> with no
-        /// <c>Include</c>, which would return orders whose Customer and OrderedProduct are null.
-        /// Returns an empty list rather than throwing <see cref="NotFoundDatabaseException"/>:
-        /// paging past the end is a normal result, not a missing row.
-        /// </remarks>
         public async override Task<IEnumerable<Order>> GetAllAsyncByFilter(bool descending,
             int? pageNumber,
             int? pageSize,
@@ -142,8 +134,6 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             if (predicate != null)
                 query = query.Where(predicate);
 
-            // ThenBy(Id) keeps paging deterministic: neither CreatedAt nor a caller-supplied key is
-            // unique, and SQL ORDER BY is not stable, so rows can repeat or vanish across pages.
             Expression<Func<Order, object>> sortKey = orderBy ?? (o => o.CreatedAt!);
 
             IOrderedQueryable<Order> ordered = descending
@@ -266,18 +256,8 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
         /// <summary>
         /// Every write drops the cached copy first.
         /// </summary>
-        /// <remarks>
-        /// <see cref="GetByIdAsync"/> serves from Redis for an hour, and nothing used to clear it:
-        /// a deleted order kept answering 200 as if it were live, a refund read back unrefunded and
-        /// an edit read back stale. Every write path in OrderService — update, soft delete, refund —
-        /// ends at Update, so one override covers all three. The raw-SQL guards those paths run
-        /// before it are unaffected; this only removes a key.
-        /// </remarks>
         public override Order Update(Order entity)
         {
-            // The parameter is non-nullable, so a null here is a caller bug rather than a state to
-            // tolerate — and the `entity?.` this used to carry only moved the failure from a named
-            // exception to a NullReferenceException inside EF, several frames further on.
             ArgumentNullException.ThrowIfNull(entity);
 
             InvalidateCachedOrder(entity.Id);

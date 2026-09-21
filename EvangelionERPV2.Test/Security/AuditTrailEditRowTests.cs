@@ -27,7 +27,6 @@ namespace EvangelionERPV2.Test.Security
                 await seed.SaveChangesAsync();
             }
 
-            // Read detached, mutate, Update — exactly what NFeService.CancelAsync does.
             await using (var act = CreateContext(databaseName))
             {
                 var detached = await act.Set<NFeDocument>().AsNoTracking()
@@ -49,7 +48,6 @@ namespace EvangelionERPV2.Test.Security
             Assert.True(changes.ContainsKey(nameof(NFeDocument.Status)),
                 "the EDIT row must record the Status transition that was actually made");
 
-            // The factory serializes enums by their underlying value, not by name.
             var statusChange = changes[nameof(NFeDocument.Status)];
             Assert.Equal(
                 ((int)NFeStatus.Authorized).ToString(),
@@ -84,7 +82,6 @@ namespace EvangelionERPV2.Test.Security
             var edits = await assertContext.AuditTrails.AsNoTracking()
                 .CountAsync(x => x.EntityId == documentId && x.Action == "EDIT");
 
-            // Restoring originals must not manufacture a trail for a no-op write.
             Assert.Equal(0, edits);
         }
 

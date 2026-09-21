@@ -38,7 +38,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public void AShortenedCentavo_IsTenths_NotUnits()
         {
-            // "R$ 5,5" is five reais fifty, the way a price is written in a hurry — not five and five.
             Assert.Equal("cinco reais e cinquenta centavos", AiSpokenText.Normalize("R$ 5,5"));
         }
 
@@ -76,8 +75,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [InlineData("Restam 3 unidades do produto X-200.")]
         public void EverythingThatIsNotMoney_IsLeftAlone(string sentence)
         {
-            // An order number read as "mil duzentos e trinta e quatro" is worse than the digits, and
-            // a date rewritten as money would be nonsense.
             Assert.Equal(sentence, AiSpokenText.Normalize(sentence));
         }
 

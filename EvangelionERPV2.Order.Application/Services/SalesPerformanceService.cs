@@ -17,19 +17,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
     /// <summary>
     /// Metas e comissão: one competência of selling, read from the orders that already exist.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Nothing here is stored except the target. What was sold, what was received and what
-    /// commission that earns are all derived on read, because the alternative — a commission ledger
-    /// — goes wrong the moment a boleto is settled, an order is refunded or a rate is corrected,
-    /// and then two screens disagree about what a seller is owed.
-    /// </para>
-    /// <para>
-    /// It lives in the Order module because <c>Order.UserId</c> is the only record of who sold what,
-    /// and <see cref="ReceivableResolver"/> already lets this read the boleto side without a project
-    /// reference into Bills.
-    /// </para>
-    /// </remarks>
     public class SalesPerformanceService : ISalesPerformanceService
     {
         /// <summary>
@@ -71,17 +58,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             _context = context;
             _cache = cache;
 
-            // Off unless switched on, and that default is a measurement rather than caution.
-            //
-            // Measured 2026-09-16 against the dev stack: the aggregate itself answers in 25ms, and a
-            // CACHE HIT costs about 148ms - Redis is Upstash, roughly 25ms away, and a read is
-            // several round trips. Caching a 25ms query behind a 148ms cache is a straight loss.
-            //
-            // It becomes the right trade on two conditions, both of which hold in production and
-            // neither of which holds here: Redis in the same region, where a hit is sub-millisecond,
-            // and a dataset where the aggregate is no longer cheap - this ran against ~5 000 orders,
-            // not the millions a real tenant-year holds. Turn it on there, and check the same two
-            // numbers before believing it helps.
             _cacheEnabled = configuration.GetValue<bool?>("SalesPerformance:CacheEnabled") ?? false;
             _orderRepository = orderRepository;
             _billRepository = billRepository;
@@ -115,9 +91,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         {
             AssertCompetencia(year, month);
 
-            // The enterprise id is in the key, not merely in the value. A cache key that omitted it
-            // would serve one tenant's commissions to another the moment two of them asked for the
-            // same month - the entry is keyed by exactly the arguments that determine the answer.
             var cacheKey = $"{CacheKeyPrefix}{enterpriseId}:{year}:{month:D2}";
 
             if (_cacheEnabled)
@@ -229,7 +202,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             }
             catch (Exception ex)
             {
-                // A cache that is down must not take the report with it.
                 Log.Logger.Warning("Sales performance cache read failed. ErrorType={ErrorType}", ex.GetType().Name);
                 return null;
             }
@@ -252,38 +224,14 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
         private async Task<SalesPerformanceDTO> BuildPerformanceAsync(Guid enterpriseId, int year, int month, CancellationToken cancellation)
         {
-
-            // Not named `from`/`to`: those are query-expression keywords and the LINQ below is in
-            // query syntax.
             var periodStart = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
             var periodEnd = periodStart.AddMonths(1);
 
-            // One query instead of three loads.
-            //
-            // Aggregated in SQL, one row per seller, instead of reading the month into memory.
-            //
-            // The first rewrite of this method already stopped materialising whole entities and cut
-            // the response from 1,681ms to 25ms - but it still called ToListAsync() on every order
-            // in the month and grouped in C#, so memory stayed proportional to the month. That only
-            // showed up once the data was realistic: at 5,081 orders it looked solved, and at
-            // 200,001 orders twenty concurrent callers took the process to OutOfMemoryException.
-            // Narrowing the row reduced the constant; it did not remove the growth.
-            //
-            // So the money rule is now expressed in the query. That is the thing this method spent
-            // two revisions avoiding, because it gives "what has been received" a second definition
-            // that can drift from ReceivableResolver. The guard is a test that runs the same matrix
-            // of refund, payday and bill states through both and asserts they agree - if either
-            // side changes alone, it fails. Keep that test.
-            //
-            // CreatedAt, not PaymentScheduledDate: a seller's month is when they closed the sale,
-            // not when the customer agreed to pay for it.
             var settled = from order in _context.Set<Order>().AsNoTracking()
                           where order.IsActive == true
                                 && order.EnterpriseId == enterpriseId
                                 && order.CreatedAt >= periodStart
                                 && order.CreatedAt < periodEnd
-                                // ReceivableResolver.IsOrderRefunded, in the query. A refunded order
-                                // contributes nothing to sold, received or the count.
                                 && order.RefundedAt == null
                                 && order.Status != (int)EnumOrderStatus.Refund
                           let bill = _context.Set<Bill>().AsNoTracking()
@@ -296,10 +244,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                           {
                               order.UserId,
                               order.TotalValue,
-                              // ReceivableResolver.ResolveReceivedAmount for a non-refunded order:
-                              // no bill means the money arrived only if there is a payday; a bill
-                              // means it arrived only if that bill is paid, and then the paid amount
-                              // wins over the billed amount, which wins over the order total.
                               Received = bill == null
                                   ? (order.Payday != null ? order.TotalValue : 0m)
                                   : (bill.Status == BillStatus.Paid
@@ -309,7 +253,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                                       : 0m)
                           };
 
-            // Per seller. Rows come back one per user, not one per order.
             var perSeller = await settled
                 .Where(row => row.UserId != null)
                 .GroupBy(row => row.UserId!.Value)
@@ -320,9 +263,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     group.Count()))
                 .ToListAsync(cancellation);
 
-            // The company's own row, over every order in the month - including those with no user
-            // behind them, which the queued path creates, and those belonging to service accounts.
-            // Not the sum of the rows above, deliberately.
             var enterpriseTotals = await settled
                 .GroupBy(_ => 1)
                 .Select(group => new SellerTotals(
@@ -333,7 +273,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 .FirstOrDefaultAsync(cancellation)
                 ?? new SellerTotals(null, 0m, 0m, 0);
 
-            // The sellers themselves: one small read of the tenant's users, not one row per order.
             var users = await _context.Set<User>().AsNoTracking()
                 .Where(user => user.EnterpriseId == enterpriseId)
                 .Select(user => new SellerIdentity(
@@ -358,13 +297,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 .ToDictionary(goal => goal.UserId!.Value, goal => goal.TargetAmount);
             var enterpriseGoal = goals.FirstOrDefault(goal => !goal.UserId.HasValue)?.TargetAmount;
 
-            // A service account is dropped, not shown under its user id. Its orders still count in the
-            // company's row below, which is built from every order rather than from the sum of
-            // these - the money was real, the seller was not a person.
-            //
-            // Dropped on the *user*, not on the order: an order with a UserId nobody can resolve is
-            // a different problem (a deleted user) and still deserves a row, which is why an
-            // unresolved id falls back to the id itself as the name.
             var sellerRows = perSeller
                 .Where(totals => !(users.TryGetValue(totals.UserId!.Value, out var account) && account.IsServiceAccount))
                 .Select(totals =>
@@ -407,8 +339,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     user.EnterpriseId == enterpriseId && user.IsServiceAccount == false))
                 .ToDictionary(user => user.Id, user => user);
 
-            // Not IsActive: a target set for somebody who has since left still explains a past
-            // month. A service account never had a target worth explaining.
             return goals
                 .Where(goal => !goal.UserId.HasValue || sellers.ContainsKey(goal.UserId.Value))
                 .Select(goal => new SalesGoalDTO
@@ -437,8 +367,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             if (request.UserId.HasValue)
             {
-                // A target for somebody else's employee would be invisible to them and would still
-                // occupy this tenant's unique index for that competência.
                 var seller = (await _userRepository.GetAllAsync(user =>
                         user.Id == request.UserId.Value
                         && user.EnterpriseId == enterpriseId
@@ -504,8 +432,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 ReceivedAmount = Round(totals.Received),
                 OrderCount = totals.OrderCount,
                 TargetAmount = target,
-                // Null rather than zero without a target: "no target set" and "missed the target
-                // entirely" are different things and the screen colours them differently.
                 AttainmentPercent = target is > 0 ? Round(totals.Sold / target.Value * 100m) : null,
                 CommissionRate = commissionRate,
                 CommissionAmount = commissionRate.HasValue ? Round(totals.Received * commissionRate.Value) : null
@@ -558,8 +484,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 throw new InsertDatabaseException("Month must be between 1 and 12.");
         }
 
-        // BRL convention, half away from zero — Math.Round defaults to banker's and would disagree
-        // with the enterprise balance and the payroll figures.
         private static decimal Round(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
     }
 }

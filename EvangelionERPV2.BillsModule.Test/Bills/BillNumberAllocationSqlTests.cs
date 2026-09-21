@@ -16,9 +16,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public void AllocationSql_ReadsAndIncrementsInOneAtomicStatement()
         {
-            // OUTPUT deleted.* returns the pre-increment value from within the UPDATE itself. A
-            // SELECT-then-UPDATE would be a lost-update race no isolation level below SERIALIZABLE
-            // prevents.
             Assert.Contains("UPDATE dbo.BillNumberSequence", Sql, StringComparison.Ordinal);
             Assert.Contains("SET NextNumber = NextNumber + 1", Sql, StringComparison.Ordinal);
             Assert.Contains("OUTPUT deleted.NextNumber", Sql, StringComparison.Ordinal);
@@ -29,7 +26,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public void AllocationSql_IsASingleStatement()
         {
-            // Two statements would no longer be atomic without an explicit transaction.
             Assert.Equal(1, Sql.Count(character => character == ';'));
             Assert.EndsWith(";", Sql.TrimEnd(), StringComparison.Ordinal);
         }
@@ -43,9 +39,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public void AllocationSql_StopsAtTheContractedCeilingInsideTheSameStatement()
         {
-            // A number past the convênio's range is one the bank will not honour. Checking it in
-            // the WHERE keeps it atomic with the increment; a separate read could pass the check
-            // and then lose the race to another instance's allocation.
             Assert.Contains("NextNumber <= Ceiling", Sql, StringComparison.Ordinal);
         }
 
@@ -55,9 +48,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [InlineData("@wallet")]
         public void AllocationSql_ScopesToTheFullSequenceKeyViaParameters(string parameterName)
         {
-            // All three are required: the unique index is on the tuple, so dropping one would let a
-            // counter be shared across tenants, banks or wallets — each of which has its own range.
-            // Parameterised, never interpolated: the wallet is operator-supplied text.
             Assert.Contains(parameterName, Sql, StringComparison.Ordinal);
         }
 

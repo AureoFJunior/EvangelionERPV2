@@ -25,8 +25,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void TotalCost_IsUnknownWhenAnyLineHasNoCost()
         {
-            // The trap this guards: summing only the costed lines reports a cost far below the real
-            // one, and the margin above it comes out far too good.
             var lines = new[] { Line(2m, 100m, 40m), Line(3m, 50m, null) };
 
             Assert.Null(OrderMargin.TotalCost(lines));
@@ -66,7 +64,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void Percent_IsUnknownWhenThereIsNoRevenue()
         {
-            // A refunded order has TotalValue 0; dividing by it would answer infinity.
             Assert.Null(OrderMargin.Percent(0m, 80m));
             Assert.Null(OrderMargin.UnitPercent(0m, 8m));
         }
@@ -74,8 +71,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void OrderedProduct_NeverSerializesItsCostSnapshot()
         {
-            // Order lines are serialized inside OrderDTO for every caller who can read an order.
-            // The gated totals on OrderDTO are the only way cost may reach a caller.
             var json = JsonSerializer.Serialize(Line(2m, 100m, 42.75m));
 
             Assert.DoesNotContain("42.75", json);

@@ -8,11 +8,6 @@ namespace EvangelionERPV2.PdvModule.Test
     /// <summary>
     /// The row that says a PIX charge exists, and what it cost us.
     /// </summary>
-    /// <remarks>
-    /// The unique index is the whole point: a terminal that resends StartPixCharge after a lost
-    /// response must find the intent it already created, not open a second one against the same
-    /// basket — a customer who pays twice is the failure this table exists to prevent.
-    /// </remarks>
     public class PdvChargeTests : IDisposable
     {
         private readonly PdvTestContext _database = new();
@@ -47,8 +42,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ANewChargeIsPendingAndCostsNothingYet()
         {
-            // FeeAmount is null until a webhook says what Stripe actually took. Defaulting it to zero
-            // would put a made-up number into the only measurement this design keeps.
             using var context = _database.CreateContext();
             var charge = Charge(Guid.NewGuid(), "pi_1");
             context.PdvCharge.Add(charge);

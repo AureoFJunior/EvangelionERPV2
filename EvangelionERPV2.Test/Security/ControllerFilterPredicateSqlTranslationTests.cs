@@ -103,8 +103,6 @@ namespace EvangelionERPV2.Test.Security
 
         private static AppDbContext CreateSqlServerContext()
         {
-            // ToQueryString() compiles the query and never opens a connection, so the
-            // connection string only has to be well-formed.
             var options = new DbContextOptionsBuilder<AppDbContext>()
                 .UseSqlServer("Server=translation-check-only;Database=none;Encrypt=false")
                 .Options;

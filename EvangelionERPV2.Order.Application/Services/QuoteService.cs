@@ -13,19 +13,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
     /// <summary>
     /// Orçamentos: what a sale would cost, and the one door from there to a real order.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Nothing here reserves stock, moves a balance or appears in a financial read. That is the
-    /// entire design: a quote is a promise, and the ERP counts money only once the promise becomes
-    /// an <see cref="Order"/> through <see cref="ConvertAsync"/>.
-    /// </para>
-    /// <para>
-    /// Conversion deliberately goes through <c>IOrderService.CreateAsync</c> rather than writing an
-    /// Order itself, so a converted quote passes every gate a typed order does — stock, the
-    /// enterprise balance, the credit limit and the period lock — and fails the same way when one
-    /// of them says no.
-    /// </para>
-    /// </remarks>
     public class QuoteService : IQuoteService
     {
         private const int DefaultValidityInDays = 15;
@@ -66,12 +53,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// <summary>
         /// The quote as a PDF, or <c>null</c> when there is no such quote for this enterprise.
         /// </summary>
-        /// <remarks>
-        /// A renderer failure is deliberately <em>not</em> swallowed. The bill mailer swallows one
-        /// because the digitable line in the body is payable without the attachment; here the PDF
-        /// is the entire response, and answering 200 with nothing would be a quote the salesperson
-        /// believes was sent.
-        /// </remarks>
         public async Task<(byte[] Pdf, long Number)?> GetPdfAsync(Guid id, Guid enterpriseId, CancellationToken cancellation = default)
         {
             var quote = await GetByIdAsync(id, enterpriseId, cancellation);
@@ -180,12 +161,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// <summary>
         /// Turns the quote into an order, once.
         /// </summary>
-        /// <remarks>
-        /// The order carries the <em>quoted</em> unit values, not today's price list: the customer
-        /// is charged what they were promised. <c>ConvertedOrderId</c> is written after the order
-        /// exists, and a filtered unique index on it means a double click cannot produce two orders
-        /// — the second attempt finds the quote already converted and is refused.
-        /// </remarks>
         public async Task<Quote> ConvertAsync(
             Guid id,
             Guid enterpriseId,
@@ -228,9 +203,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 }).ToList()
             };
 
-            // Every gate a typed order passes — stock, balance, credit limit, period lock — applies
-            // here too, and its refusal propagates rather than being swallowed into a half-converted
-            // quote. Nothing is written to the quote until the order exists.
             var createdOrder = await _orderService.CreateAsync(order, allowCreditOverride);
 
             existing.ConvertedOrderId = createdOrder.Id;
@@ -268,11 +240,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         /// <summary>
         /// Item lines, priced and unit-locked from the catalogue.
         /// </summary>
-        /// <remarks>
-        /// The unit of measure comes from the product and never from the request, the same rule
-        /// <c>PayableBillService.NormalizeItemsAsync</c> follows: a line that says "12 boxes" when
-        /// the catalogue says "12 units" is a delivery argument waiting to happen.
-        /// </remarks>
         private async Task<List<QuoteItem>> ResolveItemsAsync(Guid enterpriseId, IEnumerable<QuoteItemRequestDTO>? requested)
         {
             var lines = requested?.ToList() ?? [];
@@ -286,8 +253,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             if (productIds.Count != lines.Count)
                 throw new InsertDatabaseException("The quote has duplicate products.");
 
-            // GetPagedAsync, not GetAllAsync: ProductRepository's override drags the whole product
-            // graph across and this needs four columns.
             var products = (await _productRepository.GetPagedAsync(
                     x => x.EnterpriseId == enterpriseId && x.IsActive == true && productIds.Contains(x.Id)))
                 .Items

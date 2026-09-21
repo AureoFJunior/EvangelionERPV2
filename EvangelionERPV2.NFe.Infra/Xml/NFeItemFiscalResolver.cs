@@ -19,8 +19,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             ArgumentNullException.ThrowIfNull(product);
             ArgumentNullException.ThrowIfNull(settings);
 
-            // NCM has no enterprise default: it identifies the goods, not the tax treatment, so
-            // there is nothing sane to fall back to.
             var ncm = Trimmed(product.Ncm)
                 ?? throw Missing(product, nameof(Product.Ncm), "it has no enterprise-level default");
 
@@ -42,9 +40,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             var cstCofins = Trimmed(product.CstCofins) ?? Trimmed(settings.DefaultCstCofins)
                 ?? throw Missing(product, nameof(Product.CstCofins), "the enterprise default is blank too");
 
-            // CRT decides which of the two mutually exclusive codes the item carries.
-            // 1 = Simples Nacional, 2 = Simples above the sublimit, 4 = MEI -> CSOSN.
-            // 3 = Regime Normal -> CST.
             string? cst = null;
             string? csosn = null;
 
@@ -78,9 +73,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 AliquotaCofins: product.AliquotaCofins ?? settings.DefaultAliquotaCofins,
                 CodigoBeneficioFiscal: Trimmed(product.CodigoBeneficioFiscal),
 
-                // Neither of these has a fallback, and deliberately so. A base reduction belongs to
-                // the goods and a Simples credit rate belongs to the company, so there is no second
-                // place to look; the CST/CSOSN that needs one refuses to build when it is absent.
                 ReducaoBaseIcms: product.ReducaoBaseIcms,
                 AliquotaCreditoSn: settings.AliquotaCreditoSn);
         }

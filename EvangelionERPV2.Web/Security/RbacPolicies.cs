@@ -152,8 +152,6 @@ namespace EvangelionERPV2.Web.Security
                     "id"));
             });
 
-            // Same shape as users.self-or-read: the elevated permission sees anyone's row, the
-            // self permission sees only the row whose id matches the caller's own.
             options.AddPolicy(SalesPerformance.ReadSelfOrRead, policy =>
             {
                 policy.RequireAuthenticatedUser();

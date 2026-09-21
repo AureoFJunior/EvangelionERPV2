@@ -16,10 +16,6 @@ namespace EvangelionERPV2.Web.Controllers
     /// <summary>
     /// The férias entitlement ledger: read a period, book leave against it, or sell days.
     /// </summary>
-    /// <remarks>
-    /// No deletion. An accrual is a legal entitlement rather than a record someone entered, so it
-    /// is derived from the employee's tenure and absences — correcting one means correcting those.
-    /// </remarks>
     [Authorize]
     [Route("api/v{version:apiVersion}/[controller]/[action]")]
     [ApiVersion("1.0")]
@@ -168,8 +164,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException exdb)
             {
-                // The message is a statute reference, not user data — HR needs to know which rule
-                // refused the schedule or they cannot fix the request.
                 Log.Logger.Error("Férias schedule refused. ErrorType={ErrorType}", exdb.GetType().Name);
                 return BadRequest(exdb.Message);
             }

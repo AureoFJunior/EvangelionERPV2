@@ -14,11 +14,6 @@ namespace EvangelionERPV2.NFeModule.Test
     /// <summary>
     /// Reading a supplier's nota and turning it into a payable.
     /// </summary>
-    /// <remarks>
-    /// Every case runs against a structurally complete <c>nfeProc</c> — namespace, protocol,
-    /// duplicatas and all — because the input this feature exists for is a file another company's
-    /// ERP produced, not one shaped to suit the parser.
-    /// </remarks>
     public class SupplierNFeImportTests
     {
         private static readonly Guid EnterpriseId = Guid.NewGuid();
@@ -37,7 +32,6 @@ namespace EvangelionERPV2.NFeModule.Test
             Assert.Equal("1", nota.Series);
             Assert.Equal(new DateTime(2026, 8, 10, 13, 0, 0, DateTimeKind.Utc), nota.IssuedAt);
 
-            // vNF, not the sum of the lines: this nota carries 20.00 of freight.
             Assert.Equal(320m, nota.TotalAmount);
             Assert.Equal(EmitterCnpj, nota.EmitterDocument);
             Assert.Equal("Nerv Supplies LTDA", nota.EmitterName);
@@ -48,7 +42,6 @@ namespace EvangelionERPV2.NFeModule.Test
             Assert.Equal(3m, nota.Items[0].Quantity);
             Assert.Equal(60m, nota.Items[0].UnitValue);
 
-            // "SEM GTIN" is the layout's literal for a line with no barcode.
             Assert.Null(nota.Items[1].Ean);
 
             var duplicata = Assert.Single(nota.Duplicatas);
@@ -59,7 +52,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public void Read_TakesTheKeyFromTheIdAttribute_WhenTheNotaCarriesNoProtocol()
         {
-            // What an ERP exports before transmission: the nota alone, no protocol around it.
             var full = Encoding.UTF8.GetString(BuildNota());
             var start = full.IndexOf("<infNFe", StringComparison.Ordinal);
             var end = full.IndexOf("</infNFe>", StringComparison.Ordinal) + "</infNFe>".Length;
@@ -94,7 +86,6 @@ namespace EvangelionERPV2.NFeModule.Test
             var bill = Assert.Single(bills);
             Assert.Equal(AccessKey, bill.SupplierNFeAccessKey);
 
-            // The payable is vNF — freight and ST live outside the line values.
             Assert.Equal(320m, bill.Amount);
             Assert.Equal(new DateTime(2026, 9, 9, 0, 0, 0, DateTimeKind.Utc), bill.DueDate);
             Assert.Equal((int)EnumPayableBillType.ProductStock, bill.BillType);
@@ -109,8 +100,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_OfAnInstalmentNota_CreatesOnePayablePerDuplicata()
         {
-            // Three payments the bank will see on three days: one bill for the whole vNF would sit
-            // in the carteira against a cash flow that never happens.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
             var (service, bills, _, _) = BuildSut(products: [product]);
 
@@ -125,7 +114,6 @@ namespace EvangelionERPV2.NFeModule.Test
                 [new DateTime(2026, 9, 9), new DateTime(2026, 10, 9), new DateTime(2026, 11, 9)],
                 bills.Select(x => x.DueDate).ToArray());
 
-            // The reported total is the nota, the first due date is the first instalment.
             Assert.Equal(320m, result.Amount);
             Assert.Equal(new DateTime(2026, 9, 9), result.DueDate);
             Assert.All(bills, bill => Assert.Equal(AccessKey, bill.SupplierNFeAccessKey));
@@ -135,8 +123,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_PutsTheGoodsOnTheFirstInstalmentOnly()
         {
-            // The delivery happens once whatever the schedule says; repeating the lines would let a
-            // human receive the same stock three times.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
             var (service, bills, _, _) = BuildSut(products: [product]);
 
@@ -163,8 +149,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_ResumesAnImportThatDiedHalfway()
         {
-            // The third instalment threw, the first two are already rows. Without this the nota is
-            // half-entered forever: the old code saw "something exists" and reported success.
             var (service, bills, _, payableBillService) = BuildSut();
 
             payableBillService
@@ -179,7 +163,6 @@ namespace EvangelionERPV2.NFeModule.Test
 
             Assert.Equal(2, bills.Count);
 
-            // Second attempt: the two that landed are left alone and the third is created.
             payableBillService
                 .Setup(x => x.CreateAsync(It.IsAny<PayableBill>(), It.IsAny<bool>(), It.IsAny<bool>()))
                 .ReturnsAsync((PayableBill bill, bool _, bool __) =>
@@ -201,8 +184,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_DoesNotReimportANotaThatLandedBeforeTheKeyWidened()
         {
-            // A bill imported under the old key carries a null duplicata. Nothing in the schedule
-            // matches it, and without the guard the nota would be entered a second time as three.
             var (service, bills, _, _) = BuildSut();
             bills.Add(new PayableBill
             {
@@ -241,8 +222,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_IgnoresAScheduleThatCarriesNoAmounts()
         {
-            // Some emitters send a cobr block with only a fat in it. A payable for zero is a bill
-            // nobody owes.
             var emptySchedule = Encoding.UTF8.GetString(BuildNota())
                 .Replace("<vDup>320.00</vDup>", "<vDup>0.00</vDup>");
 
@@ -258,7 +237,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_NumbersADuplicataTheEmitterLeftBlank()
         {
-            // The number is half the idempotency key, so it cannot be empty.
             var blankNumbers = Encoding.UTF8.GetString(BuildInstalmentNota())
                 .Replace("<nDup>001</nDup>", "<nDup></nDup>")
                 .Replace("<nDup>002</nDup>", "<nDup></nDup>")
@@ -308,7 +286,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_DoesNotMoveStock()
         {
-            // A nota is issued when goods ship. MarkProductsReceived is still the arrival event.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
             var (service, _, _, _) = BuildSut(products: [product]);
 
@@ -320,9 +297,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_RefusedAfterTheEmitterWasResolved_LeavesNoSupplierBehind()
         {
-            // The emitter used to be committed several steps before the first bill, so an import
-            // refused afterwards — a closed period is the ordinary case — left a supplier the shop
-            // never traded with sitting in its list and in every picker.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
             var (service, bills, suppliers, payableBillService) = BuildSut(products: [product]);
 
@@ -431,8 +405,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_MergesTwoLinesOfTheSameProduct()
         {
-            // The payable's item index is unique per (bill, product), so a nota that lists the same
-            // product twice must not be refused.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
             var doubled = Encoding.UTF8.GetString(BuildNota()).Replace("PROG-02", "PLUG-01")
                 .Replace("<cEAN>SEM GTIN</cEAN>", "<cEAN>7891234567895</cEAN>")
@@ -449,8 +421,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_CostsAMatchedProductThatHadNoCost()
         {
-            // M24 shipped margin and nothing fills cost, so every product reads "-" until somebody
-            // types a number. The supplier's own unit value is that number, already in the file.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
             Assert.Null(product.CostPrice);
 
@@ -465,8 +435,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_LeavesAProductThatAlreadyHasACostAlone()
         {
-            // A backfill, not a repricing: this line might be a return, a sample or another pack
-            // size, and overwriting would silently replace a figure a human chose.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
             product.CostPrice = 42m;
 
@@ -481,8 +449,6 @@ namespace EvangelionERPV2.NFeModule.Test
         [Fact]
         public async Task Import_DoesNotCostAProductFromALineWorthNothing()
         {
-            // Bonificacao and amostra lines carry vUnCom 0, and a product costed at zero does not
-            // read as unknown - it reads as 100% margin on every order it ever appears in.
             var product = BuildProduct("Plugsuit", ean: "7891234567895");
             var free = Encoding.UTF8.GetString(BuildNota())
                 .Replace("<vUnCom>60.0000000000</vUnCom>", "<vUnCom>0.0000000000</vUnCom>");
@@ -534,8 +500,6 @@ namespace EvangelionERPV2.NFeModule.Test
 
             var service = new SupplierNFeImportService(
                 Repo(billStore).Object,
-                // Suppliers behave like the real SupplierRepository: its GetAllAsync override
-                // throws when nothing matches, and an unknown emitter is exactly nothing matching.
                 Repo(supplierStore, throwsWhenEmpty: true).Object,
                 Repo(productStore).Object,
                 payableBillService.Object);
@@ -587,9 +551,6 @@ namespace EvangelionERPV2.NFeModule.Test
 
             repo.Setup(x => x.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-            // Runs the body and rolls this store back if it throws, like the real one. A loose mock
-            // answers a completed Task and never calls the delegate at all; one that called it but
-            // kept the writes would pass a test whose whole subject is that they are undone.
             repo.Setup(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
                 .Returns(async (Func<Task> operation, CancellationToken _) =>
                 {

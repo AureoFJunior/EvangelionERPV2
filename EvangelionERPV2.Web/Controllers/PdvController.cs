@@ -26,47 +26,32 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class PdvController : Controller
     {
-        // A sale carries its lines and its tenders and nothing else — no images, no attachments.
-        // Small enough that anything larger is a bug or an attack, either way not worth reading.
         private const int MaxSaleRequestBodySizeInBytes = 256 * 1024;
         private const int MaxBatchRequestBodySizeInBytes = 2 * 1024 * 1024;
 
-        // A terminal id and nothing else. Anything larger is a bug or an attack.
         private const int MaxEnrollRequestBodySizeInBytes = 4 * 1024;
         private const int MaxTerminalIdLength = 64;
 
-        // A username, a password and nothing else.
         private const int MaxLoginRequestBodySizeInBytes = 4 * 1024;
 
-        // Six to twelve digits.
         private const int MaxPinRequestBodySizeInBytes = 4 * 1024;
 
-        // A shop with more supervisors than this has a different problem; the cap stops one
-        // terminal's sync from pulling an unbounded page of users into memory.
         private const int MaxSupervisorVerifiers = 500;
 
-        // Every user in the enterprise, active or not, so revocations travel with the snapshot.
         private const int MaxSyncStateUsers = 2000;
 
-        // One override attempt and nothing else.
         private const int MaxOverrideRequestBodySizeInBytes = 4 * 1024;
 
-        // A basket id and an amount. Anything larger is a bug or an attack.
         private const int MaxChargeRequestBodySizeInBytes = 4 * 1024;
 
-        // One provider event. Stripe's are a few KB; the cap is slack, not a promise.
         private const int MaxWebhookRequestBodySizeInBytes = 64 * 1024;
 
-        // How far back the failed-override feed reaches, and how many rows of it travel. The till
-        // only needs enough to run a lockout window, not the year's audit trail.
         private static readonly TimeSpan FailedOverrideFeedWindow = TimeSpan.FromHours(24);
         private const int MaxFailedOverridesInSyncState = 500;
 
         /// <summary>Header a till identifies itself with: <c>terminalId:credential</c>.</summary>
         private const string TerminalHeaderName = "X-Pdv-Terminal";
 
-        // Terminal ids are unique per enterprise, not globally, so one id can name a till in more
-        // than one tenant. The cap stops a crafted id from pulling an unbounded page into memory.
         private const int MaxTerminalLoginCandidates = 20;
 
         private const int DefaultCatalogPageSize = 500;
@@ -75,13 +60,8 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>Matches <c>ProductController.MaxPageSizeWithPictures</c>. Base64 inflates by a third.</summary>
         private const int MaxImagePageSize = 50;
 
-        // A terminal that has been off for a week sends its backlog in one call; more than this and
-        // it takes two, which keeps one bad batch from occupying a request thread indefinitely.
         private const int MaxSalesPerBatch = 200;
 
-        // Two counters, because either one alone leaves a hole: per terminal-and-operator stops a
-        // password being guessed, per terminal stops one password being sprayed across every
-        // cashier's account from the same till.
         private static readonly TimeSpan LoginRateLimitWindow = TimeSpan.FromMinutes(15);
         private const int LoginRateLimitMaxFailedAttempts = 5;
 
@@ -126,11 +106,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Enrolls a till and returns its credential, once.
         /// </summary>
-        /// <remarks>
-        /// Supervisor tier, not operator: adding a terminal that can reach the login endpoint is a
-        /// management action. The credential is generated here and never stored in the clear, so
-        /// this response is the only time anyone sees it.
-        /// </remarks>
         [HttpPost]
         [RequestSizeLimit(MaxEnrollRequestBodySizeInBytes)]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.CashMovement)]
@@ -154,8 +129,6 @@ namespace EvangelionERPV2.Web.Controllers
             var existing = await _terminalRepository.GetAllAsync(
                 x => x.EnterpriseId == enterpriseId && x.TerminalId == terminalId);
 
-            // Re-enrolling silently would mint a second credential for a till that already has one
-            // and leave the first working. Rotation should be an explicit act, not a side effect.
             if (existing.Any())
                 return Conflict($"Terminal [{terminalId}] is already enrolled.");
 
@@ -178,17 +151,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Logs an operator in at an enrolled till.
         /// </summary>
-        /// <remarks>
-        /// Separate from <c>UserController.LogInto</c> because a terminal has no browser and cannot
-        /// solve a reCAPTCHA. The enrolled terminal credential replaces that human-presence check;
-        /// it authorises nothing on its own, every permission still comes from the operator's role.
-        ///
-        /// The token issued here is stamped <see cref="PdvTokenScope"/>, so a credential lifted off
-        /// a shop-floor machine reaches the till and only the till.
-        ///
-        /// Every rejection returns the same bare 401. Telling "no such terminal" apart from "wrong
-        /// password" would turn this into an oracle for enumerating terminal ids and usernames.
-        /// </remarks>
         [HttpPost]
         [AllowAnonymous]
         [RequestSizeLimit(MaxLoginRequestBodySizeInBytes)]
@@ -223,8 +185,6 @@ namespace EvangelionERPV2.Web.Controllers
             if (login.User == null)
                 return RegisterFailedLogin(terminalKey, operatorKey);
 
-            // The terminal says only "this caller is a till we enrolled". An operator from another
-            // company logging in here would read this company's catalog.
             if (login.User.EnterpriseId != terminal.EnterpriseId)
                 return RegisterFailedLogin(terminalKey, operatorKey);
 
@@ -232,8 +192,6 @@ namespace EvangelionERPV2.Web.Controllers
             if (permissions.Count == 0)
                 return RegisterFailedLogin(terminalKey, operatorKey);
 
-            // The operator proved who they are, so their counter is spent. The terminal's is not:
-            // clearing it would let a guesser reset the till's budget with one valid login.
             _operatorLoginLimiter.Clear(operatorKey);
 
             terminal.LastSeenAt = DateTime.UtcNow;
@@ -273,8 +231,6 @@ namespace EvangelionERPV2.Web.Controllers
             terminalId = string.Empty;
             credential = string.Empty;
 
-            // Header form is "terminalId:credential". A credential is base64 and may contain '+'
-            // and '/' but never ':', so the first colon is the separator.
             var header = Request.Headers[TerminalHeaderName].ToString();
             var separator = header.IndexOf(':');
             if (separator <= 0 || separator == header.Length - 1 || separator > MaxTerminalIdLength)
@@ -291,8 +247,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         private async Task<PdvTerminal?> ResolveTerminalAsync(string terminalId, string credential)
         {
-            // The credential is what picks the tenant: the login carries no discriminator, and the
-            // same terminal id can name a till in more than one enterprise.
             var candidates = (await _terminalRepository.GetAllAsync(
                 1, MaxTerminalLoginCandidates, x => x.TerminalId == terminalId)).ToList();
 
@@ -330,20 +284,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Sets the caller's own till override PIN.
         /// </summary>
-        /// <remarks>
-        /// Self-service and nobody else's: a PIN a manager could set for a cashier would be a PIN
-        /// the manager knows, which defeats the point of an override being attributable. Only the
-        /// verifier is stored, and the PIN is never logged.
-        ///
-        /// **Not from a till.** This is the one authenticated action in the API that carries no
-        /// rbac policy — it needs none, since it only ever touches the caller's own row — and that
-        /// is exactly why it has to refuse a scoped token by hand: `PdvTokenScope.Grants` runs
-        /// inside the policy handlers, so an endpoint with no policy is an endpoint the scope never
-        /// reaches. A credential lifted off a shop-floor machine could otherwise set the override
-        /// PIN of the user it belongs to, and if that user is supervisor tier the thief then
-        /// authorises their own overrides with a PIN they chose — recorded against the supervisor,
-        /// which is the attributability this whole design exists to keep.
-        /// </remarks>
         [HttpPost]
         [RequestSizeLimit(MaxPinRequestBodySizeInBytes)]
         [ProducesResponseType(204)]
@@ -354,14 +294,11 @@ namespace EvangelionERPV2.Web.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
-            // A PIN is set from the backoffice, on a machine that is not the shop floor.
             if (PdvTokenScope.IsPdvScoped(User))
                 return Forbid();
 
             var pin = request?.Pin ?? string.Empty;
 
-            // Six digits is the floor because the verifier is handed to terminals, where anything
-            // shorter is guessable offline whatever the iteration count.
             if (pin.Length is < 6 or > 12 || !pin.All(char.IsAsciiDigit))
                 return BadRequest("Pin must be 6 to 12 digits.");
 
@@ -369,11 +306,6 @@ namespace EvangelionERPV2.Web.Controllers
             if (!userId.HasValue || !TryGetEnterpriseId(out var enterpriseId))
                 return Unauthorized();
 
-            // IsActive too, and not only because every sibling lookup checks it: a delete
-            // deactivates the row instead of removing it, so a dismissed user's row is still here
-            // and still carries their tenant. With no rbac policy on this action there is no
-            // PermissionAuthorizationHandler behind it to notice, and their unexpired backoffice
-            // token would otherwise write a PIN they chose onto a supervisor row.
             var user = await _userRepository.GetByIdAsync(userId.Value);
             if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId)
                 return Unauthorized();
@@ -391,14 +323,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// Returns the supervisors a till may ask to authorise an override, with the verifier it
         /// checks their PIN against.
         /// </summary>
-        /// <remarks>
-        /// The verifiers leave the server on purpose. An override is needed precisely when the
-        /// network is down — a check that requires the ERP is a check that fails when it matters.
-        /// A verifier is not a PIN, which is the whole reason it is a PBKDF2 hash.
-        ///
-        /// Only users who hold a <c>pdv.*</c> grant an operator does not are listed: sending every
-        /// employee's verifier would put the whole staff's PINs on every shop floor.
-        /// </remarks>
         [HttpGet]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
         [ProducesResponseType(typeof(IEnumerable<SupervisorVerifierDTO>), 200)]
@@ -433,14 +357,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Records one override a till reports, refused ones included.
         /// </summary>
-        /// <remarks>
-        /// Idempotent on <c>ClientOverrideId</c>, like <c>SyncSale</c>: a terminal that loses the
-        /// response resends, and an audit trail that double-counts refusals would lock a supervisor
-        /// out over a flaky connection.
-        ///
-        /// The PIN never reaches here. The till checks it against the cached verifier and reports
-        /// the outcome.
-        /// </remarks>
         [HttpPost]
         [RequestSizeLimit(MaxOverrideRequestBodySizeInBytes)]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
@@ -509,10 +425,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// The permission snapshot and revocation list a till refreshes on every sync.
         /// </summary>
-        /// <remarks>
-        /// Scoped to the caller's enterprise throughout: a till handed another tenant's operators
-        /// would be handed their PIN verifiers with them.
-        /// </remarks>
         [HttpGet]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
         [ProducesResponseType(typeof(PdvSyncStateDTO), 200)]
@@ -536,7 +448,6 @@ namespace EvangelionERPV2.Web.Controllers
                     DisplayName = $"{user.FirstName} {user.LastName}".Trim(),
                     Permissions = PdvTokenScope.PermissionsFor(user.AccessLevel),
 
-                    // Only someone who can authorise an override needs a verifier on a shop floor.
                     PinVerifier = IsSupervisorTier(user.AccessLevel) ? user.PdvPinVerifier : null
                 })
                 .ToList();
@@ -546,8 +457,6 @@ namespace EvangelionERPV2.Web.Controllers
                 .Select(user => user.Id)
                 .ToList();
 
-            // A terminal only ever sees its own refusals, so the lockout it runs would be per till
-            // rather than per supervisor — and the guesser walks to the next one.
             var since = DateTime.UtcNow.Subtract(FailedOverrideFeedWindow);
             var failedOverrides = (await _overrideAuditRepository.GetAllAsync(
                     1,
@@ -560,13 +469,8 @@ namespace EvangelionERPV2.Web.Controllers
                 })
                 .ToList();
 
-            // Both halves, because a connected account is not the same as one Stripe has let
-            // through the PIX invite. Either missing means the till shows the button greyed out.
             var enterprise = await _enterpriseRepository.GetByIdAsync(enterpriseId);
 
-            // Same reasoning as PIX: the till has to know before the sale whether the paper it
-            // prints is a DANFE NFC-e or a non-fiscal coupon, and the moment it needs that answer
-            // is often the moment it cannot ask.
             var fiscal = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
 
             return Ok(new PdvSyncStateDTO
@@ -689,11 +593,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Records one till sale. Idempotent on <c>ClientSaleId</c>.
         /// </summary>
-        /// <remarks>
-        /// A resend of a sale that already landed answers 200 with the same order id and
-        /// <c>WasAlreadyRecorded</c> set, not a conflict — the terminal did the right thing by
-        /// retrying and should be told so plainly.
-        /// </remarks>
         [HttpPost]
         [RequestSizeLimit(MaxSaleRequestBodySizeInBytes)]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
@@ -721,12 +620,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// A terminal's backlog after it comes back online.
         /// </summary>
-        /// <remarks>
-        /// Sales are processed in the order given and a failure stops the batch rather than
-        /// skipping past it: they are a queue, and the ones behind may depend on the ones in front.
-        /// Whatever succeeded before the stop is still reported, so the terminal can clear those
-        /// and resend the rest.
-        /// </remarks>
         [HttpPost]
         [RequestSizeLimit(MaxBatchRequestBodySizeInBytes)]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
@@ -764,8 +657,6 @@ namespace EvangelionERPV2.Web.Controllers
                     Log.Logger.Error("PDV batch stopped at sale [{ClientSaleId}]. ErrorType={ErrorType}",
                         sale.ClientSaleId, ex.GetType().Name);
 
-                    // Report what did land rather than failing the whole call: those sales are
-                    // recorded, and the terminal must be able to stop resending them.
                     break;
                 }
             }
@@ -788,9 +679,6 @@ namespace EvangelionERPV2.Web.Controllers
 
             try
             {
-                // The reading is for a supervisor, who is not the person counting the drawer, so it
-                // carries the expected figure. The blind count is enforced at CloseSession, which
-                // takes the operator's number before it answers with this.
                 return Ok(await _pdvService.GetSessionSummaryAsync(clientSessionId, enterpriseId, includeExpectedCash: true));
             }
             catch (NotFoundDatabaseException)
@@ -800,10 +688,6 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>Every till enrolled for this shop, revoked ones included.</summary>
-        /// <remarks>
-        /// The credential is not here and cannot be — it is stored as a PBKDF2 verifier and was
-        /// shown once at enrollment. A till whose credential was lost is re-enrolled, not recovered.
-        /// </remarks>
         [HttpGet]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.ReadReports)]
         [ProducesResponseType(typeof(IEnumerable<PdvTerminalDTO>), 200)]
@@ -818,11 +702,6 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>Retires a till, so its credential stops opening the login endpoint.</summary>
-        /// <remarks>
-        /// Same tier as enrolling one: adding and removing a terminal are the same management
-        /// action. Answers 204 when there was nothing to revoke, so a double click is not an error
-        /// and another tenant's terminal is indistinguishable from one that never existed.
-        /// </remarks>
         [HttpPost("{terminalId}")]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.CashMovement)]
         [ProducesResponseType(200)]
@@ -854,10 +733,6 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>Recent override attempts, newest first.</summary>
-        /// <remarks>
-        /// The refused ones are the point: a run of them against one supervisor is somebody
-        /// guessing a PIN. No PIN, verifier or password is in this table or this response.
-        /// </remarks>
         [HttpGet]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.ReadReports)]
         [ProducesResponseType(typeof(IEnumerable<PdvOverrideAuditDTO>), 200)]
@@ -875,18 +750,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Issues the NFC-e for a sale the till already synced, and answers what it must print.
         /// </summary>
-        /// <remarks>
-        /// A separate call, never part of <c>SyncSale</c>. `RejectAsync` is terminal — the till
-        /// stops resending a rejected sale — so putting issuance on that path would let one SEFAZ
-        /// timeout permanently reject a sale the customer already paid for. Here a fiscal failure
-        /// costs a fiscal failure and nothing else; the sale stays Synced either way.
-        ///
-        /// **The contingency fallback is deliberately narrow.** It runs only when the first attempt
-        /// can be *proved* never to have been transmitted. A note whose outcome is merely unknown
-        /// may already exist at SEFAZ, and re-issuing it off-line would emit the same sale twice —
-        /// so that case is left Pending for the reconciler, which is the only component allowed to
-        /// resolve it.
-        /// </remarks>
         [HttpPost("{clientSaleId}")]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
         [ProducesResponseType(typeof(PdvFiscalDocumentDTO), 200)]
@@ -903,13 +766,9 @@ namespace EvangelionERPV2.Web.Controllers
             if (sale == null)
                 return NotFound();
 
-            // Only a sale that actually became an order has anything to issue against.
             if (sale.Status != (int)EnumPdvSaleStatus.Synced || sale.OrderId == null)
                 return BadRequest(new { message = "That sale has not been synced into an order yet." });
 
-            // The tenant's own two switches, checked here rather than trusted from the terminal.
-            // GetSyncState publishes exactly this pair, so a till that skips the call, or one whose
-            // cached snapshot is stale, cannot issue a note the shop has not turned on.
             var fiscal = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
             if (!fiscal.Enabled || !fiscal.NFCeEnabled)
                 return BadRequest(new { message = "NFC-e issuance is not enabled for this enterprise." });
@@ -919,16 +778,10 @@ namespace EvangelionERPV2.Web.Controllers
             if (document == null)
                 return BadRequest(new { message = "NFC-e issuance is not enabled for this enterprise." });
 
-            // Provably nothing left this process — a certificate that would not load, SEFAZ
-            // unreachable before the socket opened. Only then is issuing the same sale off-line
-            // safe, and only then does the customer get a document to leave with.
             var neverTransmitted = document.Status == NFeStatus.Error && document.TransmittedAtUtc == null;
 
             if (neverTransmitted && !string.IsNullOrWhiteSpace(contingencyReason))
             {
-                // xJust is bounded by the schema at 15..256. Refused here, where the answer is a
-                // 400 the operator can act on, rather than deeper down where it becomes a second
-                // fiscal document in Error for a sale that already has one.
                 var reason = contingencyReason.Trim();
                 if (reason.Length is < 15 or > 256)
                 {
@@ -981,11 +834,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Products changed since the terminal last asked, for its local mirror.
         /// </summary>
-        /// <remarks>
-        /// No cost or margin here at any page size. The till needs a sale price to charge and the
-        /// fiscal fields to build an NFC-e line; what the shop pays its suppliers has no business
-        /// sitting on a machine in the shop floor, behind a login every cashier knows.
-        /// </remarks>
         [HttpGet]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
         [ProducesResponseType(typeof(PdvCatalogPageDTO), 200)]
@@ -1005,11 +853,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Product thumbnails, for a till building its picture cache.
         /// </summary>
-        /// <remarks>
-        /// Separate from <c>GetCatalog</c> deliberately. Prices and stock must reach a till in
-        /// seconds; pictures may take hours, and putting them in one response would hold the first
-        /// hostage to the second.
-        /// </remarks>
         [HttpGet]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
         [ProducesResponseType(typeof(PdvProductImagePageDTO), 200)]
@@ -1029,11 +872,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Raises a PIX charge for a basket, or returns the one already raised for it.
         /// </summary>
-        /// <remarks>
-        /// The response carries an opaque charge id, a status and a copia-e-cola string — never a
-        /// key, an account or a provider intent id. A terminal that knew those could reach Stripe
-        /// directly, and under Connect that is a terminal holding something worth stealing.
-        /// </remarks>
         [HttpPost]
         [RequestSizeLimit(MaxChargeRequestBodySizeInBytes)]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
@@ -1053,8 +891,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (ArgumentException ex)
             {
-                // A shop with no PIX, or an amount outside the provider's range. The operator needs
-                // the reason on screen; nothing here is worth a 500 or a stack trace in the log.
                 return BadRequest(new { message = ex.Message });
             }
         }
@@ -1062,10 +898,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// The charge as the ERP last recorded it.
         /// </summary>
-        /// <remarks>
-        /// Reads our own row. The till polls this while a customer pays, and a poll that reached
-        /// Stripe would put its rate limit on the path of every sale — the webhook moves the row.
-        /// </remarks>
         [HttpGet("{chargeId}")]
         [Authorize(Policy = "rbac:" + RbacPermissions.Pdv.Operate)]
         [ProducesResponseType(typeof(PdvChargeDTO), 200)]
@@ -1079,8 +911,6 @@ namespace EvangelionERPV2.Web.Controllers
 
             var charge = await _pdvService.GetChargeAsync(chargeId, enterpriseId);
 
-            // No content rather than 404: another tenant's charge and a charge that never existed
-            // must be indistinguishable from here.
             return charge == null ? NoContent() : Ok(charge);
         }
 
@@ -1110,22 +940,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Where the provider tells us a charge settled.
         /// </summary>
-        /// <remarks>
-        /// Anonymous because Stripe holds no token of ours and cannot be given one; the signature is
-        /// the authentication. It is checked against the raw body before anything is parsed, because
-        /// a body that has been through a model binder is not the body that was signed — which is
-        /// also why this action binds no parameter and reads the stream itself.
-        ///
-        /// The tenant is never taken from the request. The event names an intent; the row it matches
-        /// carries the EnterpriseId. A webhook that could be told which shop it concerned would be a
-        /// webhook that could move another shop's charges.
-        ///
-        /// Always 200 once the signature holds, including for events we ignore: a non-2xx tells the
-        /// provider to retry, and retrying something we deliberately dropped never empties.
-        ///
-        /// The handler is resolved per action rather than through the constructor — every other
-        /// endpoint here is authenticated and has no use for it.
-        /// </remarks>
         [HttpPost]
         [AllowAnonymous]
         [RequestSizeLimit(MaxWebhookRequestBodySizeInBytes)]
@@ -1138,8 +952,6 @@ namespace EvangelionERPV2.Web.Controllers
 
             var accepted = await handler.TryHandleAsync(json, Request.Headers["Stripe-Signature"]);
 
-            // No message on refusal. A verification error that explains itself is an oracle for
-            // whoever is probing it.
             return accepted ? Ok() : BadRequest();
         }
 

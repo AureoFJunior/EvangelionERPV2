@@ -6,10 +6,6 @@ namespace EvangelionERPV2.Test.Workers
     /// Pins the two properties the publish-channel pool exists for: it bounds how many channels are
     /// alive at once, and a channel is always returned even when the publish throws.
     /// </summary>
-    /// <remarks>
-    /// Mirrors RabbitMQManagerBase's rent/return around a fake channel. The real one needs a broker
-    /// connection; the bookkeeping is what regresses silently.
-    /// </remarks>
     public class PublishChannelPoolTests
     {
         private const int MaxChannels = 16;
@@ -57,7 +53,6 @@ namespace EvangelionERPV2.Test.Workers
                 }
             }
 
-            // Exhausted slots would make this hang rather than fail, so the timeout is the assertion.
             var after = await Task.WhenAny(pool.RentAsync(), Task.Delay(TimeSpan.FromSeconds(5)));
             Assert.True(after is Task<FakeChannel>, "the pool ran out of slots after failed publishes");
         }

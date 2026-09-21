@@ -55,24 +55,16 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 services.AddTransient(typeof(IOrderRepository<Order>), typeof(OrderRepository));
                 services.AddTransient(typeof(IProductRepository<Product>), typeof(ProductRepository));
 
-
                 #endregion
 
                 #region Services
                 services.AddScoped(typeof(IOrderService<Order>), typeof(OrderService));
                 services.AddScoped(typeof(IOrderReportGeneratorService), typeof(OrderReportGeneratorService));
 
-                // Orçamento. It lives in this module because converting a quote is creating an
-                // order — the one thing a quote is for — and a separate module would mean a
-                // project reference back here for that single call.
                 services.AddScoped<IQuoteRepository, QuoteRepository>();
                 services.AddScoped<IQuoteService, QuoteService>();
 
-                // Metas e comissão. Here rather than in Reports because Order.UserId is the only
-                // record of who sold what, and the generic repositories this needs are already
-                // registered in this module.
                 services.AddScoped<ISalesPerformanceService, SalesPerformanceService>();
-
 
                 #endregion
 
@@ -89,7 +81,6 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 services.AddSignalR();
                 services.AddScoped(typeof(OrderHub), typeof(OrderHub));
                 #endregion
-
             }
             catch (Exception ex)
             {
@@ -97,7 +88,6 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                     "Error at DI IoC Order. ErrorType={ErrorType}",
                     ex.GetType().Name);
             }
-
         }
     }
 }

@@ -163,7 +163,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             using var document = JsonDocument.Parse(json);
             var summary = document.RootElement.GetProperty("resumo");
 
-            // Both rows are still listed; only the money excludes the estorno.
             Assert.Equal(2, document.RootElement.GetProperty("total").GetInt32());
             Assert.Equal(100m, summary.GetProperty("faturamento").GetDecimal());
             Assert.Equal(100m, summary.GetProperty("ticketMedio").GetDecimal());

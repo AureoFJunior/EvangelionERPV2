@@ -85,7 +85,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             var topRows = rankedProducts.Take(10).ToList();
             var totalRevenueShown = topRows.Sum(x => x.Revenue);
-            // Unknown if any listed product is uncosted — the same all-or-nothing rule as a line.
             var totalCost = topRows.All(x => x.Cost.HasValue) ? topRows.Sum(x => x.Cost!.Value) : (decimal?)null;
             var totalQuantity = rankedProducts.Sum(x => x.Quantity);
             var totalRevenue = rankedProducts.Sum(x => x.Revenue);
@@ -501,8 +500,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
         private static string FormatPercentOrDash(decimal? value) => value.HasValue ? $"{value.Value:N1}%" : "&mdash;";
 
-        // Cost is nullable all the way through: a product nobody has costed reports "—", never a
-        // revenue-sized margin. See OrderMargin for why a partially costed group counts as unknown.
         private readonly record struct TopProductsByRevenueRow(string ProductName, decimal Quantity, decimal Revenue, string UnitOfMeasure, decimal? Cost)
         {
             public decimal? Margin => Cost.HasValue ? Revenue - Cost.Value : null;

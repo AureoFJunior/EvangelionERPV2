@@ -68,13 +68,9 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal(NFeStatus.Pending, document.Status);
             Assert.True(document.IsOutcomeUnknown);
 
-            // The marker and the chave survive: they are what the next consult is made against, and
-            // clearing either would turn an unknown outcome into a retransmission.
             Assert.Equal(transmittedAt, document.TransmittedAtUtc);
             Assert.Equal(AccessKey, document.AccessKey);
 
-            // Counted, so a note SEFAZ never answers for eventually parks for a human instead of
-            // being consulted forever.
             Assert.Equal(1, document.AttemptCount);
         }
 
@@ -100,7 +96,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal(AccessKey, document.AccessKey);
             Assert.Null(document.TransmittedAtUtc);
 
-            // Never consulted: there is nothing at SEFAZ to ask about.
             context.Provider.Verify(
                 x => x.ConsultAsync(It.IsAny<string>(), It.IsAny<EnterpriseFiscalSettings>(), It.IsAny<CancellationToken>()),
                 Times.Never);
@@ -110,8 +105,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         public async Task Reconcile_WhenOneDocumentThrows_StillProcessesTheRest()
         {
             var context = new ReconciliationContext();
-            // Distinct keys: the branch taken has to be attributable to one document, not to the
-            // order the sweep happened to visit them in.
             var failing = TransmittedDocument("43250811222333000181550010000000081123456781");
             var succeeding = TransmittedDocument();
             context.Stale(failing, succeeding);

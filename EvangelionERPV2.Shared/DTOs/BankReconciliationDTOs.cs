@@ -15,12 +15,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// A human pointing one statement line at the document it actually paid or was paid by.
     /// </summary>
-    /// <remarks>
-    /// Amount and date are deliberately <em>not</em> re-checked against the document: manual
-    /// resolution exists precisely for the lines the automatic rule could not take — a payment net
-    /// of a bank fee, a settlement that drifted past the ±3-day window, one of two identical
-    /// amounts. Re-imposing the automatic rule here would refuse every line worth resolving.
-    /// </remarks>
     public class ResolveBankStatementLineRequestDTO
     {
         public Guid LineId { get; set; }

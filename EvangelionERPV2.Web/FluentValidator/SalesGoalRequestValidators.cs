@@ -5,8 +5,6 @@ namespace EvangelionERPV2.Web.FluentValidator
 {
     public sealed class UpsertSalesGoalRequestValidator : AbstractValidator<UpsertSalesGoalRequestDTO>
     {
-        // A target no company will ever bill. Bounded so a fat-fingered extra digit is refused at
-        // the edge rather than rendering an attainment of 0.0% forever.
         private const decimal MaxTargetAmount = 1_000_000_000m;
 
         public UpsertSalesGoalRequestValidator()

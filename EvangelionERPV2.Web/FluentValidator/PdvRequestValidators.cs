@@ -42,8 +42,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.ClientSessionId)
                 .NotEmpty().WithMessage("ClientSessionId is required.");
 
-            // Only the two an operator types. A Sale movement posted here would let somebody
-            // inflate the drawer to cover a shortfall.
             RuleFor(x => x.Type)
                 .Must(type => type == (int)EnumCashMovementType.Sangria || type == (int)EnumCashMovementType.Suprimento)
                 .WithMessage("Only a sangria or a suprimento may be registered.");
@@ -51,7 +49,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.Amount)
                 .GreaterThan(0).WithMessage("Amount must be greater than zero.");
 
-            // Cash leaving a drawer without a stated reason is indistinguishable from theft.
             RuleFor(x => x.Reason)
                 .NotEmpty().WithMessage("Reason is required.")
                 .MaximumLength(200).WithMessage("Reason is too long.");
@@ -108,7 +105,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.Quantity)
                 .GreaterThan(0).WithMessage("Quantity must be greater than zero.");
 
-            // Zero is allowed: a giveaway line still has to appear on the receipt and on the note.
             RuleFor(x => x.Value)
                 .GreaterThanOrEqualTo(0).WithMessage("Value must be zero or greater.");
         }
@@ -121,8 +117,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.Method)
                 .Must(method => Enum.IsDefined(typeof(EnumPaymentMethod), method))
                 .WithMessage("Unknown payment method.")
-                // Mixed is what an order says about itself when several tenders settled it. It is
-                // not a tender, and has no NFC-e tPag to be declared under.
                 .Must(method => method != (int)EnumPaymentMethod.Mixed)
                 .WithMessage("Mixed is not a tender — send each payment with its own method.");
 
@@ -132,7 +126,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.ChangeGiven)
                 .GreaterThanOrEqualTo(0).WithMessage("ChangeGiven must be zero or greater.");
 
-            // Only cash can hand notes back. Change on a card is a refund, not a tender.
             RuleFor(x => x)
                 .Must(payment => payment.ChangeGiven == 0 || payment.Method == (int)EnumPaymentMethod.Cash)
                 .WithMessage("Only a cash payment can give change.");
@@ -211,11 +204,6 @@ namespace EvangelionERPV2.Web.FluentValidator
     /// <summary>
     /// The bounds are Stripe's, restated at the edge.
     /// </summary>
-    /// <remarks>
-    /// <c>PdvService</c> asserts the same range, and that is the one that makes the rule true. This
-    /// copy turns a request that was never going to work into a 400 with a message, before a
-    /// connected account is looked up or a provider is called.
-    /// </remarks>
     public sealed class StartPixChargeRequestValidator : AbstractValidator<StartPixChargeRequestDTO>
     {
         public StartPixChargeRequestValidator()

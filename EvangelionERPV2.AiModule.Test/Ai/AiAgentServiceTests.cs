@@ -193,9 +193,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [MemberData(nameof(ModelServerFailures))]
         public async Task AModelServerThatDoesNotAnswer_TellsTheUserInsteadOfThrowing(Exception failure)
         {
-            // Observed 2026-09-14 on POST /ai/chat: TaskCanceledException -> IOException ->
-            // SocketException out of HttpClient, which matched no catch here and left as an
-            // unhandled 500. A model that did not answer is an outcome to report, not a crash.
             var service = BuildService(ChatThatFailsWith(failure).Object, NoTools());
 
             var result = await service.RunTurnAsync(Request("oi"), CancellationToken.None);
@@ -205,7 +202,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
         public static TheoryData<Exception> ModelServerFailures() =>
         [
-            // HttpClient's own timeout: cancelled, but by nobody's token.
             new TaskCanceledException("timeout", new IOException("connection reset", new SocketException(104))),
             new HttpRequestException("connection refused"),
             new IOException("the response ended prematurely"),
@@ -228,8 +224,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task ACallerWhoHangsUp_IsNotReportedAsAModelFailure()
         {
-            // Nobody is waiting for this answer, and writing "tente de novo" into a conversation the
-            // user closed would be a message to nobody.
             using var caller = new CancellationTokenSource();
             await caller.CancelAsync();
 
@@ -242,9 +236,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task AModelThatAnswersWithNothing_StillLeavesASentenceBehind()
         {
-            // Four empty assistant rows were found in the database on 2026-09-14. In the history they
-            // read as questions the assistant ignored, which is indistinguishable from a bug in the
-            // client — and gives the user nothing to act on.
             var persisted = new List<AiMessage>();
 
             var result = await BuildService(ChatReturning(Text(string.Empty)).Object, NoTools(), persisted: persisted)
@@ -334,7 +325,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Equal("Você tem 12 unidades.", result.Text);
         }
 
-
         [Fact]
         public async Task AWriteToolIsProposed_NotExecuted()
         {
@@ -367,7 +357,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                 It.IsAny<Guid>(), It.IsAny<IAiTool>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<CancellationToken>()),
                 Times.Once);
         }
-
 
         [Fact]
         public async Task AWriteWithUnusableArguments_IsCorrectedInsteadOfBecomingACard()
@@ -409,8 +398,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             tool.SetupGet(x => x.Name).Returns(name);
             tool.SetupGet(x => x.RequiresConfirmation).Returns(true);
             tool.SetupGet(x => x.RequiredPermission).Returns("customers.create");
-            // A mocked interface does not run the default PrepareAsync, so it has to be stubbed:
-            // arguments pass through untouched, which is what a tool with nothing to resolve does.
             tool.Setup(x => x.PrepareAsync(
                     It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<AiToolContext>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((IReadOnlyDictionary<string, object?> args, AiToolContext _, CancellationToken _) =>
@@ -418,12 +405,9 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             return tool.Object;
         }
 
-
         [Fact]
         public async Task TheAnswerArrivesInPieces_WhileItIsStillBeingWritten()
         {
-            // Voice mode speaks each piece as it lands. If the whole answer only shows up at the
-            // end, the first spoken word waits for the last generated one.
             var chunks = new List<string>();
             var notifier = new Mock<IAiProgressNotifier>();
             notifier.Setup(x => x.ChunkAsync(It.IsAny<Guid>(), It.IsAny<string>()))
@@ -446,8 +430,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task AModelsThinkingNeverReachesTheClient()
         {
-            // qwen3 streams its reasoning in a separate field. It is not the answer, and a speaker
-            // reading it aloud would be worse than useless.
             var chunks = new List<string>();
             var notifier = new Mock<IAiProgressNotifier>();
             notifier.Setup(x => x.ChunkAsync(It.IsAny<Guid>(), It.IsAny<string>()))
@@ -477,7 +459,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
         private static async IAsyncEnumerable<ChatResponseUpdate> WithThinking(string thinking, string answer)
         {
-            // Anything that is not TextContent is not the answer.
             yield return new ChatResponseUpdate(ChatRole.Assistant, new AIContent[] { new TextReasoningContent(thinking) });
             await Task.Yield();
             yield return new ChatResponseUpdate(ChatRole.Assistant, answer);
@@ -595,7 +576,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             await Task.Yield();
             throw failure;
 
-#pragma warning disable CS0162 // Unreachable, and required: an iterator needs a yield to be one.
+#pragma warning disable CS0162
             yield break;
 #pragma warning restore CS0162
         }

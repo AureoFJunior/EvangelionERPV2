@@ -11,7 +11,6 @@ namespace EvangelionERPV2.Test.Resilience
         [Fact]
         public void TimeUntilNextWeekly_LandsOnTheConfiguredDayAndHour()
         {
-            // Wednesday 2026-08-05 10:00 UTC.
             var now = new DateTime(2026, 8, 5, 10, 0, 0, DateTimeKind.Utc);
 
             var target = now.Add(BroadcastSchedule.TimeUntilNextWeekly(now, DayOfWeek.Monday, 8));
@@ -23,7 +22,6 @@ namespace EvangelionERPV2.Test.Resilience
         [Fact]
         public void TimeUntilNextWeekly_RightAfterTheSlot_WaitsAFullWeek()
         {
-            // One second past Monday's slot: the run that just happened must not repeat today.
             var justSent = new DateTime(2026, 8, 10, 8, 0, 1, DateTimeKind.Utc);
 
             var target = justSent.Add(BroadcastSchedule.TimeUntilNextWeekly(justSent, DayOfWeek.Monday, 8));

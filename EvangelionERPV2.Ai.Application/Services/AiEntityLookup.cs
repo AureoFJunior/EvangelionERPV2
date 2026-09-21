@@ -81,9 +81,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             if (text.Length == 0)
                 return AiLookupResult.Failed($"informe o {noun}: o id completo ou o nome.");
 
-            // A whole GUID still has to point at a live row in this tenant. Taking it on trust let a
-            // soft-deleted product become a confirmation card that could only fail at execution:
-            // ApplyStockMovementAsync updates WHERE IsActive = 1, so the write matched nothing.
             if (Guid.TryParse(text, out var id) && id != Guid.Empty)
             {
                 return await exists(id)
@@ -91,8 +88,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     : AiLookupResult.Failed($"nenhum {noun} ativo com esse id. Use {searchTool} para achar o correto.");
             }
 
-            // The model truncates ids as often as it sends names — "5ecc3fd5" for a whole GUID —
-            // and that fragment matches no name, so it gets its own lookup.
             if (LooksLikeIdFragment(text))
             {
                 var byPrefix = (await page())
@@ -113,8 +108,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
 
             var matches = await search(text);
 
-            // An exact name beats a partial one: "teste" must not be ambiguous just because
-            // "teste 2" also exists.
             var exact = matches
                 .Where(match => string.Equals(match.Name.Trim(), text, StringComparison.OrdinalIgnoreCase))
                 .ToList();

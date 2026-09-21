@@ -11,12 +11,6 @@ namespace EvangelionERPV2.NFeModule.Domain.Interface
         /// <summary>
         /// Off-line contingency notes that still owe SEFAZ a transmission, oldest first.
         /// </summary>
-        /// <remarks>
-        /// Deliberately unbounded by attempt count, unlike the reconciler's stale query. A note the
-        /// customer is already holding does not stop needing to be transmitted because we tried a
-        /// few times — it is a fiscal obligation, so it is retried until it succeeds or a human
-        /// intervenes.
-        /// </remarks>
         Task<IReadOnlyList<NFeDocument>> GetUntransmittedContingencyAsync(int take = 50);
 
         /// <summary>Tenant-scoped lookup, so the caller cannot forget the enterprise predicate.</summary>
@@ -27,26 +21,11 @@ namespace EvangelionERPV2.NFeModule.Domain.Interface
         /// transmitted with an unknown outcome (consult SEFAZ, never retransmit) and never
         /// transmitted at all (safe to retransmit the same number).
         /// </summary>
-        /// <remarks>
-        /// Both halves are required. Filtering on <c>TransmittedAtUtc != null</c> left the
-        /// "provably never sent" case with no owner: a crash between persisting the access key and
-        /// setting the write-ahead marker stranded the row forever, because the sweeper skipped it
-        /// and <c>IssueAsync</c>'s existing-Pending branch only polls briefly and then throws.
-        /// Check <see cref="NFeDocument.IsOutcomeUnknown"/> per row to tell the two apart.
-        /// Staleness is measured from the transmission when there was one, and from creation
-        /// otherwise — <c>UpdatedAt</c> is unusable here, it defaults to <c>DateTime.MinValue</c>.
-        /// </remarks>
         Task<IReadOnlyList<NFeDocument>> GetStalePendingAsync(TimeSpan olderThan, int maxAttempts, int take = 50);
 
         /// <summary>
         /// Atomically consumes and returns the next nNF for the tuple.
         /// </summary>
-        /// <remarks>
-        /// A single <c>UPDATE ... OUTPUT deleted.NextNumber</c> is atomic at any isolation level
-        /// and correct across API instances. The process-static semaphores in NFeService are not
-        /// a substitute: they are in-process and keyed by order, while numbering has to serialise
-        /// per (enterprise, model, series).
-        /// </remarks>
         /// <returns>The allocated number, or null when the counter row does not exist.</returns>
         Task<int?> AllocateNextNumberAsync(
             Guid enterpriseId,

@@ -9,8 +9,6 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Currency { get; set; } = string.Empty;
         public decimal CurrentBalance { get; set; }
 
-        // Read back so a settings screen can render the toggles it wrote. Additive: no existing
-        // client breaks by gaining two booleans.
         public bool ShouldSendMonthlyBilling { get; set; }
         public bool ShouldSendDunning { get; set; }
 

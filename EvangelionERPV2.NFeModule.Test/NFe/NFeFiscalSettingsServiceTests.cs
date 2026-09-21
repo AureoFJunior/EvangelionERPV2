@@ -9,7 +9,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 {
     public class NFeFiscalSettingsServiceTests
     {
-        // Valid CNPJ (mod-11 check digits), used unmasked and masked across the suite.
         private const string ValidCnpj = "11222333000181";
         private const string ValidCnpjMasked = "11.222.333/0001-81";
 
@@ -31,7 +30,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
             var result = await sut.GetSettingsAsync(enterpriseId);
 
-            // A first-time tenant must still render the settings screen.
             Assert.Equal(enterpriseId, result.EnterpriseId);
             Assert.Equal(2, result.Environment);
             Assert.False(result.Enabled);
@@ -42,9 +40,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task GetSettingsAsync_WhenNoRowExists_ShouldReturnDefaults()
         {
-            // First visit for a tenant. RepositoryBase.GetAllAsync returns an empty list rather than
-            // throwing, so this is the only shape the service has to handle. (An earlier version of
-            // this test asserted a NotFoundDatabaseException catch that could never fire.)
             var (sut, _) = BuildSut();
 
             var result = await sut.GetSettingsAsync(Guid.NewGuid());
@@ -119,8 +114,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UpsertSettingsAsync_ShouldNotLetThePayloadOverwriteCertificateMetadata()
         {
-            // Certificate metadata is owned by the upload flow. A client that posts its own
-            // thumbprint must not be able to claim a certificate it never uploaded.
             var enterpriseId = Guid.NewGuid();
             var stored = BuildValidSettings(enterpriseId);
             stored.CertThumbprint = "REAL-THUMBPRINT";
@@ -149,7 +142,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [InlineData("PR", (short)41)]
         public async Task UpsertSettingsAsync_ShouldDeriveIbgeUfCodeFromUf(string uf, short expected)
         {
-            // cUF is never accepted from the client — deriving it is what stops the two drifting.
             var enterpriseId = Guid.NewGuid();
             var (sut, _) = BuildSut();
 
@@ -237,10 +229,10 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
         [Theory]
         [InlineData("")]
-        [InlineData("11222333000180")]   // wrong check digit
-        [InlineData("11111111111111")]   // all same digits
-        [InlineData("1122233300018")]    // 13 digits
-        [InlineData("52998224725")]      // a valid CPF is not a valid emitente
+        [InlineData("11222333000180")]
+        [InlineData("11111111111111")]
+        [InlineData("1122233300018")]
+        [InlineData("52998224725")]
         public async Task UpsertSettingsAsync_WithInvalidCnpj_ShouldThrow(string cnpj)
         {
             var enterpriseId = Guid.NewGuid();
@@ -254,13 +246,11 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         }
 
         [Theory]
-        [InlineData("MG")]  // real UF, outside v1 scope
+        [InlineData("MG")]
         [InlineData("XX")]
         [InlineData("")]
         public async Task UpsertSettingsAsync_WithUnsupportedUf_ShouldThrow(string uf)
         {
-            // Also an SSRF control: the UF selects the SEFAZ endpoint, so an unrecognised one
-            // must never reach the fiscal client.
             var enterpriseId = Guid.NewGuid();
             var (sut, _) = BuildSut();
 
@@ -274,7 +264,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UpsertSettingsAsync_WhenIbgeCodeBelongsToAnotherUf_ShouldThrow()
         {
-            // 4106902 is Curitiba (PR). Pairing it with SP means SEFAZ rejects every note.
             var enterpriseId = Guid.NewGuid();
             var (sut, _) = BuildSut();
 
@@ -317,7 +306,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UpsertSettingsAsync_WhenRegimeNormalHasNoCst_ShouldThrow()
         {
-            // CRT 3 items carry CST. Saving without it fails at emission — after burning a number.
             var enterpriseId = Guid.NewGuid();
             var (sut, _) = BuildSut();
 
@@ -442,8 +430,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UpsertSettingsAsync_ShouldKeepConfiguredCancellationWindows()
         {
-            // The windows are configuration, not constants: the NFCe value is UNVERIFIED per UF
-            // and each tenant's accountant confirms it against the state's RICMS.
             var enterpriseId = Guid.NewGuid();
             var (sut, _) = BuildSut();
 
@@ -521,8 +507,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UpsertSettingsAsync_ShouldCreateSequencesForBothModelsAndEnvironments()
         {
-            // Created here rather than on the issuance path so that allocation stays a single
-            // atomic UPDATE with nothing to create under contention.
             var enterpriseId = Guid.NewGuid();
             var (sut, stores) = BuildSut();
 
@@ -536,7 +520,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                 Assert.True(sequence.IsActive);
             });
 
-            // Homologação and produção number independently, per model.
             Assert.Equal(
                 [(55, 1), (55, 2), (65, 1), (65, 2)],
                 stores.sequences
@@ -548,8 +531,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UpsertSettingsAsync_WhenSequencesAlreadyExist_ShouldNotResetTheCounter()
         {
-            // The invariant that matters most here: a counter that restarted at 1 would re-issue
-            // nNF values already transmitted to SEFAZ.
             var enterpriseId = Guid.NewGuid();
             var existing = new List<NFeNumberSequence>
             {
@@ -572,7 +553,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task UpsertSettingsAsync_WhenSeriesChanges_ShouldCreateSequencesForTheNewSeries()
         {
-            // A new series starts its own numbering; the old series' counters stay untouched.
             var enterpriseId = Guid.NewGuid();
             var existing = new List<NFeNumberSequence>
             {
@@ -625,8 +605,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                 Logradouro = "Avenida Paulista",
                 Numero = "1000",
                 Bairro = "Bela Vista",
-                // 3550308 = Sao Paulo/SP, 4106902 = Curitiba/PR, 4205407 = Florianopolis/SC,
-                // 4314902 = Porto Alegre/RS.
                 CodigoMunicipioIbge = uf switch
                 {
                     "PR" => "4106902",
@@ -689,8 +667,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
                     ? records.ToList()
                     : records.Where(predicate.Compile()).ToList());
 
-            // The upsert wraps the profile write and the counter creation in one transaction, so the
-            // mock has to actually run the callback or nothing under it is exercised.
             repo.Setup(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
                 .Returns((Func<Task> operation, CancellationToken _) => operation());
 

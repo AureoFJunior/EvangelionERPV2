@@ -102,8 +102,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task Login_ReturnsUnauthorized_WhenTheOperatorBelongsToAnotherEnterprise()
         {
-            // The terminal proves the caller is a till we enrolled; it grants nothing. An operator
-            // from another company logging in at this till would read that company's prices.
             var controller = CreateController(
                 Guid.NewGuid(),
                 $"{TerminalId}:{Credential}",
@@ -119,7 +117,6 @@ namespace EvangelionERPV2.Test.Security
         {
             var enterpriseId = Guid.NewGuid();
 
-            // 99 is not a defined role, so the map grants nothing at all.
             var controller = CreateController(enterpriseId, $"{TerminalId}:{Credential}", accessLevel: 99);
 
             var response = await controller.Login(new PdvLoginRequestDTO { UserName = UserName, Password = Password });
@@ -130,8 +127,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task Login_FindsTheTerminal_WhenAnotherTenantSharesTheTerminalId()
         {
-            // Terminal ids are unique per enterprise, not globally, and the login carries no tenant
-            // discriminator — so the credential is what picks the terminal.
             var enterpriseId = Guid.NewGuid();
             var otherTenantsTerminal = PdvTerminal.Enroll(Guid.NewGuid(), TerminalId, "a-different-credential");
 
@@ -166,8 +161,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task Login_StampsTheScopeClaimTheAuthorizationHandlersRead()
         {
-            // Without this claim the token is an ordinary one: the handlers resolve permissions
-            // from the persisted AccessLevel, so nothing would confine it to pdv.*.
             var enterpriseId = Guid.NewGuid();
             var controller = CreateController(enterpriseId, $"{TerminalId}:{Credential}");
 
@@ -178,16 +171,12 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.Contains(token.Claims, claim =>
                 claim.Type == PdvTokenScope.ClaimType && claim.Value == PdvTokenScope.ClaimValue);
-            // The handler shortens the outbound claim type, so match on the value: what matters is
-            // that the till's token carries its enterprise the way every other token does.
             Assert.Contains(token.Claims, claim => claim.Value == enterpriseId.ToString());
         }
 
         [Fact]
         public void Login_DoesNotRequireRecaptcha()
         {
-            // A desktop terminal has no browser and cannot solve one. The type cannot carry a token
-            // at all, so no future edit can quietly start demanding it.
             Assert.Null(typeof(PdvLoginRequestDTO).GetProperty("RecaptchaToken"));
         }
 
@@ -276,8 +265,6 @@ namespace EvangelionERPV2.Test.Security
                 })
                 .Build();
 
-            // 32 zero bytes base64-encoded: 44 characters, so it is both a valid AES key and long
-            // enough for HMAC-SHA256. Nothing here verifies a signature, only that one can be made.
             var secretsManager = new Mock<IAmazonSecretsManager>(MockBehavior.Strict);
             secretsManager
                 .Setup(x => x.GetSecretValueAsync(It.IsAny<GetSecretValueRequest>(), It.IsAny<CancellationToken>()))
@@ -302,6 +289,5 @@ namespace EvangelionERPV2.Test.Security
 
             return settings.Object;
         }
-
     }
 }

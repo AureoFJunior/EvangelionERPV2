@@ -27,7 +27,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void Assert_OnTheClosingDateItself_Blocks()
         {
-            // "Closed through the 31st" includes the 31st, or the last day of every month leaks.
             Assert.Throws<PeriodClosedException>(
                 () => PeriodLock.Assert(ClosedThrough, new DateTime(2026, 3, 31), "This order"));
         }
@@ -48,7 +47,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void Assert_IgnoresTheTimeOfDayOnBothSides()
         {
-            // A lock stamped mid-afternoon must not let the evening of its own day through.
             var lockedAtNoon = new DateTime(2026, 3, 31, 12, 0, 0, DateTimeKind.Utc);
 
             Assert.Throws<PeriodClosedException>(
@@ -83,7 +81,6 @@ namespace EvangelionERPV2.Test.Security
             Assert.True(new ClosePeriodRequestValidator()
                 .Validate(new ClosePeriodRequestDTO { ClosedThroughUtc = DateTime.UtcNow.Date }).IsValid);
 
-            // Null is how the books are reopened.
             Assert.True(new ClosePeriodRequestValidator()
                 .Validate(new ClosePeriodRequestDTO { ClosedThroughUtc = null }).IsValid);
         }
@@ -104,7 +101,6 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.Equal(StatusCodes.Status409Conflict, (int)statusMethod.Invoke(null, [exception])!);
 
-            // The dates are ours, never submitted values — the caller needs them to understand the 409.
             Assert.Equal(exception.Message, detailMethod.Invoke(middleware, [exception, StatusCodes.Status409Conflict]) as string);
         }
     }

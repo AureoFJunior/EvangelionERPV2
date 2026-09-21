@@ -9,20 +9,12 @@ namespace EvangelionERPV2.NFeModule.Domain.Repositories
 {
     public class NFeRepository : Repository<NFeDocument>, INFeRepository<NFeDocument>
     {
-
         /// <summary>
         /// The number allocation statement. One statement, one round trip:
         /// <c>UPDATE ... OUTPUT deleted</c> is atomic at any isolation level, so two API instances
         /// issuing at the same moment cannot receive the same nNF. <c>ROWLOCK</c> keeps the engine
         /// from escalating to a page lock and serialising unrelated series.
         /// </summary>
-        /// <remarks>
-        /// Public only so <c>NFeNumberAllocationSqlTests</c> can pin its shape. Every clause here is
-        /// load-bearing for duplicate-emission safety and this is the one piece with no integration
-        /// test behind it, so the text is asserted instead. Note that the caller must execute it with
-        /// <c>ToListAsync</c> and compose nothing onto the <c>IQueryable</c> — a non-composable raw
-        /// SQL query throws at runtime the moment anything is appended.
-        /// </remarks>
         public const string AllocateNextNumberSql = """
             UPDATE dbo.NFeNumberSequence WITH (ROWLOCK)
                SET NextNumber = NextNumber + 1
@@ -69,10 +61,6 @@ namespace EvangelionERPV2.NFeModule.Domain.Repositories
         {
             var cutoff = DateTime.UtcNow - olderThan;
 
-            // Both recoverable states, not just the transmitted one — see INFeRepository. The
-            // staleness clock is the transmission when there was one and creation otherwise, which
-            // COALESCEs in SQL; UpdatedAt cannot be used, it defaults to DateTime.MinValue and would
-            // make every freshly claimed row look stale immediately.
             return await ActiveDocuments()
                 .Where(x => x.Status == NFeStatus.Pending
                             && (x.TransmittedAtUtc ?? x.CreatedAt) <= cutoff
@@ -84,16 +72,12 @@ namespace EvangelionERPV2.NFeModule.Domain.Repositories
 
         public async Task<IReadOnlyList<NFeDocument>> GetUntransmittedContingencyAsync(int take = 50)
         {
-            // tpEmis 9 and no protocol yet. Authorized and Cancelled are terminal; anything else
-            // with a contingency stamp is a note the shop printed and SEFAZ has not acknowledged.
             return await ActiveDocuments()
                 .Where(x => x.TipoEmissao == 9
                             && x.ContingencyEnteredAt != null
                             && x.Status != NFeStatus.Authorized
                             && x.Status != NFeStatus.Cancelled
 
-                            // Provably never transmitted. Anything else may already exist at SEFAZ
-                            // and is the reconciler's to consult, never this sweeper's to resend.
                             && x.TransmittedAtUtc == null)
                 .OrderBy(x => x.ContingencyEnteredAt)
                 .Take(take)
@@ -119,8 +103,6 @@ namespace EvangelionERPV2.NFeModule.Domain.Repositories
                     new SqlParameter("@environment", environment))
                 .ToListAsync(cancellationToken);
 
-            // Null rather than an exception: a missing counter means the tenant never saved a
-            // fiscal profile, which the caller reports as a configuration problem, not a fault.
             return allocated.Count == 0 ? null : allocated[0];
         }
 

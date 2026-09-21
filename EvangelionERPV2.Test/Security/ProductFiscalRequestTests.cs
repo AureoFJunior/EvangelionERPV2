@@ -29,7 +29,6 @@ namespace EvangelionERPV2.Test.Security
             ProductPicture? captured = null;
 
             var productService = new Mock<IProductService<Product>>();
-            // Creation posts the opening count through the ledger, so this has to answer.
             productService
                 .Setup(s => s.ApplyStockMovementAsync(
                     It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
@@ -96,7 +95,6 @@ namespace EvangelionERPV2.Test.Security
             ProductPicture? captured = null;
 
             var productService = new Mock<IProductService<Product>>();
-            // Creation posts the opening count through the ledger, so this has to answer.
             productService
                 .Setup(s => s.ApplyStockMovementAsync(
                     It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
@@ -111,8 +109,6 @@ namespace EvangelionERPV2.Test.Security
 
             var controller = CreateController(productService.Object, enterpriseId, callerId);
 
-            // The legacy shape rebuilds the request object, which is exactly where fiscal data
-            // would be silently dropped if the rebuild forgot to copy it.
             var result = await controller.AddProduct(new CreateProductRequestDTO
             {
                 Ncm = "12345678",
@@ -145,7 +141,6 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Theory]
-        // Wrong digit counts on the fixed-width SEFAZ codes.
         [InlineData("Ncm", "1234")]
         [InlineData("Cest", "12")]
         [InlineData("CfopIntra", "51020")]
@@ -168,8 +163,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void UpdateProductRequestValidator_RejectsARateSentAsAPercentage()
         {
-            // 18 instead of 0.18 — the decimal(5,4) column cannot hold it and SEFAZ would read a
-            // 1800% ICMS rate, so it has to be a 400 rather than a truncated write.
             var result = new UpdateProductRequestValidator().Validate(new UpdateProductRequestDTO
             {
                 Id = Guid.NewGuid(),

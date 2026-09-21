@@ -7,18 +7,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// <summary>
     /// Append-only ledger of every change to <see cref="Product.StorageQuantity"/>.
     /// </summary>
-    /// <remarks>
-    /// StorageQuantity on its own is a scalar that says what the count is and never why, so a
-    /// wrong count is unauditable. One row here per quantity change makes the current value
-    /// reconstructable from its causes.
-    ///
-    /// No warehouse, bin, lot or serial on purpose: stock lives in one implicit location. Adding
-    /// a location later is one nullable column, so carrying four unused ones now buys nothing.
-    ///
-    /// Deliberately absent from <see cref="Auditing.AuditedEntities"/> — this table *is* the audit
-    /// trail for stock, and mirroring every row into AuditTrail would double the write cost of
-    /// every order for a second copy of the same fact.
-    /// </remarks>
     // One composite index rather than two: EnterpriseId leads so the replenishment window scan
     // seeks on it, and a per-product history lookup seeks on (EnterpriseId, ProductId).
     // ponytail: single index, add a dedicated (EnterpriseId, CreatedAt) one if the window scan

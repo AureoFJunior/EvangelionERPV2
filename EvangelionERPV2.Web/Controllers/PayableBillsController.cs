@@ -83,9 +83,6 @@ namespace EvangelionERPV2.Web.Controllers
                     }
                 }
 
-                // LGPD: payroll bills carry individual salary data — visible only with payroll.read.
-                // The filter is pushed into the query: stripping them after paging would leak
-                // how many payroll bills exist through the returned-vs-requested page size.
                 var canAccessPayroll = await CanAccessPayrollAsync();
                 if (!canAccessPayroll && billType == (int)EnumPayableBillType.Payroll)
                     return Forbid();
@@ -121,7 +118,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (bill == null)
                     return NoContent();
 
-                // LGPD: hide payroll bills (salary data) from users without payroll.read.
                 if (IsPayrollBill(bill.BillType) && !await CanAccessPayrollAsync())
                     return NoContent();
 
@@ -146,7 +142,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                // Payroll bills are only created through PayrollController (payroll.generate).
                 if (IsPayrollBill(request.BillType) && !await CanAccessPayrollAsync())
                     return Forbid();
 
@@ -186,7 +181,6 @@ namespace EvangelionERPV2.Web.Controllers
                     if (IsPayrollBill(request.BillType))
                         return Forbid();
 
-                    // Same response as a missing bill so payroll bill ids are not disclosed.
                     var existing = await _payableBillService.GetByIdAsync(request.Id.Value, enterpriseId);
                     if (existing != null && IsPayrollBill(existing.BillType))
                         return NoContent();
@@ -396,9 +390,6 @@ namespace EvangelionERPV2.Web.Controllers
 
             return null;
         }
-
-
-
 
         private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)
         {

@@ -8,16 +8,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// <summary>
     /// One enrolled till, and the credential that identifies it.
     /// </summary>
-    /// <remarks>
-    /// The credential authorises nothing. It says only "this caller is a terminal we enrolled",
-    /// which is what lets the till reach a login endpoint with no reCAPTCHA — a desktop terminal
-    /// has no browser and cannot solve one. Every permission still comes from the operator's own
-    /// token.
-    ///
-    /// Per terminal, never one shared secret: a credential sitting on a shop-floor machine should
-    /// be assumed to leak eventually, and a leak must cost one till rather than the whole estate.
-    /// That is what <see cref="IsRevoked"/> is for.
-    /// </remarks>
     [Index(nameof(EnterpriseId), nameof(TerminalId), IsUnique = true)]
     [Table("PdvTerminal")]
     public class PdvTerminal : BaseEntity
@@ -53,6 +43,5 @@ namespace EvangelionERPV2.Shared.Entities
 
         public bool Verify(string? credential) =>
             !IsRevoked && Pbkdf2Verifier.Verify(credential, CredentialVerifier);
-
     }
 }

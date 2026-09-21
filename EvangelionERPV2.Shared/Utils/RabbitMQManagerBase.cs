@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using RabbitMQ.Client.Events;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Exceptions;
@@ -90,9 +90,6 @@ namespace EvangelionERPV2.Shared.Utils
             new HistogramConfiguration
             {
                 LabelNames = ["queue"],
-                // A worker message is not an HTTP request: the Order worker calls back into the API
-                // and the Email worker renders a PDF, so the interesting range runs to minutes, not
-                // to the 32s the default HTTP buckets top out at.
                 Buckets = Histogram.ExponentialBuckets(0.05, 2, 12)
             });
 
@@ -160,21 +157,10 @@ namespace EvangelionERPV2.Shared.Utils
             };
             ApplyRabbitMqUriIfConfigured(factory, _kmsProvider.GetKMSKey(rabbitMQSettings.Value.Uri));
 
-            // After the URI has been applied, not before: this has to see the connection that will
-            // actually be made, whichever way it was configured.
             EnsureTransportIsSecure(factory.Ssl?.Enabled ?? false, CurrentEnvironmentName());
 
             _connection = ConnectWithRetry(factory);
 
-            // Publisher confirms. Without them BasicPublishAsync returns as soon as the bytes are
-            // written to the socket, so InsertOrderInQueue logged success and the API answered 200
-            // for messages the broker may never have stored - a lost order with no error anywhere.
-            // With tracking on, the publish awaits the broker's ack and throws on a nack, and both
-            // EnqueueAsync and InsertOrderInQueue already rethrow, so the failure now reaches the
-            // caller instead of being invented away.
-            //
-            // The cost is real and intended: publishing is slower because it now waits for the
-            // broker to answer. That is the price of knowing the message exists.
             _channel = _connection.CreateChannelAsync(
                 new CreateChannelOptions(
                     publisherConfirmationsEnabled: true,
@@ -183,10 +169,6 @@ namespace EvangelionERPV2.Shared.Utils
                     consumerDispatchConcurrency: null))
                 .GetAwaiter().GetResult();
 
-            // Every publish here sets mandatory: true, which asks the broker to hand back a message
-            // it cannot route. Nothing was listening, so those came back and were dropped in
-            // silence. A return is not an exception - the broker accepted the message and then
-            // found nowhere to put it - so it is counted and logged rather than thrown.
             _channel.BasicReturnAsync += (_, returned) =>
             {
                 UnroutableMessages.WithLabels(_channelSettings.QueueName).Inc();
@@ -207,7 +189,6 @@ namespace EvangelionERPV2.Shared.Utils
                 DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                 NumberHandling = JsonNumberHandling.AllowReadingFromString
             };
-            
         }
 
         /// <inheritdoc />
@@ -242,8 +223,6 @@ namespace EvangelionERPV2.Shared.Utils
             if (tlsEnabled)
                 return;
 
-            // Development only, and only when it says so explicitly. An unset environment is
-            // treated as production: the safe reading of "I do not know where I am".
             if (string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase))
             {
                 Log.Logger.Warning(
@@ -286,16 +265,6 @@ namespace EvangelionERPV2.Shared.Utils
         /// <summary>
         /// Opens the connection, retrying a broker that is not answering yet.
         /// </summary>
-        /// <remarks>
-        /// The worker hosted services resolve this manager at startup, so an exception here used to
-        /// take the whole process down — a broker restart, or a worker that simply booted first,
-        /// was enough. <c>AutomaticRecoveryEnabled</c> does not help: it recovers a connection that
-        /// was once established, and there is nothing to recover from a first attempt that failed.
-        ///
-        /// Bounded on purpose. The API resolves this manager on the first request that publishes,
-        /// so the total wait is also how long that request hangs before it can answer 503; the
-        /// request timeout is 30 seconds and this stays well inside it.
-        /// </remarks>
         private IConnection ConnectWithRetry(ConnectionFactory factory)
         {
             var delay = InitialConnectRetryDelay;
@@ -317,7 +286,6 @@ namespace EvangelionERPV2.Shared.Utils
 
                     Thread.Sleep(delay);
 
-                    // Jittered so that several workers restarting together do not retry in lockstep.
                     var next = delay.TotalSeconds * 2 * (0.75 + (Random.Shared.NextDouble() * 0.5));
                     delay = TimeSpan.FromSeconds(Math.Min(next, MaxConnectRetryDelay.TotalSeconds));
                 }
@@ -376,9 +344,6 @@ namespace EvangelionERPV2.Shared.Utils
         {
             try
             {
-                // Closed channels are dropped rather than pooled: a channel is killed by the broker
-                // on any protocol error, and handing a dead one to the next publisher turns one
-                // failure into a run of them.
                 if (IsUsable(channel))
                     _publishChannels.Add(channel);
                 else
@@ -412,8 +377,6 @@ namespace EvangelionERPV2.Shared.Utils
                     { "x-message-ttl", DeadLetterRetention },
                     { "x-max-length", 100_000 },
 
-                    // drop-head, not reject-publish: dead-lettering is not a publisher-confirm
-                    // path, so rejecting would discard the failure silently at the broker.
                     { "x-overflow", "drop-head" }
                 };
 
@@ -421,52 +384,24 @@ namespace EvangelionERPV2.Shared.Utils
                 _channel.QueueDeclareAsync(_channelSettings.QueueNameDLQ, true, false, false, dlqArgs).GetAwaiter().GetResult();
                 _channel.QueueBindAsync(_channelSettings.QueueNameDLQ, _channelSettings.ExchangeNameDLQ, _channelSettings.RoutingKeyDLQ).GetAwaiter().GetResult();
 
-                // Setup main queue
                 var queueArgs = new Dictionary<string, object?>
                 {
                     { "x-queue-type", "classic" },
                     { "x-dead-letter-exchange", _channelSettings.ExchangeNameDLQ},
                     { "x-dead-letter-routing-key", _channelSettings.RoutingKeyDLQ},
 
-                    // There is no x-message-ttl here any more, and that is the point. It used to be
-                    // 12000 - twelve seconds of sitting in the queue before the broker dead-lettered
-                    // the message into a queue nothing reads. A work queue's job is to hold work
-                    // until someone does it; a deploy, a restart or a backlog of six messages was
-                    // enough to drain it into a black hole, silently. Do not reintroduce it.
-                    //
-                    // Bounded by length instead, which is the honest version of the same intent:
-                    // when the queue is full the broker REJECTS the publish rather than discarding
-                    // something already accepted. That reaches the caller as an exception because
-                    // publisher confirms are on - back-pressure the publisher can see, instead of
-                    // silent loss it cannot.
                     { "x-max-length", 100_000 },
                     { "x-overflow", "reject-publish" }
-
-                    // x-max-retries is gone too: it is not a RabbitMQ queue argument and never did
-                    // anything. Retries are counted in the x-retry-count header by TryScheduleRetryAsync.
                 };
 
                 _channel.ExchangeDeclareAsync(_channelSettings.ExchangeName, "topic").GetAwaiter().GetResult();
                 _channel.QueueDeclareAsync(_channelSettings.QueueName, true, false, false, queueArgs).GetAwaiter().GetResult();
                 _channel.QueueBindAsync(_channelSettings.QueueName, _channelSettings.ExchangeName, _channelSettings.RoutingKey).GetAwaiter().GetResult();
 
-                // Prefetch, not 1. With a long-lived consumer (ConsumeAsync) the broker keeps this
-                // many messages in flight, so the consumer never waits a network round trip between
-                // messages. Combined with ConsumerDispatchConcurrency on the connection this is what
-                // takes the drain rate from ~0.4/s to the handler's own speed.
                 _channel.BasicQosAsync(0, PrefetchCount, false).GetAwaiter().GetResult();
             }
             catch (OperationInterruptedException ex) when (ex.ShutdownReason?.ReplyCode == 406)
             {
-                // 406 PRECONDITION_FAILED on a declare means the queue already exists with
-                // DIFFERENT arguments. Queue arguments are immutable, so this is not something the
-                // application can fix at runtime and retrying will fail identically for ever.
-                //
-                // Without naming it, this surfaces as "OperationInterruptedException" and a failing
-                // health check, which says nothing about the cause. It happens in exactly one
-                // situation worth calling out: the queue was created by an older build - for
-                // instance when x-message-ttl was removed from this method - and still carries the
-                // old arguments.
                 Log.Logger.Error(
                     "Queue '{Queue}' already exists with different arguments, so it cannot be declared. " +
                     "Queue arguments are immutable: drain and delete the queue (and '{Dlq}') on the broker, " +
@@ -487,9 +422,6 @@ namespace EvangelionERPV2.Shared.Utils
 
         public async Task EnqueueAsync<T>(T obj)
         {
-            // Outside the try below on purpose. A payload that will not serialize is a bug in the
-            // caller, not an unavailable broker, and wrapping it as one would answer 503 with a
-            // Retry-After for a request that can never succeed.
             var message = JsonSerializer.Serialize(obj, _jsonOptions);
             var body = Encoding.UTF8.GetBytes(message);
 
@@ -500,10 +432,6 @@ namespace EvangelionERPV2.Shared.Utils
                     _channelSettings.RoutingKey,
                     new BasicProperties
                     {
-                        // Durable queue plus a transient message is not durable. Without this the
-                        // broker holds the message in memory only and discards the lot on restart,
-                        // which is exactly the case the queue exists to survive. DeliveryMode
-                        // defaults to 0 on a new BasicProperties, so this has to be said out loud.
                         Persistent = true,
                         MessageId = Guid.NewGuid().ToString("N"),
                         Headers = new Dictionary<string, object?>
@@ -559,9 +487,6 @@ namespace EvangelionERPV2.Shared.Utils
 
             try
             {
-                // The consumer runs on the client's dispatch threads; this loop only keeps the
-                // method alive and refreshes the depth gauges, which no longer have a per-message
-                // dequeue call to hang off.
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     await RefreshQueueDepthsAsync(cancellationToken);
@@ -570,7 +495,6 @@ namespace EvangelionERPV2.Shared.Utils
             }
             catch (OperationCanceledException)
             {
-                // Shutdown, not a fault.
             }
             finally
             {
@@ -601,9 +525,6 @@ namespace EvangelionERPV2.Shared.Utils
                 var resultObject = JsonSerializer.Deserialize<T>(message, _jsonOptions)
                     ?? throw new InvalidOperationException("Failed to deserialize message payload.");
 
-                // Empty rather than a fresh guid when the broker sends no id: a handler must be
-                // able to tell "this message has no identity" from "this is a new one", and a
-                // generated value would look unique on every redelivery.
                 var messageId = ea.BasicProperties?.MessageId ?? string.Empty;
 
                 using (MessageDuration.WithLabels(_channelSettings.QueueName).NewTimer())
@@ -614,9 +535,6 @@ namespace EvangelionERPV2.Shared.Utils
             }
             catch (Exception ex)
             {
-                // Counted before the retry decision: a message that succeeds on its third attempt
-                // still cost two failures, and a rate that only counts final give-ups hides a queue
-                // that is limping.
                 MessagesProcessed.WithLabels(_channelSettings.QueueName, "failed").Inc();
 
                 try
@@ -668,14 +586,12 @@ namespace EvangelionERPV2.Shared.Utils
             {
                 var delivery = await GetFromDeadLetterAsync(cancellationToken);
                 if (delivery is null)
-                    break; // Queue is empty - nothing further to move.
+                    break;
 
                 try
                 {
                     var headers = CloneHeaders(delivery.BasicProperties?.Headers);
 
-                    // Reset the counter: this message has been looked at by a person and is being
-                    // given a fresh set of attempts, not resuming an exhausted one.
                     headers["x-retry-count"] = 0;
 
                     var redriveChannel = await RentPublishChannelAsync(cancellationToken);
@@ -706,8 +622,6 @@ namespace EvangelionERPV2.Shared.Utils
                 }
                 catch (Exception exception)
                 {
-                    // Put it back where it was. Requeue rather than drop: a redrive that fails must
-                    // leave the dead-letter queue exactly as it found it.
                     Log.Logger.Error(
                         "Redrive failed, returning the message to {Dlq}. ErrorType={ErrorType}",
                         _channelSettings.QueueNameDLQ,
@@ -785,9 +699,6 @@ namespace EvangelionERPV2.Shared.Utils
                 }
                 catch (Exception ex)
                 {
-                    // Counted before the retry decision: a message that succeeds on its third
-                    // attempt still cost two failures, and a failure rate that only counts final
-                    // give-ups hides a queue that is limping.
                     MessagesProcessed.WithLabels(_channelSettings.QueueName, "failed").Inc();
                     await TryCancelConsumerAsync(ea.ConsumerTag);
 
@@ -888,8 +799,6 @@ namespace EvangelionERPV2.Shared.Utils
                 mandatory: true,
                 basicProperties: new BasicProperties
                 {
-                    // Same reasoning as the first publish. Missing here it would mean a message
-                    // becomes less durable every time it is retried - the opposite of the intent.
                     Persistent = true,
                     MessageId = eventArgs.BasicProperties?.MessageId ?? Guid.NewGuid().ToString("N"),
                     Headers = headers
@@ -1047,11 +956,6 @@ namespace EvangelionERPV2.Shared.Utils
         /// <summary>
         /// Whether a channel can still be published on.
         /// </summary>
-        /// <remarks>
-        /// <c>IsOpen</c> throws <see cref="ObjectDisposedException"/> on a disposed channel rather
-        /// than returning false, so reading it directly turns a dropped connection into an exception
-        /// on the next publish.
-        /// </remarks>
         private static bool IsUsable(IChannel? channel)
         {
             try
@@ -1066,8 +970,6 @@ namespace EvangelionERPV2.Shared.Utils
 
         private static void TryDispose(IDisposable? resource)
         {
-            // Shutdown must not throw. A broker that has already gone makes Dispose on a channel
-            // raise, and an exception here would replace whatever is actually stopping the host.
             try
             {
                 resource?.Dispose();
@@ -1111,7 +1013,6 @@ namespace EvangelionERPV2.Shared.Utils
             }
             catch (Exception exception)
             {
-                // Never fail a dequeue because a gauge could not be read.
                 Log.Logger.Warning(
                     "Could not read queue depths. ErrorType={ErrorType}",
                     GetSafeExceptionType(exception));

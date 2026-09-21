@@ -17,12 +17,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
     /// Covers every path that ends before a socket is opened — the paths where the caller's
     /// allocated number must survive.
     /// </summary>
-    /// <remarks>
-    /// Nothing here transmits. <c>NeverTransmitted</c> is the assertion that matters: it is what
-    /// tells <c>NFeService</c> the same nNF may be sent again, and getting it wrong in either
-    /// direction is expensive. False when nothing was sent burns a number that only inutilização
-    /// can account for; true when something might have been sent double-emits a real note.
-    /// </remarks>
     public class SefazNFeProviderTests
     {
         private static readonly Guid EnterpriseId = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -115,7 +109,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.Equal("Aureo", technician.ContactName);
             Assert.Equal("51999990000", technician.Phone);
 
-            // Without a resolver there is no CSRT, and a note is valid without one.
             Assert.Null(technician.IdCsrt);
             Assert.Null(technician.Csrt);
         }
@@ -127,8 +120,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         public async Task ResolveResponsibleTechnician_WhenHalfConfigured_OmitsTheGroup(
             string cnpj, string contact, string email, string phone)
         {
-            // A partial group is a rejection at SEFAZ whose motivo points at the field rather than
-            // at the configuration. Omitting it is what every note did before these settings.
             var technician = await ResolveRespTec(new NFeRespTecSettings
             {
                 Cnpj = cnpj,
@@ -182,8 +173,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
 
             var result = await new SefazNFeProvider(certificates.Object).IssueAsync(Context(incomplete));
 
-            // The customer has no fiscal address, so NFeXmlBuilder refuses. Nothing reached the wire
-            // and the caller keeps its number.
             Assert.Equal(NFeStatus.Error, result.Status);
             Assert.True(result.NeverTransmitted);
         }
@@ -201,8 +190,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.True(result.NeverTransmitted);
             Assert.NotEqual(NFeStatus.Cancelled, result.Status);
 
-            // Checked before anything else: a refused event still costs a round trip on a note whose
-            // cancellation window is running out.
             certificates.Verify(x => x.GetAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
@@ -233,8 +220,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             var result = await new SefazNFeProvider(certificates.Object)
                 .ConsultAsync("43250912345678000195550010000000071100998876", Settings());
 
-            // NeverTransmitted here is about the consult, not about the note: we failed to ask, so
-            // the note's outcome is exactly as unknown as it was before.
             Assert.Equal(NFeStatus.Error, result.Status);
             Assert.NotEqual(NFeStatus.Authorized, result.Status);
         }

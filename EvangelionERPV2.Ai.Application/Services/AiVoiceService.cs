@@ -11,12 +11,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
     /// Text-to-speech against a local Piper server, over the OpenAI-compatible
     /// <c>/v1/audio/speech</c> shape.
     /// </summary>
-    /// <remarks>
-    /// The audio is never materialised here. The response is read headers-first and its body handed
-    /// back as an open stream, so the bytes travel from Piper to the caller's response and exist
-    /// nowhere else — no byte array, no temp file, no cache. Only the character count and the
-    /// latency are ever logged.
-    /// </remarks>
     public sealed class AiVoiceService : IAiVoiceService
     {
         /// <summary>
@@ -51,9 +45,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             var stopwatch = Stopwatch.StartNew();
             HttpResponseMessage? response = null;
 
-            // Figures become the words a person says before Piper ever sees them. The prompt asks the
-            // model for this too, but a figure is the point of most answers here and "usually" is not
-            // good enough for the one number the listener actually wanted.
             var spoken = AiSpokenText.Normalize(text);
 
             try
@@ -69,8 +60,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     }),
                 };
 
-                // Headers first: the point of this whole path is that the body is still on the wire
-                // when we hand it over, rather than sitting in memory waiting to be cached.
                 response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
 
                 if (!response.IsSuccessStatusCode)
@@ -84,11 +73,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 var audio = await response.Content.ReadAsStreamAsync(cancellation);
                 var contentType = response.Content.Headers.ContentType?.MediaType ?? DefaultContentType();
 
-                // Piper answers 200 with an empty container when it cannot load the voice — a 45-byte
-                // MP3 that is nothing but an ID3 header. Passing that on would play silence and look
-                // like success, which is precisely the failure this whole path exists to remove: the
-                // client would never fall back to the device's voice. The response is chunked, so
-                // there is no Content-Length to check and the first few bytes have to be read.
                 var probe = new byte[SilenceProbeBytes];
                 var probed = await audio.ReadAtLeastAsync(probe, probe.Length, throwOnEndOfStream: false, cancellation);
 
@@ -112,19 +96,11 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     text.Length,
                     stopwatch.ElapsedMilliseconds);
 
-                // The stream outlives this method, so the response has to as well — disposing it here
-                // would close the connection under the caller mid-sentence.
-                // The probed bytes are put back in front of the rest, so the caller still sees one
-                // continuous stream and nothing was consumed by the check.
                 return AiVoiceResult.Ok(
                     new ResponseOwnedStream(new PrefixedStream(probe, probed, audio), response),
                     contentType,
                     stopwatch.ElapsedMilliseconds);
             }
-            // Only the caller hanging up is a cancellation. HttpClient reports its *own* timeout as a
-            // TaskCanceledException too, with no token of ours behind it — rethrowing that would 500
-            // the endpoint over a slow Piper instead of answering 503 and letting the client fall
-            // back to the device's voice.
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
             {
                 response?.Dispose();
@@ -134,7 +110,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             {
                 response?.Dispose();
 
-                // Never the message: it carries the request, and the request is the answer's text.
                 Log.Logger.Error("Speech synthesis failed. ErrorType={ErrorType}", ex.GetType().Name);
 
                 return AiVoiceResult.Failed("O serviço de voz está indisponível.");

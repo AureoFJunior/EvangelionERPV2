@@ -33,8 +33,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void EnterpriseFiscalSettingsDTO_ShouldExposeCscIdWithoutTheToken()
         {
-            // CscId is the public idToken half of the pair and is safe to display; the CSC value
-            // it pairs with is write-only and never returned.
             var properties = typeof(EnterpriseFiscalSettingsDTO).GetProperties();
 
             Assert.Contains(properties, property => property.Name == "CscId");
@@ -45,8 +43,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void EnterpriseFiscalSettingsDTO_ShouldExposeCertificateMetadataOnly()
         {
-            // Metadata is deliberately readable — operators need to see an upcoming expiry
-            // without an admin — but nothing beyond thumbprint, subject and dates.
             var certificateProperties = typeof(EnterpriseFiscalSettingsDTO)
                 .GetProperties()
                 .Where(property => property.Name.StartsWith("Cert", StringComparison.Ordinal))

@@ -127,7 +127,6 @@ namespace EvangelionERPV2.PdvModule.Test
             var second = await service.SyncSaleAsync(request, _enterpriseId, _userId);
             var third = await service.SyncSaleAsync(request, _enterpriseId, _userId);
 
-            // The whole point. A till that lost three responses in a row still sold the basket once.
             orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Once);
 
             Assert.Equal((int)EnumPdvSaleStatus.Synced, first.Status);
@@ -175,7 +174,6 @@ namespace EvangelionERPV2.PdvModule.Test
             await service.SyncSaleAsync(request, _enterpriseId, _userId);
             var again = await service.SyncSaleAsync(request, _enterpriseId, _userId);
 
-            // Final means final: the terminal is told to stop trying, not handed a second verdict.
             Assert.Equal((int)EnumPdvSaleStatus.Rejected, again.Status);
             Assert.True(again.WasAlreadyRecorded);
         }
@@ -217,8 +215,6 @@ namespace EvangelionERPV2.PdvModule.Test
             await Assert.ThrowsAsync<InsertDatabaseException>(
                 () => service.SyncSaleAsync(request, _enterpriseId, _userId));
 
-            // Pending, not Rejected. A sale marked failed that actually went through is worse than
-            // one left visibly unresolved.
             var claim = await context.PdvSale.AsNoTracking()
                 .SingleAsync(sale => sale.ClientSaleId == request.ClientSaleId);
 
@@ -232,9 +228,6 @@ namespace EvangelionERPV2.PdvModule.Test
             var context = _database.CreateContext();
             var orderService = OrderServiceStub(context);
 
-            // The order commits, the completion does not. Before the sale carried its order id
-            // through that window, the retry found a bare Pending claim and rang the basket up
-            // again: a second order, a second stock movement and a second cash movement.
             var crashing = CreateService(context, orderService, new FailingPaymentRepository(context));
 
             var sessionId = Guid.NewGuid();
@@ -251,8 +244,6 @@ namespace EvangelionERPV2.PdvModule.Test
             Assert.Equal((int)EnumPdvSaleStatus.Pending, interrupted.Status);
             Assert.NotNull(interrupted.OrderId);
 
-            // The retry is a new request, so a new context: what it resumes from is the database,
-            // not the failed attempt's change tracker.
             var retryContext = _database.CreateContext();
             var service = CreateService(retryContext, orderService);
 
@@ -265,7 +256,6 @@ namespace EvangelionERPV2.PdvModule.Test
             Assert.Equal(1, await retryContext.Order.CountAsync());
             Assert.Equal(1, await retryContext.PdvSalePayment.CountAsync(payment => payment.PdvSaleId == interrupted.Id));
 
-            // And the drawer took the cash exactly once.
             Assert.Equal(1, await retryContext.CashMovement
                 .CountAsync(movement => movement.Type == (int)EnumCashMovementType.Sale));
         }
@@ -290,8 +280,6 @@ namespace EvangelionERPV2.PdvModule.Test
 
             var summary = await service.GetSessionSummaryAsync(sessionId, _enterpriseId, includeExpectedCash: true);
 
-            // 200 float + 40 in notes. The card money is received but is not in the drawer, and
-            // counting it would guarantee a difference at every close.
             Assert.Equal(240m, summary.ExpectedCash);
             Assert.Equal(2, summary.Tenders.Count());
         }
@@ -319,10 +307,6 @@ namespace EvangelionERPV2.PdvModule.Test
 
             await OpenSessionAsync(service, Guid.NewGuid());
 
-            // Not an ArgumentException, deliberately: that is a 400, and a 400 makes the till
-            // discard the queued open — for a non-Sale outbox kind, without even recording why —
-            // so the shift could never open again once a human closed the stale one. Anything else
-            // is a 500 the outbox keeps and retries, which is what should happen here.
             var refusal = await Assert.ThrowsAsync<InsertDatabaseException>(
                 () => service.OpenSessionAsync(new OpenCashSessionRequestDTO
                 {
@@ -355,9 +339,6 @@ namespace EvangelionERPV2.PdvModule.Test
 
             var first = await service.CloseSessionAsync(close, _enterpriseId, _userId);
 
-            // The till queues the close and resends it until it is acknowledged. A lost response
-            // must not come back as a refusal on a shift that closed correctly — and the second
-            // count must not overwrite the reading the operator was held to.
             var second = await service.CloseSessionAsync(
                 new CloseCashSessionRequestDTO { ClientSessionId = sessionId, CountedAmount = 999m },
                 _enterpriseId, _userId);
@@ -410,8 +391,6 @@ namespace EvangelionERPV2.PdvModule.Test
                 Reason = "   "
             }, _enterpriseId, _userId));
 
-            // A Sale movement typed by hand would let an operator inflate the drawer to cover a
-            // shortfall, so the service refuses it whatever the caller's permissions say.
             await Assert.ThrowsAsync<ArgumentException>(() => service.RegisterMovementAsync(new CashMovementRequestDTO
             {
                 ClientMovementId = Guid.NewGuid(),
@@ -464,8 +443,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ACardPaymentWithNoAuthorizationCodeIsRejected()
         {
-            // The acquirer statement is the only thing a card sale can be checked against, and the
-            // authorization code is the only handle on it. A sale without one is unauditable.
             var context = _database.CreateContext();
             var service = CreateService(context);
 
@@ -517,7 +494,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ACashSaleStillNeedsNothing()
         {
-            // Cash and PIX keep selling regardless. This rule is about cards only.
             var context = _database.CreateContext();
             var service = CreateService(context);
 
@@ -534,9 +510,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task AManualPixTenderIsRecordedAsUnproven()
         {
-            // The shop's own static QR. The customer paid, the operator looked at their phone, and
-            // that is the whole of the evidence. Collapsing this into a confirmed PIX row would
-            // launder unverified money into revenue reporting.
             var context = _database.CreateContext();
             var service = CreateService(context);
 
@@ -561,8 +534,6 @@ namespace EvangelionERPV2.PdvModule.Test
             var sessionId = Guid.NewGuid();
             await OpenSessionAsync(service, sessionId);
 
-            // A real charge, settled, raised for this basket and for this amount. Proof is checked
-            // against that row, not against the payload.
             var clientSaleId = Guid.NewGuid();
             var chargeId = await GivePaidChargeAsync(context, clientSaleId: clientSaleId);
             var request = SaleFor(clientSaleId, sessionId, unitPrice: 60m, method: (int)EnumPaymentMethod.Pix);
@@ -580,8 +551,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ATenderNamingAPaidChargeFromAnotherBasket_IsNotProof()
         {
-            // The terminal chooses the charge id, so anything the id alone can reach is something
-            // the terminal can choose. Yesterday's settled charge must not vouch for today's sale.
             var context = _database.CreateContext();
             var service = CreateService(context);
 
@@ -599,8 +568,6 @@ namespace EvangelionERPV2.PdvModule.Test
             var payment = await context.PdvSalePayment.SingleAsync();
             Assert.False(payment.IsVerified);
 
-            // The sale itself is fine and is never refused for this: RejectAsync is terminal, and
-            // the customer has already paid.
             Assert.Equal(otherBasket, payment.PdvChargeId);
             Assert.Equal((int)EnumPdvSaleStatus.Synced, (await context.PdvSale.SingleAsync()).Status);
         }
@@ -608,7 +575,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ATenderClaimingMoreThanTheChargeSettled_IsNotProof()
         {
-            // A R$ 1 charge cannot vouch for a R$ 60 tender, however genuinely it was paid.
             var context = _database.CreateContext();
             var service = CreateService(context);
 
@@ -630,8 +596,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ATenderNamingAChargeThatNeverSettled_IsNotProof()
         {
-            // The till may believe it. Belief is not a receipt: until the webhook moves the charge
-            // to Paid, this tender is the operator's word like any other.
             var context = _database.CreateContext();
             var service = CreateService(context);
 
@@ -652,8 +616,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ATenderNamingAnotherTenantsPaidCharge_IsNotProof()
         {
-            // Otherwise one shop's settled charge would prove another shop's tender, and the id is
-            // guessable in exactly the way a Guid is not — but tenancy is not a guessing game.
             var context = _database.CreateContext();
             var service = CreateService(context);
 
@@ -681,8 +643,6 @@ namespace EvangelionERPV2.PdvModule.Test
                 Id = Guid.NewGuid(),
                 EnterpriseId = enterpriseId ?? _enterpriseId,
 
-                // The basket it was raised for. Proof is scoped to it, so a test that wants a
-                // verified tender has to say which sale the charge belongs to.
                 ClientSaleId = clientSaleId ?? Guid.NewGuid(),
                 Provider = "stripe",
                 ProviderIntentId = $"pi_{Guid.NewGuid():N}",
@@ -718,8 +678,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task TheCloseCanSeparateProvenPixFromClaimedPix()
         {
-            // The point of the whole column. Without it the close has no way to say what was
-            // banked and what was merely asserted.
             var context = _database.CreateContext();
             var service = CreateService(context);
 

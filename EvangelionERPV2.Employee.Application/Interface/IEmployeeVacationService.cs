@@ -5,11 +5,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Interface
     /// <summary>
     /// The férias entitlement ledger: what an employee has earned, booked, taken and sold.
     /// </summary>
-    /// <remarks>
-    /// Money is deliberately absent. This decides <em>when</em> férias happen; what they cost lives
-    /// beside <c>PayrollService</c> in Bills, following the split the module already uses for
-    /// payroll.
-    /// </remarks>
     public interface IEmployeeVacationService<TEntity> where TEntity : class
     {
         /// <summary>
@@ -17,11 +12,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Interface
         /// reached, recomputes each one's entitlement from the absences inside it, and settles
         /// stretches of leave that have since elapsed.
         /// </summary>
-        /// <remarks>
-        /// Idempotent by construction — periods are matched on <c>AcquisitionStart</c>, so running
-        /// it twice reconciles instead of duplicating. That matters because it is called on every
-        /// read of the ledger as well as on demand.
-        /// </remarks>
         Task<IReadOnlyList<TEntity>> RefreshAsync(Guid employeeId, Guid enterpriseId);
 
         /// <summary>

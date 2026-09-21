@@ -39,16 +39,11 @@ namespace EvangelionERPV2.Shared.Utils
 
         public RedisLease(AWSKMSKeyProvider kmsProvider, IConfiguration configuration)
         {
-            // Resolved on first use rather than at startup: the connection string is a Secrets
-            // Manager reference, and a host that cannot boot because Secrets Manager is slow is a
-            // worse outage than a sweep that skips a tick.
             _connection = new Lazy<IConnectionMultiplexer>(() =>
             {
                 var options = ConfigurationOptions.Parse(
                     kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["ConnectionString"] ?? string.Empty));
 
-                // The multiplexer reconnects on its own; without this, a Redis that happens to be
-                // down on first use would poison the Lazy for the life of the process.
                 options.AbortOnConnectFail = false;
                 return ConnectionMultiplexer.Connect(options);
             });
@@ -66,11 +61,6 @@ namespace EvangelionERPV2.Shared.Utils
             }
             catch (Exception exception)
             {
-                // Redis unreachable => stand down, do not run. Failing open would let every replica
-                // run at once, which is exactly the double-send this lease exists to stop, and it
-                // would do it during an incident when nobody is reading the logs. Every caller is a
-                // catch-up sweep or a recurring broadcast, so a skipped slot costs one delayed cycle;
-                // failing open costs a duplicate customer email, which cannot be taken back.
                 Log.Logger.Warning(
                     "Lease {LeaseKey} could not be taken, standing down this slot. ErrorType={ErrorType}",
                     key,
@@ -91,7 +81,6 @@ namespace EvangelionERPV2.Shared.Utils
             }
             catch (Exception exception)
             {
-                // Nothing to do but let the TTL expire, which is the whole point of having one.
                 Log.Logger.Warning(
                     "Lease {LeaseKey} could not be released, letting it expire. ErrorType={ErrorType}",
                     key,

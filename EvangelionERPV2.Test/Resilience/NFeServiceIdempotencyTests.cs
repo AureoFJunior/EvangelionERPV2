@@ -38,7 +38,6 @@ namespace EvangelionERPV2.Test.Resilience
                     NFeSeries = "1",
                     NFCeSeries = "1",
 
-                    // The tenant's own switch, enforced before a document is claimed.
                     Enabled = true,
                     NFCeEnabled = true
                 });
@@ -265,11 +264,8 @@ namespace EvangelionERPV2.Test.Resilience
             Assert.Equal(issuedDocument1!.Id, issuedDocument2!.Id);
             Assert.Equal(1, providerCalls);
 
-            // Four: the claim, the number + chave, the write-ahead marker, and the outcome. Three of
-            // them land before the provider is called, which is the whole point of the ordering.
             Assert.Equal(4, commitCalls);
 
-            // The losing caller must not burn a second number on the same order.
             nfeRepositoryCustomMock.Verify(
                 x => x.AllocateNextNumberAsync(
                     It.IsAny<Guid>(),
@@ -366,8 +362,6 @@ namespace EvangelionERPV2.Test.Resilience
             Assert.Equal(erroredDocument.Id, result!.Id);
             Assert.Equal(NFeStatus.Authorized, result.Status);
 
-            // The retry takes a fresh number, and the chave is ours rather than the transport's —
-            // the provider's own AccessKey field is deliberately ignored.
             Assert.Equal(AllocatedNumber.ToString(), result.Number);
             Assert.True(NFeAccessKeyBuilder.IsValid(result.AccessKey));
             Assert.NotNull(result.TransmittedAtUtc);

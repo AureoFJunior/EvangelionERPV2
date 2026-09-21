@@ -11,7 +11,6 @@ namespace EvangelionERPV2.Shared.DTOs
         public DateTime? HireDate { get; set; }
         public bool? IsActive { get; set; } = true;
 
-        // Optional base64 image payload uploaded to S3 after the employee is created.
         public string? Picture { get; set; }
     }
 }

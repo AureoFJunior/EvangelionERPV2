@@ -62,10 +62,8 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.Equal(documentExists, result != null);
 
-            // The scoped overload must carry the predicate, so a foreign row is never materialised.
             nfeRepositoryCustom.Verify(x => x.GetByAccessKeyAsync(accessKey, enterpriseId), Times.Once);
 
-            // The unscoped read is only the legacy fallback, and only when the scoped one misses.
             nfeRepositoryCustom.Verify(
                 x => x.GetByAccessKeyAsync(It.IsAny<string>()),
                 documentExists ? Times.Never() : Times.Once());
@@ -84,7 +82,6 @@ namespace EvangelionERPV2.Test.Security
                 .Setup(x => x.GetByAccessKeyAsync(accessKey, enterpriseId))
                 .ReturnsAsync((NFeDocument?)null);
 
-            // A pre-denormalisation row: EnterpriseId is empty, so ownership comes from the Order.
             nfeRepositoryCustom
                 .Setup(x => x.GetByAccessKeyAsync(accessKey))
                 .ReturnsAsync(new NFeDocument
@@ -120,7 +117,6 @@ namespace EvangelionERPV2.Test.Security
             var enterpriseId = Guid.NewGuid();
             const string accessKey = "35260712345678000195550010000000011323801728";
 
-            // Scoped read misses, and the legacy row already carries a different tenant.
             nfeRepositoryCustom
                 .Setup(x => x.GetByAccessKeyAsync(accessKey, enterpriseId))
                 .ReturnsAsync((NFeDocument?)null);

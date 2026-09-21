@@ -14,19 +14,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
     /// <summary>
     /// The assistant answers about one company and only one company.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The tenant query filter in <c>AppDbContext</c> is the first line of defence, but it is not the
-    /// one being tested here — and deliberately so. It stands down outside a request and for a
-    /// self-API machine token, and the agent's tools are exactly the kind of code that runs with an
-    /// id handed to it by a language model. So every tool scopes explicitly, and these tests compile
-    /// each tool's own predicate against rows from two tenants to prove it.
-    /// </para>
-    /// <para>
-    /// A failure here is not a bug in a screen. It is one company reading another's customers,
-    /// prices, debts or stock — LGPD art. 46 in the plainest terms.
-    /// </para>
-    /// </remarks>
     public class AiTenantIsolationTests
     {
         private static readonly Guid Mine = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -46,14 +33,12 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             var json = await InvokeProductSearch(rows, new AIFunctionArguments { ["termo"] = "Coca" });
 
-            // Same product name in both companies: the count is what gives a leak away.
             Assert.Contains("\"total\":1", json);
         }
 
         [Fact]
         public async Task SearchingCustomers_NeverReturnsAnotherCompanysPeople()
         {
-            // Customers are personal data. This one is the LGPD case rather than a commercial one.
             var rows = new[]
             {
                 Customer("Maria Silva", Mine),
@@ -87,7 +72,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task AdjustingStock_WithAnotherCompanysProductId_IsRefused()
         {
-            // The id comes from a language model, which can be talked into anything. The tool cannot.
             var theirProduct = Product("Produto deles", Theirs);
             var repository = new Mock<IRepository<Product>>();
             repository.Setup(x => x.GetByIdAsync(theirProduct.Id)).ReturnsAsync(theirProduct);
@@ -131,8 +115,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task ResolvingAName_NeverReachesIntoAnotherCompany()
         {
-            // The lookup exists because the model truncates GUIDs and offers names instead. It must
-            // not become a way to find rows the caller could not otherwise see.
             var rows = new[] { Product("Monster Rosa", Theirs) };
             var repository = new Mock<IRepository<Product>>();
             repository

@@ -160,10 +160,6 @@ namespace EvangelionERPV2.Web.Security
 
         public static class Accounting
         {
-            // Manager tier, the same floor as PayableBills.Read and BankReconciliation.Read: the
-            // monthly package is every receivable, payable, nota and stock movement of a month in
-            // one file. It is a read — the export writes nothing — but it leaves the building as an
-            // attachment, which is why payroll appears in it aggregated and never per employee.
             public const string Export = "accounting.export";
         }
 
@@ -203,34 +199,15 @@ namespace EvangelionERPV2.Web.Security
 
         public static class BankReconciliation
         {
-            // Manager tier, the same floor as Enterprise.ReadSelf and PayableBills.Read. A bank
-            // statement is the full cash position of the company plus every counterparty it paid
-            // or was paid by, so it does not belong at the Supervisor tier that sees customers and
-            // products. It is not admin-only either: unlike payroll.* it carries no individual's
-            // personal data, and unlike nfe.settings.* it changes nothing — the import cannot move
-            // a balance, only report a disagreement with one.
             public const string Read = "bank-reconciliation.read";
 
-            // Import is a write, but a contained one: it appends statement lines and never touches
-            // Enterprise.CurrentBalance. Kept at the same tier as Read because whoever reconciles
-            // is whoever uploads, and splitting them would only mean nobody can finish the job.
             public const string Import = "bank-reconciliation.import";
 
-            // Resolving is the human half of the same job as Import — the import leaves the lines
-            // it could not judge, and this clears them. Same tier for the same reason: whoever
-            // uploads the statement is whoever works the leftovers, and a split would leave the
-            // list permanently full. Still a contained write: it labels evidence, it does not move
-            // money or touch Enterprise.CurrentBalance.
             public const string Resolve = "bank-reconciliation.resolve";
         }
 
         public static class Dashboard
         {
-            // Manager, the same floor as PayableBills.Read and BankReconciliation.Read. The panel
-            // aggregates payables and the bank's uncleared lines alongside receivables, so a
-            // Supervisor-tier panel would show a Supervisor two things that tier deliberately does
-            // not see. Suppressing those two sections per caller was the alternative and it costs
-            // more branching than an endpoint that either answers or does not.
             public const string Read = "dashboard.read";
         }
 
@@ -240,9 +217,6 @@ namespace EvangelionERPV2.Web.Security
             public const string Generate = "bills.generate";
             public const string DownloadPdf = "bills.pdf.download";
 
-            // Money-state writes, split from Generate: issuing a document and declaring it paid
-            // are different levels of trust, and Settle is the one that moves the cash-flow
-            // forecast. Granted to Manager and above, never to Supervisor.
             public const string Settle = "bills.settle";
             public const string Reissue = "bills.reissue";
         }
@@ -260,9 +234,6 @@ namespace EvangelionERPV2.Web.Security
             public const string Update = "customers.update";
             public const string Delete = "customers.delete";
 
-            // Manager tier. Taking an order that puts a customer past the limit somebody set is a
-            // decision about the company's money, not a sales action — the same reason settling a
-            // boleto starts at Manager while issuing one stays at Supervisor.
             public const string CreditOverride = "customers.credit.override";
         }
 
@@ -277,11 +248,6 @@ namespace EvangelionERPV2.Web.Security
 
         public static class EmployeeAbsences
         {
-            // Admin-only group (granted via RbacPermissions.All, never mapped to another role),
-            // one tier above Employees rather than beside it. Two reasons: an atestado row carries
-            // a CID, which is LGPD art. 11 special-category health data, and IsJustified is what
-            // decides whether a day is paid — so write access here is write access to payroll,
-            // which is already admin-only.
             public const string Read = "employee-absences.read";
             public const string Create = "employee-absences.create";
             public const string Update = "employee-absences.update";
@@ -290,15 +256,8 @@ namespace EvangelionERPV2.Web.Security
 
         public static class EmployeeVacations
         {
-            // Admin-only for the same reason as EmployeeAbsences, granted through
-            // RbacPermissions.All and never mapped to another role. Scheduling férias writes an
-            // absence row and moves a statutory entitlement, so it is write access to both payroll
-            // and a legal obligation; and a lapsed accrual is a debt owed in dobro, which makes the
-            // read side a liability report rather than a calendar.
             public const string Read = "employee-vacations.read";
 
-            // One write permission, not four. Schedule, sell and refresh are the same authority
-            // over the same ledger — splitting them would grant nothing anyone would grant apart.
             public const string Schedule = "employee-vacations.schedule";
         }
 
@@ -311,7 +270,6 @@ namespace EvangelionERPV2.Web.Security
         public static class Enterprise
         {
             public const string Read = "enterprise.read";
-            // Read the user's own enterprise (tenant from token claim) — all roles.
             public const string ReadSelf = "enterprise.self.read";
             public const string Create = "enterprise.create";
             public const string Update = "enterprise.update";
@@ -325,21 +283,11 @@ namespace EvangelionERPV2.Web.Security
             public const string Issue = "nfe.issue";
             public const string Cancel = "nfe.cancel";
 
-            // Admin-only pair (present in RbacPermissions.All, deliberately absent from every
-            // role array): the fiscal profile exposes the emitente CNPJ and IE, and a wrong
-            // CFOP, CST or CRT silently mis-taxes every future document — a mistake only
-            // fixable by cancelling inside the legal window. Same risk class as payroll.*.
             public const string SettingsRead = "nfe.settings.read";
             public const string SettingsUpdate = "nfe.settings.update";
 
-            // Also admin-only by omission: the holder can replace the company's digital signing
-            // identity, and a wrong certificate stops issuance for the whole tenant. Rotated
-            // roughly once a year, so there is no operational reason to grant it wider.
             public const string CertificateManage = "nfe.certificate.manage";
 
-            // Metadata only (subject, expiry, days remaining) — no key material, no password.
-            // Granted down to Manager so whoever operates can see "12 days left" without
-            // waiting on an admin.
             public const string CertificateRead = "nfe.certificate.read";
         }
 
@@ -371,9 +319,6 @@ namespace EvangelionERPV2.Web.Security
 
         public static class Payroll
         {
-            // Admin-only group (granted via RbacPermissions.All, never mapped to other
-            // roles): payroll data exposes individual salaries (LGPD) and settings
-            // changes alter every future payroll payable amount.
             public const string Read = "payroll.read";
             public const string Generate = "payroll.generate";
             public const string UpdateSettings = "payroll.settings.update";
@@ -451,8 +396,6 @@ namespace EvangelionERPV2.Web.Security
 
         public static class Quotes
         {
-            // Supervisor tier, with the rest of selling. A quote reserves nothing and moves no
-            // money; converting one creates an ordinary order, which a Supervisor may already do.
             public const string Read = "quotes.read";
             public const string Create = "quotes.create";
             public const string Update = "quotes.update";

@@ -42,9 +42,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             Assert.Equal(2, first.NewLines);
 
-            // The whole point of keying on FITID. A second upload of the same statement — which is
-            // exactly what an operator does when they are unsure the first one worked — must not
-            // double the movement behind the variance figure.
             Assert.Equal(0, second.NewLines);
             Assert.Equal(2, second.TotalLines);
             Assert.Equal(2, harness.Lines.Count);
@@ -64,13 +61,11 @@ namespace EvangelionERPV2.BillsModule.Test
         }
 
         [Theory]
-        // The statement posts on the 8th. A payable dated anywhere inside ±3 days is the same event
-        // seen from two sides; the 4th and the 12th are four days out and must not be claimed.
-        [InlineData("20260805", true)]   // 3 days early — the boundary itself
-        [InlineData("20260804", false)]  // 4 days early — just outside
-        [InlineData("20260811", true)]   // 3 days late — the boundary itself
-        [InlineData("20260812", false)]  // 4 days late — just outside
-        [InlineData("20260808", true)]   // same day
+        [InlineData("20260805", true)]
+        [InlineData("20260804", false)]
+        [InlineData("20260811", true)]
+        [InlineData("20260812", false)]
+        [InlineData("20260808", true)]
         public async Task ImportAsync_MatchesOnlyInsideTheThreeDayWindow(string dueDate, bool shouldMatch)
         {
             var harness = new Harness();
@@ -106,7 +101,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 IsActive = true
             });
 
-            // Same amount on the payables side. The sign is what keeps the credit off it.
             harness.Payables.Add(new PayableBill
             {
                 Id = Guid.NewGuid(),
@@ -145,8 +139,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 ledgerBalance: "0.00",
                 transactions: [Transaction("F1", "20260808", "-249.90")]));
 
-            // Not guessed at. Picking either one by date proximity would reconcile the wrong invoice
-            // and, worse, stop looking like work that still needs doing.
             Assert.Equal(1, result.AmbiguousLines);
             Assert.Equal(0, result.MatchedLines);
             Assert.Null(harness.Lines.Single().MatchedReferenceId);
@@ -155,9 +147,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task ImportAsync_MatchesAFeriasBillOnWhatActuallyLeftTheBank()
         {
-            // A férias bill's Amount is netted by the provision payroll already accrued for it
-            // (SPEC-hr-module §4 P5a), but the employee is paid the gross, so that is the figure
-            // the statement carries.
             var harness = new Harness();
             var billId = Guid.NewGuid();
             harness.Payables.Add(new PayableBill
@@ -196,7 +185,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 ledgerBalance: "0.00",
                 transactions: [Transaction("F1", "20260808", "-100.00"), Transaction("F2", "20260808", "-100.00")]));
 
-            // Two identical debits, one invoice: the first consumes it, the second is left uncleared.
             Assert.Equal(1, result.MatchedLines);
             Assert.Equal(1, result.UnmatchedLines);
         }
@@ -216,8 +204,6 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(9750.25m, variance.StatementBalance);
             Assert.Equal(249.75m, variance.Variance);
 
-            // The balance is app-computed and stays that way. An import that silently rewrote it to
-            // the bank's figure would make the variance permanently zero and the screen useless.
             Assert.Equal(10_000.00m, harness.Enterprise.CurrentBalance);
         }
 
@@ -231,8 +217,6 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(10_000.00m, variance.CurrentBalance);
             Assert.Null(variance.StatementBalance);
 
-            // Null, not 10 000: a "variance" of the entire balance would read as a catastrophic
-            // break rather than as nothing having been imported yet.
             Assert.Null(variance.Variance);
         }
 
@@ -307,8 +291,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 IsActive = true
             });
 
-            // Outside the ±3-day window, which is exactly why the importer left it: manual
-            // resolution must not re-apply the rule that could not take the line.
             var line = harness.AddLine(amount: -480.00m, postedAt: new DateTime(2026, 8, 8));
 
             var resolved = await harness.Service.ResolveAsync(EnterpriseId, line.Id, payableId);
@@ -321,7 +303,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task ResolveAsync_WithNoDocument_MarksTheLineIgnored()
         {
-            // A bank fee corresponds to nothing in the ERP. Without this the list can never empty.
             var harness = new Harness();
             var line = harness.AddLine(amount: -32.90m, postedAt: new DateTime(2026, 8, 8));
 
@@ -336,7 +317,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task ResolveAsync_AfterBeingIgnored_CanStillBeMatched()
         {
-            // Nothing here moves money, so a mistaken judgement has to be correctable.
             var harness = new Harness();
             var payableId = Guid.NewGuid();
             harness.Payables.Add(new PayableBill
@@ -360,8 +340,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task ResolveAsync_ACreditPointedAtAPayable_IsRefused()
         {
-            // Money arriving can only settle a receivable. Allowing this would reconcile two
-            // documents in opposite directions off one typo.
             var harness = new Harness();
             var payableId = Guid.NewGuid();
             harness.Payables.Add(new PayableBill
@@ -382,7 +360,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task ResolveAsync_ADocumentAlreadyClaimedByAnotherLine_IsRefused()
         {
-            // Two statement lines pointing at one invoice would reconcile the same money twice.
             var harness = new Harness();
             var payableId = Guid.NewGuid();
             harness.Payables.Add(new PayableBill
@@ -491,8 +468,6 @@ namespace EvangelionERPV2.BillsModule.Test
                         return created;
                     });
 
-                // GetPagedAsync, matching the service: it reads orders and payables that way so it
-                // does not drag every line item of every candidate across to compare three columns.
                 var orderRepository = new Mock<IRepository<Order>>();
                 orderRepository
                     .Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<Order, bool>>>()))
@@ -557,5 +532,4 @@ namespace EvangelionERPV2.BillsModule.Test
             }
         }
     }
-
 }

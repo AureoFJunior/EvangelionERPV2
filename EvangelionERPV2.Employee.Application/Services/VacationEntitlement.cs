@@ -6,11 +6,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
     /// <summary>
     /// The CLT art. 130 entitlement table and the art. 134 §1 splitting rules, as pure functions.
     /// </summary>
-    /// <remarks>
-    /// Separated from the service because these are the parts a court would check. They take no
-    /// repository, touch no clock beyond what the caller passes, and are therefore testable at
-    /// every boundary of the step table — which is exactly where an off-by-one hides.
-    /// </remarks>
     public static class VacationEntitlement
     {
         /// <summary>A full período aquisitivo is twelve months.</summary>
@@ -38,10 +33,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         /// Days earned by one período aquisitivo, from the art. 130 step table applied to the
         /// unjustified faltas inside it.
         /// </summary>
-        /// <remarks>
-        /// The table is a cliff, not a slope: the sixth falta costs six days at once. Written as
-        /// ordered thresholds rather than arithmetic so it reads like the statute it copies.
-        /// </remarks>
         public static int EntitledDaysFor(int unjustifiedFaltas) => unjustifiedFaltas switch
         {
             <= 5 => 30,
@@ -55,19 +46,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         /// Counts the calendar days inside <paramref name="periodStart"/>..<paramref name="periodEnd"/>
         /// that an unjustified absence took away.
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// A set of days, not a sum of range lengths — the same reasoning
-        /// <c>PayrollService.CountUnpaidDays</c> uses. Two rows covering the same day (a falta
-        /// somebody also filed an atestado against, a range edited into another) must cost the
-        /// employee that day once, or a data-entry duplicate silently eats a week of their leave.
-        /// </para>
-        /// <para>
-        /// Only the overlapping portion counts: an absence straddling the boundary belongs partly
-        /// to the next período aquisitivo, and charging it to both would reduce two entitlements
-        /// for one stretch away from work.
-        /// </para>
-        /// </remarks>
         public static int CountUnjustifiedFaltas(
             IEnumerable<EmployeeAbsence> absences, DateTime periodStart, DateTime periodEnd)
         {
@@ -93,13 +71,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         /// What art. 130 means by "falta injustificada": days off that the employee is answerable
         /// for.
         /// </summary>
-        /// <remarks>
-        /// Three exclusions, each for its own reason. A justified absence is time the law already
-        /// excuses. An <see cref="EnumEmployeeAbsenceType.Advertencia"/> is a disciplinary record
-        /// rather than unworked time — the falta behind it, if there was one, is its own row.
-        /// And <see cref="EnumEmployeeAbsenceType.Vacation"/> is leave already granted: counting it
-        /// would make taking férias shrink the next year's férias.
-        /// </remarks>
         private static bool CountsAsFalta(EmployeeAbsence absence)
         {
             return absence.IsActive == true
@@ -116,13 +87,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         /// <param name="existingPeriodLengths">Lengths of the stretches already booked.</param>
         /// <param name="remainingDaysAfter">Days left on the accrual once this one is taken.</param>
         /// <param name="reason">Why it was refused, when it was.</param>
-        /// <remarks>
-        /// The "one stretch of at least fourteen days" rule is a property of the finished set, and a
-        /// request cannot be judged against a set that does not exist yet. So it is enforced as
-        /// satisfiability: a short stretch is allowed only while enough days remain for a long one
-        /// to still be booked later. That refuses exactly the schedules which could never be
-        /// completed legally, and nothing else.
-        /// </remarks>
         public static bool TrySplit(
             int requestedDays,
             IReadOnlyCollection<int> existingPeriodLengths,
@@ -146,7 +110,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
             var hasLongPeriod = existingPeriodLengths.Any(length => length >= MinLongPeriodDays)
                 || requestedDays >= MinLongPeriodDays;
 
-            // Last chance gone: either this stretch is the long one, or there is still room after it.
             var canStillBookALongPeriod = remainingDaysAfter >= MinLongPeriodDays
                 && existingPeriodLengths.Count + 1 < MaxPeriods;
 

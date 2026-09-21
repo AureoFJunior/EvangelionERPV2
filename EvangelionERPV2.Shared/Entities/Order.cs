@@ -48,15 +48,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// How the order was settled — <see cref="Enums.EnumPaymentMethod"/>, or
         /// <see cref="Enums.EnumPaymentMethod.Mixed"/> when more than one method was used.
         /// </summary>
-        /// <remarks>
-        /// Null on a backoffice order, and that is not "unknown": nothing tenders those, they are
-        /// settled through the Bills module against a receivable.
-        ///
-        /// The tenders themselves live in <c>PdvSalePayment</c> — one row each, with the amount,
-        /// authorisation code, installments and change. This column answers the one question every
-        /// order read surface asks ("how was this paid?") without every one of them having to join
-        /// through <c>PdvSale</c> to find out.
-        /// </remarks>
         public int? PaymentMethod { get; set; } = null;
 
         public string? RefundReason { get; set; } = null;

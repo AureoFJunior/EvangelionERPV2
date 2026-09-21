@@ -12,7 +12,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var prompt = AiSystemPrompt.Build(Today);
 
             Assert.DoesNotContain("falada em voz alta", prompt);
-            // A typed answer keeps its tables.
             Assert.DoesNotContain("Nada de tabelas", prompt);
         }
 
@@ -29,8 +28,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public void ASpokenTurn_KeepsEveryRuleATypedTurnHas()
         {
-            // The spoken rules are additive. Losing "nunca invente números" because the answer is
-            // going to a speaker would be the worst possible trade.
             var typed = AiSystemPrompt.Build(Today);
             var spoken = AiSystemPrompt.Build(Today, spoken: true);
 

@@ -41,8 +41,6 @@ namespace EvangelionERPV2.Test.Security
             var harness = new TenantHarness();
             await harness.SeedAsync();
 
-            // No HttpContext: a hosted service, a worker, or the login lookup that runs before any
-            // tenant is known. These are legitimately cross-tenant and must keep working.
             harness.LeaveRequest();
             using var context = harness.CreateContext();
 
@@ -57,8 +55,6 @@ namespace EvangelionERPV2.Test.Security
             var harness = new TenantHarness();
             await harness.SeedAsync();
 
-            // The first context to run a query is the one whose instance the cached model's filters
-            // captured.
             harness.EnterRequestFor(TenantA);
             using (var first = harness.CreateContext())
             {
@@ -80,9 +76,6 @@ namespace EvangelionERPV2.Test.Security
             harness.EnterRequestFor(TenantA);
             using var context = harness.CreateContext();
 
-            // The legacy NULL-tenant row. Every hand-written controller filter compares for
-            // equality, so this row was already invisible through the API; the model filter must not
-            // quietly start surfacing it to everyone.
             Assert.DoesNotContain(await context.Customer.ToListAsync(), x => x.EnterpriseId == null);
         }
 
@@ -106,10 +99,6 @@ namespace EvangelionERPV2.Test.Security
             var harness = new TenantHarness();
             await harness.SeedAsync();
 
-            // The scheduled jobs — stock and monthly-billing emails, the queued order, the
-            // notification sweep — are cross-tenant by definition, and every read behind them names
-            // its enterprise explicitly. Scoping them to the service account's own company is what
-            // made the weekly stock email reach exactly one of them.
             harness.EnterMachineRequestFor(TenantA);
             using var context = harness.CreateContext();
 
@@ -122,10 +111,6 @@ namespace EvangelionERPV2.Test.Security
             var harness = new TenantHarness();
             await harness.SeedAsync();
 
-            // The hazard the whole file exists for, now with a second kind of caller: the sweep is
-            // the one request allowed past the filter, and EF's cached model closed over some
-            // context instance. If that reach outlived the request, the next person through would
-            // read every tenant's customers.
             harness.EnterMachineRequestFor(TenantA);
             using (var sweep = harness.CreateContext())
             {
@@ -147,8 +132,6 @@ namespace EvangelionERPV2.Test.Security
             harness.EnterRequestFor(TenantA);
             using var context = harness.CreateContext();
 
-            // The deliberate escape hatch: cross-tenant maintenance work inside a request has to
-            // stay possible, and has to be spelled out at the call site where a reviewer sees it.
             Assert.Equal(3, await context.Customer.IgnoreQueryFilters().CountAsync());
         }
 
@@ -166,8 +149,6 @@ namespace EvangelionERPV2.Test.Security
                 .Order()
                 .ToList();
 
-            // Structural on purpose: a module added later inherits isolation from the convention, and
-            // this fails if anything ever removes it for one entity.
             Assert.True(
                 unfiltered.Count == 0,
                 $"Entities carrying EnterpriseId with no tenant query filter: {string.Join(", ", unfiltered)}");
@@ -175,7 +156,7 @@ namespace EvangelionERPV2.Test.Security
 
         private static bool HasQueryFilter(Microsoft.EntityFrameworkCore.Metadata.IEntityType entityType)
         {
-#pragma warning disable EF9100 // Named query filters are still experimental in EF 10; the single-filter accessor is what this model uses.
+#pragma warning disable EF9100
             return entityType.GetDeclaredQueryFilters().Any();
 #pragma warning restore EF9100
         }

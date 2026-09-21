@@ -56,9 +56,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             try
             {
-                // useAmbientTransaction: the caller already opened a transaction on the shared
-                // context (payroll generation does, so bill and PayrollBillDetail land together).
-                // Nesting BeginTransactionAsync would throw, so the body runs inline instead.
                 if (useAmbientTransaction)
                     await CreateCoreAsync(payableBill, sourceItems, keepProvidedAmount);
                 else
@@ -119,9 +116,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             int? month = null,
             bool includePayroll = true)
         {
-            // Month view carries forward unpaid bills due before the period so overdue bills
-            // stay visible, bounded to the previous 12 months so an old unpaid bill does not
-            // get dragged into every month view forever.
             DateTime? periodStart = null;
             DateTime? periodEnd = null;
             DateTime? carryOverStart = null;
@@ -134,8 +128,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var payrollBillType = (int)EnumPayableBillType.Payroll;
 
-            // Ordered by due date (not the GUID key) so page 1 of a month view is the oldest
-            // due bills of that view instead of an arbitrary slice.
             var bills = (await _payableBillRepository.GetAllAsyncByFilter(
                 false,
                 pageNumber,
@@ -143,8 +135,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 x => x.EnterpriseId == enterpriseId
                      && (!isActive.HasValue || x.IsActive == isActive.Value)
                      && (!billType.HasValue || x.BillType == billType.Value)
-                     // LGPD: payroll bills carry individual salary data, so they are filtered in
-                     // SQL — filtering after paging would leak their count through the page size.
                      && (includePayroll || x.BillType != payrollBillType)
                      && (!periodStart.HasValue
                          || (x.DueDate >= periodStart.Value && x.DueDate < periodEnd!.Value)
@@ -183,8 +173,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 if (existing.RefundedAt.HasValue)
                     throw new InsertDatabaseException("Payable bill is refunded and cannot be edited.");
 
-                // Both dates: the month it sits in has to be open, and so does the month it would
-                // move to — an edit must not be able to carry an obligation into closed books.
                 var lockedThrough = await GetClosedThroughUtcAsync(enterpriseId);
                 PeriodLock.Assert(lockedThrough, existing.DueDate, "This payable bill");
                 if (payableBill.DueDate != default)
@@ -214,8 +202,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 existing.Description = payableBill.Description;
                 existing.DueDate = payableBill.DueDate;
-                // Editable so a chain can be stopped: clearing RecurrenceMonths is how a contas
-                // fixa ends early. RecurrenceParentId is never touched — it records history.
                 existing.RecurrenceMonths = payableBill.RecurrenceMonths;
                 existing.RecurrenceUntilUtc = payableBill.RecurrenceUntilUtc;
                 existing.IsPaid = payableBill.IsPaid;
@@ -296,8 +282,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     if (!products.ContainsKey(item.ProductId))
                         throw new InsertDatabaseException($"Product [{item.ProductId}] was not found.");
 
-                    // Receipt, through the one shared entry point: the quantity, the ledger row
-                    // explaining it and the cache invalidation happen together or not at all.
                     await _productService.ApplyStockMovementAsync(
                         item.ProductId,
                         enterpriseId,
@@ -332,8 +316,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 if (existing.RefundedAt.HasValue)
                     throw new InsertDatabaseException("Payable bill was already refunded.");
 
-                // The bill's own date, not today: a refund reverses an expense in the month the
-                // obligation belonged to.
                 await AssertPeriodOpenAsync(enterpriseId, existing.DueDate, "The payable bill being refunded");
 
                 var oldContribution = EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(existing, DateTime.UtcNow.Date);
@@ -379,8 +361,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                         if (!products.ContainsKey(item.ProductId))
                             throw new InsertDatabaseException($"Product [{item.ProductId}] was not found.");
 
-                        // Adjustment, not a negative Receipt: a human un-did a receipt, and
-                        // Receipt means units arrived. The ledger has to say which happened.
                         await _productService.ApplyStockMovementAsync(
                             item.ProductId,
                             enterpriseId,
@@ -429,11 +409,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var windowStart = DateTime.UtcNow.Date.AddDays(-historyWindowDays);
 
-            // Demand comes from the stock ledger rather than being re-derived from order history.
-            // The ledger already records every unit that left and when, so the order-status
-            // whitelist, the refund exclusion and the OrderedProduct join were all reconstructing
-            // a fact that is now stored directly — and reconstructing it wrongly for any unit that
-            // moved without an order behind it.
             List<StockMovement> movements;
             try
             {
@@ -476,16 +451,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 var productMovements = skuGroup.ToList();
 
-                // Demand cadence is measured on sales only: a refund tells you nothing about how
-                // often the product is bought, it only cancels units out of the total.
                 var intervals = BuildIntervals(
                     productMovements.Where(x => x.Type == (int)EnumStockMovementType.Sale));
 
                 if (intervals.Count < 3)
                     continue;
 
-                // Quantity is signed — sales are negative, refunds positive — so negating the sum
-                // nets refunded units back out of consumption in one pass.
                 var totalSold = -productMovements.Sum(x => x.Quantity);
                 if (totalSold <= 0)
                     continue;
@@ -512,8 +483,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 {
                     ProductId = product.Id,
                     ProductName = product.Name,
-                    // Quantities, not money: 4 decimals matches the decimal(18,4) stock columns
-                    // (and no MidpointRounding change — that convention is for money only).
                     CurrentStock = Math.Round(currentStock, 4),
                     DailyConsumption = Math.Round(dailyConsumption, 4),
                     LeadTimeDays = leadTimeDays,
@@ -549,7 +518,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 if (existing == null || existing.EnterpriseId != enterpriseId || existing.IsActive != true)
                     throw new NotFoundDatabaseException($"{nameof(PayableBill)} was not found in database.");
 
-                // Deleting is how an expense leaves a month, so it is governed exactly like an edit.
                 await AssertPeriodOpenAsync(enterpriseId, existing.DueDate, "This payable bill");
 
                 var existingItems = (await _payableBillProductRepository.GetAllAsync(

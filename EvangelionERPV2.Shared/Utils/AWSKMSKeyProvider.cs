@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Amazon.Runtime;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
@@ -10,10 +10,6 @@ namespace EvangelionERPV2.Shared.Utils
 {
     public class AWSKMSKeyProvider
     {
-        // Resolved secrets are cached for the process lifetime so repeated calls
-        // (e.g. per-login token signing / reCAPTCHA verification) do not issue a
-        // network call to Secrets Manager each time. Only successful, non-empty
-        // resolutions are cached, leaving transient failures retryable.
         private static readonly ConcurrentDictionary<string, string> _secretCache = new(StringComparer.Ordinal);
 
         private readonly IAmazonSecretsManager _secretsManager;
@@ -44,12 +40,6 @@ namespace EvangelionERPV2.Shared.Utils
         /// <summary>
         /// Resolves a secret, optionally ignoring and refreshing the process-lifetime cache.
         /// </summary>
-        /// <remarks>
-        /// The cache has no eviction, which is fine for values that never change during a
-        /// process (connection strings, signing keys) but wrong for rotatable material: an
-        /// NFe A1 certificate is replaced yearly, and without a bypass a rotation would only
-        /// take effect after restarting every container.
-        /// </remarks>
         public Task<string> GetKMSKeyAsync(string secretName, bool bypassCache, CancellationToken cancellationToken = default)
             => GetKMSKeyInternalAsync(secretName, cancellationToken, bypassCache);
 
@@ -96,11 +86,6 @@ namespace EvangelionERPV2.Shared.Utils
             var resolvedValue = ResolveSecretValue(secretString, requestedKey);
             if (bypassCache)
             {
-                // Callers that bypass the cache do so because the material is rotatable and
-                // sensitive — the NFe certificate PFX and its password. This dictionary is
-                // process-static and never evicted, so writing them here would retain a tenant's
-                // signing identity for the container's lifetime. Also drop anything an earlier
-                // non-bypass read left behind, so a stale value cannot outlive the rotation.
                 _secretCache.TryRemove(secretName, out _);
             }
             else if (!string.IsNullOrEmpty(resolvedValue))

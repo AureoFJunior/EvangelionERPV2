@@ -64,9 +64,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
 
         public Employee Update(Employee employee)
         {
-            // Generic update path: an empty Picture means "not provided", so the stored
-            // value is preserved. Picture removal goes through UpdatePictureAsync with an
-            // explicit clear signal.
             return Update(employee, clearPicture: false);
         }
 
@@ -146,9 +143,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
 
             if (string.IsNullOrWhiteSpace(picturePayload))
             {
-                // Explicit clear signal: without it Update would treat the empty value as
-                // "not provided" and keep the old key, leaving the database pointing at the
-                // S3 object deleted below.
                 employee.UpdatedAt = DateTime.UtcNow;
                 var updatedEmployee = Update(employee, clearPicture: true);
                 await TryDeleteOldPictureAsync(s3Client, bucketName, oldPictureAddress);

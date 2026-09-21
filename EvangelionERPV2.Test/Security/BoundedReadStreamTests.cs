@@ -30,8 +30,6 @@ namespace EvangelionERPV2.Test.Security
             await CopyAsync(bounded);
 
             Assert.True(bounded.ExceededLimit);
-            // Truncated, not thrown: the caller turns this into 413, and a client's oversized clip
-            // is not a server fault.
             Assert.True(bounded.BytesRead > 1000);
         }
 
@@ -51,7 +49,6 @@ namespace EvangelionERPV2.Test.Security
         {
             using var bounded = new BoundedReadStream(Source(16), limit: 16);
 
-            // Seeking would mean re-reading the audio, which means holding it.
             Assert.False(bounded.CanSeek);
             Assert.False(bounded.CanWrite);
             Assert.Throws<NotSupportedException>(() => bounded.Seek(0, SeekOrigin.Begin));

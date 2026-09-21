@@ -42,15 +42,12 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
             Assert.True(verdict.IsTransient);
             Assert.NotEqual(NFeStatus.Rejected, verdict.Status);
 
-            // After transmission nothing proves the bytes never left, so the number must not be
-            // handed back for reuse on the strength of a timeout.
             Assert.False(verdict.NeverTransmitted);
         }
 
         [Fact]
         public void Authorization_UnknownCode_IsRejected()
         {
-            // 539: duplicidade de NF-e com diferença na chave de acesso. A real verdict, uncatalogued here.
             var verdict = SefazCStatMap.ForAuthorization(539);
 
             Assert.Equal(NFeStatus.Rejected, verdict.Status);

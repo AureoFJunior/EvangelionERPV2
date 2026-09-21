@@ -97,8 +97,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    // The service refuses a second receipt, a refunded bill and one with no items;
-                    // all three are answers the person needs to read, not a generic failure.
                     return JsonSerializer.Serialize(new { erro = Explain(ex) }, AiJson.Options);
                 }
             }, Name, Description);

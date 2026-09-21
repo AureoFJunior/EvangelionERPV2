@@ -14,10 +14,6 @@ namespace EvangelionERPV2.PdvModule.Test.Pdv;
 /// <summary>
 /// The feed a till pulls product pictures from.
 /// </summary>
-/// <remarks>
-/// Shaped exactly like the catalog feed on purpose: same cursor, same "one row over the page"
-/// trick for HasMore, so the terminal's sync engine treats them identically.
-/// </remarks>
 public class ProductImageTests : IDisposable
 {
     private readonly PdvTestContext _database = new();
@@ -121,7 +117,6 @@ public class ProductImageTests : IDisposable
     [Fact]
     public async Task AProductWithNoPictureIsReturnedWithANullHash()
     {
-        // Not omitted: the till must be able to record "no picture" and stop asking.
         var page = await ImagesFor(productsWithPictures: 0, productsWithout: 1);
 
         var item = Assert.Single(page.Items);
@@ -147,8 +142,6 @@ public class ProductImageTests : IDisposable
         Assert.Equal(50, page.Items.Count());
         Assert.True(page.HasMore);
 
-        // Mirrors GetCatalogAsync: on a capped page the cursor is the last returned row's own
-        // timestamp, so a resumed sync starts exactly where this page left off.
         Assert.Equal(page.Items.Last().ChangedAt, page.NextCursor);
     }
 
@@ -160,8 +153,6 @@ public class ProductImageTests : IDisposable
         Assert.False(page.HasMore);
         Assert.NotEmpty(page.Items);
 
-        // Mirrors GetCatalogAsync: nothing left to page through, so there is no cursor to resume
-        // from. The till falls back to ServerTimeUtc for its next call.
         Assert.Null(page.NextCursor);
     }
 
@@ -180,7 +171,6 @@ public class ProductImageTests : IDisposable
     [Fact]
     public async Task AnotherTenantsProductsAreNeverReturned()
     {
-        // The same guard every other PDV read carries. A till is one shop's.
         var page = await ImagesForOtherTenant();
 
         Assert.Empty(page.Items);

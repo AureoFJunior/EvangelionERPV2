@@ -50,10 +50,6 @@ namespace EvangelionERPV2.AiModule.Application.Configs
         /// "nothing was said" — it answers with one phrase repeated until it runs out of room, which
         /// is how a 667-character question nobody asked reached the conversation history.
         /// </summary>
-        /// <remarks>
-        /// It buys no accuracy on speech — measured at 22.1% against 20.8% word error on noisy
-        /// clips, inside the noise. It is here for the hallucination, not the transcript.
-        /// </remarks>
         public bool SpeechVadFilter { get; set; } = true;
 
         /// <summary>
@@ -61,10 +57,6 @@ namespace EvangelionERPV2.AiModule.Application.Configs
         /// just been shown, and this ERP's words are exactly the ones a general model gets wrong:
         /// measured on noisy clips, "estoque crítico hoje" came back as "toque, que de cor".
         /// </summary>
-        /// <remarks>
-        /// Worth 13.5% → 10.9% word error on clean speech on its own. Keep it to terms this system
-        /// actually uses — a long prompt of unrelated words pulls guesses the wrong way.
-        /// </remarks>
         public string SpeechPrompt { get; set; } =
             "Sistema ERP. Termos: estoque crítico, contas a pagar, contas a receber, parcelas vencidas, "
             + "faturamento, nota fiscal, pedido, cliente, fornecedor, produto, painel do dia, "

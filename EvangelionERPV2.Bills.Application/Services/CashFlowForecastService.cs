@@ -14,7 +14,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     {
         private const int MaxSimulationScenarioNameLength = 100;
 
-        // decimal has no NaN/Infinity, so an explicit bound replaces the old double.IsFinite guard.
         private const decimal MaxPayableMultiplier = 1000m;
 
         // Unbounded balances overflow the running-balance accumulation in BuildForecastAsync
@@ -204,23 +203,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// The orders whose receivable can land inside the forecast window, with the live bill that
         /// decides it, read in one query.
         /// </summary>
-        /// <remarks>
-        /// This used to load every active order for the enterprise — with Customer, OrderedProduct
-        /// and Product eager-loaded, because that is what OrderRepository.GetAllAsync returns — and
-        /// then build an IN clause from every one of their ids to fetch the bills. At 1.84M orders
-        /// it answered OutOfMemoryException; a 30-day forecast reads a few hundred rows.
-        ///
-        /// The window filter mirrors <see cref="ReceivableResolver.ResolveOrderReceivableDate"/>
-        /// branch for branch, so it is a superset and never drops a contributing order: whichever
-        /// date that method would pick has to fall inside the window for the order to project any
-        /// cash at all. The resolver still decides the real date and amount, in memory, over the
-        /// rows that survive — through the value-based overloads, so there is still exactly one
-        /// definition of when money arrives and how much.
-        ///
-        /// The upper bound is exclusive on the day after <paramref name="endDate"/> because the
-        /// resolver truncates to a date: an order due at 15:00 on the last day counts, and
-        /// comparing the raw column against midnight would drop it.
-        /// </remarks>
         private async Task<List<ReceivableCandidate>> ReadReceivableCandidatesAsync(
             Guid enterpriseId,
             DateTime today,
@@ -232,7 +214,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 from order in _context.Set<Order>().AsNoTracking()
                 where order.IsActive == true
                       && order.EnterpriseId == enterpriseId
-                      // ReceivableResolver.IsOrderRefunded, in the query.
                       && order.RefundedAt == null
                       && order.Status != (int)EnumOrderStatus.Refund
                       && order.TotalValue > 0
@@ -248,7 +229,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                             : order.PaymentScheduledDate >= today && order.PaymentScheduledDate < endDateExclusive)
                         : bill.Status == BillStatus.Paid
                             ? bill.PaidAt >= today && bill.PaidAt < endDateExclusive
-                            // Rejected projects nothing: the bank refused the title.
                             : bill.Status != BillStatus.Rejected
                               && bill.DueDate >= today && bill.DueDate < endDateExclusive
                 select new ReceivableCandidate(

@@ -1,4 +1,4 @@
-﻿using Amazon;
+using Amazon;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Configuration;
@@ -465,7 +465,6 @@ namespace EvangelionERPV2.Shared.Utils
         {
             string pattern = @"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$";
 
-            // Use Regex.IsMatch to check if the email matches the pattern
             return Regex.IsMatch(email, pattern);
         }
 
@@ -726,7 +725,7 @@ namespace EvangelionERPV2.Shared.Utils
             {
                 var responseStream = new MemoryStream();
                 await response.ResponseStream.CopyToAsync(responseStream);
-                responseStream.Position = 0;  // Reset the stream position to the beginning
+                responseStream.Position = 0;
                 return responseStream;
             }
         }
@@ -745,7 +744,6 @@ namespace EvangelionERPV2.Shared.Utils
             await _s3Client.DeleteObjectAsync(deleteRequest);
         }
 
-
         public static async Task DeleteItemIfExistsAsync(this IAmazonS3 _s3Client, string bucketName, string? encryptedOrPlainKey)
         {
             if (string.IsNullOrWhiteSpace(bucketName))
@@ -761,7 +759,6 @@ namespace EvangelionERPV2.Shared.Utils
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
             {
-                // Ignore not found/legacy key formats so replace flows can continue.
             }
         }
 

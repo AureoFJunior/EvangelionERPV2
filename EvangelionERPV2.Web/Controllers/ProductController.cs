@@ -33,9 +33,6 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IMapper _mapper;
         private readonly IAuthorizationService _authorizationService;
 
-        // Memoized for the lifetime of this request (controllers are per-request): ToProductDtosAsync
-        // maps a page of products in parallel, and evaluating the policy per row would read the
-        // caller's user row from the database once per product.
         private bool? _canReadCost;
 
         public ProductController(IProductService<Product> productService,
@@ -65,7 +62,6 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetProducts(int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = true)
         {
-
             if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
             if (!TryGetEnterpriseId(out var enterpriseId))
@@ -115,8 +111,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (includePictures && normalizedPageSize > MaxPageSizeWithPictures)
                     normalizedPageSize = MaxPageSizeWithPictures;
 
-                // string.Contains(..., StringComparison) has no SQL Server translation; this
-                // predicate is executed by the provider, so it must use EF.Functions.Like.
                 var escapedNameFilter = SharedFunctions.EscapeLikePattern(nameFilter ?? string.Empty);
 
                 var products = await _repository.GetAllAsync(
@@ -201,13 +195,7 @@ namespace EvangelionERPV2.Web.Controllers
                         Name = normalizedRequest.Name.Trim(),
                         Description = normalizedRequest.Description?.Trim() ?? string.Empty,
                         DefaultValue = normalizedRequest.DefaultValue.GetValueOrDefault(),
-                        // Not GetValueOrDefault: an omitted cost stays unknown. Defaulting it to
-                        // zero would make every margin report claim a 100% margin on this product.
                         CostPrice = await CanReadCostAsync() ? normalizedRequest.CostPrice : null,
-                        // Zero here on purpose: the opening count is posted below as a movement, so
-                        // the ledger explains the whole balance. Assigning it here left every new
-                        // product with stock the ledger could not account for, which is why real
-                        // drift was indistinguishable from a normal opening balance.
                         StorageQuantity = 0,
                         UnitOfMeasure = normalizedRequest.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty,
                         IsExternal = normalizedRequest.IsExternal.GetValueOrDefault(),
@@ -273,22 +261,8 @@ namespace EvangelionERPV2.Web.Controllers
                 existentProduct.Name = request.Name.Trim();
                 existentProduct.Description = request.Description?.Trim() ?? string.Empty;
                 existentProduct.DefaultValue = request.DefaultValue;
-                // Only a caller entitled to see the cost may change it, and an omitted value keeps
-                // the stored one: everyone else receives a null cost in the DTO, so echoing the
-                // form back would otherwise erase it on every edit they save.
                 if (request.CostPrice.HasValue && await CanReadCostAsync())
                     existentProduct.CostPrice = request.CostPrice;
-                // Stock moves through the ledger, never by assignment. ApplyStockMovementAsync is
-                // the only place StorageQuantity is allowed to change, so a human correcting a
-                // count leaves an Adjustment row behind exactly like a sale or a receipt does —
-                // otherwise the scalar and the ledger drift apart and BalanceAfter stops being
-                // reconstructible. The delta is applied by a compare-and-swap against the stored
-                // value rather than by writing the number the form sent, so the correction is
-                // relative to what is actually on hand.
-                //
-                // allowNegative is left false: only the PDV offline sync may drive stock below
-                // zero, and the validator already caps the target at zero or greater, so the
-                // guard can only ever fire on a concurrent sale — which is exactly when it should.
                 var stockDelta = request.StorageQuantity - existentProduct.StorageQuantity;
                 if (stockDelta != 0)
                 {
@@ -457,11 +431,8 @@ namespace EvangelionERPV2.Web.Controllers
                 PictureAdress = ResolveLegacyOrRootValue(request.PictureAdress, request.Product.PictureAdress),
                 File = request.File,
 
-                // Same reasoning as the fiscal block: the legacy nested shape has no cost field.
                 CostPrice = request.CostPrice,
 
-                // Carried straight across: the legacy nested shape predates fiscal data and has
-                // no counterpart to fall back to, so rebuilding the request must not drop them.
                 Ncm = request.Ncm,
                 Cest = request.Cest,
                 Cean = request.Cean,
@@ -484,11 +455,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Copies the per-product fiscal overrides from a request body onto the entity.
         /// </summary>
-        /// <remarks>
-        /// Whitespace becomes null rather than an empty string: null is what
-        /// <c>NFeItemFiscalResolver</c> reads as "use the enterprise default", and "" would be a
-        /// per-product override to nothing, which SEFAZ rejects.
-        /// </remarks>
         private static void ApplyFiscalFields(IProductFiscalFields request, Product product)
         {
             product.Ncm = Trimmed(request.Ncm);
@@ -532,16 +498,12 @@ namespace EvangelionERPV2.Web.Controllers
             return rootValue ?? legacyValue;
         }
 
-
-
-
         private async Task<IEnumerable<ProductDTO>> ToProductDtosAsync(IEnumerable<Product> products, bool includePictures = true)
         {
             var productList = products.ToList();
             if (productList.Count == 0)
                 return Enumerable.Empty<ProductDTO>();
 
-            // Primed before the parallel loop so the policy is evaluated once for the whole page.
             await CanReadCostAsync();
 
             var productDtos = new ProductDTO[productList.Count];
@@ -565,8 +527,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         private async Task<bool> CanReadCostAsync()
         {
-            // A benign race under Parallel.ForEachAsync: two evaluations of the same policy for the
-            // same caller answer the same thing, and the loser only overwrites an identical value.
             _canReadCost ??= (await _authorizationService.AuthorizeAsync(User, RbacPolicies.Products.ReadCost)).Succeeded;
             return _canReadCost.Value;
         }
@@ -575,8 +535,6 @@ namespace EvangelionERPV2.Web.Controllers
         {
             ProductDTO dto = _mapper.Map<ProductDTO>(product);
 
-            // Withheld rather than never mapped, the same shape EmployeeDTO uses for salary: one
-            // funnel, so no read surface on this controller can leak the cost by forgetting.
             if (!await CanReadCostAsync())
             {
                 dto.CostPrice = null;

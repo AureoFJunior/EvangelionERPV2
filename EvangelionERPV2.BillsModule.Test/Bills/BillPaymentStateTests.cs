@@ -60,7 +60,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task SettleAsync_WithAFutureDate_Throws()
         {
-            // Would otherwise be projected by the cash-flow forecast as money that has not arrived.
             var harness = new Harness();
             var bill = harness.GivenBill(BillStatus.Registered);
 
@@ -102,7 +101,6 @@ namespace EvangelionERPV2.BillsModule.Test
             var harness = new Harness();
             var current = harness.GivenBill(BillStatus.Registered);
 
-            // Live bill first, then nothing — the generate that follows must see a free slot.
             harness.BillRepoCustom
                 .SetupSequence(r => r.GetByOrderIdAsync(harness.Order.Id))
                 .ReturnsAsync(current)
@@ -150,10 +148,6 @@ namespace EvangelionERPV2.BillsModule.Test
             var bill = await harness.Service.GenerateAsync(harness.Order.Id, harness.EnterpriseId);
 
             Assert.NotNull(bill);
-            // The counter's value, not the last digits of a GUID: the old derivation could collide
-            // and could land outside the range the convênio grants. BoletoNetCore widens the field
-            // to the bank's own layout and appends its check digit, so the assertion is that the
-            // allocated number is what went in, not that the stored string is exactly 8 characters.
             Assert.All(bill!.OurNumber, character => Assert.True(char.IsDigit(character)));
             Assert.Contains("00000042", bill.OurNumber, StringComparison.Ordinal);
         }
@@ -191,8 +185,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task GenerateAsync_WhenTheRangeIsExhausted_ThrowsInsteadOfIssuingOutOfRange()
         {
-            // The counter row already exists, so a second null from the statement can only mean
-            // NextNumber ran past Ceiling. Issuing anyway would produce a title the bank rejects.
             var harness = new Harness();
             harness.BillRepoCustom.Setup(r => r.GetByOrderIdAsync(harness.Order.Id)).ReturnsAsync((BillEntity?)null);
             harness.BillRepoCustom
@@ -238,8 +230,6 @@ namespace EvangelionERPV2.BillsModule.Test
             var bill = new BillEntity { Status = stored, DueDate = now.AddDays(dueInDays) };
 
             Assert.Equal(expected, bill.StatusAsOf(now));
-            // The column is never rewritten by the read: a stored Overdue would be wrong the moment
-            // the title is settled and nobody ran a sweep.
             Assert.Equal(stored, bill.Status);
         }
 
@@ -346,7 +336,6 @@ namespace EvangelionERPV2.BillsModule.Test
             private static BillsSettings CreateValidSettings() => new()
             {
                 Enabled = true,
-                // Keeps the unit suite off the headless browser.
                 AttachPdfToBillEmail = false,
                 BankCode = 33,
                 BeneficiaryDocument = "12345678000195",

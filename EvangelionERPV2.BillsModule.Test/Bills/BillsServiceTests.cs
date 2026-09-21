@@ -151,9 +151,6 @@ namespace EvangelionERPV2.BillsModule.Test
             var enterpriseId = Guid.NewGuid();
 
             billRepoCustom.Setup(r => r.GetByOrderIdAsync(orderId)).ReturnsAsync((BillEntity?)null);
-            // IRepository.GetByIdAsync is declared non-nullable, so the nullable ReturnsAsync
-            // overload does not match it. Task.FromResult says the same thing without asking Moq
-            // to reconcile a nullability the interface never claimed.
             orderRepo.Setup(r => r.GetByIdAsync(orderId)).Returns(Task.FromResult<Order>(null!));
 
             await Assert.ThrowsAsync<NotFoundDatabaseException>(() => service.GenerateAsync(orderId, enterpriseId));
@@ -328,8 +325,6 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.NotNull(sentEmail);
             Assert.Equal(new[] { customer.Email }, sentEmail!.RecipientEmails);
             Assert.Contains(result!.DocumentNumber, sentEmail.Subject);
-            // Payable details up front, then the full bill so the barcode can be scanned from the
-            // email. EmailService turns those embedded images into cid: resources when sending.
             Assert.Contains(result.DigitableLine, sentEmail.Body);
             Assert.Contains(result.DocumentNumber, sentEmail.Body);
             Assert.Contains(result.HtmlContent, sentEmail.Body);
@@ -373,8 +368,6 @@ namespace EvangelionERPV2.BillsModule.Test
             var orderRepo = new Mock<IRepository<Order>>();
             var customerRepo = new Mock<IRepository<Customer>>();
 
-            // Every generate path allocates, so the counter answers by default. Tests that care
-            // about the allocated value override this setup.
             billRepoCustom
                 .Setup(r => r.AllocateNextNumberAsync(
                     It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -398,7 +391,6 @@ namespace EvangelionERPV2.BillsModule.Test
             return new BillsSettings
             {
                 Enabled = true,
-                // Keeps the unit suite off the headless browser.
                 AttachPdfToBillEmail = false,
                 BankCode = 33,
                 BeneficiaryDocument = "12345678000195",

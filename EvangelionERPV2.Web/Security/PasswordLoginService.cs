@@ -24,18 +24,8 @@ namespace EvangelionERPV2.Web.Security
     /// <summary>
     /// Verifies a username and password against every tenant that could own that username.
     /// </summary>
-    /// <remarks>
-    /// Usernames are unique per enterprise, not globally, and the login request carries no tenant
-    /// discriminator — so the password is what picks the account.
-    ///
-    /// Extracted from <c>UserController.LogInto</c> so the till's login cannot drift from the web's.
-    /// Two divergent copies of password verification would be a worse outcome than any of the
-    /// shortcuts that extraction was meant to avoid.
-    /// </remarks>
     public sealed class PasswordLoginService
     {
-        // A username shared by more than a handful of tenants is a pathological case; the cap stops
-        // one crafted username from pulling an unbounded page of users into memory per attempt.
         private const int MaxPasswordLoginCandidates = 20;
 
         private readonly IRepository<Shared.Entities.User> _userRepository;
@@ -69,7 +59,6 @@ namespace EvangelionERPV2.Web.Security
 
                 if (user != null)
                 {
-                    // Same username and password active in more than one tenant — ambiguous.
                     user = null;
                     ambiguous = true;
                     break;

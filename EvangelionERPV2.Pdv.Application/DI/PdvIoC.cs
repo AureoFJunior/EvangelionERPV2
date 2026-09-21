@@ -38,16 +38,12 @@ namespace EvangelionERPV2.PdvModule.Application.DI
                 #endregion
 
                 #region Repositorys
-                // Only the open generic. The PDV entities need no custom query surface — the module
-                // composes OrderService and ProductService rather than reaching past them — so a
-                // per-entity repository here would have one implementation and one caller.
                 services.AddTransient(typeof(IRepository<>), typeof(Repository<>));
                 #endregion
 
                 #region Services
                 services.AddScoped<IPdvService, PdvService>();
 
-                // Scoped, not singleton: it resolves the Stripe key per call and holds none.
                 services.AddScoped<StripePixProvider>();
                 services.AddScoped<StripeWebhookHandler>();
                 #endregion

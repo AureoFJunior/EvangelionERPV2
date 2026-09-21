@@ -50,8 +50,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (lines.Count == 0)
                     return AiJson.ForModel(Array.Empty<object>(), 0);
 
-                // OrderRepository.GetAllAsync already includes OrderedProduct.Product, so the name
-                // rides along with the line — no second query to resolve ids.
                 var rows = lines
                     .GroupBy(line => line.ProductId)
                     .Select(group => new

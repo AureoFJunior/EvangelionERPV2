@@ -1,4 +1,4 @@
-﻿using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.DTOs;
 
 namespace EvangelionERPV2.CustomerModule.Application.Interface
 {
@@ -27,10 +27,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Interface
         /// <summary>
         /// Resolves coordinates for customers that have an address and no location yet.
         /// </summary>
-        /// <remarks>
-        /// A batch, not a write-path hook: geocoding calls a third party, and a customer must never
-        /// fail to save because a public API was down.
-        /// </remarks>
         Task<GeocodeBackfillResultDTO> GeocodePendingAsync(
             Guid enterpriseId,
             int take,
@@ -39,15 +35,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Interface
         /// <summary>
         /// Puts a customer exactly where somebody says they are.
         /// </summary>
-        /// <remarks>
-        /// The geocoder cannot finish this job and no free one can: OpenStreetMap has no surveyed
-        /// house number on most Brazilian streets, so an address resolves to the middle of its road
-        /// and stops there, a couple of hundred metres out. The person who visits the customer knows
-        /// the door. This is where they say so.
-        ///
-        /// Nothing overwrites the result. <see cref="GeocodePendingAsync"/> only looks at customers
-        /// with no coordinates at all, so a hand-placed pin survives every later backfill.
-        /// </remarks>
         Task<bool> SetLocationAsync(
             Guid enterpriseId,
             Guid customerId,

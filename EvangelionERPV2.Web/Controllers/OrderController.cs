@@ -31,7 +31,6 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IAuthorizationService _authorizationService;
         private readonly IMapper _mapper;
 
-        // Memoized for this request; see CanReadCostAsync.
         private bool? _canReadCost;
 
         public OrderController(IOrderService<Order> orderService,
@@ -294,9 +293,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (DuplicateMessageException ex)
             {
-                // 200, not an error. The worker asked us to do work we have already done, which is
-                // what at-least-once delivery looks like from this side. Answering OK lets it
-                // acknowledge the message instead of retrying it into a third delivery.
                 Log.Logger.Information("Queued order already processed. MessageId={MessageId}", ex.MessageId);
                 return Ok("Order already processed");
             }
@@ -434,15 +430,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Whether this caller may take an order past the customer's credit limit.
         /// </summary>
-        /// <remarks>
-        /// Asked of the authorization service rather than read off a claim, because
-        /// <see cref="PermissionAuthorizationHandler"/> derives permissions from the user's access
-        /// level — there is no permission claim in the token to inspect.
-        ///
-        /// Only the interactive create asks. An order that arrived through the queue is persisted
-        /// by the machine user in <see cref="InsertQueuedOrder"/>, which has no human behind it and
-        /// therefore always enforces the limit.
-        /// </remarks>
         private async Task<bool> CanOverrideCreditLimitAsync()
         {
             var result = await _authorizationService.AuthorizeAsync(
@@ -468,7 +455,6 @@ namespace EvangelionERPV2.Web.Controllers
             return null;
         }
 
-
         private async Task<bool> HasActiveTenantMembershipAsync(Guid? userId, Guid enterpriseId)
         {
             if (!userId.HasValue || enterpriseId == Guid.Empty)
@@ -480,9 +466,6 @@ namespace EvangelionERPV2.Web.Controllers
 
         private async Task<bool> IsActiveEnterpriseAsync(Guid enterpriseId)
         {
-            // Queued orders bypass ActiveTenantEnforcementMiddleware for the payload tenant
-            // (the middleware only validates the machine caller), so the tenant's enterprise
-            // must be re-checked here.
             var enterpriseRepository = HttpContext?.RequestServices?.GetService(typeof(IRepository<Enterprise>))
                 as IRepository<Enterprise>;
             if (enterpriseRepository == null)
@@ -498,7 +481,6 @@ namespace EvangelionERPV2.Web.Controllers
                 return false;
             }
         }
-
 
         private static Order MapCreateRequestToOrder(CreateOrderRequestDTO request, Guid enterpriseId, Guid? userId)
         {
@@ -613,6 +595,5 @@ namespace EvangelionERPV2.Web.Controllers
             dto.MarginAmount = null;
             dto.MarginPercent = null;
         }
-
     }
 }

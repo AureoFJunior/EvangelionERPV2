@@ -35,8 +35,6 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                          && x.IsActive == true
                          && !x.IsPaid
                          && x.RefundedAt == null
-                         // Overdue is never filtered out by the window: a bill that came due last
-                         // month is the first thing someone asking this needs to see.
                          && x.DueDate <= horizon));
 
                 var today = DateTime.UtcNow.Date;

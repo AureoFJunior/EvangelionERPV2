@@ -1,4 +1,4 @@
-﻿using EvangelionERPV2.CustomerModule.Application.Interface;
+using EvangelionERPV2.CustomerModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
@@ -53,18 +53,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
             var minLongitude = (decimal)box.MinLongitude;
             var maxLongitude = (decimal)box.MaxLongitude;
 
-            // The box is filtered in SQL because a comparison can use an index and a Haversine
-            // cannot; the circle is then cut in memory below. GetPagedAsync, not GetAllAsync:
-            // CustomerRepository throws NotFoundDatabaseException on an empty result, and an empty
-            // map is a normal answer.
-            //
-            // A place search drops the box rather than adding to it. The two would fight: the map
-            // opens on São Paulo, and "Campinas" inside a 50 km circle drawn there is nothing at
-            // all. Coordinates are still required — this feeds a map — but see the note on
-            // GeocodePendingAsync about what that costs a customer who has none.
-            //
-            // COALESCE, not a null check per field: a customer with no bairro must fail the match,
-            // not throw, and `(x ?? "")` is the form that means the same thing in SQL and in memory.
             var (candidates, _) = await _customerRepository.GetPagedAsync(
                 customer => customer.IsActive == true
                             && customer.EnterpriseId == enterpriseId
@@ -102,11 +90,7 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
                                 (double)customer.Longitude.Value),
                             2)
                 })
-                // The box over-selects at the corners; this is where the answer becomes a circle.
-                // Skipped for a place search, which was never bounded by one.
                 .Where(customer => searchingByPlace || customer.DistanceKm <= boundedRadius)
-                // Nearest first, and the customers nobody could pin last — they are the answer to
-                // "why is this one not on the map", so they belong in the list, not at the top of it.
                 .OrderBy(customer => customer.DistanceKm ?? double.MaxValue)
                 .ThenBy(customer => customer.CustomerName)
                 .Take(boundedTake)
@@ -120,9 +104,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
         {
             var boundedTake = Math.Clamp(take, 1, MaxBackfillBatch);
 
-            // Município, not CEP: the geocoder is asked for an address now, and a município is the
-            // least of one that places anybody. A CEP with no city attached would only ever have
-            // resolved to a city centroid anyway, which is the pin this stopped drawing.
             var (pending, remaining) = await _customerRepository.GetPagedAsync(
                 customer => customer.IsActive == true
                             && customer.EnterpriseId == enterpriseId
@@ -162,8 +143,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
             {
                 Examined = pending.Count,
                 Located = located,
-                // What is left over after this pass. A CEP the service has no coordinates for stays
-                // in this count forever, which is why the caller stops when it stops falling.
                 Remaining = Math.Max(0, remaining - located)
             };
         }
@@ -178,8 +157,6 @@ namespace EvangelionERPV2.CustomerModule.Application.Services
             if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
                 throw new InsertDatabaseException("Latitude or longitude is out of range.");
 
-            // Through the tenant filter, not GetByIdAsync: a customer id is guessable and this
-            // writes. Answering false for another tenant's customer says only "not yours to move".
             var (found, _) = await _customerRepository.GetPagedAsync(
                 customer => customer.IsActive == true
                             && customer.EnterpriseId == enterpriseId

@@ -10,21 +10,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
     /// Keeps <see cref="PayrollBillDetail.VacationProvisionConsumed"/> in step with what has
     /// actually been paid out against one período aquisitivo.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The accounting decision behind this is recorded in <c>docs/employee/SPEC-hr-module.md</c>
-    /// §9 H1: a férias payment <b>consumes</b> the provision that payroll accrued for it, rather
-    /// than the provision staying a pure forecast input.
-    /// </para>
-    /// <para>
-    /// It recomputes the whole allocation from every férias bill on the accrual rather than
-    /// applying one payment's delta. That is deliberate and it is the entire idempotency story:
-    /// there is no "already applied" flag to keep honest, running it twice lands on the same
-    /// numbers, and a bill that is later refunded or deactivated releases its share the next time
-    /// it runs. An incremental version would need a ledger of its own to be correct about any of
-    /// that.
-    /// </para>
-    /// </remarks>
     public sealed class VacationProvisionDrawdownService
     {
         private readonly IRepository<EmployeeVacationAccrual> _accrualRepository;
@@ -45,10 +30,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// Recalculates the drawdown for one accrual from every férias bill currently standing
         /// against it, and writes the result.
         /// </summary>
-        /// <remarks>
-        /// Call it after creating, refunding or deactivating a férias bill. Calling it more often
-        /// than necessary is harmless.
-        /// </remarks>
         public async Task<ProvisionDrawdown> RecalculateAsync(Guid accrualId, CancellationToken cancellationToken = default)
         {
             var accrual = await _accrualRepository.GetByIdAsync(accrualId)
@@ -57,8 +38,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var bills = await StandingBillsAsync(accrualId);
             var competencias = await CompetenciasAsync(accrual);
 
-            // The gross, never the bills' Amount: Amount already carries the netted figure this
-            // method wrote last time, and allocating against it would feed on its own output.
             var paidTotal = bills.Sum(GrossOf);
 
             var drawdown = VacationProvisionAllocator.Allocate(paidTotal, competencias);
@@ -87,9 +66,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             if (drawdown.Shortfall > 0)
             {
-                // Information, not Warning: an employee hired part-way through the período
-                // aquisitivo, or one who has had a raise since, produces this every time. The money
-                // is owed regardless — it simply was never set aside.
                 Log.Logger.Information(
                     "Férias payment for accrual {AccrualId} exceeds the provision accrued for it by {Shortfall}; " +
                     "{Consumed} of {PaidTotal} was covered.",
@@ -103,10 +79,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         }
 
         /// <summary>Every férias bill currently standing against this accrual, oldest due first.</summary>
-        /// <remarks>
-        /// Refunded and deactivated bills are excluded so that reversing one releases the provision
-        /// it was holding, which is the behaviour that makes recomputation the right shape here.
-        /// </remarks>
         private async Task<List<PayableBill>> StandingBillsAsync(Guid accrualId)
         {
             var bills = await _payableBillRepository.GetAllAsync(
@@ -115,7 +87,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                      && (x.IsActive == null || x.IsActive == true)
                      && x.RefundedAt == null);
 
-            // Id breaks the tie so two stretches sharing a due date still net deterministically.
             return [.. bills.OrderBy(x => x.DueDate).ThenBy(x => x.Id)];
         }
 
@@ -123,19 +94,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// Writes each bill's netted <see cref="PayableBill.Amount"/>: its gross less the share of
         /// the provision it consumed.
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// The decision is in docs/employee/SPEC-hr-module.md §4 P5a — the monthly payroll bill's
-        /// Amount already includes the provision as cash leaving, so a férias bill charged at gross
-        /// would project the same money twice. Netting here rather than at bill creation is what
-        /// keeps it true afterwards: refunding one bill releases its provision, and the next run
-        /// re-nets whatever is left standing.
-        /// </para>
-        /// <para>
-        /// Oldest due date first, for the same reason the competências fill oldest first — the
-        /// provision that exists today belongs to the payment that falls due first.
-        /// </para>
-        /// </remarks>
         private async Task NetBillsAsync(
             List<PayableBill> bills,
             decimal totalConsumed,
@@ -161,8 +119,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 if (bill.GrossAmount == gross && bill.Amount == netted)
                     continue;
 
-                // Backfills the gross on a bill issued before the column existed, whose Amount was
-                // the gross by definition.
                 bill.GrossAmount = gross;
                 bill.Amount = netted;
                 bill.UpdatedAt = now;
@@ -182,11 +138,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// <summary>
         /// The payroll competências whose provision this accrual is entitled to draw on.
         /// </summary>
-        /// <remarks>
-        /// The months the entitlement was <em>earned</em> in — AcquisitionStart..AcquisitionEnd —
-        /// not the months the leave is taken in. Compared as a single year*12+month ordinal so the
-        /// range stays one SQL predicate instead of a client-side date rebuild per row.
-        /// </remarks>
         private async Task<List<PayrollBillDetail>> CompetenciasAsync(EmployeeVacationAccrual accrual)
         {
             var from = (accrual.AcquisitionStart.Year * 12) + accrual.AcquisitionStart.Month;

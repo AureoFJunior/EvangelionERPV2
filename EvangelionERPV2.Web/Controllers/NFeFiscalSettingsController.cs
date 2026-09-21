@@ -23,8 +23,6 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private const int MaxFiscalSettingsRequestBodySizeInBytes = 64 * 1024;
 
-        // A real A1 .pfx is 3-8 KB. Kestrel's global cap (RequestLimits:MaxRequestBodySizeBytes,
-        // default 256 KB) already covers this, so no configuration change is needed.
         private const int MaxCertificateUploadSizeInBytes = 256 * 1024;
 
         private readonly INFeFiscalSettingsService _fiscalSettingsService;
@@ -47,12 +45,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Sets the NFC-e CSC and its id. Write-only.
         /// </summary>
-        /// <remarks>
-        /// Same tier as the certificate, and for the same reason: the CSC signs the consumer QR, so
-        /// anyone holding it can mint QR codes that verify as this shop's. The id is a column on the
-        /// fiscal profile; the CSC itself goes to Secrets Manager and is never returned by any
-        /// endpoint. Losing it means asking the UF's portal for a new one, which is the correct cost.
-        /// </remarks>
         [Authorize(Policy = RbacPolicies.NFe.CertificateManage)]
         [HttpPut]
         [RequestSizeLimit(MaxFiscalSettingsRequestBodySizeInBytes)]
@@ -65,8 +57,6 @@ namespace EvangelionERPV2.Web.Controllers
             if (request == null || string.IsNullOrWhiteSpace(request.Csc))
                 return BadRequest("A CSC is required.");
 
-            // The portal issues small positive ids. A non-positive one reaches the library as
-            // CSCIDToken 0, which SEFAZ rejects with a motivo that points at neither field.
             if (request.CscId <= 0)
                 return BadRequest("A CSC id is required.");
 
@@ -75,21 +65,16 @@ namespace EvangelionERPV2.Web.Controllers
 
             try
             {
-                // Secret first: if it fails, the profile keeps the id it already had rather than
-                // pointing at a CSC that was never stored.
                 await _cscProvider.StoreAsync(enterpriseId, request.Csc, HttpContext.RequestAborted);
 
                 var settings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
                 settings.CscId = request.CscId;
                 await _fiscalSettingsService.UpsertSettingsAsync(enterpriseId, settings);
 
-                // No body. There is nothing safe to return: echoing the CSC back is how a signing
-                // key ends up in a browser history and a proxy log.
                 return NoContent();
             }
             catch (InvalidOperationException ex)
             {
-                // These messages are static and carry no secret material by construction.
                 Log.Logger.Error("NFCe CSC update rejected. EnterpriseId={EnterpriseId}", enterpriseId);
                 return BadRequest(ex.Message);
             }
@@ -132,7 +117,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (InsertDatabaseException ex)
             {
-                // The CNPJ and IE are personal/company identifiers; only the exception type is logged.
                 Log.Logger.Error("Invalid fiscal settings payload. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(GetSafeInsertErrorMessage(ex));
             }
@@ -171,7 +155,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NFeCertificateException ex)
             {
-                // NFeCertificateException messages are static and non-sensitive by construction.
                 Log.Logger.Error("Certificate upload rejected. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest(ex.Message);
             }
@@ -218,8 +201,6 @@ namespace EvangelionERPV2.Web.Controllers
 
         private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)
         {
-            // NFeFiscalSettingsService only throws static, non-sensitive messages; anything
-            // wrapping an inner exception may leak provider details and gets the generic response.
             if (ex.InnerException != null)
                 return "An internal error occurred. Please try again later.";
 

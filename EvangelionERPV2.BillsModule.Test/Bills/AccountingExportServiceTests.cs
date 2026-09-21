@@ -33,8 +33,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task BuildMonthly_ShouldQuoteAFieldCarryingTheSeparatorAQuoteAndANewline()
         {
-            // Excel in pt-BR splits on ';', so an unquoted customer name containing one silently
-            // shifts every column after it into the wrong header.
             var customer = BuildCustomer("Nerv; \"Tokyo-3\"\r\nHQ");
             var order = BuildOrder(100, customer, InsidePeriod);
 
@@ -94,8 +92,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task BuildMonthly_ShouldCollapsePayrollToOneRow_AndNeverNameAnEmployee()
         {
-            // One PayableBill per employee is how payroll is stored; the accountant books the folha
-            // as a single lançamento, and the package is an email attachment.
             var payables = new List<PayableBill>
             {
                 BuildPayable("Folha de pagamento 03/2026 - Shinji Ikari", 3000, EnumPayableBillType.Payroll),
@@ -117,8 +113,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task BuildMonthly_ShouldReportTheGrossOfAFeriasBill_NotTheNettedForecast()
         {
-            // PayableBill.Amount on a férias bill is net of the provision payroll already accrued.
-            // What leaves the bank is GrossAmount — the same rule the bank matcher uses.
             var ferias = BuildPayable("Férias", 400, EnumPayableBillType.Vacation);
             ferias.GrossAmount = 1800;
 
@@ -212,9 +206,6 @@ namespace EvangelionERPV2.BillsModule.Test
             return new AccountingExportService(
                 Repo(orders ?? []).Object,
                 Repo(bills ?? []).Object,
-                // Customers and suppliers behave like their real repositories, whose GetAllAsync
-                // override throws instead of returning an empty list — a tenant with neither is
-                // the common case, and it used to 204 the whole package.
                 Repo(customers ?? [], throwsWhenEmpty: true).Object,
                 Repo(payables ?? []).Object,
                 Repo(suppliers ?? [], throwsWhenEmpty: true).Object,
@@ -233,7 +224,6 @@ namespace EvangelionERPV2.BillsModule.Test
             await using (var stream = entry!.Open())
                 await stream.CopyToAsync(buffer);
 
-            // Csv writes a BOM so Excel reads the accents; strip it before asserting on text.
             return new StreamReader(new MemoryStream(buffer.ToArray()), Csv.Encoding, true).ReadToEnd();
         }
 

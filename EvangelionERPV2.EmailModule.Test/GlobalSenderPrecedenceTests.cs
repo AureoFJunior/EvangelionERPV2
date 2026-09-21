@@ -6,11 +6,6 @@ namespace EvangelionERPV2.EmailModule.Test
     /// <summary>
     /// Pins which mailbox the application sends from.
     /// </summary>
-    /// <remarks>
-    /// Decided 2026-09-18: one configured account rather than each tenant's own. The candidate list
-    /// is ordered, and the order is the whole behaviour — before this the stored per-enterprise rows
-    /// came first and the configured account was appended last, so a tenant row always won.
-    /// </remarks>
     public class GlobalSenderPrecedenceTests
     {
         [Fact]
@@ -53,8 +48,6 @@ namespace EvangelionERPV2.EmailModule.Test
             Assert.Equal(587, ordered[0].Port);
         }
 
-        // Mirrors EmailService.ResolveEmailSettingsCandidatesAsync's ordering. The service itself
-        // needs a repository and a DbContext; only the precedence is interesting here.
         private static List<Email> BuildCandidates(List<Email> stored, IConfiguration configuration)
         {
             var candidates = new List<Email>();

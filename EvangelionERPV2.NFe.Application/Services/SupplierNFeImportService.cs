@@ -12,26 +12,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
     /// <summary>
     /// A supplier's NF-e XML becomes a payable, and nothing else.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The XML <em>is</em> the document — there is no purchase order, no approval chain and no
-    /// three-way match here, and this is not the beginning of a purchasing module. It replaces the
-    /// highest-volume typing an SMB does, and it needs no certificate and no SEFAZ call, so it
-    /// works today.
-    /// </para>
-    /// <para>
-    /// Stock deliberately does not move at import. A nota is issued when goods <em>ship</em>;
-    /// <c>MarkProductsReceived</c> is already the arrival event and, since M14, writes the ledger.
-    /// Importing creates the obligation, a human confirms the arrival.
-    /// </para>
-    /// <para>
-    /// One payable per duplicata. A nota paid in three instalments is three payments the bank will
-    /// see on three different days, and a single bill for the whole vNF would sit in the carteira
-    /// against a cash flow that never happens. A nota with no <c>cobr</c> block is one bill for the
-    /// total, thirty days out. The item lines ride the first instalment only — the goods arrive
-    /// once, whatever the payment schedule says.
-    /// </para>
-    /// </remarks>
     public class SupplierNFeImportService : ISupplierNFeImportService
     {
         private const int DefaultPaymentTermInDays = 30;
@@ -70,9 +50,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
             var instalments = ResolveInstalments(nota);
 
-            // A nota imported before the key widened to the duplicata is one bill with a null
-            // duplicata. Nothing here matches it, so without this it would be imported a second
-            // time as N instalments.
             var importedWholeBeforeInstalments = existing.Any(x => x.SupplierNFeDuplicata == null)
                 && instalments.Count > 1;
 
@@ -84,8 +61,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 
             if (missing.Count == 0)
             {
-                // The unique index would refuse the inserts anyway; answering with the bills that
-                // already exist is what makes re-dropping the same file harmless.
                 var supplierId = existing[0].SupplierId;
                 var supplier = supplierId.HasValue
                     ? (await _supplierRepository.GetPagedAsync(x => x.Id == supplierId.Value)).Items.FirstOrDefault()
@@ -106,8 +81,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 };
             }
 
-            // Matching first, and the emitter after it: everything that can fail without writing
-            // anything runs before the row that would be left behind if it did.
             var (items, unmatched, costed) = await MatchItemsAsync(enterpriseId, nota);
             await PersistBackfilledCostsAsync(costed);
 
@@ -116,10 +89,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             var created = new List<PayableBill>(existing);
             var supplierPending = supplierCreated;
 
-            // Only what is missing, so an import that died halfway — the third instalment threw,
-            // the first two are already rows — finishes on the next attempt instead of leaving the
-            // nota half-entered forever. There is no transaction around the loop precisely because
-            // this makes one unnecessary.
             foreach (var instalment in missing)
             {
                 var index = instalments.IndexOf(instalment);
@@ -135,22 +104,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     Amount = instalment.Amount,
                     IsPaid = false,
                     BillType = (int)(items.Count > 0 ? EnumPayableBillType.ProductStock : EnumPayableBillType.Other),
-                    // Only the first instalment carries the goods: the delivery happens once, and
-                    // repeating the lines would let a human receive the same stock three times. On
-                    // a resumed import the first instalment is already a row, so nothing re-attaches.
                     Items = index == 0 && items.Count > 0 ? items : null
                 };
 
-                // keepProvidedAmount: the payable is what the nota says is owed — vDup per
-                // instalment, or vNF for a nota with no schedule — and neither is the sum of the
-                // line values, which exclude freight, insurance and ST.
                 if (supplierPending)
                 {
-                    // An emitter nobody has traded with before is created *with* the first bill it
-                    // was created for, in one unit of work. It used to be committed on its own
-                    // several steps earlier, so an import refused afterwards — a closed period, a
-                    // bad line, a lost connection — left a supplier the shop never dealt with
-                    // sitting in its list and in every picker.
                     await _supplierRepository.ExecuteInTransactionAsync(async () =>
                     {
                         await _supplierRepository.CreateAsync(supplierRecord);
@@ -202,9 +160,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// </returns>
         private async Task<(Supplier Supplier, bool Created)> ResolveSupplierAsync(Guid enterpriseId, SupplierNFeDocument nota)
         {
-            // GetPagedAsync, not GetAllAsync: SupplierRepository's override throws
-            // NotFoundDatabaseException when nothing matches, and "nothing matches" is the whole
-            // point of this lookup — it is how an unknown emitter is detected.
             var existing = (await _supplierRepository.GetPagedAsync(
                     x => x.EnterpriseId == enterpriseId && x.Document == nota.EmitterDocument))
                 .Items
@@ -231,10 +186,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// Nota lines against the inventory: barcode first, then the exact description.
         /// </summary>
-        /// <remarks>
-        /// Never auto-creates a product. A line nobody can map is reported so a human maps it once
-        /// and every future nota from that supplier lands whole.
-        /// </remarks>
         private async Task<(List<PayableBillProduct> Items, List<SupplierNFeUnmatchedItemDTO> Unmatched, List<Product> Costed)>
             MatchItemsAsync(Guid enterpriseId, SupplierNFeDocument nota)
         {
@@ -256,8 +207,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 .GroupBy(x => x.Name.Trim(), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
 
-            // Keyed by product: two nota lines can carry the same product, and the payable's item
-            // index is unique per (bill, product) — so they are merged rather than refused.
             var itemsByProduct = new Dictionary<Guid, PayableBillProduct>();
 
             foreach (var line in nota.Items)
@@ -301,24 +250,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// Gives an uncosted product the unit value the supplier just charged for it.
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// A backfill, not a repricing: it writes <em>only</em> where <see cref="Product.CostPrice"/>
-        /// is still null. M24 shipped margin and commission and nothing fills cost, so every product
-        /// is uncosted until somebody types a number and every margin column reads "—" — while the
-        /// one number nobody should have to type is already arriving in the notas. Overwriting on
-        /// every import would silently replace a figure a human chose, and would do it from a line
-        /// that might be a return, a sample or a different pack size.
-        /// </para>
-        /// <para>
-        /// Past orders are unaffected either way: <c>OrderedProduct.UnitCost</c> is a snapshot taken
-        /// at line creation, so a cost written now never rewrites a margin already reported.
-        /// </para>
-        /// <para>
-        /// A line worth nothing is skipped. Bonificação and amostra lines carry vUnCom 0, and a
-        /// product costed at zero does not read as unknown — it reads as 100% margin.
-        /// </para>
-        /// </remarks>
         private static bool TryBackfillCost(Product product, SupplierNFeItem line)
         {
             if (product.CostPrice.HasValue || line.UnitValue <= 0)
@@ -336,13 +267,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// Saves the costs the match filled in.
         /// </summary>
-        /// <remarks>
-        /// Its own commit, before the payables: a cost is not the obligation, so an import that
-        /// dies on the third instalment should still leave the products costed rather than making
-        /// the operator re-upload to get a number that was already correct. A failure here is
-        /// logged and swallowed for the same reason in reverse - the payable is the thing that
-        /// must not be lost.
-        /// </remarks>
         private async Task PersistBackfilledCostsAsync(List<Product> costed)
         {
             if (costed.Count == 0)
@@ -381,17 +305,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         /// <summary>
         /// The nota's payment schedule, or a single instalment for the whole total when it has none.
         /// </summary>
-        /// <remarks>
-        /// A duplicata with no amount, or a schedule whose amounts are all zero, is treated as no
-        /// schedule at all: some emitters send a <c>cobr</c> block with only a <c>fat</c> in it, and
-        /// generating a payable for zero would put a bill nobody owes in the carteira.
-        /// </remarks>
         private static List<Instalment> ResolveInstalments(SupplierNFeDocument nota)
         {
             var scheduled = nota.Duplicatas
                 .Where(x => x.Amount > 0)
                 .Select((duplicata, index) => new Instalment(
-                    // The number is the key's second half, so it must exist. Emitters do omit it.
                     string.IsNullOrWhiteSpace(duplicata.Number) ? $"{index + 1:000}" : duplicata.Number.Trim(),
                     duplicata.DueDate?.Date ?? nota.IssuedAt.Date.AddDays(DefaultPaymentTermInDays),
                     duplicata.Amount))

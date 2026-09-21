@@ -29,8 +29,6 @@ namespace EvangelionERPV2.Shared.Repositories
             var strategy = _context.Database.CreateExecutionStrategy();
             strategy.Execute(() =>
             {
-                // A retry re-runs this delegate while the ChangeTracker still holds the failed
-                // attempt's Added/Modified entries — replaying them would duplicate inserts.
                 _context.ChangeTracker.Clear();
 
                 using var transaction = _context.Database.BeginTransaction();
@@ -48,8 +46,6 @@ namespace EvangelionERPV2.Shared.Repositories
 
             strategy.Execute(() =>
             {
-                // A retry re-runs this delegate while the ChangeTracker still holds the failed
-                // attempt's Added/Modified entries — replaying them would duplicate inserts.
                 _context.ChangeTracker.Clear();
 
                 using var transaction = _context.Database.BeginTransaction();
@@ -185,8 +181,6 @@ namespace EvangelionERPV2.Shared.Repositories
             var strategy = _context.Database.CreateExecutionStrategy();
             return strategy.ExecuteAsync(async (CancellationToken token) =>
             {
-                // A retry re-runs this delegate while the ChangeTracker still holds the failed
-                // attempt's Added/Modified entries — replaying them would duplicate inserts.
                 _context.ChangeTracker.Clear();
 
                 await using var transaction = await _context.Database.BeginTransactionAsync(token);
@@ -202,8 +196,6 @@ namespace EvangelionERPV2.Shared.Repositories
             var strategy = _context.Database.CreateExecutionStrategy();
             return strategy.ExecuteAsync(async (CancellationToken token) =>
             {
-                // A retry re-runs this delegate while the ChangeTracker still holds the failed
-                // attempt's Added/Modified entries — replaying them would duplicate inserts.
                 _context.ChangeTracker.Clear();
 
                 await using var transaction = await _context.Database.BeginTransactionAsync(token);
@@ -269,9 +261,6 @@ namespace EvangelionERPV2.Shared.Repositories
 
             var totalItems = await query.CountAsync();
 
-            // Always end on the primary key: SQL ORDER BY is not stable, so a caller-supplied
-            // ordering over a non-unique column lets tied rows straddle a page boundary and be
-            // repeated on one page while disappearing from another.
             query = orderBy != null ? orderBy(query).ThenBy(entity => entity.Id) : query.OrderBy(entity => entity.Id);
 
             if (pageNumber == null || pageSize == null)
@@ -297,8 +286,6 @@ namespace EvangelionERPV2.Shared.Repositories
                 if (predicate != null)
                     query = query.Where(predicate);
 
-                // .ThenBy(Id) keeps paging deterministic: the caller-supplied orderBy is rarely
-                // unique, and SQL ORDER BY is not stable.
                 if (orderBy != null)
                     query = (descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy)).ThenBy(entity => entity.Id);
             }
@@ -327,8 +314,6 @@ namespace EvangelionERPV2.Shared.Repositories
                 if (predicate != null)
                     query = query.Where(predicate);
 
-                // .ThenBy(Id) keeps paging deterministic: the caller-supplied orderBy is rarely
-                // unique, and SQL ORDER BY is not stable.
                 if (orderBy != null)
                     query = (descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy)).ThenBy(entity => entity.Id);
             }
@@ -352,24 +337,15 @@ namespace EvangelionERPV2.Shared.Repositories
         /// each other instead of both reading the state before either wrote. It is that one row:
         /// any other id contends with nothing.
         /// </summary>
-        /// <remarks>
-        /// A no-op off SQL Server — the SQLite harnesses the tests run on cannot parse the hint,
-        /// and outside a transaction the lock is taken and dropped again, which harms nothing.
-        /// </remarks>
         public virtual async Task LockForUpdateAsync(Guid id, CancellationToken cancellation = default)
         {
             if (_context.Database.ProviderName?.Contains("SqlServer", StringComparison.Ordinal) != true)
                 return;
 
-            // The table name is EF's own model metadata, never anything a caller passed; the id
-            // is a parameter.
             var table = _context.Model.FindEntityType(typeof(TEntity))?.GetTableName();
             if (string.IsNullOrEmpty(table))
                 return;
 
-            // EF1002 flags the interpolation, and cannot see that the only interpolated value is
-            // the table name EF itself just handed us three lines up — never anything a caller
-            // passed. A table name cannot be a parameter in any case; the id, which can, is one.
 #pragma warning disable EF1002
             await _context.Database.ExecuteSqlRawAsync(
                 $"SELECT TOP 1 1 FROM [{table}] WITH (UPDLOCK, HOLDLOCK) WHERE Id = {{0}}",

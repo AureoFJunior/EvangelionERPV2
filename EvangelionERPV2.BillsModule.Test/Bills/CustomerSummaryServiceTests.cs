@@ -27,9 +27,6 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
         private readonly Mock<IRepository<Product>> _products = new();
         private readonly Mock<IReceivablesReportService> _receivables = new();
 
-        // Orders, their bills and their lines are read through EF now, not through the repositories:
-        // every figure on the ficha is an aggregate over the customer's whole history, and adding
-        // them up in memory is what made this answer OutOfMemoryException at 1.8M orders.
         private readonly AppDbContext _context = BuildContext();
 
         private CustomerSummaryService BuildService() =>
@@ -141,7 +138,6 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
             Assert.Equal(1500m, summary.TotalPurchased);
             Assert.Equal(750m, summary.AverageTicket);
             Assert.Equal(new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc), summary.FirstPurchaseAtUtc);
-            // The refunded order still shows in the history — it happened — but counts for nothing.
             Assert.Equal(3, summary.RecentOrders.Count());
         }
 
@@ -197,11 +193,6 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
         /// and once as <see cref="ReceivableResolver.ResolveOpenExposure"/>. This runs the same
         /// cases through both and asserts they agree.
         /// </summary>
-        /// <remarks>
-        /// The same guard SalesPerformance carries for "what has been received", and for the same
-        /// reason: two definitions of money drift apart silently. If either side changes alone,
-        /// this fails. Do not delete it.
-        /// </remarks>
         [Fact]
         public async Task TheQueryAndTheResolver_AgreeOnOpenExposure()
         {
@@ -219,10 +210,8 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
                 new Bill { Id = Guid.NewGuid(), OrderId = settled.Id, Amount = 500m, PaidAmount = 500m, Status = BillStatus.Paid, IsActive = true },
                 new Bill { Id = Guid.NewGuid(), OrderId = settledShort.Id, Amount = 500m, PaidAmount = 450m, Status = BillStatus.Paid, IsActive = true },
                 new Bill { Id = Guid.NewGuid(), OrderId = open.Id, Amount = 400m, Status = BillStatus.Registered, IsActive = true },
-                // Amount 0 falls back to the order total on both sides.
                 new Bill { Id = Guid.NewGuid(), OrderId = openZeroAmount.Id, Amount = 0m, Status = BillStatus.Registered, IsActive = true },
                 new Bill { Id = Guid.NewGuid(), OrderId = rejected.Id, Amount = 300m, Status = BillStatus.Rejected, IsActive = true },
-                // Cancelled is not a live title, so this order answers off its own total.
                 new Bill { Id = Guid.NewGuid(), OrderId = cancelledOnly.Id, Amount = 600m, Status = BillStatus.Cancelled, IsActive = true },
                 new Bill { Id = Guid.NewGuid(), OrderId = refunded.Id, Amount = 9000m, Status = BillStatus.Registered, IsActive = true }
             };
@@ -247,9 +236,6 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
 
             Assert.Equal(fromResolver, fromQuery);
 
-            // Pinned as a number too, so a change that breaks both sides the same way still fails:
-            // 1000 no bill + 0 settled + 0 settled short + 400 open + 250 zero-amount falls back
-            // + 300 rejected + 600 cancelled-is-not-live, and the refund contributes nothing.
             Assert.Equal(2550m, fromQuery);
         }
 

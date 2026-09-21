@@ -90,9 +90,6 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
         public User Update(User user)
         {
-            // Generic update path: an empty ProfilePicture means "not provided", so the stored
-            // value is preserved. Profile-picture removal goes through the overload below with
-            // an explicit clear signal.
             return Update(user, clearProfilePicture: false);
         }
 
@@ -138,15 +135,6 @@ namespace EvangelionERPV2.UserModule.Application.Services
         /// <summary>
         /// Deactivates a user. Soft, like every other delete in the system.
         /// </summary>
-        /// <remarks>
-        /// It used to remove the row, and it was the only hard delete here. A user is referenced by
-        /// the orders they rang up, the cash sessions they were accountable for and every audit
-        /// trail entry naming them — the till's session FK is <c>Restrict</c> precisely so a
-        /// dismissal cannot take a shift's cash history with it, which means the hard delete threw
-        /// there anyway. Deactivating keeps the history readable and still ends every way in:
-        /// login, Google sign-in and the till all require <c>IsActive == true</c>, and the e-mail
-        /// stops counting against the active-email uniqueness check, so it can be reused.
-        /// </remarks>
         public User Delete(Guid id)
         {
             User user = _userRepository.GetById(id);
@@ -266,9 +254,6 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
             if (string.IsNullOrWhiteSpace(profilePicturePayload))
             {
-                // Explicit clear signal: without it Update would treat the empty value as
-                // "not provided" and keep the old key, leaving the database pointing at the
-                // S3 object deleted below.
                 user.UpdatedAt = DateTime.UtcNow;
                 var updatedUser = Update(user, clearProfilePicture: true);
                 await TryDeleteOldProfilePictureAsync(s3Client, bucketName, oldProfilePictureAddress);
@@ -547,7 +532,6 @@ namespace EvangelionERPV2.UserModule.Application.Services
                     x.IsActive == true &&
                     x.Id != userId &&
                     x.Email != null &&
-                    // ToLower(), not ToLowerInvariant(): only ToLower() translates to SQL.
                     x.Email.Trim().ToLower() == normalizedEmail)
                 .FirstOrDefault();
 

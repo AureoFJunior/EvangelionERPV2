@@ -9,11 +9,6 @@ namespace EvangelionERPV2.BillsModule.Application.Interface
         /// <summary>
         /// One customer's aging buckets, counted in SQL.
         /// </summary>
-        /// <remarks>
-        /// <see cref="GetAgingAsync"/> builds a position object per open order to read one row out
-        /// of the result, which costs a gigabyte on a customer with 1.8M of them. Same bucket
-        /// boundaries and the same receivable rule, aggregated instead of materialised.
-        /// </remarks>
         Task<ReceivablesAgingCustomerDTO> GetCustomerAgingAsync(
             Guid enterpriseId,
             Guid customerId,

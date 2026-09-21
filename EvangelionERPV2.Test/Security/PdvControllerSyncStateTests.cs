@@ -20,11 +20,6 @@ namespace EvangelionERPV2.Test.Security
     /// <summary>
     /// What a till refreshes on every sync: who may do what, and who may no longer do anything.
     /// </summary>
-    /// <remarks>
-    /// Freshness is measured from the last sync, not the last login — a terminal can run for days
-    /// on one token — so the permission snapshot has to travel with sync, and so do revocations. A
-    /// till that never hears about a sacking keeps honouring that person's overrides.
-    /// </remarks>
     public class PdvControllerSyncStateTests
     {
         private readonly Guid _callerEnterpriseId = Guid.NewGuid();
@@ -47,8 +42,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task GetSyncState_SaysPixIsOff_WhenTheShopHasNoStripeAccount()
         {
-            // The day-one state for every shop. The till greys the confirmed-PIX button out and
-            // says why, rather than offering a method that fails in front of a customer.
             _enterprise.PixPaymentsEnabled = true;
             _enterprise.StripeConnectedAccountId = null;
 
@@ -60,8 +53,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task GetSyncState_SaysPixIsOff_WhenTheAccountIsNotThroughTheInvite()
         {
-            // Holding a connected account is not the same as Stripe having let the shop through
-            // the invite-only PIX programme. Both halves, or the button stays off.
             _enterprise.StripeConnectedAccountId = "acct_123";
             _enterprise.PixPaymentsEnabled = false;
 
@@ -104,7 +95,6 @@ namespace EvangelionERPV2.Test.Security
 
             var dto = await Read(controller);
 
-            // A till receiving another tenant's operators would be handed their PIN verifiers too.
             Assert.All(dto.Operators, op => Assert.Equal(_callerEnterpriseId, op.EnterpriseId));
             Assert.DoesNotContain(theirSacked.Id, dto.RevokedUserIds);
         }
@@ -119,8 +109,6 @@ namespace EvangelionERPV2.Test.Security
 
             var dto = await Read(controller);
 
-            // The cashier is listed so the till knows what to grey out, but their PIN verifier stays
-            // on the server: only someone who can authorise an override needs one on a shop floor.
             Assert.Equal(supervisor.PdvPinVerifier, Assert.Single(dto.Operators, op => op.UserId == supervisor.Id).PinVerifier);
             Assert.Null(Assert.Single(dto.Operators, op => op.UserId == cashier.Id).PinVerifier);
         }
@@ -149,8 +137,6 @@ namespace EvangelionERPV2.Test.Security
 
             var dto = await Read(controller);
 
-            // A till counts only what it saw unless the server tells it otherwise, and a lockout
-            // that counts per terminal is one the guesser walks around.
             Assert.Equal(supervisor.Id, Assert.Single(dto.FailedOverrides).SupervisorUserId);
         }
 
@@ -171,8 +157,6 @@ namespace EvangelionERPV2.Test.Security
 
             var dto = await Read(controller);
 
-            // The till matches an offline login by username; without it the snapshot refreshes
-            // permissions onto rows nobody can log in against.
             Assert.Equal(supervisor.UserName, Assert.Single(dto.Operators).UserName);
         }
 
@@ -214,8 +198,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task GetSyncState_SaysNFCeIsOff_WhenFiscalIssuanceIsOffAltogether()
         {
-            // The half a shop forgets: NFC-e enabled on a profile whose issuance switch is off.
-            // The till would otherwise promise a customer a document the server will refuse.
             _fiscal = new EnterpriseFiscalSettings { Enabled = false, NFCeEnabled = true };
 
             var dto = await Read(CreateController());
@@ -273,6 +255,5 @@ namespace EvangelionERPV2.Test.Security
 
             return settings.Object;
         }
-
     }
 }

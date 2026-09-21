@@ -14,8 +14,6 @@ namespace EvangelionERPV2.Test.Workers
     public class DailySweepWorkerTests
     {
         [Theory]
-        // Before the hour, on it, and after: the next slot is always the coming 11:00 UTC, never
-        // "now + 24h" from whenever the pod happened to start.
         [InlineData("2026-08-21T09:30:00Z", "2026-08-21T11:00:00Z")]
         [InlineData("2026-08-21T10:59:59Z", "2026-08-21T11:00:00Z")]
         [InlineData("2026-08-21T11:00:00Z", "2026-08-22T11:00:00Z")]
@@ -43,7 +41,6 @@ namespace EvangelionERPV2.Test.Workers
         [Fact]
         public void LeaseKey_IsItsOwn()
         {
-            // One key per job, or two jobs block each other for the same wall-clock slot.
             Assert.Equal("eva:lease:daily-sweep", BuildWorker(new DunningSettings()).LeaseKey);
         }
 
@@ -62,7 +59,6 @@ namespace EvangelionERPV2.Test.Workers
 
             Assert.False(await worker.RunOnceUnderLeaseAsync(TimeSpan.FromHours(24), CancellationToken.None));
 
-            // Strict mock: the pass never asked for a scope, so it never ran.
             scopeFactory.VerifyNoOtherCalls();
         }
 

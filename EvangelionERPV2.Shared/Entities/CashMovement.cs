@@ -8,14 +8,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// <summary>
     /// Append-only ledger of every cash movement inside a <see cref="CashSession"/>.
     /// </summary>
-    /// <remarks>
-    /// Same shape and same reasoning as <see cref="StockMovement"/>: a drawer total on its own says
-    /// what is there and never why, so the expected amount at close is the sum of these rows and
-    /// nothing else. If the two ever disagree, the ledger is right and the total is a bug.
-    ///
-    /// Only cash lands here. A card or PIX tender is money the store received but not money in the
-    /// drawer, so counting it would guarantee a difference at every single close.
-    /// </remarks>
     [Index(nameof(CashSessionId), nameof(CreatedAt))]
     [Index(nameof(EnterpriseId), nameof(ClientMovementId), IsUnique = true)]
     [Table("CashMovement")]
@@ -25,11 +17,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// The terminal's own id for this movement, so a re-sent sangria does not empty the drawer
         /// twice. Same reasoning as <see cref="CashSession.ClientSessionId"/>.
         /// </summary>
-        /// <remarks>
-        /// A movement the server generated itself — the opening float, the cash leg of a sale —
-        /// gets a fresh Guid here rather than null, because a nullable column cannot carry a unique
-        /// index that means anything in SQL Server.
-        /// </remarks>
         public Guid ClientMovementId { get; set; }
 
         [ForeignKey(nameof(CashSession))]

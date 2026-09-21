@@ -26,8 +26,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void ResolveDisplayStatus_PendingAfterTransmission_IsAwaitingSefaz()
         {
-            // This is the duplicate-emission trap. It must never read as "Processing", which
-            // invites a retry, nor as "Error", which invites the same.
             var document = new NFeDocument { Status = NFeStatus.Pending, TransmittedAtUtc = Moment };
 
             Assert.Equal(NFeDisplayStatus.AwaitingSefaz, NFeDocumentDTO.ResolveDisplayStatus(document));
@@ -49,7 +47,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void ResolveDisplayStatus_AuthorizedAfterRejectedCancel_IsAuthorizedAgain()
         {
-            // SEFAZ refusing the cancellation event leaves the note valid.
             var document = new NFeDocument
             {
                 Status = NFeStatus.Authorized,
@@ -102,8 +99,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void NFeStatus_KeepsExistingWireValues()
         {
-            // Rejected and Denied were appended precisely so persisted rows and the client
-            // contract did not shift. Changing any of these silently reinterprets stored data.
             Assert.Equal(1, (int)NFeStatus.Pending);
             Assert.Equal(2, (int)NFeStatus.Authorized);
             Assert.Equal(3, (int)NFeStatus.Cancelled);
@@ -127,8 +122,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void NFeDocumentDTO_DoesNotExposeAccessKeyDerivedFields()
         {
-            // QrCode and UrlChave embed the access key, which carries the emitente CNPJ and the
-            // note number. They stay on the entity and out of every JSON payload.
             var propertyNames = typeof(NFeDocumentDTO).GetProperties().Select(x => x.Name).ToArray();
 
             Assert.DoesNotContain("QrCode", propertyNames);
@@ -139,7 +132,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public void NFeDocumentDTO_DoesNotSerializeXmlContent()
         {
-            // The authorized XML carries the customer's CPF/CNPJ, full name and full address.
             var dto = new NFeDocumentDTO
             {
                 AccessKey = new string('1', 44),

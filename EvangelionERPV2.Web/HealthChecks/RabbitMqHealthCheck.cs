@@ -48,8 +48,6 @@ namespace EvangelionERPV2.Web.HealthChecks
             }
             catch (Exception exception)
             {
-                // The message is not echoed: broker settings carry the host and the password, and
-                // /health is anonymous.
                 return HealthCheckResult.Unhealthy($"RabbitMQ probe failed ({exception.GetType().Name}).");
             }
         }
@@ -61,7 +59,6 @@ namespace EvangelionERPV2.Web.HealthChecks
                 if (_connectAttempt is { IsFaulted: true } or { IsCanceled: true })
                     _connectAttempt = null;
 
-                // Off the probe's thread on purpose: the constructor blocks while it connects.
                 return _connectAttempt ??= Task.Run(
                     () => _serviceProvider.GetRequiredService<IOrderRabbitMQManager>());
             }

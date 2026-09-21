@@ -29,7 +29,6 @@ namespace EvangelionERPV2.Test.Security
 
             var harness = new Harness(enterpriseId, stored);
 
-            // The counted shelf holds 20, so the correction is +8 against the 12 on the books.
             var result = await harness.Controller.UpdateProduct(BuildRequest(stored, storageQuantity: 20m));
 
             Assert.IsType<OkObjectResult>(result);
@@ -42,8 +41,6 @@ namespace EvangelionERPV2.Test.Security
                 null,
                 false), Times.Once);
 
-            // The value written back is the ledger's BalanceAfter, not the number the form sent:
-            // the movement is applied by compare-and-swap against what is actually stored.
             Assert.Equal(20m, harness.SavedProduct!.StorageQuantity);
         }
 
@@ -107,8 +104,6 @@ namespace EvangelionERPV2.Test.Security
                     AccessLevel = 0
                 });
 
-                // The movement lands on the stored value, so BalanceAfter is what the row holds
-                // afterwards — which is what the controller must write back.
                 ProductService
                     .Setup(x => x.ApplyStockMovementAsync(
                         It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),

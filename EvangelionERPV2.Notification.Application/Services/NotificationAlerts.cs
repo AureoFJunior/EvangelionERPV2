@@ -116,8 +116,6 @@ namespace EvangelionERPV2.NotificationModule.Application.Services
                     utcNow));
             }
 
-            // Null is not zero: no certificate configured is a different fact from one about to
-            // expire, and the panel already reports it through CertificateConfigured.
             if (panel.Fiscal.CertificateDaysRemaining is int daysRemaining && daysRemaining <= CertificateWarningDays)
             {
                 alerts.Add(Alert(

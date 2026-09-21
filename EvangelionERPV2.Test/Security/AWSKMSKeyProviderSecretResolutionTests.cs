@@ -168,10 +168,10 @@ namespace EvangelionERPV2.Test.Security
             var secretsManager = CreateSecretsManager(secretName, """{"password":"rotate-me"}""");
             var provider = new AWSKMSKeyProvider(secretsManager.Object, CreateConfiguration());
 
-            await provider.GetKMSKeyAsync(secretName);                       // 1 call, now cached
-            await provider.GetKMSKeyAsync(secretName);                       // cache hit, still 1
-            await provider.GetKMSKeyAsync(secretName, bypassCache: true);    // 2 calls, evicts
-            await provider.GetKMSKeyAsync(secretName);                       // 3 calls, not a hit
+            await provider.GetKMSKeyAsync(secretName);
+            await provider.GetKMSKeyAsync(secretName);
+            await provider.GetKMSKeyAsync(secretName, bypassCache: true);
+            await provider.GetKMSKeyAsync(secretName);
 
             secretsManager.Verify(
                 x => x.GetSecretValueAsync(

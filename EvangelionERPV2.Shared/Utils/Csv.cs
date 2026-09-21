@@ -6,14 +6,6 @@ namespace EvangelionERPV2.Shared.Utils
     /// <summary>
     /// The whole CSV writer: quoting, and nothing else.
     /// </summary>
-    /// <remarks>
-    /// Semicolon-separated and written with a BOM, because the only reader that matters here is
-    /// Excel in pt-BR, which splits on the list separator of the machine's locale and shows a comma
-    /// decimal as text without one. That is a deliberate departure from RFC 4180's comma; the
-    /// quoting rules below are RFC 4180's.
-    ///
-    /// No CsvHelper. This is fifteen lines and a dependency is forever.
-    /// </remarks>
     public static class Csv
     {
         public const char Separator = ';';
@@ -36,8 +28,6 @@ namespace EvangelionERPV2.Shared.Utils
         {
             var value = field ?? string.Empty;
 
-            // A field only needs quoting if it carries the separator, a quote or a line break —
-            // and inside quotes, a quote is doubled.
             if (value.IndexOf(Separator) < 0 && value.IndexOf('"') < 0 && value.IndexOf('\n') < 0 && value.IndexOf('\r') < 0)
                 return value;
 

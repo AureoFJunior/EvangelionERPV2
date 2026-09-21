@@ -19,10 +19,6 @@ namespace EvangelionERPV2.AiModule.Application.DI
             {
                 var settings = serviceProvider.GetRequiredService<IOptions<AiSettings>>().Value;
 
-                // OllamaSharp's Uri constructor builds an HttpClient with the 100 s BuiltIn default,
-                // which cuts a turn short before AiSettings.TimeoutSeconds ever applies. Give the
-                // transport a longer leash than the turn budget so the budget stays the authority
-                // (and the diagnostics stay truthful); no budget means no transport deadline either.
                 var http = new HttpClient
                 {
                     BaseAddress = new Uri(settings.Endpoint),
@@ -58,10 +54,6 @@ namespace EvangelionERPV2.AiModule.Application.DI
             services.AddScoped<IAiToolRegistry>(sp =>
                 new AiToolRegistry(sp.GetServices<IAiTool>()));
 
-            // Speech has its own client and its own timeout: a 30 s transcription budget has nothing
-            // to do with a 120 s agent turn. Registered unconditionally — the service itself refuses
-            // when SpeechEnabled is false, which is cheaper than making every caller ask the
-            // container whether the feature exists.
             services.AddHttpClient<IAiSpeechService, AiSpeechService>((serviceProvider, client) =>
             {
                 var settings = serviceProvider.GetRequiredService<IOptions<AiSettings>>().Value;
@@ -69,9 +61,6 @@ namespace EvangelionERPV2.AiModule.Application.DI
                 client.Timeout = TimeSpan.FromSeconds(Math.Max(5, settings.SpeechTimeoutSeconds));
             });
 
-            // Same arrangement as speech, and the same reason: its own endpoint, its own budget, and
-            // the service refuses when VoiceEnabled is false rather than being absent from the
-            // container. A synthesis that takes 20 s has already failed the listener.
             services.AddHttpClient<IAiVoiceService, AiVoiceService>((serviceProvider, client) =>
             {
                 var settings = serviceProvider.GetRequiredService<IOptions<AiSettings>>().Value;

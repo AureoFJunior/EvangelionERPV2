@@ -46,7 +46,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
 
             var feed = await world.Service.GetFeedAsync(Tenant, Reader);
 
-            // Two alerts firing and a badge of zero: an alert is a state, not a message.
             Assert.Equal(2, feed.ActiveAlertCount);
             Assert.Equal(0, feed.UnreadBroadcastCount);
         }
@@ -80,8 +79,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
             var world = new World();
             var id = world.AddBroadcast("Deles", enterpriseId: Other);
 
-            // Answering "not found" rather than "forbidden" is the point: the id is the only thing
-            // an outsider could learn from telling the two apart.
             Assert.False(await world.Service.RemoveBroadcastAsync(id, Tenant));
             Assert.True(world.Broadcasts.Single().IsActive);
         }
@@ -131,7 +128,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
             Assert.Equal(2, await world.Service.MarkAllReadAsync(Tenant, Reader));
             Assert.Equal(0, (await world.Service.GetFeedAsync(Tenant, Reader)).UnreadBroadcastCount);
 
-            // Nothing left unread, so the second pass must not write a duplicate row.
             Assert.Equal(0, await world.Service.MarkAllReadAsync(Tenant, Reader));
             Assert.Equal(2, world.Reads.Count);
         }
@@ -171,8 +167,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
 
             var (alerts, fingerprint) = await world.Service.GetAlertsAsync(Tenant);
 
-            // The sweep skips a null fingerprint. An empty one would mean "nothing is firing" and
-            // would push every browser in the company a change that never happened.
             Assert.Empty(alerts);
             Assert.Null(fingerprint);
         }
@@ -204,8 +198,6 @@ namespace EvangelionERPV2.NotificationModule.Test.Notification
         [Fact]
         public void ThePermissionGate_IsNeverSerialised()
         {
-            // The client has no use for it and publishing the gate tells a caller exactly which
-            // permission to go after.
             var property = typeof(NotificationItemDTO).GetProperty(nameof(NotificationItemDTO.RequiredPermission))!;
 
             Assert.NotNull(property.GetCustomAttribute<JsonIgnoreAttribute>());

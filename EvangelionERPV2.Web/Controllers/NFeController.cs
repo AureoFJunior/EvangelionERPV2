@@ -24,8 +24,6 @@ namespace EvangelionERPV2.Web.Controllers
         private const int NFeAccessKeyLength = 44;
         private const int MaxNFeCancelReasonLength = 500;
         private static readonly Regex NFeAccessKeyRegex = new($"^[0-9]{{{NFeAccessKeyLength}}}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
-        // A supplier's nota is a few dozen kilobytes of XML; the bound is re-checked here because
-        // the read into memory happens here, not only in the validator.
         private const long MaxInboundNFeUploadSizeInBytes = 2 * 1024 * 1024;
 
         private readonly INFeService<NFeDocument> _nfeService;
@@ -51,11 +49,6 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Import a supplier's NF-e XML as a payable bill. Safe to call twice with the same file.
         /// </summary>
-        /// <remarks>
-        /// Reuses payable-bills.create rather than adding a permission: the effect of this endpoint
-        /// is a payable, and whoever may type one may drop the XML that types it for them. Stock
-        /// does not move here — MarkProductsReceived is still the arrival event.
-        /// </remarks>
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Create)]
         [HttpPost]
         [ProducesResponseType(typeof(SupplierNFeImportResultDTO), StatusCodes.Status200OK)]
@@ -90,8 +83,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (FormatException ex)
             {
-                // The uploader holds the file; a parse complaint tells them nothing they did not
-                // send. The log stays type-only, per the convention in this codebase.
                 Log.Logger.Error("Supplier NF-e import rejected. ErrorType={ErrorType}", ex.GetType().Name);
                 return BadRequest("The file could not be read as an NF-e.");
             }
@@ -243,9 +234,6 @@ namespace EvangelionERPV2.Web.Controllers
             var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
         }
-
-
-
 
         private static bool IsValidAccessKey(string accessKey)
         {

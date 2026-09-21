@@ -73,7 +73,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 throw new ArgumentException("cNF must be exactly 8 digits.", nameof(codigoNumerico));
             }
 
-            // SEFAZ rejects a document whose cNF equals its nNF.
             if (int.Parse(codigoNumerico, CultureInfo.InvariantCulture) == number)
             {
                 throw new ArgumentException($"cNF must not equal nNF ({number}).", nameof(codigoNumerico));
@@ -116,7 +115,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 && accessKey![BodyLength] == CheckDigit(accessKey.AsSpan(0, BodyLength));
         }
 
-        // Mod-11 over the first 43 digits, right to left, weights cycling 2..9.
         private static char CheckDigit(ReadOnlySpan<char> body)
         {
             var sum = 0;

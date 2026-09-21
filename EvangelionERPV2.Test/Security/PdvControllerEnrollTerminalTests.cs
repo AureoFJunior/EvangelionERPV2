@@ -63,8 +63,6 @@ namespace EvangelionERPV2.Test.Security
             Assert.NotNull(stored);
             Assert.Equal(enterpriseId, stored!.EnterpriseId);
 
-            // The credential is returned, but only its verifier is persisted. If these two are ever
-            // equal, the table has become a list of working terminal credentials.
             Assert.NotEqual(dto.Credential, stored.CredentialVerifier);
             Assert.DoesNotContain(dto.Credential, stored.CredentialVerifier);
             Assert.True(stored.Verify(dto.Credential));
@@ -82,7 +80,6 @@ namespace EvangelionERPV2.Test.Security
 
             var response = await controller.EnrollTerminal(new EnrollTerminalRequestDTO { TerminalId = "CAIXA-01" });
 
-            // Silently minting a second credential would leave the first one working.
             Assert.IsType<ConflictObjectResult>(response);
             repository.Verify(x => x.CreateAsync(It.IsAny<PdvTerminal>()), Times.Never);
         }
@@ -134,6 +131,5 @@ namespace EvangelionERPV2.Test.Security
 
             return settings.Object;
         }
-
     }
 }

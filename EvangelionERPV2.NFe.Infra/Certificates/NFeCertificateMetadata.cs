@@ -18,7 +18,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
         DateTime NotAfterUtc,
         DateTime UploadedAtUtc)
     {
-        // Brazilian e-CNPJ subjects look like "NERV INDUSTRIA LTDA:11222333000181".
         private static readonly Regex CnpjInSubject = new(@"(?<!\d)(\d{14})(?!\d)", RegexOptions.Compiled);
 
         /// <summary>

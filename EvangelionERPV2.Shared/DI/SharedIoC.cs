@@ -6,7 +6,6 @@ using Amazon.SecretsManager;
 using EvangelionERPV2.Shared.Utils;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
 
-
 namespace EvangelionERPV2.OrderModule.Application.DI
 {
     public class SharedIoC
@@ -24,17 +23,11 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 services.AddSingleton<AWSKMSKeyProvider>();
                 #endregion
 
-                // Singleton so every hosted service in this host shares one Redis connection.
                 services.AddSingleton<IDistributedLease, RedisLease>();
 
-                // Prunes the idempotency table. Leased, so running in every host costs one sweep
-                // across the cluster rather than one per replica.
                 services.AddHostedService<ProcessedMessageRetentionWorker>();
 
                 #region Redis
-                // The one registration for the whole host. Product, Order and Reports each carried
-                // an identical copy of this; only the last one to run survived resolution, so the
-                // other two read like configuration while doing nothing.
                 services.AddStackExchangeRedisCache(_ => { });
                 services.AddOptions<RedisCacheOptions>()
                     .Configure<AWSKMSKeyProvider>((options, kmsProvider) =>
@@ -63,7 +56,6 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                     "Error at DI IoC Shared. ErrorType={ErrorType}",
                     ex.GetType().Name);
             }
-
         }
     }
 }

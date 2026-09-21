@@ -39,8 +39,6 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.IsType<OkObjectResult>(result);
 
-            // The value the service was handed, not the value returned: the request cannot reach it
-            // at all, so the stored balance is what gets written back.
             Assert.NotNull(context.Updated);
             Assert.Equal(StoredBalance, context.Updated!.CurrentBalance);
             Assert.Equal("NERV", context.Updated.Name);
@@ -49,15 +47,12 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public void UpdateEnterpriseRequest_HasNoBalanceOrAuditFields()
         {
-            // The guarantee is structural, so it is asserted structurally: adding the property back
-            // to either request type reopens the hole no matter what the controller does.
             foreach (var requestType in new[] { typeof(UpdateEnterpriseRequestDTO), typeof(CreateEnterpriseRequestDTO) })
             {
                 foreach (var forbidden in new[] { "CurrentBalance", "CreatedAt", "UpdatedAt", "IsActive" })
                     Assert.Null(requestType.GetProperty(forbidden));
             }
 
-            // Id is legitimate on the update request - it names the row - and must stay off create.
             Assert.NotNull(typeof(UpdateEnterpriseRequestDTO).GetProperty("Id"));
             Assert.Null(typeof(CreateEnterpriseRequestDTO).GetProperty("Id"));
         }

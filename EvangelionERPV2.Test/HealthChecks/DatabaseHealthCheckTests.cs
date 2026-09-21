@@ -16,8 +16,6 @@ namespace EvangelionERPV2.Test.HealthChecks
         [Fact]
         public void DescribePendingMigrations_PendingMigrations_ReportsDegradedAndNamesThem()
         {
-            // Degraded, not Unhealthy, on purpose: an environment that is behind must still serve
-            // while somebody applies them, and MapHealthChecks answers 200 for Degraded.
             var result = DatabaseHealthCheck.DescribePendingMigrations(
                 ["20260826174529_AddPdvOverrideAudit", "20260825120000_AddCustomerCoordinates"]);
 

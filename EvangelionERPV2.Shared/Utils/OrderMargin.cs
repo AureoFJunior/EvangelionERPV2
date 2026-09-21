@@ -7,11 +7,6 @@ namespace EvangelionERPV2.Shared.Utils
     /// needs. One implementation so the order screen, the order DTO and the TopProductsRevenue
     /// report cannot disagree about what "margin" means.
     /// </summary>
-    /// <remarks>
-    /// Every method answers null when the cost is unknown. A partially costed order — some lines
-    /// with a cost, some without — is unknown too: summing only the costed lines would report a
-    /// margin far larger than the real one, and a wrong number is worse than no number.
-    /// </remarks>
     public static class OrderMargin
     {
         /// <summary>What the goods on this order cost, or null if any line's cost is unknown.</summary>
@@ -57,7 +52,6 @@ namespace EvangelionERPV2.Shared.Utils
             return Round((unitPrice - unitCost.Value) / unitPrice * 100m);
         }
 
-        // BRL convention, matching ApplyEnterpriseBalanceDelta: half away from zero, not banker's.
         private static decimal Round(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
     }
 }

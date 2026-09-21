@@ -3,10 +3,6 @@ namespace EvangelionERPV2.Shared.Enums
     /// <summary>
     /// Why a <c>StockMovement</c> happened.
     /// </summary>
-    /// <remarks>
-    /// Values are explicit because they are persisted in <c>StockMovement.Type</c>: reordering the
-    /// members must never silently reinterpret rows already written.
-    /// </remarks>
     public enum EnumStockMovementType
     {
         /// <summary>Units left because an order consumed them.</summary>

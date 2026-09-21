@@ -3,11 +3,6 @@ namespace EvangelionERPV2.Shared.DTOs
     /// <summary>
     /// One período aquisitivo as the API reports it.
     /// </summary>
-    /// <remarks>
-    /// <c>RemainingDays</c> is carried even though it is arithmetic over the other three: the
-    /// client would otherwise recompute it, and a second implementation of the same subtraction is
-    /// a second place for it to be wrong.
-    /// </remarks>
     public sealed class EmployeeVacationAccrualDTO : BaseDTO
     {
         public Guid EmployeeId { get; set; }

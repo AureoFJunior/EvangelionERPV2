@@ -42,8 +42,6 @@ namespace EvangelionERPV2.Test.Security
             Assert.IsType<NoContentResult>(response);
             Assert.NotNull(user.PdvPinVerifier);
 
-            // If the PIN itself ever lands in the column, every supervisor's PIN is one leaked
-            // terminal sync away from being readable.
             Assert.DoesNotContain("482913", user.PdvPinVerifier!);
             Assert.True(Pbkdf2Verifier.Verify("482913", user.PdvPinVerifier));
         }
@@ -51,10 +49,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task SetPdvPin_IsRefusedToATillToken()
         {
-            // The one authenticated action in the API with no rbac policy, so PdvTokenScope.Grants
-            // — which runs inside the policy handlers — never sees it. Without the explicit refusal
-            // a credential lifted off a shop floor could set the override PIN of the user it
-            // belongs to, and then authorise overrides recorded against that user.
             var user = BuildUser(EnumAccessLevel.Supervisor);
             var claims = ClaimsFor(user)
                 .Append(new Claim(PdvTokenScope.ClaimType, PdvTokenScope.ClaimValue))
@@ -98,12 +92,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task SetPdvPin_RefusesADeactivatedUser()
         {
-            // Deleting a user deactivates the row rather than removing it, so "the row is here and
-            // the tenant matches" stopped being proof the caller still works here — and this is the
-            // one authenticated action with no rbac policy, so PermissionAuthorizationHandler's own
-            // IsActive check never runs for it. A dismissed supervisor holding an unexpired
-            // backoffice token could otherwise write a PIN of their choosing onto their row, ready
-            // for the day the account is switched back on.
             var user = BuildUser(EnumAccessLevel.Supervisor);
             user.IsActive = false;
 
@@ -124,7 +112,6 @@ namespace EvangelionERPV2.Test.Security
             var ok = Assert.IsType<OkObjectResult>(await controller.GetSupervisorVerifiers());
             var verifiers = Assert.IsAssignableFrom<IEnumerable<SupervisorVerifierDTO>>(ok.Value).ToList();
 
-            // Shipping every employee's verifier would put the whole staff's PINs on every till.
             var listed = Assert.Single(verifiers);
             Assert.Equal(supervisor.Id, listed.UserId);
             Assert.Equal(supervisor.PdvPinVerifier, listed.PinVerifier);
@@ -204,6 +191,5 @@ namespace EvangelionERPV2.Test.Security
 
             return settings.Object;
         }
-
     }
 }

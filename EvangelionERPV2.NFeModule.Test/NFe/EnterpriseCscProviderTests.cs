@@ -40,8 +40,6 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         [Fact]
         public async Task TheFirstCscForATenant_CreatesTheSecret()
         {
-            // A tenant that has never been given one has no secret at all. That is an expected
-            // state, not a fault.
             var secrets = new Mock<IAmazonSecretsManager>();
             var created = false;
 

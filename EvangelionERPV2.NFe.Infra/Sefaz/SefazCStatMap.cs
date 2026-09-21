@@ -13,12 +13,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
     /// operation that produced the code, because the same number does not mean the same thing on an
     /// authorization, a consult and an event.
     /// </summary>
-    /// <remarks>
-    /// The distinction that matters most here is transient versus rejected. <see cref="NFeStatus.Rejected"/>
-    /// is a verdict and it burns the number permanently — re-issuing after one takes a new number.
-    /// A timeout or a paralysed autorizador is an accident, and recording it as a rejection would
-    /// throw away a perfectly usable number every time SEFAZ hiccups.
-    /// </remarks>
     public static class SefazCStatMap
     {
         #region cStat constants
@@ -83,8 +77,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             UsoDenegado or DenegadoEmitente or DenegadoDestinatario or DenegadoDestinatarioNaoHabilitado
                 => new SefazVerdict(NFeStatus.Denied, false, false),
 
-            // Still in the queue: the note may yet be authorized, so nothing terminal may be
-            // written and the reconciler has to ask again through the chave.
             LoteEmProcessamento => Transient(),
 
             _ => Fallback(cStat)
@@ -95,19 +87,12 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
         {
             Autorizado or AutorizadoForaDePrazo => new SefazVerdict(NFeStatus.Authorized, false, false),
 
-            // A consult is also how a cancellation already homologated at SEFAZ comes back. Reading
-            // these as a rejection would overwrite a cancelled note with a burnt-number verdict.
             CancelamentoHomologado or CancelamentoHomologadoForaDePrazo or EventoRegistrado or EventoRegistradoForaDePrazo
                 => new SefazVerdict(NFeStatus.Cancelled, false, false),
 
             UsoDenegado or DenegadoEmitente or DenegadoDestinatario or DenegadoDestinatarioNaoHabilitado
                 => new SefazVerdict(NFeStatus.Denied, false, false),
 
-            // The one answer that releases a number. SEFAZ has never seen this chave, so whatever
-            // the write-ahead marker says, nothing arrived: Error is the retryable state and the
-            // same number may be sent again rather than needing inutilização paperwork. This is the
-            // only place NeverTransmitted is ever true — everywhere else, after transmission, we
-            // cannot prove nothing left.
             NaoConstaNaBase => new SefazVerdict(NFeStatus.Error, IsTransient: false, NeverTransmitted: true),
 
             LoteEmProcessamento => Transient(),
@@ -116,20 +101,10 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
         };
 
         /// <summary>Verdict on the cStat carried by a RecepcaoEvento response for event 110111.</summary>
-        /// <remarks>
-        /// 135 and 155 are the only two homologations of a cancellation. Everything else leaves the
-        /// note authorized and still carrying its tax liability, which is why the caller must not
-        /// write <see cref="NFeStatus.Cancelled"/> on anything but these.
-        /// </remarks>
         public static SefazVerdict ForCancellation(int cStat) => cStat switch
         {
             EventoRegistrado or EventoRegistradoForaDePrazo => new SefazVerdict(NFeStatus.Cancelled, false, false),
 
-            // "Já registrado" is not a refusal. The cancel path commits CancelRequestedAt before
-            // the round trip, so a retry after a lost answer lands here — and calling that a
-            // rejection would leave a note cancelled at SEFAZ recorded as Authorized, which is the
-            // exact lie the cancel rework exists to prevent. Note that no protocol comes back with
-            // it: the caller keeps whatever it already stored, or consults to fill it in.
             DuplicidadeDeEvento => new SefazVerdict(NFeStatus.Cancelled, false, false),
 
             _ => Fallback(cStat)
@@ -143,10 +118,6 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
         public static bool IsServiceInOperation(int cStat) => cStat == ServicoEmOperacao;
 
         /// <summary>Nothing changes about the stored document; the exchange is worth repeating.</summary>
-        /// <remarks>
-        /// <c>NeverTransmitted</c> is deliberately false. These codes come back <em>after</em> a
-        /// request went out, and nothing about them proves the bytes never left.
-        /// </remarks>
         private static SefazVerdict Transient() => new(NFeStatus.Pending, IsTransient: true, NeverTransmitted: false);
 
         private static SefazVerdict Fallback(int cStat) => cStat switch

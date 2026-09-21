@@ -40,8 +40,6 @@ namespace EvangelionERPV2.Web.HealthChecks
 
         private HealthReport? _report;
 
-        // Ticks in a long rather than a DateTime: Volatile/Interlocked give an atomic 64-bit read
-        // and write, which a DateTime field read outside the lock does not guarantee.
         private long _expiresAtUtcTicks;
 
         public HealthResultCache(HealthCheckService healthCheckService)
@@ -58,8 +56,6 @@ namespace EvangelionERPV2.Web.HealthChecks
             await _lock.WaitAsync(cancellationToken);
             try
             {
-                // Re-check inside the lock: everyone queued behind a cold cache should use the one
-                // result the first of them produced, not run the checks again in turn.
                 cached = Volatile.Read(ref _report);
                 if (cached != null && DateTime.UtcNow.Ticks < Interlocked.Read(ref _expiresAtUtcTicks))
                     return cached;

@@ -31,7 +31,6 @@ namespace EvangelionERPV2.Test.HealthChecks
                 .CheckHealthAsync(new HealthCheckContext());
 
             Assert.Equal(HealthStatus.Unhealthy, result.Status);
-            // /health is anonymous: the exception message carries the host and the password.
             Assert.DoesNotContain("hunter2", result.Description);
             Assert.DoesNotContain("cache.internal", result.Description);
         }

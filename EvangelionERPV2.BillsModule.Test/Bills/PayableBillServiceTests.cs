@@ -638,8 +638,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             var (_, _, _, _, _, service, _) = BuildSut(payableBills: [.. payrollBills, rent]);
 
-            // Paging a month where payroll bills fill the whole first page must still return the
-            // non-payroll bills, and must not leak the payroll count as a short page.
             var page = (await service.GetByEnterpriseIdAsync(
                 enterpriseId,
                 pageNumber: 1,
@@ -659,7 +657,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 Id = Guid.NewGuid(),
                 EnterpriseId = enterpriseId,
                 ProductId = productId,
-                // Sales are stored negative — the ledger records the direction, not just the size.
                 Quantity = -quantity,
                 Type = (int)EnumStockMovementType.Sale,
                 CreatedAt = soldAt,
@@ -719,8 +716,6 @@ namespace EvangelionERPV2.BillsModule.Test
         [Fact]
         public async Task UpdateAsync_MovingAnOpenBillIntoAClosedMonth_IsRefused()
         {
-            // The other half of the rule: the lock is useless if an edit can carry a document back
-            // across it.
             var enterpriseId = Guid.NewGuid();
             var existing = BuildPeriodBill(enterpriseId, "Rent", new DateTime(2026, 4, 10));
             var (_, _, _, _, _, service, _) = BuildSut(
@@ -814,8 +809,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 IsActive = true
             };
 
-            // Demand is read off the stock ledger now, so the fixture states it directly: four
-            // sale dates ten days apart, which is what makes lead time 10 and coverage 10..20.
             var saleDates = new[] { now.AddDays(-40), now.AddDays(-30), now.AddDays(-20), now.AddDays(-10) };
 
             var stockMovements = new List<StockMovement>();
@@ -826,7 +819,6 @@ namespace EvangelionERPV2.BillsModule.Test
                 stockMovements.Add(BuildSaleMovement(enterpriseId, productLow.Id, saleDate, 10));
             }
 
-            // Insufficient history: only 3 sale dates => 2 intervals
             foreach (var saleDate in saleDates.Take(3))
                 stockMovements.Add(BuildSaleMovement(enterpriseId, productNoHistory.Id, saleDate, 2));
 
@@ -1132,8 +1124,6 @@ namespace EvangelionERPV2.BillsModule.Test
                     var product = products.FirstOrDefault(x =>
                         x.Id == productId && x.EnterpriseId == enterpriseId && x.IsActive == true);
 
-                    // Mirrors the real compare-and-swap: no row, or a delta that would take the
-                    // balance below zero, and nothing moves.
                     if (product == null || (product.StorageQuantity + delta < 0 && !allowNegative))
                         throw new InsertDatabaseException(delta < 0
                             ? $"Insufficient stock for product [{productId}]."

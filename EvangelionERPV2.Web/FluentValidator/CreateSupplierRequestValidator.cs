@@ -24,7 +24,6 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .NotEmpty().WithMessage("Supplier address is required.")
                 .MaximumLength(250).WithMessage("Supplier address is too long.");
 
-            // CPF is accepted alongside CNPJ: a sole trader supplier is a person, not a company.
             RuleFor(x => x.Document)
                 .Must(DocumentValidationHelper.BeValidDocument)
                 .When(x => !string.IsNullOrWhiteSpace(x.Document))

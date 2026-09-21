@@ -81,8 +81,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 await PersistAsync(request.ConversationId, AiMessageRole.Assistant, text,
                     toolsCalled, promptTokens, completionTokens, stopwatch.ElapsedMilliseconds);
 
-                // A streamed answer already reached the client word by word. Only text produced
-                // here — a timeout notice, a give-up line — still needs pushing.
                 if (!alreadyStreamed)
                 {
                     foreach (var chunk in AiTextChunker.Split(text))
@@ -96,10 +94,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             {
                 for (var iteration = 0; iteration < _settings.MaxToolIterations; iteration++)
                 {
-                    // Streamed, every iteration, single pass. Ollama 0.34 emits tool calls inside a
-                    // streamed response, so there is no need to choose between streaming and tools
-                    // — and no need to re-issue the final turn a second time just to stream it,
-                    // which would have paid for the answer twice.
                     var updates = new List<ChatResponseUpdate>();
                     var streamedText = false;
 
@@ -107,8 +101,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     {
                         updates.Add(update);
 
-                        // Only the answer. A reasoning model's thinking is not content and must not
-                        // reach the screen, let alone a speaker.
                         var delta = string.Concat(update.Contents.OfType<TextContent>().Select(part => part.Text));
                         if (string.IsNullOrEmpty(delta))
                             continue;
@@ -133,10 +125,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                     {
                         var answer = response.Text ?? string.Empty;
 
-                        // A model that answers with nothing used to be persisted as an empty
-                        // assistant message, which reads in the history as a question the assistant
-                        // ignored — four of those in this database before it was caught. Whatever
-                        // went wrong, the turn has to leave a sentence behind.
                         if (string.IsNullOrWhiteSpace(answer))
                         {
                             Log.Logger.Warning(
@@ -163,10 +151,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                                 ? new Dictionary<string, object?>()
                                 : new Dictionary<string, object?>(call.Arguments);
 
-                            // Arguments are checked and, where possible, repaired before a card
-                            // exists: a name becomes the id it meant, and what cannot be repaired
-                            // comes back to the model in this same turn instead of reaching a human
-                            // as a card that was always going to fail.
                             var prepared = await tool.PrepareAsync(arguments, request.Context, budget.Token);
                             if (prepared.Error is not null)
                             {
@@ -178,9 +162,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                                 continue;
                             }
 
-                            // The model never runs a write. It proposes one, and the human holding
-                            // the confirmation card is what stands between ERP free text and a
-                            // mutation. See the design doc, "Every write is confirmed by a human".
                             var card = await _pendingActions.ProposeAsync(
                                 request.ConversationId,
                                 tool,
@@ -203,11 +184,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 Log.Logger.Warning("AI turn exceeded its budget. TimeoutSeconds={TimeoutSeconds}", _settings.TimeoutSeconds);
                 return await FinishAsync("A consulta demorou demais e foi interrompida. Tente perguntar de forma mais específica.");
             }
-            // The model server's own failures: HttpClient reports its timeout as a TaskCanceledException
-            // with *neither* token cancelled, and a connection that dies mid-turn arrives as one too,
-            // wrapping an IOException over a SocketException. Neither matches the filter above, so both
-            // used to leave here as unhandled exceptions — a 500 and a stack trace for what is simply a
-            // model that did not answer. Observed 2026-09-14 on POST /ai/chat.
             catch (Exception ex) when (
                 ex is HttpRequestException or IOException or SocketException
                 || (ex is OperationCanceledException && !cancellation.IsCancellationRequested))

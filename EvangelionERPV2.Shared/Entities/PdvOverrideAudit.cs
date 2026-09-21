@@ -7,14 +7,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// <summary>
     /// One supervisor override attempted at a till, successful or not.
     /// </summary>
-    /// <remarks>
-    /// The refused ones are the point. A run of failures against one supervisor is somebody
-    /// guessing a PIN, and because the till counts the failures it is told about rather than the
-    /// ones it saw, the lockout follows the supervisor across every terminal instead of only the
-    /// one being guessed at.
-    ///
-    /// No PIN, no verifier, no password: this table exists to be read.
-    /// </remarks>
     [Index(nameof(EnterpriseId), nameof(ClientOverrideId), IsUnique = true)]
     [Table("PdvOverrideAudit")]
     public class PdvOverrideAudit : BaseEntity

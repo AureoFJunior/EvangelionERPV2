@@ -35,8 +35,6 @@ public class PdvTerminalTests
 
         terminal.IsRevoked = true;
 
-        // Revocation is the whole reason credentials are per-terminal: a leaked one must cost one
-        // till, not the estate.
         Assert.False(terminal.Verify(Credential));
     }
 
@@ -46,8 +44,6 @@ public class PdvTerminalTests
         var first = PdvTerminal.Enroll(Guid.NewGuid(), "CAIXA-01", Credential);
         var second = PdvTerminal.Enroll(Guid.NewGuid(), "CAIXA-02", Credential);
 
-        // Per-enrollment salt. Equal verifiers would let anyone who reads the table spot two tills
-        // sharing a credential.
         Assert.NotEqual(first.CredentialVerifier, second.CredentialVerifier);
     }
 

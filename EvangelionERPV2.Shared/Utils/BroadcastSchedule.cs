@@ -30,7 +30,6 @@ namespace EvangelionERPV2.Shared.Utils
 
             var slot = new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, hourUtc, 0, 0, DateTimeKind.Utc);
 
-            // Strictly in the future, so finishing a run inside its own slot never re-triggers it.
             return slot <= utcNow ? slot.AddDays(1) : slot;
         }
     }

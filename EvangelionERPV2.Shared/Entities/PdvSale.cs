@@ -10,20 +10,6 @@ namespace EvangelionERPV2.Shared.Entities
     /// terminal rang it, how it was tendered, what discount the operator gave, and the client id
     /// that makes re-sending it safe.
     /// </summary>
-    /// <remarks>
-    /// A PDV sale is still an <see cref="Order"/> — that is what every report, receivable, margin
-    /// calculation and NFe path already reads, and a second sales ledger would have to be kept
-    /// honest against the first forever. This row hangs off that order rather than replacing it.
-    ///
-    /// <see cref="ClientSaleId"/> is the whole reason the table can be written from an unreliable
-    /// network. The terminal mints it before the customer walks away, so the same sale re-sent
-    /// after a timeout collides on the unique index and returns the order it already created,
-    /// instead of selling the same basket twice. Server-side ids cannot do this: the terminal never
-    /// learns them when the response is what got lost.
-    /// </remarks>
-    // Not filtered on IsActive, and not filtered at all. A soft-deleted row that dropped out of the
-    // index would let a retry of that exact sale create a second order — the one failure this table
-    // exists to prevent.
     [Index(nameof(EnterpriseId), nameof(ClientSaleId), IsUnique = true)]
     [Index(nameof(CashSessionId))]
     [Table("PdvSale")]
@@ -59,12 +45,6 @@ namespace EvangelionERPV2.Shared.Entities
         /// <summary>
         /// The headline discount the operator granted, for reporting only.
         /// </summary>
-        /// <remarks>
-        /// The money has already been taken out of the line values the order was built from, because
-        /// <c>Order.TotalValue</c> is Σ(Value × Quantity) and nothing may make that untrue. Storing
-        /// the figure again here is what lets "how much did we discount last month" be a query
-        /// rather than a reconstruction from list prices that may since have changed.
-        /// </remarks>
         public decimal DiscountAmount { get; set; }
 
         /// <summary>Interest or fee added on top, same reporting-only reasoning as the discount.</summary>

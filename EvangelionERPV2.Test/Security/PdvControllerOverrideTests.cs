@@ -47,8 +47,6 @@ namespace EvangelionERPV2.Test.Security
             Assert.False(audit.Succeeded);
             Assert.Equal(_enterpriseId, audit.EnterpriseId);
 
-            // The operator comes from the token, never the body: a till could otherwise pin its own
-            // refusals on somebody else.
             Assert.Equal(_operatorUserId, audit.OperatorUserId);
         }
 
@@ -63,8 +61,6 @@ namespace EvangelionERPV2.Test.Security
 
             var dto = Assert.IsType<RegisterOverrideResponseDTO>(Assert.IsType<OkObjectResult>(response).Value);
 
-            // A terminal that loses the response resends. Double-counting refusals would lock a
-            // supervisor out over a flaky connection.
             Assert.True(dto.WasAlreadyRecorded);
             Assert.Single(_stored);
         }
@@ -154,6 +150,5 @@ namespace EvangelionERPV2.Test.Security
 
             return settings.Object;
         }
-
     }
 }

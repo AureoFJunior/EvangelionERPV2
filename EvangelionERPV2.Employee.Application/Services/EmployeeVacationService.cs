@@ -11,13 +11,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
     /// entitlement recomputed from the absence spine, and its counters moved only through the
     /// legal rules in <see cref="VacationEntitlement"/>.
     /// </summary>
-    /// <remarks>
-    /// <see cref="EnumVacationAccrualStatus.Lapsed"/> is never written here. It means the concessivo
-    /// window closed with days still owed, which makes them payable in dobro (CLT art. 137) — a
-    /// consequence of the calendar rather than of anything a user did, so it is set by the sweeper
-    /// that watches the deadline. This service also refuses to touch a row already in that state:
-    /// a settled liability must not be silently recomputed away.
-    /// </remarks>
     public class EmployeeVacationService : IEmployeeVacationService<EmployeeVacationAccrual>
     {
         /// <summary>
@@ -90,8 +83,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                     }
                     else
                     {
-                        // A lapsed accrual is a debt already owed twice over. Recomputing its
-                        // entitlement or reopening its status would erase the evidence of that.
                         if (accrual.Status == (int)EnumVacationAccrualStatus.Lapsed)
                         {
                             ledger.Add(accrual);
@@ -140,8 +131,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                 if (days > accrual.RemainingDays)
                     throw new InsertDatabaseException($"Only {accrual.RemainingDays} day(s) remain on this período aquisitivo.");
 
-                // art. 134: the leave has to *start* inside the concessivo window. A stretch that
-                // begins after the deadline is not a schedule, it is a lapse the sweeper will find.
                 if (start > accrual.ConcessionDeadline.Date)
                     throw new InsertDatabaseException("The concessivo window for this período aquisitivo has closed.");
 
@@ -149,8 +138,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                 if (!VacationEntitlement.TrySplit(days, bookedLengths, accrual.RemainingDays - days, out var reason))
                     throw new InsertDatabaseException(reason);
 
-                // The absence row and the decrement are one fact recorded twice; a crash between
-                // them leaves either unpaid leave nobody booked or a booking nobody may take.
                 await _accrualRepository.ExecuteInTransactionAsync(async () =>
                 {
                     await _absenceRepository.CreateAsync(new EmployeeAbsence
@@ -162,8 +149,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                         StartDate = start,
                         EndDate = end,
 
-                        // Férias are paid leave, so this row must not travel the falta path — it
-                        // would cut the salary twice over and shrink the next entitlement.
                         IsJustified = true,
                         IsActive = true,
                         CreatedAt = DateTime.UtcNow
@@ -203,9 +188,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                 var accrual = await LoadAsync(accrualId, enterpriseId);
                 var requestDate = (requestedOn ?? DateTime.UtcNow).Date;
 
-                // art. 143 §1: the request has to reach the employer at least 15 days before the
-                // aquisitivo closes, which is why the deadline is measured against that date and
-                // not against the concessivo one.
                 var deadline = accrual.AcquisitionEnd.Date.AddDays(-VacationEntitlement.AbonoRequestDeadlineDays);
                 if (requestDate > deadline)
                     throw new InsertDatabaseException(
@@ -219,12 +201,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                 if (days > accrual.RemainingDays)
                     throw new InsertDatabaseException($"Only {accrual.RemainingDays} day(s) remain on this período aquisitivo.");
 
-                // Sold days are only ever paid by riding a férias bill: VacationPayService attaches
-                // the abono to a stretch it is billing on that run. So if every scheduled stretch is
-                // already billed and this sale would leave no days to schedule another one, nothing
-                // will ever issue a bill carrying these days — they would sit sold, unpaid, and with
-                // nothing anywhere to say so. Refusing is the honest answer; the alternative is a
-                // férias bill with no stretch, which has no art. 145 due date of its own.
                 if (accrual.RemainingDays - days <= 0 && !await HasUnbilledStretchAsync(accrual, enterpriseId))
                     throw new InsertDatabaseException(
                         "Every férias period on this período aquisitivo has already been billed and none of its days are left to schedule another, so an abono pecuniário sold now would have no férias payment to be paid on (CLT art. 143).");
@@ -268,11 +244,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         /// Lengths of the stretches already booked against one accrual, so art. 134 §1 can be
         /// checked against the set rather than against a single request.
         /// </summary>
-        /// <remarks>
-        /// <c>EmployeeAbsence</c> carries no accrual FK, so the link is the calendar: concessivo
-        /// windows of consecutive periods do not overlap, which makes "starts inside this accrual's
-        /// concessivo window" an exact match rather than a heuristic.
-        /// </remarks>
         private async Task<IReadOnlyCollection<int>> BookedPeriodLengthsAsync(EmployeeVacationAccrual accrual)
         {
             var windowStart = accrual.AcquisitionEnd.Date;
@@ -293,11 +264,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         /// it — that is, whether a future <c>VacationPayService.GenerateAsync</c> run still has
         /// something to issue, and therefore something an abono could ride.
         /// </summary>
-        /// <remarks>
-        /// The due date is the stretch start less <see cref="PaymentLeadDays"/> by construction, so
-        /// it identifies the stretch; refunded and inactive bills are ignored, matching the set
-        /// <c>VacationPayService</c> itself counts as standing.
-        /// </remarks>
         private async Task<bool> HasUnbilledStretchAsync(EmployeeVacationAccrual accrual, Guid enterpriseId)
         {
             var windowStart = accrual.AcquisitionEnd.Date;
@@ -336,9 +302,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
             var faltas = VacationEntitlement.CountUnjustifiedFaltas(absences, accrual.AcquisitionStart, acquisitionEnd);
             accrual.EntitledDays = VacationEntitlement.EntitledDaysFor(faltas);
 
-            // Booked leave that has already been enjoyed stops being a reservation and becomes
-            // history. Counted off the absence rows rather than tracked incrementally, so a
-            // cancelled or edited absence is reflected instead of drifting.
             var taken = absences
                 .Where(x => x.IsActive == true
                             && x.Type == (int)EnumEmployeeAbsenceType.Vacation
@@ -356,8 +319,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
             accrual.TakenDays = Math.Min(taken, accrual.EntitledDays);
             accrual.ScheduledDays = Math.Max(0, Math.Min(booked, accrual.EntitledDays) - accrual.TakenDays);
 
-            // Sold days are a decision, not an observation — nothing in the absence table records
-            // them, so they survive a reconcile untouched.
             accrual.SoldDays = Math.Min(accrual.SoldDays, accrual.EntitledDays);
 
             accrual.Status = (int)(today <= acquisitionEnd
@@ -385,10 +346,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         /// <summary>
         /// Every período aquisitivo the employee's tenure has begun, oldest first.
         /// </summary>
-        /// <remarks>
-        /// Bounded by the termination date when there is one: a former employee stops earning new
-        /// periods, though the ones already open stay owed.
-        /// </remarks>
         private static IEnumerable<(DateTime Start, DateTime End)> AcquisitionPeriods(Employee employee, DateTime today)
         {
             var horizon = employee.TerminationDate?.Date is { } termination && termination < today ? termination : today;
@@ -396,7 +353,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
 
             while (start <= horizon)
             {
-                // Inclusive end: the day before the next anniversary.
                 yield return (start, start.AddMonths(VacationEntitlement.AcquisitionMonths).AddDays(-1));
                 start = start.AddMonths(VacationEntitlement.AcquisitionMonths);
             }

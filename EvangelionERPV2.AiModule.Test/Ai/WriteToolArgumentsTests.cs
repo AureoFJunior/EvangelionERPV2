@@ -57,7 +57,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             var result = await Invoke(tool, new() { ["produtoId"] = Guid.NewGuid().ToString(), ["preco"] = 15m });
 
-            // The product does not exist in this mock, which is as far as the argument binding needs to get.
             Assert.Contains("produto não encontrado", result);
         }
 
@@ -134,9 +133,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task AtualizarProduto_DoesNotTouchStockAtAll()
         {
-            // Stock only moves through ProductService.ApplyStockMovementAsync, which writes the
-            // ledger row. This tool assigning StorageQuantity is what made the scalar and the
-            // StockMovement history disagree.
             var id = Guid.NewGuid();
             var stored = new Product { Id = id, EnterpriseId = Context.EnterpriseId, Name = "teste", DefaultValue = 12m, StorageQuantity = 7m };
             var repository = new Mock<IRepository<Product>>();
@@ -167,7 +163,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             var service = new Mock<IProductService<Product>>();
             var tool = new AtualizarProdutoTool(service.Object, repository.Object);
 
-            // The model echoes the price it just read.
             var result = await Invoke(tool, new() { ["produtoId"] = id.ToString(), ["preco"] = 12m });
 
             Assert.Contains("nada para alterar", result);
@@ -195,11 +190,9 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             service.Verify(x => x.UpdateAsync(It.IsAny<Product>()), Times.Once);
         }
 
-
         [Fact]
         public async Task AtualizarProduto_ResolvesAnIdFragmentToTheProductItStartsWith()
         {
-            // The exact failure a live session hit: "5ecc3fd5" for 5ecc3fd5-496a-...
             var id = new Guid("5ecc3fd5-496a-4e79-83c6-da8633b96645");
             var tool = new AtualizarProdutoTool(
                 Mock.Of<IProductService<Product>>(), ProductsNamed((id, "Monster Rosa")));
@@ -226,7 +219,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
             Assert.Contains("mais de um produto começa com", prepared.Error);
         }
 
-
         [Fact]
         public async Task AtualizarProduto_AcceptsAWholeGuidThatPointsAtALiveProduct()
         {
@@ -244,8 +236,6 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         [Fact]
         public async Task AtualizarProduto_RefusesAWholeGuidForAProductThatIsNotLive()
         {
-            // A soft-deleted product took this path all the way to a confirmation card and then
-            // failed at execution, because ApplyStockMovementAsync only updates WHERE IsActive = 1.
             var tool = new AtualizarProdutoTool(
                 Mock.Of<IProductService<Product>>(), ProductsNamed());
 

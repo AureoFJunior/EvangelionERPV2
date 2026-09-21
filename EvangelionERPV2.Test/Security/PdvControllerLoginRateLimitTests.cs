@@ -19,10 +19,6 @@ namespace EvangelionERPV2.Test.Security
     /// credential on it is assumed to leak, and nothing else stands between a guesser and every
     /// cashier's password.
     /// </summary>
-    /// <remarks>
-    /// The counters are process-static, as the reset-password limiter they copy is, so every test
-    /// here uses a terminal id of its own. Sharing one would make these tests each other's load.
-    /// </remarks>
     public class PdvControllerLoginRateLimitTests
     {
         private const int MaxFailedAttempts = 5;
@@ -43,8 +39,6 @@ namespace EvangelionERPV2.Test.Security
         [Fact]
         public async Task Login_IsRateLimited_PerTerminal_EvenAcrossUserNames()
         {
-            // The one that matters: limiting per username alone lets an attacker spray one password
-            // across every cashier's account from a single till and never trip a thing.
             var terminalId = UniqueTerminalId();
             var controller = CreateController(terminalId);
 
@@ -64,7 +58,6 @@ namespace EvangelionERPV2.Test.Security
             for (var attempt = 0; attempt < MaxFailedAttempts + 1; attempt++)
                 await Attempt(noisyTerminal, "caixa01");
 
-            // A revoked or guessed-at till must not lock out the one next to it.
             Assert.IsType<UnauthorizedResult>(await Attempt(quietTerminal, "caixa01"));
         }
 
@@ -124,6 +117,5 @@ namespace EvangelionERPV2.Test.Security
 
             return settings.Object;
         }
-
     }
 }

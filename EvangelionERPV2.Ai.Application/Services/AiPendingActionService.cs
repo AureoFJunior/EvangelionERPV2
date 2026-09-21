@@ -96,8 +96,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 var value = await tool.Create(context).InvokeAsync(new AIFunctionArguments(arguments), cancellation);
                 var result = value?.ToString() ?? "{}";
 
-                // A tool reports a refusal in its payload rather than by throwing. Confirming used to
-                // answer "Feito." for those too, so a write that never happened read as done.
                 if (TryReadError(result, out var toolError))
                 {
                     Log.Logger.Warning("AI pending action refused by its tool. Tool={Tool}", action.ToolName);
@@ -116,7 +114,6 @@ namespace EvangelionERPV2.AiModule.Application.Services
             }
             catch (Exception ex)
             {
-                // The proposal stays Pending so the human can retry; the arguments are still good.
                 Log.Logger.Error("AI pending action failed. Tool={Tool} ErrorType={ErrorType}", action.ToolName, ex.GetType().Name);
                 return new AiPendingActionOutcome(false, "Não consegui executar a ação. Tente de novo.", "{}");
             }

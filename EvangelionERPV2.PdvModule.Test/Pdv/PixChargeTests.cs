@@ -17,11 +17,6 @@ namespace EvangelionERPV2.PdvModule.Test
     /// <summary>
     /// Raising a PIX charge, reading it, and refusing to raise one we should not.
     /// </summary>
-    /// <remarks>
-    /// Every gate here is asserted before Stripe is reached — verified by a strict provider mock
-    /// that fails the test if it is called at all. A shop discovers it cannot take PIX from a
-    /// greyed-out button, never from a customer standing at the counter with a bank app open.
-    /// </remarks>
     public class PixChargeTests : IDisposable
     {
         private readonly PdvTestContext _database = new();
@@ -49,8 +44,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task StartingTwiceForOneClientSaleId_ReturnsTheSameCharge()
         {
-            // The failure this prevents is a customer who pays twice and an operator who cannot
-            // tell. A resend after a lost response must find the intent, never open a second one.
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
             var provider = ProviderReturning("pi_1", "qr");
@@ -70,13 +63,8 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task AfterACancel_TheSameBasketCanTakePixAgain()
         {
-            // Handing back the cancelled charge left the operator with a dead QR and a poll that
-            // answers "cancelado" forever — PIX permanently unavailable for a basket whose customer
-            // is still standing there. An abandoned attempt is not an answer to "take PIX now".
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
-            // A fresh intent per call, as Stripe gives: the unique index on
-            // (EnterpriseId, ProviderIntentId) is what refuses a genuine duplicate.
             var provider = ProviderReturning("pi_1", "qr");
             provider.Setup(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<string>(),
                     It.IsAny<CancellationToken>()))
@@ -98,9 +86,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task AWindowThatClosed_IsWrittenDownAndTheBasketCanTryAgain()
         {
-            // Nothing else in the system writes Expired, so without this a charge whose window shut
-            // stays Pending forever — and the next attempt on that basket reuses it, which is the
-            // dead QR the cancel case already cost us once.
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
             var provider = ProviderReturning("pi_1", "qr");
@@ -127,8 +112,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task PollingAClosedWindow_StopsSayingPending()
         {
-            // The till polls this every second. Answering Pending forever leaves the operator
-            // watching a QR nobody can still scan.
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
             var service = CreateService(context, ProviderReturning("pi_1", "qr"));
@@ -147,8 +130,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task APaymentThatLandedInTheLastSecond_StillSettlesAnExpiredCharge()
         {
-            // Expired is this system's inference from a clock; Paid is the bank's. A customer whose
-            // PIX arrived must never be filed as timed out because our window shut first.
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
             var service = CreateService(context, ProviderReturning("pi_1", "qr"));
@@ -172,8 +153,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task ACancelledCharge_IsNotResurrectedByALateEvent()
         {
-            // Unlike expiry, a cancel was agreed with the provider before the row moved. Nothing
-            // arriving afterwards may undo it.
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
             var service = CreateService(context, ProviderReturning("pi_1", "qr"));
@@ -215,8 +194,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task AnOpenChargeForADifferentAmount_IsRefusedRatherThanReturned()
         {
-            // Returning the open QR would take a figure nobody agreed to. The operator cancels the
-            // one that is open and starts the one they meant.
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
             var service = CreateService(context, ProviderReturning("pi_1", "qr"));
@@ -254,8 +231,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task AnAmountOverThreeThousand_IsRefused()
         {
-            // R$ 3.000 is Stripe's PIX ceiling. Splitting it across several charges is deliberately
-            // not automated: multiple pending intents against one sale is a partial-payment mess.
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
             var service = CreateService(context, StrictProvider());
@@ -284,7 +259,6 @@ namespace EvangelionERPV2.PdvModule.Test
             var started = await service.StartPixChargeAsync(
                 new StartPixChargeRequestDTO { ClientSaleId = Guid.NewGuid(), Amount = 60m }, _enterpriseId);
 
-            // A strict provider on the read path: any call at all fails the test.
             var reader = CreateService(context, StrictProvider());
             var read = await reader.GetChargeAsync(started.ChargeId, _enterpriseId);
 
@@ -323,7 +297,6 @@ namespace EvangelionERPV2.PdvModule.Test
         [Fact]
         public async Task CancellingAnAlreadyPaidCharge_LeavesItPaid()
         {
-            // A customer who paid a second before Esc must not have their payment marked cancelled.
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
             var provider = ProviderReturning("pi_1", "qr");

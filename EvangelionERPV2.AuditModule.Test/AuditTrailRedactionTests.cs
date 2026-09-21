@@ -14,12 +14,6 @@ namespace EvangelionERPV2.AuditModule.Test
     /// pin the redaction, and — just as important — pin that ordinary business columns are still
     /// readable, because a trail that redacts everything records nothing.
     /// </summary>
-    /// <remarks>
-    /// Driven through a real <see cref="AppDbContext"/> on the in-memory provider rather than a
-    /// hand-built <c>EntityEntry</c>: the factory reads EF's change tracker, so faking it would
-    /// test the fake. The CID case lives in the host project's LGPD tests; this covers the rest of
-    /// the redaction set.
-    /// </remarks>
     public class AuditTrailRedactionTests
     {
         [Fact]
@@ -57,8 +51,6 @@ namespace EvangelionERPV2.AuditModule.Test
         [Fact]
         public async Task Edit_OfAPayableBill_RedactsTheRefundReasonAndKeepsTheMoney()
         {
-            // The counter-test to the one above. A refund reason is free text somebody types about
-            // a counterparty; an amount and a due date are the whole point of keeping the trail.
             var billId = Guid.NewGuid();
             var databaseName = $"audit-redaction-{Guid.NewGuid()}";
 
@@ -90,15 +82,12 @@ namespace EvangelionERPV2.AuditModule.Test
 
             Assert.Equal("[redacted]", ValueOf(changes, "RefundReason"));
 
-            // JsonElement, because the change set is serialized as object values.
             Assert.Equal(250m, ((JsonElement)ValueOf(changes, "Amount")!).GetDecimal());
         }
 
         [Fact]
         public async Task SoftDelete_IsRecordedAsADeleteNotAnEdit()
         {
-            // The trail has to be able to answer "when was this removed", and a soft delete is the
-            // only kind of removal this system performs.
             var customerId = Guid.NewGuid();
             var databaseName = $"audit-redaction-{Guid.NewGuid()}";
 
@@ -162,8 +151,6 @@ namespace EvangelionERPV2.AuditModule.Test
                 .UseInMemoryDatabase(databaseName)
                 .Options;
 
-            // No IHttpContextAccessor: with no ambient tenant the query filters stay open, which is
-            // what lets one context write the entity and the next one read its trail back.
             return new AppDbContext(options, httpContextAccessor: null, new AuditTrailEntryFactory());
         }
     }

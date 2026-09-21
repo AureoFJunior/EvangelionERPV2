@@ -24,8 +24,6 @@ namespace EvangelionERPV2.EnterpriseModule.Test
         [InlineData("  eur  ", "EUR")]
         public async Task CreateAsync_NormalizesTheCurrency(string? provided, string expected)
         {
-            // Every money column in this system is a bare decimal, so the currency code is the only
-            // thing saying what those numbers mean. It has to be one canonical form.
             var context = new ServiceContext();
 
             var created = await context.Service.CreateAsync(new Enterprise { Name = "NERV", Currency = provided! });
@@ -36,7 +34,6 @@ namespace EvangelionERPV2.EnterpriseModule.Test
         [Fact]
         public async Task CreateAsync_AssignsItsOwnId()
         {
-            // A caller-supplied id would let a request overwrite an existing tenant.
             var context = new ServiceContext();
             var attemptedId = Guid.NewGuid();
 
@@ -49,7 +46,6 @@ namespace EvangelionERPV2.EnterpriseModule.Test
         [Fact]
         public void Update_WithABlankCurrency_KeepsTheStoredOne()
         {
-            // An update that omits the currency must not silently re-denominate the company.
             var stored = new Enterprise { Id = Guid.NewGuid(), Name = "NERV", Currency = "USD", IsActive = true };
             var context = new ServiceContext(stored);
 
@@ -76,8 +72,6 @@ namespace EvangelionERPV2.EnterpriseModule.Test
         [Fact]
         public void Update_OfAnEnterpriseThatIsNotThere_ThrowsNotFound()
         {
-            // Not wrapped into InsertDatabaseException: the caller has to be able to tell "this row
-            // does not exist" from "the write failed", because only one of them is a 404.
             var context = new ServiceContext();
 
             Assert.Throws<NotFoundDatabaseException>(
@@ -99,8 +93,6 @@ namespace EvangelionERPV2.EnterpriseModule.Test
         [Fact]
         public void Delete_DeactivatesTheRowRatherThanRemovingIt()
         {
-            // Hard-deleting a tenant would orphan every row that points at it, and the audit trail
-            // that outlives it would have nothing to name.
             var stored = new Enterprise { Id = Guid.NewGuid(), Name = "NERV", IsActive = true };
             var context = new ServiceContext(stored);
 
