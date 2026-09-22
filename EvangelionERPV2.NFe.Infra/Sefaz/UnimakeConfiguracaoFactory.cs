@@ -17,8 +17,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
     {
         /// <summary>
         /// v1 UF allowlist: SP, PR, SC, RS. Endpoint resolution was verified for exactly these four
-        /// (docs/nfe/HANDOFF.md §7.3); anything else would be transmitted to an unverified
-        /// autorizador.
+        /// only; anything else would be transmitted to an unverified autorizador.
         /// </summary>
         private static readonly short[] AllowedUf = [35, 41, 42, 43];
 
@@ -112,7 +111,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             // Deliberately NOT set: WebEnderecoProducao, WebEnderecoHomologacao, RequestURI* and
             // every other URL property. The library resolves the SEFAZ endpoint from CodigoUF plus
             // TipoAmbiente alone. A tenant-reachable SEFAZ URL is an SSRF hole, so these must never
-            // gain a column, a DTO field or a config binding (docs/nfe/SPEC-engineering.md §7).
+            // gain a column, a DTO field or a config binding.
             return configuracao;
         }
     }

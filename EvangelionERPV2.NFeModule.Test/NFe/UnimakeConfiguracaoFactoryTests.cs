@@ -38,7 +38,7 @@ namespace EvangelionERPV2.NFeModule.Test.NFe
         /// <summary>
         /// The whole point of this file. TipoDFe and ModeloDFe are two different enums carrying
         /// two different numbers for the same document, and swapping them compiles cleanly and
-        /// fails silently at SEFAZ (docs/nfe/HANDOFF.md §7.2).
+        /// fails silently at SEFAZ.
         /// </summary>
         [Fact]
         public void Create_ForNFe_SetsBothEnumsWithoutCrossWiringThem()

@@ -73,7 +73,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
             if (provided < 4 || cnpj.Length != 14)
             {
                 Log.Logger.Warning(
-                    "infRespTec is configured but incomplete, so it was omitted from the note. See docs/fiscal/TODO-manual.md M13.");
+                    "infRespTec is configured but incomplete, so it was omitted from the note. Set the responsible technician's CNPJ, contact and email to include it.");
 
                 return null;
             }

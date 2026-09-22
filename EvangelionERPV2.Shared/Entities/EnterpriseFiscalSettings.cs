@@ -202,9 +202,9 @@ namespace EvangelionERPV2.Shared.Entities
 
         #region Contingency
 
-        // ponytail: inert placeholders. Offline NFCe and SVC contingency are out of scope v1
-        // (see docs/nfe/README.md); these exist so enabling them later is a code change, not a
-        // schema change. Nothing reads them today.
+        // ponytail: inert placeholders. Offline NFCe and SVC contingency are out of scope v1;
+        // these exist so enabling them later is a code change, not a schema change. Nothing reads
+        // them today.
 
         public bool ContingencyEnabled { get; set; }
 

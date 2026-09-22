@@ -10,7 +10,7 @@ namespace EvangelionERPV2.NFeModule.Application.Services
 {
     /// <summary>
     /// Owner of every document the issue path could not finish. Two states reach it and they must
-    /// never be confused (docs/nfe/HANDOFF.md §4):
+    /// never be confused:
     /// <list type="bullet">
     /// <item>transmitted, outcome unknown — ask SEFAZ and adopt the answer, never retransmit;</item>
     /// <item>never transmitted — provably nothing left this process, so the document goes back to

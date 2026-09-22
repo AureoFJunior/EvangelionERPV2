@@ -14,9 +14,8 @@ namespace EvangelionERPV2.Shared.Migrations
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // A férias bill's Amount is netted by the provision already accrued for it
-            // (docs/employee/SPEC-hr-module.md §4 P5a), so the gross has to be stored or the
-            // drawdown would allocate against its own output.
+            // A férias bill's Amount is netted by the provision already accrued for it, so the
+            // gross has to be stored or the drawdown would allocate against its own output.
             //
             // Nullable rather than defaulted: NULL reads as "gross equals Amount", which is true of
             // every bill written before this column existed and of every non-férias payable.

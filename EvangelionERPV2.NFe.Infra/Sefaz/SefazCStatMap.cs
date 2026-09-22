@@ -126,10 +126,9 @@ namespace EvangelionERPV2.NFeModule.Infra.Sefaz
 
             // ponytail: a single conservative catch-all. SEFAZ publishes hundreds of rejection
             // rules and not one line of this mapping has round-tripped against a real certificate
-            // yet (docs/fiscal/SPEC-remaining-code.md §2.1 — any cStat mapping written now ships
-            // unverified), so the codes above are the ones whose meaning is worth encoding and
-            // everything else is recorded verbatim as a rejection with its own cStat and xMotivo
-            // for a human to read. Split specific families out as real rejections are observed.
+            // yet, so any mapping written now ships unverified: the codes above are the ones whose
+            // meaning is worth encoding, and everything else is recorded verbatim as a rejection
+            // with its own cStat and xMotivo for a human to read. Split specific families out as real rejections are observed.
             _ => new SefazVerdict(NFeStatus.Rejected, false, false)
         };
     }

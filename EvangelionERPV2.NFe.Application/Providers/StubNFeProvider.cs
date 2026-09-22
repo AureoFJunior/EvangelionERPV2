@@ -6,8 +6,8 @@ namespace EvangelionERPV2.NFeModule.Application.Providers
 {
     /// <summary>
     /// Placeholder transport. Fabricates an authorization without contacting anybody, and is
-    /// deleted in phase 9 (docs/fiscal/SPEC-remaining-code.md §2.6). It is only safe because
-    /// NFeSettings.Enabled is false in every environment.
+    /// deleted once a real transport ships. It is only safe because NFeSettings.Enabled is false
+    /// in every environment.
     /// </summary>
     public sealed class StubNFeProvider : INFeProvider
     {

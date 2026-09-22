@@ -10,8 +10,8 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
     ///
     /// Pure and offline on purpose. The chave has to exist before the first byte reaches SEFAZ —
     /// it is what makes a timed-out transmission recoverable instead of a duplicate emission
-    /// (docs/nfe/HANDOFF.md §4). Every input is validated here because a malformed chave means a
-    /// rejected note or, worse, a burnt number.
+    /// on a retry. Every input is validated here because a malformed chave means a rejected note
+    /// or, worse, a burnt number.
     /// </summary>
     public static class NFeAccessKeyBuilder
     {

@@ -777,8 +777,8 @@ namespace EvangelionERPV2.BillsModule.Test
 
         /// <summary>
         /// The double-payment guard. Férias days are paid separately and up front by
-        /// <c>VacationPayService</c>, so the competência must stop paying ordinary salary for them —
-        /// see the blockquote in docs/employee/SPEC-hr-module.md §4 P5.
+        /// <c>VacationPayService</c>, so the competência must stop paying ordinary salary for them
+        /// or the same days are paid twice.
         /// </summary>
         [Fact]
         public async Task GeneratePayrollAsync_WithScheduledFerias_ShouldNotPayThoseDaysAgain()

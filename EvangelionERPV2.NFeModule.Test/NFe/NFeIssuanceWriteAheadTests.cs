@@ -14,7 +14,7 @@ using Moq;
 namespace EvangelionERPV2.NFeModule.Test.NFe
 {
     /// <summary>
-    /// The transmit-safe ordering from docs/nfe/HANDOFF.md §4: number and chave are allocated and
+    /// The transmit-safe ordering: number and chave are allocated and
     /// committed, then the write-ahead marker is committed, and only then is anything transmitted.
     /// </summary>
     public class NFeIssuanceWriteAheadTests
