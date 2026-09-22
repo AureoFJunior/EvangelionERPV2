@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using AutoMapper;
 using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.OrderModule.Application.Interface;

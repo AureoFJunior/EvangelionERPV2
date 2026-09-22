@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using AutoMapper;
 using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;

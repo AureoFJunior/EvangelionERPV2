@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using EvangelionERPV2.EmailModule.Application.Services;
 using EvangelionERPV2.OrderModule.Application.Services;
 using EvangelionERPV2.Web.Security;

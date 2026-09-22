@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.PdvModule.Application.Interface;
 using EvangelionERPV2.PdvModule.Application.Services;

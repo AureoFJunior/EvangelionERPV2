@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using EvangelionERPV2.AiModule.Application.Configs;
 using EvangelionERPV2.AiModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;

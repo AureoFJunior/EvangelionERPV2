@@ -31,12 +31,11 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using EvangelionERPV2.Web.Security;
 using EvangelionERPV2.Web.Services;
 using FluentValidation;
-using FluentValidation.AspNetCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Connections;
-using Microsoft.AspNetCore.Mvc.Versioning;
+using Asp.Versioning;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Http.Timeouts;
 using System.Threading.RateLimiting;
@@ -82,8 +81,6 @@ try
     Log.Logger.Information("Starting Swagger");
     AddSwaggerGen(builder);
 
-    builder.Services.AddFluentValidationAutoValidation();
-    builder.Services.AddFluentValidationClientsideAdapters();
     builder.Services.Configure<RequestLoggingOptions>(builder.Configuration.GetSection("RequestLogging"));
 
     Log.Logger.Information("Starting JWT"); 
@@ -302,18 +299,21 @@ static void SetupAPIVersioning(WebApplicationBuilder builder)
 {
     builder.Services.AddApiVersioning(opt =>
     {
-        opt.DefaultApiVersion = new Microsoft.AspNetCore.Mvc.ApiVersion(1, 0);
+        opt.DefaultApiVersion = new ApiVersion(1, 0);
         opt.AssumeDefaultVersionWhenUnspecified = true;
         opt.ReportApiVersions = true;
         opt.ApiVersionReader = ApiVersionReader.Combine(new UrlSegmentApiVersionReader(),
                                                         new HeaderApiVersionReader("x-api-version"),
                                                         new MediaTypeApiVersionReader("x-api-version"));
-    });
+    }).AddMvc();
 }
 
 static void SetupControllers(WebApplicationBuilder builder)
 {
-    builder.Services.AddControllers()
+    builder.Services.AddControllers(options =>
+       {
+           options.Filters.Add<FluentValidationActionFilter>(FluentValidationActionFilter.FilterOrder);
+       })
        .AddJsonOptions(options =>
        {
            options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
