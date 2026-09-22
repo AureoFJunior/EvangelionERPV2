@@ -94,7 +94,7 @@ namespace EvangelionERPV2.Test.Security
             ConfigureController(controller, enterpriseId, userId);
 
             var result = await controller.GetEnterprisesByFilter(
-                enterprise: new Enterprise(),
+                filter: new EnterpriseFilterRequestDTO(),
                 descending: true,
                 pageNumber: 2,
                 pageSize: 5000);

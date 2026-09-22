@@ -97,7 +97,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="descending">Order by type.</param>
         /// <param name="pageNumber">Number of the current page</param>
         /// <param name="pageSize">Size of the desired page</param>
-        /// <param name="enterprise">Object used to filter data.</param>
+        /// <param name="filter">Object used to filter data.</param>
         /// <returns></returns>
         [Authorize(Policy = "rbac:" + RbacPermissions.Enterprise.Read)]
         [HttpPost("{descending}/{pageNumber?}/{pageSize?}")]
@@ -106,7 +106,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetEnterprisesByFilter([FromBody] Enterprise enterprise, bool descending, int? pageNumber = null, int? pageSize = null)
+        public async Task<IActionResult> GetEnterprisesByFilter([FromBody] EnterpriseFilterRequestDTO? filter, bool descending, int? pageNumber = null, int? pageSize = null)
         {
             try
             {
@@ -116,8 +116,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                enterprise ??= new Enterprise();
-                enterprise.Id = enterpriseId;
+                var enterprise = new Enterprise
+                {
+                    Id = enterpriseId,
+                    Name = filter?.Name?.Trim() ?? string.Empty
+                };
 
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
                 IEnumerable<Enterprise> enterprises = await _enterpriseRepository.GetAllAsyncFiltering(
