@@ -116,7 +116,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var exposure = Round(await (
                 from order in realOrders
                 let bill = _context.Set<Bill>().AsNoTracking()
-                    .Where(candidate => candidate.IsActive == true
+                    .Where(candidate => (candidate.IsActive == null || candidate.IsActive == true)
                                         && candidate.OrderId == order.Id
                                         && candidate.Status != BillStatus.Cancelled)
                     .OrderByDescending(candidate => candidate.CreatedAt)
@@ -163,7 +163,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 // than called through a helper because EF does not inline a method into a query -
                 // it evaluates it client-side, where it throws.
                 let bill = _context.Set<Bill>().AsNoTracking()
-                    .Where(candidate => candidate.IsActive == true
+                    .Where(candidate => (candidate.IsActive == null || candidate.IsActive == true)
                                         && candidate.OrderId == order.Id
                                         && candidate.Status != BillStatus.Cancelled)
                     .OrderByDescending(candidate => candidate.CreatedAt)

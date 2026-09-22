@@ -235,7 +235,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                                 && order.RefundedAt == null
                                 && order.Status != (int)EnumOrderStatus.Refund
                           let bill = _context.Set<Bill>().AsNoTracking()
-                              .Where(candidate => candidate.IsActive == true
+                              .Where(candidate => (candidate.IsActive == null || candidate.IsActive == true)
                                                   && candidate.OrderId == order.Id
                                                   && candidate.Status != BillStatus.Cancelled)
                               .OrderByDescending(candidate => candidate.CreatedAt)
