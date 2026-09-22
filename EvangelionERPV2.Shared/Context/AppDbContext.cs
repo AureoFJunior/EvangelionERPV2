@@ -571,6 +571,7 @@ namespace EvangelionERPV2.Shared.Context
                 .OnDelete(DeleteBehavior.Cascade);
 
             ApplyTenantQueryFilters(modelBuilder);
+            ApplyInheritedTenantQueryFilters(modelBuilder);
         }
 
         /// <summary>
@@ -594,6 +595,59 @@ namespace EvangelionERPV2.Shared.Context
                     .MakeGenericMethod(entityType.ClrType)
                     .Invoke(this, [modelBuilder, tenantProperty]);
             }
+        }
+
+        /// <summary>
+        /// Scopes the entities that carry no <c>EnterpriseId</c> of their own through the required
+        /// parent that does. Without this they are the unfiltered end of a filtered relationship:
+        /// <c>Set&lt;Bill&gt;()</c> would return every tenant's boletos unless the caller remembered
+        /// to correlate it to an order.
+        /// <para>
+        /// Note the ceiling: a filter that reads through a required navigation expands to an inner
+        /// join, so a row whose parent is missing disappears even when
+        /// <see cref="AmbientEnterpriseId"/> is <see cref="Guid.Empty"/> and the filter is nominally
+        /// off. The database's foreign keys guarantee the parent exists; an in-memory fixture that
+        /// seeds children without parents does not, and will see the children vanish.
+        /// </para>
+        /// </summary>
+        private void ApplyInheritedTenantQueryFilters(ModelBuilder modelBuilder)
+        {
+
+            modelBuilder.Entity<Bill>().HasQueryFilter(bill =>
+                AmbientEnterpriseId == Guid.Empty || bill.Order!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<RefreshToken>().HasQueryFilter(token =>
+                AmbientEnterpriseId == Guid.Empty || token.User!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<PasswordResetToken>().HasQueryFilter(token =>
+                AmbientEnterpriseId == Guid.Empty || token.User!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<OrderedProduct>().HasQueryFilter(line =>
+                AmbientEnterpriseId == Guid.Empty || line.Product!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<QuoteItem>().HasQueryFilter(item =>
+                AmbientEnterpriseId == Guid.Empty || item.Quote!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<PayableBillProduct>().HasQueryFilter(item =>
+                AmbientEnterpriseId == Guid.Empty || item.PayableBill!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<OpportunitySignal>().HasQueryFilter(signal =>
+                AmbientEnterpriseId == Guid.Empty || signal.Opportunity!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<OpportunityRecommendation>().HasQueryFilter(recommendation =>
+                AmbientEnterpriseId == Guid.Empty || recommendation.Opportunity!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<OpportunityFeedback>().HasQueryFilter(feedback =>
+                AmbientEnterpriseId == Guid.Empty || feedback.Opportunity!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<AiMessage>().HasQueryFilter(message =>
+                AmbientEnterpriseId == Guid.Empty || message.AiConversation!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<AiPendingAction>().HasQueryFilter(action =>
+                AmbientEnterpriseId == Guid.Empty || action.AiConversation!.EnterpriseId == AmbientEnterpriseId);
+
+            modelBuilder.Entity<NotificationRead>().HasQueryFilter(read =>
+                AmbientEnterpriseId == Guid.Empty || read.Notification!.EnterpriseId == AmbientEnterpriseId);
         }
 
         private const string TenantPropertyName = "EnterpriseId";

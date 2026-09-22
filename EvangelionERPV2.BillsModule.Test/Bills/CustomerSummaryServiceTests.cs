@@ -44,10 +44,15 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
                 auditTrailEntryFactory: new NoopAuditTrailEntryFactory());
         }
 
-        private void Seed(IEnumerable<Order>? orders = null, IEnumerable<Bill>? bills = null, IEnumerable<OrderedProduct>? lines = null)
+        private void Seed(
+            IEnumerable<Order>? orders = null,
+            IEnumerable<Bill>? bills = null,
+            IEnumerable<OrderedProduct>? lines = null,
+            IEnumerable<Product>? products = null)
         {
             foreach (var order in orders ?? []) _context.Set<Order>().Add(order);
             foreach (var bill in bills ?? []) _context.Set<Bill>().Add(bill);
+            foreach (var product in products ?? []) _context.Set<Product>().Add(product);
             foreach (var line in lines ?? []) _context.Set<OrderedProduct>().Add(line);
             _context.SaveChanges();
         }
@@ -252,6 +257,11 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
                 {
                     new OrderedProduct { Id = Guid.NewGuid(), OrderId = order.Id, ProductId = ProductId, Quantity = 2m, Value = 100m, IsActive = true },
                     new OrderedProduct { Id = Guid.NewGuid(), OrderId = order.Id, ProductId = otherProductId, Quantity = 1m, Value = 800m, IsActive = true }
+                },
+                products: new[]
+                {
+                    new Product { Id = ProductId, EnterpriseId = EnterpriseId, Name = "LCL" },
+                    new Product { Id = otherProductId, EnterpriseId = EnterpriseId, Name = "Entry Plug" }
                 });
             _products.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>?>())).ReturnsAsync(new[]
             {

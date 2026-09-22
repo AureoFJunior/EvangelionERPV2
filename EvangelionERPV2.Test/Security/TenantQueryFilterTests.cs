@@ -154,6 +154,42 @@ namespace EvangelionERPV2.Test.Security
                 $"Entities carrying EnterpriseId with no tenant query filter: {string.Join(", ", unfiltered)}");
         }
 
+        [Fact]
+        public async Task AChildWithNoEnterpriseId_IsScopedThroughItsParent()
+        {
+            var harness = new TenantHarness();
+            await harness.SeedAsync();
+
+            harness.EnterRequestFor(TenantA);
+            using var context = harness.CreateContext();
+
+            var bills = await context.Set<Bill>().ToListAsync();
+
+            Assert.Equal(["A-Bill"], bills.Select(x => x.DocumentNumber));
+        }
+
+        [Fact]
+        public void NoFilteredEntity_IsTheRequiredEndOfAnUnfilteredRelationship()
+        {
+            var harness = new TenantHarness();
+            using var context = harness.CreateContext();
+
+            var gaps = context.Model.GetEntityTypes()
+                .Where(entityType => entityType.BaseType == null && HasQueryFilter(entityType))
+                .SelectMany(principal => principal.GetReferencingForeignKeys())
+                .Where(foreignKey => foreignKey.IsRequired && !HasQueryFilter(foreignKey.DeclaringEntityType))
+                .Select(foreignKey =>
+                    $"{foreignKey.PrincipalEntityType.ClrType.Name} -> {foreignKey.DeclaringEntityType.ClrType.Name}")
+                .Distinct()
+                .Order()
+                .ToList();
+
+            Assert.True(
+                gaps.Count == 0,
+                "Filtered principal with an unfiltered required dependent - EF warns 10622 and the "
+                + $"dependent's DbSet is not tenant-scoped: {string.Join(", ", gaps)}");
+        }
+
         private static bool HasQueryFilter(Microsoft.EntityFrameworkCore.Metadata.IEntityType entityType)
         {
 #pragma warning disable EF9100
@@ -212,6 +248,14 @@ namespace EvangelionERPV2.Test.Security
                     new Customer { Id = Guid.NewGuid(), Name = "A-Customer", EnterpriseId = TenantA, IsActive = true },
                     new Customer { Id = Guid.NewGuid(), Name = "B-Customer", EnterpriseId = TenantB, IsActive = true },
                     new Customer { Id = Guid.NewGuid(), Name = "Orphan", EnterpriseId = null, IsActive = true });
+
+                var orderA = new Order { Id = Guid.NewGuid(), EnterpriseId = TenantA, IsActive = true };
+                var orderB = new Order { Id = Guid.NewGuid(), EnterpriseId = TenantB, IsActive = true };
+                context.Order.AddRange(orderA, orderB);
+
+                context.Bill.AddRange(
+                    new Bill { Id = Guid.NewGuid(), OrderId = orderA.Id, DocumentNumber = "A-Bill", IsActive = true },
+                    new Bill { Id = Guid.NewGuid(), OrderId = orderB.Id, DocumentNumber = "B-Bill", IsActive = true });
 
                 await context.SaveChangesAsync();
             }
