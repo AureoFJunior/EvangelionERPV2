@@ -50,7 +50,7 @@ namespace EvangelionERPV2.Shared.Utils
         /// <para>
         /// Read with a passive declare, which does not create anything. Note the ceiling: a passive
         /// declare against a queue that does not exist closes the channel, so this is only safe
-        /// because <see cref="SetupChannel"/> declared both on this same channel at startup. If the
+        /// because <see cref="SetupChannelCore"/> declared both on this same channel at startup. If the
         /// queues are ever deleted underneath a running worker, this is not what breaks first.
         /// </para>
         /// </summary>
@@ -352,19 +352,6 @@ namespace EvangelionERPV2.Shared.Utils
             finally
             {
                 _publishChannelSlots.Release();
-            }
-        }
-
-        public void SetupChannel()
-        {
-            _channelLock.Wait();
-            try
-            {
-                SetupChannelCore();
-            }
-            finally
-            {
-                _channelLock.Release();
             }
         }
 

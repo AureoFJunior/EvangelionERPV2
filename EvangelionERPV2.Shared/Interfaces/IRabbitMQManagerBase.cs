@@ -34,6 +34,5 @@ namespace EvangelionERPV2.Shared.Interfaces
         Task<int> RedriveDeadLetteredAsync(int maxMessages, CancellationToken cancellationToken = default);
 
         Task EnqueueAsync<T>(T obj);
-        void SetupChannel();
     }
 }
