@@ -262,9 +262,6 @@ namespace EvangelionERPV2.Shared.Utils
         /// </summary>
         private const long DeadLetterRetention = 30L * 24 * 60 * 60 * 1000;
 
-        /// <summary>
-        /// Opens the connection, retrying a broker that is not answering yet.
-        /// </summary>
         private IConnection ConnectWithRetry(ConnectionFactory factory)
         {
             var delay = InitialConnectRetryDelay;
@@ -940,9 +937,6 @@ namespace EvangelionERPV2.Shared.Utils
             return exception is AlreadyClosedException or ObjectDisposedException;
         }
 
-        /// <summary>
-        /// Whether a channel can still be published on.
-        /// </summary>
         private static bool IsUsable(IChannel? channel)
         {
             try

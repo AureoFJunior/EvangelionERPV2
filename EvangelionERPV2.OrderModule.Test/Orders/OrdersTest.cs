@@ -422,7 +422,6 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
 
         #endregion
 
-        /// <summary>Points the enterprise mock at a tenant whose books are closed through a date.</summary>
         private void LockPeriodThrough(DateTime closedThroughUtc)
         {
             _mockIEnterpriseRepository

@@ -738,9 +738,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             return _enterpriseRepository.GetById(enterpriseId)?.ClosedThroughUtc;
         }
 
-        /// <summary>
-        /// Refuses an order that would put the customer past the limit set for them.
-        /// </summary>
         private async Task AssertWithinCreditLimitAsync(Order order, bool allowCreditOverride)
         {
             if (allowCreditOverride)

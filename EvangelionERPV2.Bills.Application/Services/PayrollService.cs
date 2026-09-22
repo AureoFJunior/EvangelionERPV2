@@ -355,9 +355,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return unpaidDays.Count;
         }
 
-        /// <summary>
-        /// The pay rule, in one place.
-        /// </summary>
         private static bool ReducesPay(EmployeeAbsence absence)
         {
             if (absence.Type == (int)EnumEmployeeAbsenceType.Vacation)

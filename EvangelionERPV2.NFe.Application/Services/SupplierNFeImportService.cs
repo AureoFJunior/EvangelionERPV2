@@ -264,9 +264,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             return true;
         }
 
-        /// <summary>
-        /// Saves the costs the match filled in.
-        /// </summary>
         private async Task PersistBackfilledCostsAsync(List<Product> costed)
         {
             if (costed.Count == 0)

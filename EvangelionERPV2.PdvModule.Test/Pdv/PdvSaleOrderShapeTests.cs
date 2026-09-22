@@ -70,7 +70,6 @@ namespace EvangelionERPV2.PdvModule.Test
                 new Repository<PdvCharge>(context),
                 PixProviderStubs.Object());
 
-        /// <summary>Opens a session and syncs one sale, returning the order the service built.</summary>
         private async Task<(PdvSaleSyncResultDTO Result, Order? Order)> SyncAsync(
             IEnumerable<PdvSalePaymentRequestDTO> payments, Guid? customerId = null)
         {

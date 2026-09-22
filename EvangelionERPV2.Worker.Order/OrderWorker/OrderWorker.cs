@@ -130,9 +130,6 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
             return await SharedFunctions.PostAsync<UserDTO>("User/LogInto", loginRequest, cancellationToken: cancellationToken);
         }
 
-        /// <summary>
-        /// Validates a queued order before it is replayed against the API.
-        /// </summary>
         private static CreateQueuedOrderRequestDTO ValidateQueuedOrder(CreateQueuedOrderRequestDTO order)
         {
             if (order == null)

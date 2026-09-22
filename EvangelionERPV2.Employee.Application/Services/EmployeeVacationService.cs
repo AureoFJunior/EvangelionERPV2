@@ -326,7 +326,6 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                 : StatusFor(accrual));
         }
 
-        /// <summary>Days of one booked stretch that are already in the past.</summary>
         private static int ElapsedDays(EmployeeAbsence absence, DateTime today)
         {
             var end = absence.EndDate.Date < today ? absence.EndDate.Date : today.AddDays(-1);

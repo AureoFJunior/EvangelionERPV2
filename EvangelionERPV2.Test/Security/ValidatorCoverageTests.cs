@@ -94,7 +94,6 @@ namespace EvangelionERPV2.Test.Security
             return false;
         }
 
-        /// <summary>The set of T for which some <c>AbstractValidator&lt;T&gt;</c> exists.</summary>
         private static HashSet<Type> ValidatedTypes(Assembly webAssembly)
         {
             var validated = new HashSet<Type>();
@@ -114,7 +113,6 @@ namespace EvangelionERPV2.Test.Security
             return validated;
         }
 
-        /// <summary>Every type a controller action accepts as a request body or form.</summary>
         private static IEnumerable<Type> BoundRequestTypes(Assembly webAssembly)
         {
             var controllers = webAssembly.GetTypes()

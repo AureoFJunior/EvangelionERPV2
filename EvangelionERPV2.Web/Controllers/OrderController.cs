@@ -428,9 +428,6 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
-        /// <summary>
-        /// Whether this caller may take an order past the customer's credit limit.
-        /// </summary>
         private async Task<bool> CanOverrideCreditLimitAsync()
         {
             var result = await _authorizationService.AuthorizeAsync(

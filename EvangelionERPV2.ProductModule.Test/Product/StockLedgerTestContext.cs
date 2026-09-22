@@ -29,9 +29,6 @@ namespace EvangelionERPV2.ProductModule.Test
             CreateTable(schema, typeof(Enterprise));
         }
 
-        /// <summary>
-        /// Creates one table from EF's own metadata.
-        /// </summary>
         private static void CreateTable(AppDbContext context, Type clrType)
         {
             var entityType = context.Model.FindEntityType(clrType)!;

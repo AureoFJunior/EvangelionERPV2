@@ -453,9 +453,6 @@ namespace EvangelionERPV2.Web.Controllers
             };
         }
 
-        /// <summary>
-        /// Copies the per-product fiscal overrides from a request body onto the entity.
-        /// </summary>
         private static void ApplyFiscalFields(IProductFiscalFields request, Product product)
         {
             product.Ncm = Trimmed(request.Ncm);
