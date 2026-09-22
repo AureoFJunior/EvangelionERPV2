@@ -38,6 +38,10 @@ services:
   # The API publishes no host port in production. Caddy reaches it over the Docker network, so
   # 8080 is not listening on the instance at all and the security group is not the only thing
   # between the internet and an unencrypted endpoint.
+  #
+  # It is also what makes the per-IP rate limiting real: AspNetCoreRateLimit identifies callers by
+  # the X-Real-IP header, which Caddy overwrites with the peer address. Publish this port and any
+  # caller can forge that header per request and never hit the 5/min cap on the login endpoints.
   evangelionerpv2:
     ports: !override []
 
