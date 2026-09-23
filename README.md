@@ -1049,6 +1049,51 @@ dotnet test EvangelionERPV2.AiModule.Test/EvangelionERPV2.AiModule.Test.csproj
 permission: `RbacControllerPolicyCoverageTests` fails when a new action has no policy row, and
 `TenantQueryFilterTests` fails when tenant isolation changes shape.
 
+## Code quality
+
+Static analysis runs in the build, not on a server. `SonarAnalyzer.CSharp` — the same C# rule engine
+SonarQube runs — is a Roslyn analyzer, so every `dotnet build` reports its findings on a developer's
+machine and in CI alike, with no service to host and nothing that stops working when the repository
+is private.
+
+It is wired in three files, and nothing else:
+
+| File | What it does |
+|---|---|
+| `Directory.Packages.props` | `<GlobalPackageReference Include="SonarAnalyzer.CSharp" />` — one line, all 62 projects, no csproj touched |
+| `Directory.Build.props` | turns the SDK's own analyzers on (`EnableNETAnalyzers`, `AnalysisMode`) and names the warnings that fail the build |
+| `.editorconfig` | per-rule severity — the only place a rule is promoted to `error` or downgraded, with a comment saying why |
+
+A rule that fails the build is a deliberate entry on a list that only grows; everything else reports
+as a warning. The promoted set starts with the async bugs this codebase is exposed to (`CS4014`
+fire-and-forget, `CS1998` async without await, `CA2016` dropped `CancellationToken`) and the
+security rules where a warning buried in a build log is the same as no warning at all (`S2068`
+hardcoded credentials, `S4830` certificate validation disabled, `S3649` SQL built from user input).
+
+Reproduce CI's analysis locally — it is just the build:
+
+```bash
+dotnet build EvangelionERPV2.sln -c Release
+```
+
+Silence a false positive in `.editorconfig` with a comment explaining why the analyzer is wrong.
+Use `#pragma warning disable` only when the rule is wrong *at that one call site*, and say so on the
+line above; the solution has 37 of them and the count is not meant to grow.
+
+Coverage is collected by coverlet and floored at the current measured number rather than an
+aspirational one:
+
+```bash
+dotnet test EvangelionERPV2.sln --collect:"XPlat Code Coverage;Format=opencover" \
+  --results-directory /tmp/cov
+```
+
+> **Not yet implemented.** The three files above do not exist in the repository today and no project
+> sets an analyzer property. `.github/workflows/sonarqube.yml` still submits to SonarCloud, whose
+> free tier is public-repositories-only and will stop working when this repository goes private. The
+> migration — including what a hosted dashboard would cost if it is missed later ($34/mo), and why a
+> self-hosted SonarQube is not worth its instance — is specified in `docs/quality/SPEC-sonarqube.md`.
+
 ## Important notes
 
 - Sensitive settings are resolved via AWS Secrets Manager in local and non-local environments.
