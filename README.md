@@ -1082,9 +1082,9 @@ dotnet test EvangelionERPV2.sln --collect:"XPlat Code Coverage;Format=opencover"
   --results-directory /tmp/cov
 ```
 
-Solution line coverage is **59.2%** (18 645 / 31 480, measured 2026-09-24, migrations and test
-assemblies excluded). `EvangelionERPV2.Web` holds 41% of all uncovered lines — controllers,
-`Security/`, `FluentValidator/` and the middleware pipeline.
+Solution line coverage is **62.4%** (19 656 / 31 490, measured 2026-09-24, migrations and test
+assemblies excluded). The gap is `EvangelionERPV2.Web/Controllers`, at 33.4% and 29% of every
+uncovered line in the solution; `Security/` is at 84.7% and `FluentValidator/` at 82.4%.
 
 Silence a false positive in `.editorconfig` with a comment explaining why the analyzer is wrong. Use
 `#pragma warning disable` only when the rule is wrong *at that one call site*, and say why on the
