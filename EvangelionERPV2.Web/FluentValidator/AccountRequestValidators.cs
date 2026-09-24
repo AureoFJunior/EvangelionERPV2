@@ -37,13 +37,20 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.RedirectUri)
                 .NotEmpty().WithMessage("Redirect uri is required.")
                 .MaximumLength(2048).WithMessage("Redirect uri is too long.")
-                .Must(uri => Uri.TryCreate(uri, UriKind.Absolute, out _))
-                    .WithMessage("Redirect uri must be an absolute uri.");
+                // The scheme check is not decoration. On Linux `Uri.TryCreate` accepts a rooted
+                // path such as "/oauth/callback" as an absolute file uri, so UriKind.Absolute
+                // alone did not mean what this rule says it means - and the API runs on Linux.
+                .Must(BeAnAbsoluteWebUri)
+                    .WithMessage("Redirect uri must be an absolute http or https uri.");
 
             RuleFor(x => x.CodeVerifier)
                 .NotEmpty().WithMessage("Code verifier is required.")
                 .Length(43, 128).WithMessage("Code verifier must be between 43 and 128 characters.");
         }
+
+        private static bool BeAnAbsoluteWebUri(string? uri) =>
+            Uri.TryCreate(uri, UriKind.Absolute, out var parsed)
+            && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps);
     }
 
     public sealed class RequestPasswordResetRequestValidator : AbstractValidator<UserController.RequestPasswordResetRequest>
