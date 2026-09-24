@@ -1051,48 +1051,34 @@ permission: `RbacControllerPolicyCoverageTests` fails when a new action has no p
 
 ## Code quality
 
-Static analysis runs in the build, not on a server. `SonarAnalyzer.CSharp` — the same C# rule engine
-SonarQube runs — is a Roslyn analyzer, so every `dotnet build` reports its findings on a developer's
-machine and in CI alike, with no service to host and nothing that stops working when the repository
-is private.
+Static analysis runs on **SonarCloud**, and the repository stays public so its free tier keeps
+working — `.github/workflows/sonarqube.yml` wraps the Release build and the test run with the
+MSBuild scanner (`begin` → build → test → `end`), imports coverlet's OpenCover report, and waits on
+the quality gate. The scanner has to wrap the build: C# analysis needs the MSBuild integration, and
+the CLI scanner alone is close to a no-op on a .NET solution.
 
-It is wired in three files, and nothing else:
-
-| File | What it does |
-|---|---|
-| `Directory.Packages.props` | `<GlobalPackageReference Include="SonarAnalyzer.CSharp" />` — one line, all 62 projects, no csproj touched |
-| `Directory.Build.props` | turns the SDK's own analyzers on (`EnableNETAnalyzers`, `AnalysisMode`) and names the warnings that fail the build |
-| `.editorconfig` | per-rule severity — the only place a rule is promoted to `error` or downgraded, with a comment saying why |
-
-A rule that fails the build is a deliberate entry on a list that only grows; everything else reports
-as a warning. The promoted set starts with the async bugs this codebase is exposed to (`CS4014`
-fire-and-forget, `CS1998` async without await, `CA2016` dropped `CancellationToken`) and the
-security rules where a warning buried in a build log is the same as no warning at all (`S2068`
-hardcoded credentials, `S4830` certificate validation disabled, `S3649` SQL built from user input).
-
-Reproduce CI's analysis locally — it is just the build:
+Reproduce what CI measures, minus the submission:
 
 ```bash
 dotnet build EvangelionERPV2.sln -c Release
-```
-
-Silence a false positive in `.editorconfig` with a comment explaining why the analyzer is wrong.
-Use `#pragma warning disable` only when the rule is wrong *at that one call site*, and say so on the
-line above; the solution has 37 of them and the count is not meant to grow.
-
-Coverage is collected by coverlet and floored at the current measured number rather than an
-aspirational one:
-
-```bash
 dotnet test EvangelionERPV2.sln --collect:"XPlat Code Coverage;Format=opencover" \
   --results-directory /tmp/cov
 ```
 
-> **Not yet implemented.** The three files above do not exist in the repository today and no project
-> sets an analyzer property. `.github/workflows/sonarqube.yml` still submits to SonarCloud, whose
-> free tier is public-repositories-only and will stop working when this repository goes private. The
-> migration — including what a hosted dashboard would cost if it is missed later ($34/mo), and why a
-> self-hosted SonarQube is not worth its instance — is specified in `docs/quality/SPEC-sonarqube.md`.
+Solution line coverage is **59.2%** (18 645 / 31 480, measured 2026-09-24, migrations and test
+assemblies excluded). `EvangelionERPV2.Web` holds 41% of all uncovered lines — controllers,
+`Security/`, `FluentValidator/` and the middleware pipeline.
+
+Use `#pragma warning disable` only when a rule is wrong *at that one call site*, and say why on the
+line above. The solution has 40 of them, 0 `[SuppressMessage]` and 0 `[ExcludeFromCodeCoverage]`;
+none of those counts is meant to grow.
+
+> **Planned, not implemented.** `docs/quality/SPEC-sonarqube.md` specifies six fixes to the workflow
+> and the gate — a failing test currently throws the whole analysis away, Sonar is never told the
+> tests ran, and `sonar.exclusions` is doing the job `sonar.coverage.exclusions` should — plus
+> `SonarAnalyzer.CSharp` as a `GlobalPackageReference` with a `Directory.Build.props` and an
+> `.editorconfig`, so the same rules also report at compile time instead of ten minutes after a push.
+> None of those three files exists yet and no project sets an analyzer property.
 
 ## Important notes
 
