@@ -517,7 +517,11 @@ namespace EvangelionERPV2.Shared.Utils
         private const int PasswordSaltSize = 16;
         private const int PasswordKeySize = 32;
         private const int PasswordIterations = 100_000;
+        // S2068: a prefix written into the stored hash so a verifier can tell the format apart.
+        // It is the algorithm's name, not a credential.
+#pragma warning disable S2068
         private const string PasswordHashPrefix = "PBKDF2";
+#pragma warning restore S2068
 
         public static string Encrypt(string value)
         {

@@ -19,7 +19,11 @@ namespace EvangelionERPV2.UserModule.Application.Services
     {
         private const int MaxTokenPersistAttempts = 2;
         private const int PasswordResetCleanupBatchSize = 200;
+        // S2068: a prefix written into the stored reset-token hash so a verifier can tell the
+        // format apart. It is the algorithm's name, not a credential.
+#pragma warning disable S2068
         private const string PasswordResetTokenHashPrefix = "HMAC256:";
+#pragma warning restore S2068
         private static readonly TimeSpan PasswordResetRetentionWindow = TimeSpan.FromDays(7);
         private static readonly TimeSpan PasswordResetCleanupInterval = TimeSpan.FromMinutes(10);
         private static long _lastPasswordResetCleanupTicks;

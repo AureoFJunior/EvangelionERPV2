@@ -22,6 +22,14 @@
     <PrometheusNetVersion>8.2.1</PrometheusNetVersion>
     <XunitVersion>2.9.3</XunitVersion>
   </PropertyGroup>
+  <!--
+    Applies to all 62 projects without a reference in any csproj. Same C# rule engine SonarCloud
+    runs, as a Roslyn analyzer, so a finding shows up while you type instead of ten minutes after a
+    push. Build-time only: nothing ships, nothing reaches the Docker image.
+  -->
+  <ItemGroup Label="Analyzers">
+    <GlobalPackageReference Include="SonarAnalyzer.CSharp" Version="10.34.0.3385" />
+  </ItemGroup>
   <ItemGroup Label="Entity Framework Core">
     <PackageVersion Include="Asp.Versioning.Mvc" Version="10.2.1" />
     <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />

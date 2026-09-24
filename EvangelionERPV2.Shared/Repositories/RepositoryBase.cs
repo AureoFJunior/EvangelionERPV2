@@ -346,12 +346,15 @@ namespace EvangelionERPV2.Shared.Repositories
             if (string.IsNullOrEmpty(table))
                 return;
 
-#pragma warning disable EF1002
+            // S2077: the interpolated value is a table name EF's own model metadata just returned,
+            // and the id - the part a caller could influence - is the parameter below. An identifier
+            // cannot be a parameter in any SQL dialect.
+#pragma warning disable EF1002, S2077
             await _context.Database.ExecuteSqlRawAsync(
                 $"SELECT TOP 1 1 FROM [{table}] WITH (UPDLOCK, HOLDLOCK) WHERE Id = {{0}}",
                 [id],
                 cancellation);
-#pragma warning restore EF1002
+#pragma warning restore EF1002, S2077
         }
 
         public virtual async Task<TEntity> CreateAsync(TEntity entity)

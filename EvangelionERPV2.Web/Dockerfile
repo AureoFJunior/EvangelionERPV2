@@ -40,7 +40,7 @@ WORKDIR /src
 
 # Copy solution and project files first to maximize restore layer caching
 COPY global.json ./
-COPY Directory.Packages.props ./
+COPY Directory.Packages.props Directory.Build.props .editorconfig ./
 COPY EvangelionERPV2.sln ./
 COPY EvangelionERPV2.Web/EvangelionERPV2.Web.csproj EvangelionERPV2.Web/
 COPY EvangelionERPV2.Audit.Application/*.csproj EvangelionERPV2.Audit.Application/
