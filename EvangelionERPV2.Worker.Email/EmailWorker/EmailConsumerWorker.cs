@@ -144,6 +144,13 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                 };
             }
 
+            // A secret that opens with a brace was meant to be JSON. Falling through to the
+            // separator split would find the colon inside `{"username":"worker"}` and log in as
+            // `{"username"` - a nonsense attempt instead of the "missing or invalid" the caller
+            // logs, which is the only signal an operator gets that the secret is malformed.
+            if (trimmed.StartsWith("{", StringComparison.Ordinal))
+                return null;
+
             var separators = new[] { "|", ";", ":", "/" };
             foreach (var separator in separators)
             {
