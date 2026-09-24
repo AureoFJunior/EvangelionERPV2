@@ -37,7 +37,7 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
 
             var entity = context.Model.FindEntityType(typeof(ProcessedMessage));
             Assert.NotNull(entity);
-            Assert.Null(entity!.GetQueryFilter());
+            Assert.Empty(entity!.GetDeclaredQueryFilters());
         }
 
         [Fact]
