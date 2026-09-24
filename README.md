@@ -1051,13 +1051,30 @@ permission: `RbacControllerPolicyCoverageTests` fails when a new action has no p
 
 ## Code quality
 
-Static analysis runs on **SonarCloud**, and the repository stays public so its free tier keeps
-working — `.github/workflows/sonarqube.yml` wraps the Release build and the test run with the
-MSBuild scanner (`begin` → build → test → `end`), imports coverlet's OpenCover report, and waits on
-the quality gate. The scanner has to wrap the build: C# analysis needs the MSBuild integration, and
-the CLI scanner alone is close to a no-op on a .NET solution.
+Two layers, same rule engine. **SonarCloud** analyses every push and pull request — the repository
+stays public, so its free tier keeps working — and `SonarAnalyzer.CSharp` runs the same C# rules
+*inside the build*, so a finding shows up while you type instead of ten minutes after a push.
 
-Reproduce what CI measures, minus the submission:
+The build-time half is wired in three files and nothing else:
+
+| File | What it does |
+|---|---|
+| `Directory.Packages.props` | `<GlobalPackageReference Include="SonarAnalyzer.CSharp" />` — one line, all 62 projects, no csproj touched |
+| `Directory.Build.props` | turns the SDK's own analyzers on (`EnableNETAnalyzers`, `AnalysisMode=Default`) |
+| `.editorconfig` | per-rule severity — the only place a rule is promoted to `error` or downgraded, each with a comment saying why |
+
+A rule that fails the build is a deliberate entry on a list that only grows: the async bugs this
+codebase is exposed to (`CS4014` fire-and-forget, `CS1998` async without await, `CA2016` dropped
+`CancellationToken`) and the security rules where a warning buried in a build log is the same as no
+warning at all (`S2068` hardcoded credentials, `S2077`/`S3649` SQL built by string, `S4830`
+certificate validation disabled, `S2259` null dereference). Everything else reports as a warning or
+a suggestion.
+
+> **A nested `.editorconfig` must not set `root = true`.** It stops the search at that directory, so
+> the root file's severities never reach that project. `EvangelionERPV2.Web/.editorconfig` had it,
+> and the rules silently skipped the controllers, `Security/` and the tenant gate.
+
+CI runs exactly this build, so reproduce it locally with nothing extra:
 
 ```bash
 dotnet build EvangelionERPV2.sln -c Release
@@ -1069,16 +1086,10 @@ Solution line coverage is **59.2%** (18 645 / 31 480, measured 2026-09-24, migra
 assemblies excluded). `EvangelionERPV2.Web` holds 41% of all uncovered lines — controllers,
 `Security/`, `FluentValidator/` and the middleware pipeline.
 
-Use `#pragma warning disable` only when a rule is wrong *at that one call site*, and say why on the
-line above. The solution has 40 of them, 0 `[SuppressMessage]` and 0 `[ExcludeFromCodeCoverage]`;
+Silence a false positive in `.editorconfig` with a comment explaining why the analyzer is wrong. Use
+`#pragma warning disable` only when the rule is wrong *at that one call site*, and say why on the
+line above. The solution has 42 of them, 0 `[SuppressMessage]` and 0 `[ExcludeFromCodeCoverage]`;
 none of those counts is meant to grow.
-
-> **Planned, not implemented.** `docs/quality/SPEC-sonarqube.md` specifies six fixes to the workflow
-> and the gate — a failing test currently throws the whole analysis away, Sonar is never told the
-> tests ran, and `sonar.exclusions` is doing the job `sonar.coverage.exclusions` should — plus
-> `SonarAnalyzer.CSharp` as a `GlobalPackageReference` with a `Directory.Build.props` and an
-> `.editorconfig`, so the same rules also report at compile time instead of ten minutes after a push.
-> None of those three files exists yet and no project sets an analyzer property.
 
 ## Important notes
 
