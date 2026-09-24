@@ -48,7 +48,9 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                     }
                     else
                     {
-                        await SharedFunctions.PostAsync<object>("Email/SendWeeklyStockBroadcast", new object(), user.Token);
+                        await SharedFunctions.PostAsync<object>(
+                            "Email/SendWeeklyStockBroadcast", new object(), user.Token,
+                            cancellationToken: stoppingToken);
                     }
 
                     Log.Logger.Information($"Email Stock Sender Worker running at: {DateTime.UtcNow}");

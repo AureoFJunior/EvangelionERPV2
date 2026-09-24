@@ -171,7 +171,7 @@ namespace EvangelionERPV2.Shared.Repositories
 
         public virtual Task CommitAsync(CancellationToken cancellation = default)
         {
-            return _context.SaveChangesAsync();
+            return _context.SaveChangesAsync(cancellation);
         }
 
         public virtual Task ExecuteInTransactionAsync(Func<Task> operation, CancellationToken cancellation = default)

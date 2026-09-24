@@ -112,11 +112,11 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                     await _supplierRepository.ExecuteInTransactionAsync(async () =>
                     {
                         await _supplierRepository.CreateAsync(supplierRecord);
-                        await _supplierRepository.CommitAsync();
+                        await _supplierRepository.CommitAsync(cancellation);
 
                         created.Add(await _payableBillService.CreateAsync(
                             bill, useAmbientTransaction: true, keepProvidedAmount: true));
-                    });
+                    }, cancellation);
 
                     supplierPending = false;
                     continue;

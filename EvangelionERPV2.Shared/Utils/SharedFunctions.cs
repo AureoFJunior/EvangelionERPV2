@@ -386,7 +386,7 @@ namespace EvangelionERPV2.Shared.Utils
 
             if (response.IsSuccessStatusCode)
             {
-                var content = await response.Content.ReadAsStringAsync();
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
                 return JsonSerializer.Deserialize<T>(content, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
@@ -415,7 +415,7 @@ namespace EvangelionERPV2.Shared.Utils
             var response = await _httpClient.SendAsync(request, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
-                var responseContent = await response.Content.ReadAsStringAsync();
+                var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 return JsonSerializer.Deserialize<T>(responseContent, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true

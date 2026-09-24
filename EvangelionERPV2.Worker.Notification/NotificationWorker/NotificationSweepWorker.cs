@@ -48,7 +48,8 @@ namespace EvangelionERPV2.Worker.NotificationModule.NotificationWorker
                     }
 
                     var result = await SharedFunctions.PostAsync<NotificationSweepResultDTO>(
-                        "Notification/SweepAlerts", new object(), user.Token);
+                        "Notification/SweepAlerts", new object(), user.Token,
+                        cancellationToken: stoppingToken);
 
                     Log.Logger.Information(
                         "Notification sweep finished. Scanned={Scanned} Notified={Notified} Failed={Failed}",
