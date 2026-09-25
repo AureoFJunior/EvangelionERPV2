@@ -16,7 +16,7 @@ using Serilog;
 
 namespace EvangelionERPV2.OrderModule.Application.Services
 {
-    public class OrderService : IOrderService<Order>, IDisposable
+    public class OrderService : IOrderService<Order>
     {
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Order> _orderRepository;
         private readonly IOrderRepository<Order> _orderRepositoryCustom;
@@ -31,7 +31,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         private readonly IHubContext<OrderHub>? _orderHubContext;
         private readonly AppDbContext? _appDbContext;
 
-        private bool disposed;
 
         public OrderService(EvangelionERPV2.Shared.Repositories.IRepository<Order> orderRepository,
             IOrderRepository<Order> orderRepositoryCustom,
@@ -860,25 +859,5 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
         #endregion
 
-        #region Dispose Pattern
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposed)
-            {
-                if (disposing)
-                {
-                }
-
-                disposed = true;
-            }
-        }
-
-        #endregion
     }
 }

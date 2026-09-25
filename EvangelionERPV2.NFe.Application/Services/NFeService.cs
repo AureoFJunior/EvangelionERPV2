@@ -13,7 +13,7 @@ using System.Globalization;
 
 namespace EvangelionERPV2.NFeModule.Application.Services
 {
-    public class NFeService : INFeService<NFeDocument>, IDisposable
+    public class NFeService : INFeService<NFeDocument>
     {
         private const int IssuanceLockPoolSize = 256;
 
@@ -41,7 +41,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<PdvSale> _pdvSaleRepository;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<PdvSalePayment> _pdvPaymentRepository;
 
-        private bool disposed;
 
         public NFeService(
             EvangelionERPV2.Shared.Repositories.IRepository<NFeDocument> nfeRepository,
@@ -635,26 +634,6 @@ namespace EvangelionERPV2.NFeModule.Application.Services
             return document;
         }
 
-        #region Dispose Pattern
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposed)
-            {
-                if (disposing)
-                {
-                }
-
-                disposed = true;
-            }
-        }
-
-        #endregion
 
         private static SemaphoreSlim[] CreateIssuanceLocks()
         {

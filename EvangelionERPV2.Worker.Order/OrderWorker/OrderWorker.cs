@@ -39,7 +39,8 @@ namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
                     using var scope = _serviceScopeFactory.CreateScope();
                     var rabbitMQManager = scope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
                     var kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-                    var key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+                    var key = await kmsProvider.GetKMSKeyAsync(
+                        _configuration.GetSection("SelfAPIAuth").Value ?? string.Empty, stoppingToken);
 
                     Log.Logger.Information("Order Worker consuming from {Time}", DateTime.UtcNow);
 

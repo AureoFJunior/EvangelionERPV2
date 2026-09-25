@@ -31,7 +31,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         public readonly IProductService<Product> _productService;
         private readonly AWSKMSKeyProvider _kmsProvider;
         private readonly IConfiguration _configuration;
-        private bool disposed;
         private const string AllowPrivateSmtpDestinationsConfigKey = "Security:AllowPrivateSmtpDestinations";
         private const string EnableInteractiveGoogleOAuthFallbackConfigKey = "EmailSettings:EnableInteractiveGoogleOAuthFallback";
 
@@ -846,25 +845,5 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             return await credential.GetAccessTokenForRequestAsync();
         }
 
-        #region Dispose Pattern
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposed)
-            {
-                if (disposing)
-                {
-                }
-
-                disposed = true;
-            }
-        }
-
-        #endregion
     }
 }

@@ -15,7 +15,7 @@ using System.Net;
 
 namespace EvangelionERPV2.ProductModule.Application.Services
 {
-    public class ProductService : IProductService<Product>, IDisposable
+    public class ProductService : IProductService<Product>
     {
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _productRepository;
         private IAmazonS3? _s3Client;
@@ -24,7 +24,6 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         private readonly IProductReportGeneratorService _productReportGeneratorService;
         private readonly AppDbContext _appDbContext;
 
-        private bool disposed;
 
         public ProductService(EvangelionERPV2.Shared.Repositories.IRepository<Product> productRepository,
             IConfiguration configuration,
@@ -578,25 +577,5 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             return _s3Client;
         }
 
-        #region Dispose Pattern
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposed)
-            {
-                if (disposing)
-                {
-                }
-
-                disposed = true;
-            }
-        }
-
-        #endregion
     }
 }

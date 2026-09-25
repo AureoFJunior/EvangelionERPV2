@@ -17,7 +17,7 @@ using BillEntity = EvangelionERPV2.Shared.Entities.Bill;
 
 namespace EvangelionERPV2.BillsModule.Application.Services
 {
-    public class BillsService : IBillsService<BillEntity>, IDisposable
+    public class BillsService : IBillsService<BillEntity>
     {
         /// <summary>
         /// Counted, not just logged: a bill that goes out without its PDF is invisible in every
@@ -36,7 +36,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<BillNumberSequence> _sequenceRepository;
         private readonly Func<IEmailService<EmailStructure>> _emailServiceFactory;
         private readonly BillsSettings _settings;
-        private bool disposed;
 
         public BillsService(
             EvangelionERPV2.Shared.Repositories.IRepository<BillEntity> billRepository,
@@ -659,25 +658,5 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return trimmed.All(c => c == '0') ? string.Empty : trimmed;
         }
 
-        #region Dispose Pattern
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposed)
-            {
-                if (disposing)
-                {
-                }
-
-                disposed = true;
-            }
-        }
-
-        #endregion
     }
 }

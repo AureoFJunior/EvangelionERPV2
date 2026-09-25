@@ -46,6 +46,13 @@ dotnet_diagnostic.S2737.severity = suggestion
 # and on values EF materialises.
 dotnet_diagnostic.S6562.severity = suggestion
 
+# Every one of the remaining sites is a narrow `catch (SpecificException)` where the exception is
+# the expected, uninteresting answer - a delete that finds the row already gone, an S3 read with no
+# cached thumbnail, a parse that falls through to the next format. Filling those blocks would mean
+# writing a comment that restates the catch, and the five empty dispose bodies it also caught have
+# been deleted outright.
+dotnet_diagnostic.S108.severity = suggestion
+
 # Heavy in EF-facing code and noisy to fix in bulk. Kept visible in the IDE, out of the build log.
 dotnet_diagnostic.CA1848.severity = suggestion
 

@@ -72,7 +72,8 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
         private async Task<UserDTO?> GetAPIToken(IServiceScope scope)
         {
             var kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-            var key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+            var key = await kmsProvider.GetKMSKeyAsync(
+                _configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
 
             if (!SelfApiCredential.TryParse(key, out var userName, out var password))
             {

@@ -108,7 +108,8 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
             string key = string.Empty;
 
             var kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-            key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
+            key = await kmsProvider.GetKMSKeyAsync(
+                _configuration.GetSection("SelfAPIAuth").Value ?? string.Empty, cancellationToken);
 
             var loginRequest = BuildLoginRequest(key);
             if (loginRequest == null)

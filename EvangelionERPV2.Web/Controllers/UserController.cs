@@ -244,8 +244,8 @@ namespace EvangelionERPV2.Web.Controllers
                 var clientIdName = _configuration.GetSection("GoogleSettings")["ClientId"] ?? string.Empty;  
                 var clientSecretName = _configuration.GetSection("GoogleSettings")["ClientSecret"] ?? string.Empty;
 
-                var clientId = _kmsProvider.GetKMSKey(clientIdName);
-                var clientSecret = _kmsProvider.GetKMSKey(clientSecretName);
+                var clientId = await _kmsProvider.GetKMSKeyAsync(clientIdName);
+                var clientSecret = await _kmsProvider.GetKMSKeyAsync(clientSecretName);
 
                 if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
                 {

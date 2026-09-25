@@ -159,7 +159,8 @@ namespace EvangelionERPV2.UserModule.Application.Services
             if (string.IsNullOrWhiteSpace(idToken))
                 throw new ArgumentException("idToken is required", nameof(idToken));
 
-            var clientId = _kmsProvider.GetKMSKey(_configuration.GetSection("GoogleSettings")["ClientId"] ?? string.Empty);
+            var clientId = await _kmsProvider.GetKMSKeyAsync(
+                _configuration.GetSection("GoogleSettings")["ClientId"] ?? string.Empty);
             if (string.IsNullOrWhiteSpace(clientId))
             {
                 Log.Logger.Error("Google client id is not configured.");
