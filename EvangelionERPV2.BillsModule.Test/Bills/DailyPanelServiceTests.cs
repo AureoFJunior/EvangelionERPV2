@@ -237,8 +237,6 @@ namespace EvangelionERPV2.BillsModule.Test
 
             return new DailyPanelService(
                 context,
-                Repo(bills ?? []).Object,
-                Repo(payables ?? []).Object,
                 Repo(nfeDocuments ?? []).Object,
                 Repo(fiscalSettings ?? []).Object,
                 Repo(bankLines ?? []).Object,

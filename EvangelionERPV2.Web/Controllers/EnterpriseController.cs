@@ -21,29 +21,24 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class EnterpriseController : Controller
     {
-        private const int DefaultPageNumber = 1;
-        private const int DefaultPageSize = 50;
         private const int MaxPageSize = 200;
         private const int MaxEnterpriseWriteRequestBodySizeInBytes = 64 * 1024;
 
         private readonly IEnterpriseRepository<Enterprise> _enterpriseRepository;
         private readonly IEnterpriseService<Enterprise> _enterpriseService;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _repository;
-        private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
         private readonly IAuthorizationService _authorizationService;
 
         public EnterpriseController(IEnterpriseService<Enterprise> enterpriseService,
             EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> repository,
             IEnterpriseRepository<Enterprise> enterpriseRepository,
-            IRepository<User> userRepository,
             IMapper mapper,
             IAuthorizationService authorizationService)
         {
             _enterpriseService = enterpriseService;
             _repository = repository;
             _enterpriseRepository = enterpriseRepository;
-            _userRepository = userRepository;
             _mapper = mapper;
             _authorizationService = authorizationService;
         }
@@ -230,7 +225,7 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (request == null) return BadRequest("Enterprise payload is required.");
-                if (!TryGetEnterpriseId(out var enterpriseId))
+                if (!TryGetEnterpriseId(out _))
                     return Unauthorized();
 
                 var enterprise = new Enterprise

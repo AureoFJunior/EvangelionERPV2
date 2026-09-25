@@ -135,7 +135,6 @@ namespace EvangelionERPV2.Test.Security
                     service.Object,
                     repository.Object,
                     new Mock<IEnterpriseRepository<Enterprise>>(MockBehavior.Strict).Object,
-                    userRepository.Object,
                     mapper.Object,
                     new Mock<IAuthorizationService>().Object)
                 {

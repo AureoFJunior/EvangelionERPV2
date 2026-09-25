@@ -23,8 +23,6 @@ namespace EvangelionERPV2.Web.Controllers
     public class ProductController : Controller
     {
         private const int MaxImageUploadRequestBodySizeInBytes = 8 * 1024 * 1024;
-        private const int DefaultPageNumber = 1;
-        private const int DefaultPageSize = 50;
         private const int MaxPageSize = 200;
         private const int MaxPageSizeWithPictures = 50;
 

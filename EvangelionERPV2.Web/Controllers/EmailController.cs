@@ -29,16 +29,10 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxEmailUserNameLength = 320;
         private const int MaxEmailPasswordLength = 512;
         private readonly IEmailService<EmailStructure> _emailService;
-        private readonly IRepository<Shared.Entities.User> _userRepository;
-        private readonly IMapper _mapper;
 
-        public EmailController(IEmailService<EmailStructure> emailService,
-            IRepository<Shared.Entities.User> userRepository,
-            IMapper mapper)
+        public EmailController(IEmailService<EmailStructure> emailService)
         {
             _emailService = emailService;
-            _userRepository = userRepository;
-            _mapper = mapper;
         }
 
         /// <summary>

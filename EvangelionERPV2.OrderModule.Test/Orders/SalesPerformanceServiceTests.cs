@@ -40,7 +40,7 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
                 .Build();
 
         private SalesPerformanceService BuildService() =>
-            new(_context, _cache, CacheConfig(true), _orders.Object, _bills.Object, _users.Object, _goals.Object);
+            new(_context, _cache, CacheConfig(true), _users.Object, _goals.Object);
 
         private void Given(IEnumerable<Order> orders, IEnumerable<Bill> bills, decimal? commissionRate, decimal? target)
         {
@@ -445,7 +445,7 @@ namespace EvangelionERPV2.OrderModule.Test.Orders
         {
             Given([Sale(1000m, payday: new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc))], [], commissionRate: 0.05m, target: null);
 
-            var service = new SalesPerformanceService(_context, new ThrowingCache(), CacheConfig(true), _orders.Object, _bills.Object, _users.Object, _goals.Object);
+            var service = new SalesPerformanceService(_context, new ThrowingCache(), CacheConfig(true), _users.Object, _goals.Object);
 
             var performance = await service.GetPerformanceAsync(EnterpriseId, 2026, 8);
 

@@ -30,7 +30,7 @@ namespace EvangelionERPV2.BillsModule.Test.Bills
         private readonly AppDbContext _context = BuildContext();
 
         private CustomerSummaryService BuildService() =>
-            new(_customers.Object, _orders.Object, _bills.Object, _lines.Object, _products.Object, _receivables.Object, _context);
+            new(_customers.Object, _products.Object, _receivables.Object, _context);
 
         private static AppDbContext BuildContext()
         {

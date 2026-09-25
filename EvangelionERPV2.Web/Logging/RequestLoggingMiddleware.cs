@@ -12,6 +12,12 @@ namespace EvangelionERPV2.Web.Logging
     {
         private const int MaxBodyLength = 10000;
         private const long MaxBodyBytesToReadForLogging = 256 * 1024;
+        /// <summary>
+        /// These run over the request body, whose size and shape the caller chooses. A redaction
+        /// pass with no ceiling is a way to spend the server's CPU by posting something long.
+        /// </summary>
+        private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
+
         private static readonly string[] SensitiveJsonFields =
         [
             "password",
@@ -246,20 +252,23 @@ namespace EvangelionERPV2.Web.Logging
                     redacted,
                     $"(\"{Regex.Escape(field)}\"\\s*:\\s*\")([^\"]*)(\")",
                     "$1***$3",
-                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                    RegexTimeout);
             }
 
             redacted = Regex.Replace(
                 redacted,
                 "(?i)(password|newPassword|token|refreshToken|refresh_token|authorizationCode|code|codeVerifier|idToken|id_token|accessToken|access_token|userName|email|document|cpf|cnpj|cpfCnpj|phoneNumber|firstName|lastName|adress|address|birthDate|metadataJson|clientSecret|client_secret|accessKey|file|profilePicture)=([^&\\s]+)",
                 "$1=***",
-                RegexOptions.CultureInvariant);
+                RegexOptions.CultureInvariant,
+                RegexTimeout);
 
             redacted = Regex.Replace(
                 redacted,
                 "(?i)(authorizationCode|code|codeVerifier|accessKey)=([^&\\s]+)",
                 "$1=***",
-                RegexOptions.CultureInvariant);
+                RegexOptions.CultureInvariant,
+                RegexTimeout);
 
             return redacted;
         }

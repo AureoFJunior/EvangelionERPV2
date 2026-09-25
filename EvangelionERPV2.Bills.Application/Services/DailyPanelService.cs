@@ -31,8 +31,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         /// </summary>
         private readonly AppDbContext _context;
 
-        private readonly IRepository<Bill> _billRepository;
-        private readonly IRepository<PayableBill> _payableBillRepository;
         private readonly IRepository<NFeDocument> _nfeDocumentRepository;
         private readonly IRepository<EnterpriseFiscalSettings> _fiscalSettingsRepository;
         private readonly IRepository<BankStatementLine> _bankStatementLineRepository;
@@ -41,8 +39,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         public DailyPanelService(
             AppDbContext context,
-            IRepository<Bill> billRepository,
-            IRepository<PayableBill> payableBillRepository,
             IRepository<NFeDocument> nfeDocumentRepository,
             IRepository<EnterpriseFiscalSettings> fiscalSettingsRepository,
             IRepository<BankStatementLine> bankStatementLineRepository,
@@ -50,8 +46,6 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             IDistributedCache cache)
         {
             _context = context;
-            _billRepository = billRepository;
-            _payableBillRepository = payableBillRepository;
             _nfeDocumentRepository = nfeDocumentRepository;
             _fiscalSettingsRepository = fiscalSettingsRepository;
             _bankStatementLineRepository = bankStatementLineRepository;

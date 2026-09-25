@@ -33,7 +33,7 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync(canReadPayroll ? AuthorizationResult.Success() : AuthorizationResult.Failed());
 
             var controller = new PayableBillsController(
-                    _service.Object, _userRepository.Object, Mapper(), authorization.Object)
+                    _service.Object, Mapper(), authorization.Object)
                 .WithTenant(_enterpriseId);
 
             if (query != null)
@@ -50,7 +50,7 @@ namespace EvangelionERPV2.Test.Security
                     It.IsAny<System.Security.Claims.ClaimsPrincipal>(), It.IsAny<object?>(), It.IsAny<string>()))
                 .ReturnsAsync(AuthorizationResult.Failed());
 
-            return new PayableBillsController(_service.Object, _userRepository.Object, Mapper(), authorization.Object)
+            return new PayableBillsController(_service.Object, Mapper(), authorization.Object)
                 .WithoutTenant();
         }
 

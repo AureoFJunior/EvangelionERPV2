@@ -50,13 +50,15 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxProfilePictureRequestBodySizeInBytes = 8 * 1024 * 1024;
         private const int MaxPasswordResetRequestBodySizeInBytes = 16 * 1024;
         private const int MaxAnonymousLoginRequestBodySizeInBytes = 32 * 1024;
-        private const int MaxPasswordLoginCandidates = 20;
         private const int MaxUserWriteRequestBodySizeInBytes = 64 * 1024;
+        private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
+
         private const int MaxGoogleAuthorizationCodeLength = 2048;
         private const int MaxGoogleRedirectUriLength = 2048;
-        private static readonly Regex GooglePkceCodeVerifierRegex = new("^[A-Za-z0-9\\-._~]{43,128}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
-        private const int DefaultPageNumber = 1;
-        private const int DefaultPageSize = 50;
+        private static readonly Regex GooglePkceCodeVerifierRegex = new(
+            "^[A-Za-z0-9\\-._~]{43,128}$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant,
+            RegexTimeout);
         private const int MaxPageSize = 200;
         private const int MaxPageSizeWithPictures = 50;
 
@@ -1027,7 +1029,8 @@ namespace EvangelionERPV2.Web.Controllers
             if (string.IsNullOrWhiteSpace(rawError))
                 return "unknown";
 
-            var normalized = Regex.Replace(rawError, "[^a-zA-Z0-9_.-]+", string.Empty, RegexOptions.CultureInvariant);
+            var normalized = Regex.Replace(
+                rawError, "[^a-zA-Z0-9_.-]+", string.Empty, RegexOptions.CultureInvariant, RegexTimeout);
             if (string.IsNullOrWhiteSpace(normalized))
                 return "unknown";
 
@@ -1082,7 +1085,7 @@ namespace EvangelionERPV2.Web.Controllers
                 return explicitAllowList.Contains(normalizedCandidateUri);
 
             var frontendBaseUrl = (_configuration.GetSection("Frontend")["BaseUrl"] ?? string.Empty).Trim();
-            if (!TryNormalizeAbsoluteUri(frontendBaseUrl, out var normalizedFrontendUri, out var frontendUri))
+            if (!TryNormalizeAbsoluteUri(frontendBaseUrl, out _, out var frontendUri))
                 return false;
 
             if (!IsAllowedRedirectUriScheme(frontendUri))

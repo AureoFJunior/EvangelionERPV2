@@ -23,8 +23,6 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private const int MaxOrderRequestBodySizeInBytes = 1 * 1024 * 1024;
         private const int MaxRefundReasonLength = 500;
-        private const int DefaultPageNumber = 1;
-        private const int DefaultPageSize = 50;
         private const int MaxPageSize = 200;
 
         private readonly IOrderService<Order> _orderService;

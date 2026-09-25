@@ -20,14 +20,11 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private const int MaxSimulationRequestBodySizeInBytes = 128 * 1024;
         private readonly ICashFlowForecastService _cashFlowForecastService;
-        private readonly IRepository<User> _userRepository;
 
         public CashFlowForecastController(
-            ICashFlowForecastService cashFlowForecastService,
-            IRepository<User> userRepository)
+            ICashFlowForecastService cashFlowForecastService)
         {
             _cashFlowForecastService = cashFlowForecastService;
-            _userRepository = userRepository;
         }
 
         [Authorize(Policy = "rbac:" + RbacPermissions.CashFlowForecast.Read)]
@@ -39,7 +36,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                if (!TryGetUserId(out var userId))
+                if (!TryGetUserId(out _))
                     return Unauthorized();
 
                 if (horizonInDays is not (30 or 60 or 90))
@@ -63,7 +60,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                if (!TryGetUserId(out var userId))
+                if (!TryGetUserId(out _))
                     return Unauthorized();
 
                 if (horizonInDays is not (30 or 60 or 90))

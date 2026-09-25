@@ -21,24 +21,18 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         // and leaves headroom for 90 days of projected movement. Public so the controller can
         // reject the same range on the balance-override endpoint.
         public const decimal MaxCurrentBalance = 1_000_000_000_000_000m;
-        private readonly IRepository<Order> _orderRepository;
         private readonly IRepository<PayableBill> _payableBillRepository;
-        private readonly IRepository<Bill> _billRepository;
         private readonly IRepository<Enterprise> _enterpriseRepository;
         private readonly IRepository<ForecastSimulationLog> _simulationLogRepository;
         private readonly AppDbContext _context;
 
         public CashFlowForecastService(
-            IRepository<Order> orderRepository,
             IRepository<PayableBill> payableBillRepository,
-            IRepository<Bill> billRepository,
             IRepository<Enterprise> enterpriseRepository,
             IRepository<ForecastSimulationLog> simulationLogRepository,
             AppDbContext context)
         {
-            _orderRepository = orderRepository;
             _payableBillRepository = payableBillRepository;
-            _billRepository = billRepository;
             _enterpriseRepository = enterpriseRepository;
             _simulationLogRepository = simulationLogRepository;
             _context = context;

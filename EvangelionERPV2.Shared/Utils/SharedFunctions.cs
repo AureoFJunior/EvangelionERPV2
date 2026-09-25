@@ -17,6 +17,13 @@ namespace EvangelionERPV2.Shared.Utils
 {
     public static class SharedFunctions
     {
+        /// <summary>
+        /// A bound on backtracking, not a performance knob. Several of these patterns run over a
+        /// value a caller chose — an e-mail, a storage key — and a regex with no ceiling turns a
+        /// long non-matching input into CPU the request never gives back.
+        /// </summary>
+        private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
+
         private static readonly HttpClient _httpClient;
         private static IConfiguration _configuration = null!;
         private static string _defaultApiUrl = string.Empty;
@@ -287,7 +294,8 @@ namespace EvangelionERPV2.Shared.Utils
                 (prefix ?? string.Empty).Trim().ToLowerInvariant(),
                 "[^a-z0-9/_-]+",
                 string.Empty,
-                RegexOptions.CultureInvariant)
+                RegexOptions.CultureInvariant,
+                RegexTimeout)
                 .Trim('/');
 
             if (string.IsNullOrWhiteSpace(normalizedPrefix))
@@ -465,7 +473,7 @@ namespace EvangelionERPV2.Shared.Utils
         {
             string pattern = @"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$";
 
-            return Regex.IsMatch(email, pattern);
+            return Regex.IsMatch(email, pattern, RegexOptions.None, RegexTimeout);
         }
 
         #endregion
@@ -551,9 +559,7 @@ namespace EvangelionERPV2.Shared.Utils
                             Buffer.BlockCopy(iv, 0, result, 0, iv.Length);
                             Buffer.BlockCopy(decryptedContent, 0, result, iv.Length, decryptedContent.Length);
 
-                            var str = Convert.ToBase64String(result);
-                            var fullCipher = Convert.FromBase64String(str);
-                            return str;
+                            return Convert.ToBase64String(result);
                         }
                     }
                 }
@@ -692,7 +698,7 @@ namespace EvangelionERPV2.Shared.Utils
 
         public static string ClearString(this string source)
         {
-            return Regex.Replace(source, "[^0-9a-zA-Z]+", "");
+            return Regex.Replace(source, "[^0-9a-zA-Z]+", "", RegexOptions.None, RegexTimeout);
         }
 
         #endregion
@@ -804,7 +810,8 @@ namespace EvangelionERPV2.Shared.Utils
                 return false;
             }
 
-            if (!Regex.IsMatch(trimmed, "^[A-Za-z0-9][A-Za-z0-9/_.-]{0,1023}$", RegexOptions.CultureInvariant))
+            if (!Regex.IsMatch(
+                    trimmed, "^[A-Za-z0-9][A-Za-z0-9/_.-]{0,1023}$", RegexOptions.CultureInvariant, RegexTimeout))
                 return false;
 
             normalizedKey = trimmed;

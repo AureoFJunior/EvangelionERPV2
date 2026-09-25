@@ -29,7 +29,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 new Enterprise { Id = enterpriseId, IsActive = true, Name = "E", CurrentBalance = 321.45m });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext());
+            var service = new CashFlowForecastService(payableRepo.Object, enterpriseRepo.Object, logRepo.Object, BuildContext());
 
             var result = await service.GetForecastAsync(enterpriseId, 5);
 
@@ -63,7 +63,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
+            var service = new CashFlowForecastService(payableRepo.Object, enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 100);
 
@@ -84,7 +84,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync(new Enterprise { Id = Guid.NewGuid(), CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext());
+            var service = new CashFlowForecastService(payableRepo.Object, enterpriseRepo.Object, logRepo.Object, BuildContext());
 
             await Assert.ThrowsAsync<ArgumentException>(() => service.RunSimulationAsync(Guid.NewGuid(), Guid.NewGuid(), new RunSimulationRequestDTO
             {
@@ -122,7 +122,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
+            var service = new CashFlowForecastService(payableRepo.Object, enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 0);
 
@@ -168,7 +168,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
+            var service = new CashFlowForecastService(payableRepo.Object, enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 200);
 
@@ -201,7 +201,7 @@ namespace EvangelionERPV2.BillsModule.Test
             enterpriseRepo.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var logRepo = new Mock<IRepository<ForecastSimulationLog>>();
-            var service = new CashFlowForecastService(orderRepo.Object, payableRepo.Object, BillRepoReturning(), enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
+            var service = new CashFlowForecastService(payableRepo.Object, enterpriseRepo.Object, logRepo.Object, BuildContext(orders));
 
             var result = await service.GetForecastAsync(enterpriseId, 30, 100);
 
@@ -403,9 +403,7 @@ namespace EvangelionERPV2.BillsModule.Test
                 .ReturnsAsync(new Enterprise { Id = enterpriseId, CurrentBalance = 0, IsActive = true, Name = "E" });
 
             var service = new CashFlowForecastService(
-                orderRepo.Object,
                 payableRepo.Object,
-                BillRepoReturning(bills),
                 enterpriseRepo.Object,
                 new Mock<IRepository<ForecastSimulationLog>>().Object,
                 BuildContext(orders, bills));

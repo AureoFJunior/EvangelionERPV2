@@ -18,26 +18,17 @@ namespace EvangelionERPV2.BillsModule.Application.Services
         private const int TopProductCount = 5;
 
         private readonly IRepository<Customer> _customerRepository;
-        private readonly IRepository<Order> _orderRepository;
-        private readonly IRepository<Bill> _billRepository;
-        private readonly IRepository<OrderedProduct> _orderedProductRepository;
         private readonly IRepository<Product> _productRepository;
         private readonly IReceivablesReportService _receivablesReportService;
         private readonly AppDbContext _context;
 
         public CustomerSummaryService(
             IRepository<Customer> customerRepository,
-            IRepository<Order> orderRepository,
-            IRepository<Bill> billRepository,
-            IRepository<OrderedProduct> orderedProductRepository,
             IRepository<Product> productRepository,
             IReceivablesReportService receivablesReportService,
             AppDbContext context)
         {
             _customerRepository = customerRepository;
-            _orderRepository = orderRepository;
-            _billRepository = billRepository;
-            _orderedProductRepository = orderedProductRepository;
             _productRepository = productRepository;
             _receivablesReportService = receivablesReportService;
             _context = context;

@@ -26,18 +26,15 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxRefundReasonLength = 500;
 
         private readonly IPayableBillService _payableBillService;
-        private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
         private readonly IAuthorizationService _authorizationService;
 
         public PayableBillsController(
             IPayableBillService payableBillService,
-            IRepository<User> userRepository,
             IMapper mapper,
             IAuthorizationService authorizationService)
         {
             _payableBillService = payableBillService;
-            _userRepository = userRepository;
             _mapper = mapper;
             _authorizationService = authorizationService;
         }
@@ -379,17 +376,6 @@ namespace EvangelionERPV2.Web.Controllers
             return existing != null
                    && IsPayrollBill(existing.BillType)
                    && !await CanAccessPayrollAsync();
-        }
-
-        private Guid? TryGetUserId()
-        {
-            var claimValue = User.FindFirst(ClaimTypes.Sid)?.Value
-                             ?? User.FindFirst("uid")?.Value;
-
-            if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
-                return userId;
-
-            return null;
         }
 
         private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)

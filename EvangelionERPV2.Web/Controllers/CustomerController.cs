@@ -23,8 +23,6 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class CustomerController : Controller
     {
-        private const int DefaultPageNumber = 1;
-        private const int DefaultPageSize = 50;
         private const int MaxPageSize = 200;
         private const int MaxCustomerWriteRequestBodySizeInBytes = 64 * 1024;
 

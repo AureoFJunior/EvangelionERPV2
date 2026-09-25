@@ -26,12 +26,12 @@ namespace EvangelionERPV2.Test.Security
                     It.IsAny<System.Security.Claims.ClaimsPrincipal>(), It.IsAny<object?>(), It.IsAny<string>()))
                 .ReturnsAsync(canOverrideCredit ? AuthorizationResult.Success() : AuthorizationResult.Failed());
 
-            return new QuoteController(_service.Object, authorization.Object, new Mock<IMapper>().Object)
+            return new QuoteController(_service.Object, authorization.Object)
                 .WithTenant(_enterpriseId);
         }
 
         private QuoteController Anonymous() =>
-            new QuoteController(_service.Object, new Mock<IAuthorizationService>().Object, new Mock<IMapper>().Object)
+            new QuoteController(_service.Object, new Mock<IAuthorizationService>().Object)
                 .WithoutTenant();
 
         private Quote NewQuote() => new()
@@ -242,10 +242,10 @@ namespace EvangelionERPV2.Test.Security
         private readonly Mock<IRepository<User>> _userRepository = new();
 
         private OpportunitiesController Controller() =>
-            new OpportunitiesController(_service.Object, _userRepository.Object).WithTenant(_enterpriseId, _userId);
+            new OpportunitiesController(_service.Object).WithTenant(_enterpriseId, _userId);
 
         private OpportunitiesController Anonymous() =>
-            new OpportunitiesController(_service.Object, _userRepository.Object).WithoutTenant();
+            new OpportunitiesController(_service.Object).WithoutTenant();
 
         [Fact]
         public async Task GetOpportunities_WithoutATenantClaim_IsUnauthorized()

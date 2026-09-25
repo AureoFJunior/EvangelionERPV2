@@ -41,8 +41,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         private static readonly TimeSpan ClosedMonthCacheTtl = TimeSpan.FromHours(12);
         private static readonly TimeSpan CurrentMonthCacheTtl = TimeSpan.FromSeconds(30);
 
-        private readonly IRepository<Order> _orderRepository;
-        private readonly IRepository<Bill> _billRepository;
         private readonly IRepository<User> _userRepository;
         private readonly IRepository<SalesGoal> _salesGoalRepository;
 
@@ -50,8 +48,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             AppDbContext context,
             IDistributedCache cache,
             IConfiguration configuration,
-            IRepository<Order> orderRepository,
-            IRepository<Bill> billRepository,
             IRepository<User> userRepository,
             IRepository<SalesGoal> salesGoalRepository)
         {
@@ -59,8 +55,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             _cache = cache;
 
             _cacheEnabled = configuration.GetValue<bool?>("SalesPerformance:CacheEnabled") ?? false;
-            _orderRepository = orderRepository;
-            _billRepository = billRepository;
             _userRepository = userRepository;
             _salesGoalRepository = salesGoalRepository;
         }

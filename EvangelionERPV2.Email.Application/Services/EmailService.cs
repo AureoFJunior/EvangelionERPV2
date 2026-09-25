@@ -678,16 +678,6 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                 var message = await CreateEmail(email, enterpriseId);
 
-                var messageSummary = new
-                {
-                    Subject = message.Subject,
-                    From = message.From.ToString(),
-                    To = message.To.ToString(),
-                    TextBody = message.TextBody,
-                    HtmlBody = message.HtmlBody,
-                    Date = message.Date
-                };
-
                 Log.Logger.Information("Sending email to the Queue");
                 using (var stream = new MemoryStream())
                 {

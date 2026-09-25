@@ -118,7 +118,6 @@ namespace EvangelionERPV2.Test.Security
                 _nfeServiceMock.Object,
                 _orderServiceMock.Object,
                 Mock.Of<ISupplierNFeImportService>(),
-                _userRepositoryMock.Object,
                 _mapperMock.Object);
 
             var identity = new ClaimsIdentity(claims, "TestAuthType");

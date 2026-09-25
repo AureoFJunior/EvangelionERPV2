@@ -25,16 +25,13 @@ namespace EvangelionERPV2.Web.Controllers
 
         private readonly IQuoteService _quoteService;
         private readonly IAuthorizationService _authorizationService;
-        private readonly IMapper _mapper;
 
         public QuoteController(
             IQuoteService quoteService,
-            IAuthorizationService authorizationService,
-            IMapper mapper)
+            IAuthorizationService authorizationService)
         {
             _quoteService = quoteService;
             _authorizationService = authorizationService;
-            _mapper = mapper;
         }
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Quotes.Read)]

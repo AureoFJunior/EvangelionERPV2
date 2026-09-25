@@ -65,7 +65,7 @@ namespace EvangelionERPV2.Test.Security
                     IsActive = source.IsActive
                 });
 
-            var controller = new EnterpriseController(service.Object, repository.Object, enterpriseRepository.Object, userRepository.Object, mapper.Object, new Mock<Microsoft.AspNetCore.Authorization.IAuthorizationService>().Object)
+            var controller = new EnterpriseController(service.Object, repository.Object, enterpriseRepository.Object, mapper.Object, new Mock<Microsoft.AspNetCore.Authorization.IAuthorizationService>().Object)
             {
                 ControllerContext = new ControllerContext
                 {

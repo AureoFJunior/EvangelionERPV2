@@ -11,7 +11,8 @@ namespace EvangelionERPV2.AiModule.Application.Services
         /// <summary>R$ followed by a pt-BR formatted amount: thousands separated by dots, two decimals after a comma.</summary>
         private static readonly Regex CurrencyPattern = new(
             @"R\$\s*(\d{1,3}(?:\.\d{3})*|\d+)(?:,(\d{1,2}))?",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+            RegexOptions.Compiled | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
 
         private static readonly string[] Units =
         [

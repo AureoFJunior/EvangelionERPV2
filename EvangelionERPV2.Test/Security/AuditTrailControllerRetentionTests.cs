@@ -37,7 +37,7 @@ namespace EvangelionERPV2.Test.Security
                 });
 
             var mapper = new Mock<IMapper>(MockBehavior.Strict);
-            var controller = new AuditTrailController(auditTrailService.Object, userRepository.Object, mapper.Object)
+            var controller = new AuditTrailController(auditTrailService.Object, mapper.Object)
             {
                 ControllerContext = new ControllerContext
                 {

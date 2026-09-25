@@ -24,26 +24,26 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxNFeCancelRequestBodySizeInBytes = 16 * 1024;
         private const int NFeAccessKeyLength = 44;
         private const int MaxNFeCancelReasonLength = 500;
-        private static readonly Regex NFeAccessKeyRegex = new($"^[0-9]{{{NFeAccessKeyLength}}}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex NFeAccessKeyRegex = new(
+            $"^[0-9]{{{NFeAccessKeyLength}}}$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
         private const long MaxInboundNFeUploadSizeInBytes = 2 * 1024 * 1024;
 
         private readonly INFeService<NFeDocument> _nfeService;
         private readonly IOrderService<Order> _orderService;
         private readonly ISupplierNFeImportService _supplierNFeImportService;
-        private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
 
         public NFeController(
             INFeService<NFeDocument> nfeService,
             IOrderService<Order> orderService,
             ISupplierNFeImportService supplierNFeImportService,
-            IRepository<User> userRepository,
             IMapper mapper)
         {
             _nfeService = nfeService;
             _orderService = orderService;
             _supplierNFeImportService = supplierNFeImportService;
-            _userRepository = userRepository;
             _mapper = mapper;
         }
 

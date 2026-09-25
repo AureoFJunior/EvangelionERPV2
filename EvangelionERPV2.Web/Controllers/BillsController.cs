@@ -26,7 +26,6 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IOrderService<Order> _orderService;
         private readonly IReceivablesReportService _receivablesReportService;
         private readonly IAccountingExportService _accountingExportService;
-        private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
 
         public BillsController(
@@ -34,14 +33,12 @@ namespace EvangelionERPV2.Web.Controllers
             IOrderService<Order> orderService,
             IReceivablesReportService receivablesReportService,
             IAccountingExportService accountingExportService,
-            IRepository<User> userRepository,
             IMapper mapper)
         {
             _billService = billService;
             _orderService = orderService;
             _receivablesReportService = receivablesReportService;
             _accountingExportService = accountingExportService;
-            _userRepository = userRepository;
             _mapper = mapper;
         }
 

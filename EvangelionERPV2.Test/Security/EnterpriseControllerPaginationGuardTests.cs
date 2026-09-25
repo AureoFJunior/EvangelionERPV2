@@ -46,7 +46,6 @@ namespace EvangelionERPV2.Test.Security
                 enterpriseService.Object,
                 enterpriseRepository.Object,
                 customEnterpriseRepository.Object,
-                userRepository.Object,
                 mapper.Object,
                 new Mock<Microsoft.AspNetCore.Authorization.IAuthorizationService>().Object);
             ConfigureController(controller, enterpriseId, userId);
@@ -88,7 +87,6 @@ namespace EvangelionERPV2.Test.Security
                 enterpriseService.Object,
                 enterpriseRepository.Object,
                 customEnterpriseRepository.Object,
-                userRepository.Object,
                 mapper.Object,
                 new Mock<Microsoft.AspNetCore.Authorization.IAuthorizationService>().Object);
             ConfigureController(controller, enterpriseId, userId);

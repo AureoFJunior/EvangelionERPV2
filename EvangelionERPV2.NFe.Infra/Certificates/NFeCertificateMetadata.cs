@@ -18,7 +18,8 @@ namespace EvangelionERPV2.NFeModule.Infra.Certificates
         DateTime NotAfterUtc,
         DateTime UploadedAtUtc)
     {
-        private static readonly Regex CnpjInSubject = new(@"(?<!\d)(\d{14})(?!\d)", RegexOptions.Compiled);
+        private static readonly Regex CnpjInSubject = new(
+            @"(?<!\d)(\d{14})(?!\d)", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
         /// <summary>
         /// Pulls the 14-digit CNPJ out of a certificate subject, or empty when there is none.
