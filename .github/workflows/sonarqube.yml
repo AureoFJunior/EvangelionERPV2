@@ -36,12 +36,17 @@ jobs:
     - name: Build the project
       run: dotnet build --configuration Release
 
+    - name: Verify SonarCloud token
+      env:
+        SONAR_TOKEN: ${{ secrets.sonar_token }}
+      run: test -n "$SONAR_TOKEN" || { echo "::error::The sonar_token repository secret is unavailable to this workflow."; exit 1; }
+
     # Step 4: SonarCloud analysis
     - name: Analyze with SonarCloud
       uses: SonarSource/sonarcloud-github-action@v5
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.sonar_token }}
       with:
         args: >
           -Dsonar.projectKey=AureoFJunior_EvangelionERPV2 -Dsonar.organization=aureofjunior-1 -Dsonar.host.url=https://sonarcloud.io
