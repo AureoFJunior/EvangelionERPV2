@@ -124,6 +124,9 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
         private async Task EnsureVariantGroupIsValidAsync(Product product)
         {
+            if (product.VariantGroupId == Guid.Empty)
+                throw new ArgumentException("VariantGroupId must not be empty.");
+
             if (!product.VariantGroupId.HasValue || _appDbContext == null)
                 return;
 

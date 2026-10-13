@@ -35,6 +35,10 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.VariantLabel)
                 .MaximumLength(60).WithMessage("VariantLabel is too long.");
 
+            RuleFor(x => x.VariantGroupId)
+                .Must(groupId => !groupId.HasValue || groupId.Value != Guid.Empty)
+                .WithMessage("VariantGroupId must not be empty.");
+
             RuleFor(x => x)
                 .Must(x => x.VariantGroupId.HasValue == !string.IsNullOrWhiteSpace(x.VariantLabel))
                 .WithMessage("VariantGroupId and VariantLabel must be provided together.");

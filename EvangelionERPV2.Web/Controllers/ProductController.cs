@@ -244,8 +244,11 @@ namespace EvangelionERPV2.Web.Controllers
                 existentProduct.UnitOfMeasure = request.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty;
                 existentProduct.IsExternal = request.IsExternal;
                 existentProduct.IsService = request.IsService;
-                existentProduct.VariantGroupId = request.VariantGroupId;
-                existentProduct.VariantLabel = Trimmed(request.VariantLabel);
+                if (request.VariantGroupingWasProvided)
+                {
+                    existentProduct.VariantGroupId = request.VariantGroupId;
+                    existentProduct.VariantLabel = Trimmed(request.VariantLabel);
+                }
                 if (!string.IsNullOrWhiteSpace(request.PictureAdress))
                     return BadRequest("PictureAdress cannot be updated here. Use UploadPicture.");
                 existentProduct.IsActive = request.IsActive ?? existentProduct.IsActive;

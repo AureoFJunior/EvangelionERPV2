@@ -37,4 +37,33 @@ public sealed class ProductVariantGroupingValidatorTests
 
         Assert.False(new UpdateProductRequestValidator().Validate(request).IsValid);
     }
+
+    [Fact]
+    public void Create_EmptyGroupIdIsInvalid()
+    {
+        var request = new CreateProductRequestDTO
+        {
+            Name = "Camiseta Gola V",
+            UnitOfMeasure = "UNIT",
+            VariantGroupId = Guid.Empty,
+            VariantLabel = "Preto / M"
+        };
+
+        Assert.False(new CreateProductRequestValidator().Validate(request).IsValid);
+    }
+
+    [Fact]
+    public void Update_EmptyGroupIdIsInvalid()
+    {
+        var request = new UpdateProductRequestDTO
+        {
+            Id = Guid.NewGuid(),
+            Name = "Camiseta Gola V",
+            UnitOfMeasure = "UNIT",
+            VariantGroupId = Guid.Empty,
+            VariantLabel = "Preto / M"
+        };
+
+        Assert.False(new UpdateProductRequestValidator().Validate(request).IsValid);
+    }
 }
