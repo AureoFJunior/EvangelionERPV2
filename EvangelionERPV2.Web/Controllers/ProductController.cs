@@ -193,6 +193,8 @@ namespace EvangelionERPV2.Web.Controllers
                         IsExternal = normalizedRequest.IsExternal.GetValueOrDefault(),
                         IsService = normalizedRequest.IsService.GetValueOrDefault(),
                         PictureAdress = string.Empty,
+                        VariantGroupId = normalizedRequest.VariantGroupId,
+                        VariantLabel = Trimmed(normalizedRequest.VariantLabel),
                         EnterpriseId = enterpriseId.Value,
                         IsActive = true
                     },
@@ -242,6 +244,11 @@ namespace EvangelionERPV2.Web.Controllers
                 existentProduct.UnitOfMeasure = request.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty;
                 existentProduct.IsExternal = request.IsExternal;
                 existentProduct.IsService = request.IsService;
+                if (request.VariantGroupingWasProvided)
+                {
+                    existentProduct.VariantGroupId = request.VariantGroupId;
+                    existentProduct.VariantLabel = Trimmed(request.VariantLabel);
+                }
                 if (!string.IsNullOrWhiteSpace(request.PictureAdress))
                     return BadRequest("PictureAdress cannot be updated here. Use UploadPicture.");
                 existentProduct.IsActive = request.IsActive ?? existentProduct.IsActive;
@@ -391,6 +398,8 @@ namespace EvangelionERPV2.Web.Controllers
                 IsExternal = ResolveLegacyOrRootBoolValue(request.IsExternal, request.Product.IsExternal),
                 IsService = ResolveLegacyOrRootBoolValue(request.IsService, request.Product.IsService),
                 PictureAdress = ResolveLegacyOrRootValue(request.PictureAdress, request.Product.PictureAdress),
+                VariantGroupId = request.VariantGroupId,
+                VariantLabel = request.VariantLabel,
                 File = request.File
             };
         }
@@ -411,6 +420,11 @@ namespace EvangelionERPV2.Web.Controllers
         private static bool ResolveLegacyOrRootBoolValue(bool? rootValue, bool legacyValue)
         {
             return rootValue ?? legacyValue;
+        }
+
+        private static string? Trimmed(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
 

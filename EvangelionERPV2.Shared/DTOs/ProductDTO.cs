@@ -12,5 +12,8 @@ namespace EvangelionERPV2.Shared.DTOs
         public bool IsExternal { get; set; }
         public bool IsService { get; set; }
         public string PictureAdress { get; set; } = string.Empty;
+
+        public Guid? VariantGroupId { get; set; }
+        public string? VariantLabel { get; set; }
     }
 }
