@@ -243,7 +243,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
             order.TotalValue = computedTotal + Math.Max(order.ShippingValue, 0);
 
-            if (order.PaymentScheduledDate.Date == DateTime.UtcNow.Date && order.Status != (int)EnumOrderStatus.Paid)
+            if (order.PaymentScheduledDate.Date == DateTime.UtcNow.Date && !IsPaydayStatus(order.Status))
                 order.PaymentScheduledDate = order.PaymentScheduledDate.AddDays(30);
 
             if (order.TotalValue <= 0) throw new InsertDatabaseException($"{nameof(Order)} has value/quantity null or negative");

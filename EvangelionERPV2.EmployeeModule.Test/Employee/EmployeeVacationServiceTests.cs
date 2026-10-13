@@ -147,6 +147,36 @@ namespace EvangelionERPV2.EmployeeModule.Test
         }
 
         [Fact]
+        public async Task ScheduleAsync_RejectsAPeriodOutsideTheConcessivoWindow()
+        {
+            var (sut, world) = await BuildScheduledSut();
+            var accrual = world.Accruals[0];
+
+            var beforeWindow = await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => sut.ScheduleAsync(accrual.Id, EnterpriseId, accrual.AcquisitionEnd, 20));
+            var afterWindow = await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => sut.ScheduleAsync(accrual.Id, EnterpriseId, accrual.ConcessionDeadline.AddDays(-9), 20));
+
+            Assert.Contains("entirely inside", beforeWindow.Message);
+            Assert.Contains("entirely inside", afterWindow.Message);
+        }
+
+        [Fact]
+        public async Task ScheduleAsync_RejectsOverlappingVacationPeriods()
+        {
+            var (sut, world) = await BuildScheduledSut();
+            var accrual = world.Accruals[0];
+            var firstStart = accrual.AcquisitionEnd.AddDays(10);
+
+            await sut.ScheduleAsync(accrual.Id, EnterpriseId, firstStart, 15);
+
+            var exception = await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => sut.ScheduleAsync(accrual.Id, EnterpriseId, firstStart.AddDays(7), 15));
+
+            Assert.Contains("overlaps", exception.Message);
+        }
+
+        [Fact]
         public async Task ScheduleAsync_RejectsAPeriodUnderFiveDays()
         {
             var (sut, world) = await BuildScheduledSut();

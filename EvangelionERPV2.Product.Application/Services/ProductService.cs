@@ -771,8 +771,12 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 if (string.IsNullOrWhiteSpace(bucketName))
                     throw new InvalidOperationException("AWS bucket name is not configured.");
 
+                var objectKey = SharedFunctions.EnsureDecryptedAddress(pictureAddress);
+                if (string.IsNullOrWhiteSpace(objectKey))
+                    throw new InvalidOperationException("Product picture address is invalid.");
+
                 var s3Client = await GetS3ClientAsync();
-                return await BuildThumbnailAsync(s3Client, bucketName, pictureAddress);
+                return await BuildThumbnailAsync(s3Client, bucketName, objectKey);
             }
             catch (Exception ex)
             {

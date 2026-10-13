@@ -304,6 +304,31 @@ namespace EvangelionERPV2.ProductModule.Test
             return (service, productRepository, reportGenerator);
         }
 
+        [Fact]
+        public async Task GetThumbnailBase64Async_UsesTheDecryptedObjectKey()
+        {
+            EnsureEncryptionKeyInitialized();
+            var (service, _, _, s3Client) = CreateServiceWithS3Mock();
+            const string objectKey = "products/photo.jpg";
+            var encryptedAddress = SharedFunctions.EnsureEncryptedAddress(objectKey);
+
+            s3Client.Setup(client => client.GetObjectAsync(
+                    It.Is<GetObjectRequest>(request => request.Key == $"thumb/{objectKey}"),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new GetObjectResponse
+                {
+                    ResponseStream = new MemoryStream([1, 2, 3])
+                });
+
+            var (base64, hash) = await service.GetThumbnailBase64Async(encryptedAddress);
+
+            Assert.Equal(Convert.ToBase64String([1, 2, 3]), base64);
+            Assert.NotNull(hash);
+            s3Client.Verify(client => client.GetObjectAsync(
+                It.Is<GetObjectRequest>(request => request.Key == $"thumb/{objectKey}"),
+                It.IsAny<CancellationToken>()), Times.Once);
+        }
+
         /// <summary>Review spec, family photo: a variant family owns one photo besides each variant's.</summary>
         [Fact]
         public async Task FamilyPicture_IsStoredForTheFamily_ReplacesTheOldOne_AndStaysInsideTheEnterprise()

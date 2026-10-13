@@ -12,6 +12,9 @@ namespace EvangelionERPV2.Shared.Enums
         Synced = 2,
 
         /// <summary>Refused permanently (bad payload, closed period). The terminal stops retrying.</summary>
-        Rejected = 3
+        Rejected = 3,
+
+        /// <summary>A server request owns this sale while it creates or resumes the linked order.</summary>
+        Processing = 4
     }
 }

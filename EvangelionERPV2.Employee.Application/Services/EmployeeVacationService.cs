@@ -131,10 +131,16 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                 if (days > accrual.RemainingDays)
                     throw new InsertDatabaseException($"Only {accrual.RemainingDays} day(s) remain on this período aquisitivo.");
 
-                if (start > accrual.ConcessionDeadline.Date)
-                    throw new InsertDatabaseException("The concessivo window for this período aquisitivo has closed.");
+                if (start <= accrual.AcquisitionEnd.Date || end > accrual.ConcessionDeadline.Date)
+                    throw new InsertDatabaseException("The férias period must fit entirely inside the concessivo window for this período aquisitivo.");
 
-                var bookedLengths = await BookedPeriodLengthsAsync(accrual);
+                var bookedPeriods = await BookedPeriodsAsync(accrual);
+                if (bookedPeriods.Any(period => period.StartDate.Date <= end && period.EndDate.Date >= start))
+                    throw new InsertDatabaseException("The férias period overlaps another period already scheduled for this employee.");
+
+                var bookedLengths = bookedPeriods
+                    .Select(period => (period.EndDate.Date - period.StartDate.Date).Days + 1)
+                    .ToList();
                 if (!VacationEntitlement.TrySplit(days, bookedLengths, accrual.RemainingDays - days, out var reason))
                     throw new InsertDatabaseException(reason);
 
@@ -241,12 +247,12 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         }
 
         /// <summary>
-        /// Lengths of the stretches already booked against one accrual, so art. 134 §1 can be
-        /// checked against the set rather than against a single request.
+        /// Stretches already booked against one accrual, so both overlap and art. 134 §1 can be
+        /// checked against the complete set rather than against a single request.
         /// </summary>
-        private async Task<IReadOnlyCollection<int>> BookedPeriodLengthsAsync(EmployeeVacationAccrual accrual)
+        private async Task<IReadOnlyCollection<EmployeeAbsence>> BookedPeriodsAsync(EmployeeVacationAccrual accrual)
         {
-            var windowStart = accrual.AcquisitionEnd.Date;
+            var windowStart = accrual.AcquisitionEnd.Date.AddDays(1);
             var windowEnd = accrual.ConcessionDeadline.Date;
 
             var booked = await _absenceRepository.GetAllAsync(
@@ -256,7 +262,7 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
                      && x.StartDate >= windowStart
                      && x.StartDate <= windowEnd);
 
-            return booked.Select(x => (x.EndDate.Date - x.StartDate.Date).Days + 1).ToList();
+            return booked.ToList();
         }
 
         /// <summary>

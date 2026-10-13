@@ -97,6 +97,17 @@ jobs:
             aureofjunior/evangelionerpv2-worker-order:latest
           platforms: linux/amd64,linux/arm64
 
+      - name: Build and push worker notification image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./EvangelionERPV2.Worker.Notification/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:worker-notification-latest
+            aureofjunior/evangelionerpv2-worker-notification:latest
+          platforms: linux/amd64,linux/arm64
+
   # Phase 1 deploys to one EC2 instance running docker-compose.yml, not to ECS. The ECS path is
   # Phase 2: the task definitions still exist in terraform behind var.enable_ecs, and the
   # ECS_*_SERVICE_NAME secrets are deliberately left in place for when it comes back.
@@ -151,7 +162,7 @@ jobs:
             --instance-ids "${INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
             --comment "deploy ${GITHUB_SHA::7}" \
-            --parameters commands="[\"set -euo pipefail\",\"cd ${APP_DIR}\",\"docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml --profile workers --profile voice pull\",\"docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml --profile workers --profile voice up -d\",\"docker image prune -f\"]" \
+            --parameters commands="[\"set -euo pipefail\",\"cd ${APP_DIR}\",\"git fetch --prune origin release\",\"git checkout --detach ${GITHUB_SHA}\",\"docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml --profile workers --profile voice pull\",\"docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml --profile workers --profile voice up -d\",\"docker image prune -f\"]" \
             --query 'Command.CommandId' --output text)"
 
           echo "SSM command ${COMMAND_ID}"

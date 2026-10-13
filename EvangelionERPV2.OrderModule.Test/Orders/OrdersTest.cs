@@ -784,7 +784,7 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         }
 
         [Fact]
-        public void VerifyValidValues_KeepsAPaidOrdersDateToday_AndGivesAnUnpaidOneThirtyDays()
+        public void VerifyValidValues_KeepsSettledOrderDatesToday_AndGivesAnUnpaidOneThirtyDays()
         {
             var today = DateTime.UtcNow;
             Order Build(EnumOrderStatus status) => new()
@@ -795,11 +795,14 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             };
 
             var paid = Build(EnumOrderStatus.Paid);
+            var finished = Build(EnumOrderStatus.Finished);
             var pending = Build(EnumOrderStatus.Pending);
             _orderService.VerifyValidValues(ref paid);
+            _orderService.VerifyValidValues(ref finished);
             _orderService.VerifyValidValues(ref pending);
 
             Assert.Equal(today, paid.PaymentScheduledDate);
+            Assert.Equal(today, finished.PaymentScheduledDate);
             Assert.Equal(today.AddDays(30), pending.PaymentScheduledDate);
         }
 

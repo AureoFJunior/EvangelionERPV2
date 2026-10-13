@@ -146,6 +146,38 @@ public class ProductImageTests : IDisposable
     }
 
     [Fact]
+    public async Task EqualTimestampsAreNotSplitAcrossCursorPages()
+    {
+        var context = _database.CreateContext();
+        var changedAt = DateTime.UtcNow;
+
+        for (var index = 0; index < 60; index++)
+        {
+            context.Product.Add(new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = _enterpriseId,
+                Name = $"Product {index}",
+                CreatedAt = changedAt,
+                UpdatedAt = null
+            });
+        }
+
+        await context.SaveChangesAsync();
+        var service = CreateService(context);
+
+        var catalog = await service.GetCatalogAsync(null, _enterpriseId, pageSize: 50);
+        var images = await service.GetProductImagesAsync(null, _enterpriseId, pageSize: 50);
+
+        Assert.Equal(60, catalog.Items.Count());
+        Assert.False(catalog.HasMore);
+        Assert.Null(catalog.NextCursor);
+        Assert.Equal(60, images.Items.Count());
+        Assert.False(images.HasMore);
+        Assert.Null(images.NextCursor);
+    }
+
+    [Fact]
     public async Task AFinalPagesCursorIsNull()
     {
         var page = await ImagesFor(productsWithPictures: 0, productsWithout: 3);

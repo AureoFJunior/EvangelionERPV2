@@ -7,9 +7,11 @@ namespace EvangelionERPV2.Shared.Entities
     public static class AiPendingActionStatus
     {
         public const string Pending = "Pending";
+        public const string Executing = "Executing";
         public const string Confirmed = "Confirmed";
         public const string Rejected = "Rejected";
         public const string Expired = "Expired";
+        public const string Failed = "Failed";
     }
 
     /// <summary>

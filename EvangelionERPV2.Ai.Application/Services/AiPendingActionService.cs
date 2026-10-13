@@ -90,6 +90,13 @@ namespace EvangelionERPV2.AiModule.Application.Services
             }
 
             var arguments = Deserialize(action.ArgumentsJson);
+            var claim = await ClaimForExecutionAsync(action.Id, context.UserId, cancellation);
+            if (!claim.Acquired || claim.Action is null)
+                return new AiPendingActionOutcome(false,
+                    $"Esta ação já está {Describe(claim.Action?.Status ?? action.Status)}.",
+                    claim.Action?.ResultJson ?? action.ResultJson);
+
+            action = claim.Action;
 
             try
             {
@@ -99,6 +106,8 @@ namespace EvangelionERPV2.AiModule.Application.Services
                 if (TryReadError(result, out var toolError))
                 {
                     Log.Logger.Warning("AI pending action refused by its tool. Tool={Tool}", action.ToolName);
+                    action.ResultJson = result;
+                    await TransitionAsync(action, AiPendingActionStatus.Failed, context.UserId, cancellation);
                     return new AiPendingActionOutcome(false, toolError, result);
                 }
 
@@ -110,13 +119,48 @@ namespace EvangelionERPV2.AiModule.Application.Services
             }
             catch (OperationCanceledException)
             {
+                await TransitionAsync(action, AiPendingActionStatus.Failed, context.UserId, CancellationToken.None);
                 throw;
             }
             catch (Exception ex)
             {
                 Log.Logger.Error("AI pending action failed. Tool={Tool} ErrorType={ErrorType}", action.ToolName, ex.GetType().Name);
+                await TransitionAsync(action, AiPendingActionStatus.Failed, context.UserId, CancellationToken.None);
                 return new AiPendingActionOutcome(false, "Não consegui executar a ação. Tente de novo.", "{}");
             }
+        }
+
+        private async Task<(AiPendingAction? Action, bool Acquired)> ClaimForExecutionAsync(
+            Guid actionId, Guid userId, CancellationToken cancellation)
+        {
+            AiPendingAction? current = null;
+            var acquired = false;
+
+            await _actions.ExecuteInTransactionAsync(async () =>
+            {
+                await _actions.LockForUpdateAsync(actionId, cancellation);
+                current = await _actions.GetByIdAsync(actionId);
+
+                if (current?.Status != AiPendingActionStatus.Pending)
+                    return;
+
+                if (current.ExpiresAt <= DateTime.UtcNow)
+                {
+                    current.Status = AiPendingActionStatus.Expired;
+                }
+                else
+                {
+                    current.Status = AiPendingActionStatus.Executing;
+                    current.ConfirmedByUserId = userId;
+                    acquired = true;
+                }
+
+                current.UpdatedAt = DateTime.UtcNow;
+                _actions.Update(current);
+                await _actions.CommitAsync(cancellation);
+            }, cancellation);
+
+            return (current, acquired);
         }
 
         public async Task<AiPendingActionOutcome> RejectAsync(Guid actionId, AiToolContext context)
@@ -216,6 +260,8 @@ namespace EvangelionERPV2.AiModule.Application.Services
             AiPendingActionStatus.Confirmed => "confirmada",
             AiPendingActionStatus.Rejected => "descartada",
             AiPendingActionStatus.Expired => "expirada",
+            AiPendingActionStatus.Executing => "em execução",
+            AiPendingActionStatus.Failed => "com falha",
             _ => "pendente",
         };
     }

@@ -139,6 +139,38 @@ namespace EvangelionERPV2.PdvModule.Test
         }
 
         [Fact]
+        public async Task ARequestThatFindsTheSaleProcessing_DoesNotCreateAnotherOrder()
+        {
+            var context = _database.CreateContext();
+            var orderService = OrderServiceStub(context);
+            var service = CreateService(context, orderService);
+            var sessionId = Guid.NewGuid();
+            var session = await OpenSessionAsync(service, sessionId);
+            var request = SaleFor(Guid.NewGuid(), sessionId);
+
+            context.PdvSale.Add(new PdvSale
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = _enterpriseId,
+                ClientSaleId = request.ClientSaleId,
+                CashSessionId = session.Id,
+                TerminalId = session.TerminalId,
+                UserId = _userId,
+                Status = (int)EnumPdvSaleStatus.Processing,
+                SoldAtLocal = request.SoldAtLocal,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+
+            var result = await service.SyncSaleAsync(request, _enterpriseId, _userId);
+
+            Assert.True(result.WasAlreadyRecorded);
+            Assert.Equal((int)EnumPdvSaleStatus.Processing, result.Status);
+            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
+        }
+
+        [Fact]
         public async Task ASaleWhosePaymentsDoNotMatchTheTotal_IsRejectedAndNoOrderIsCreated()
         {
             var context = _database.CreateContext();

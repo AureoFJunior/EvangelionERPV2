@@ -119,6 +119,21 @@ namespace EvangelionERPV2.AiModule.Test.Ai
         }
 
         [Fact]
+        public async Task Confirm_DoesNotRunAnActionAnotherRequestIsExecuting()
+        {
+            var ran = false;
+            var tool = WriteTool("criar_cliente", "customers.create", () => ran = true);
+            var action = PendingAction(tool.Name);
+            action.Status = AiPendingActionStatus.Executing;
+            var (service, _) = BuildService(action, tool);
+
+            var outcome = await service.ConfirmAsync(action.Id, Granted("customers.create"), Context);
+
+            Assert.False(outcome.Success);
+            Assert.False(ran);
+        }
+
+        [Fact]
         public async Task Reject_MarksTheActionRejectedWithoutRunningIt()
         {
             var ran = false;
@@ -181,7 +196,7 @@ namespace EvangelionERPV2.AiModule.Test.Ai
 
             Assert.False(outcome.Success);
             Assert.Equal("produto não encontrado nesta empresa", outcome.Message);
-            Assert.Equal(AiPendingActionStatus.Pending, action.Status);
+            Assert.Equal(AiPendingActionStatus.Failed, action.Status);
             Assert.Null(action.ExecutedAt);
         }
 
@@ -229,6 +244,9 @@ namespace EvangelionERPV2.AiModule.Test.Ai
                     stored.Where(predicate.Compile()).ToList());
             actions.Setup(x => x.CreateAsync(It.IsAny<AiPendingAction>()))
                 .ReturnsAsync((AiPendingAction a) => a);
+            actions.Setup(x => x.ExecuteInTransactionAsync(
+                    It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
+                .Returns((Func<Task> operation, CancellationToken _) => operation());
 
             var conversations = new Mock<IRepository<AiConversation>>();
             conversations.Setup(x => x.GetByIdAsync(ConversationId))

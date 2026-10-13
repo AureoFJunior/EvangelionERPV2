@@ -179,25 +179,35 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (request.CountedAmount < 0)
                 throw new ArgumentException("A count cannot be negative.");
 
-            var session = await RequireSessionAsync(request.ClientSessionId, enterpriseId);
+            var sessionId = await _appDbContext.CashSession
+                .AsNoTracking()
+                .Where(session => session.EnterpriseId == enterpriseId
+                    && session.ClientSessionId == request.ClientSessionId)
+                .Select(session => (Guid?)session.Id)
+                .FirstOrDefaultAsync()
+                ?? throw new NotFoundDatabaseException("Cash session was not found.");
 
-            if (session.Status != (int)EnumCashSessionStatus.Open)
-                return await BuildSummaryAsync(session, includeExpectedCash: true);
-
-            var summary = await BuildSummaryAsync(session, includeExpectedCash: true);
-
-            var closedAt = request.ClosedAt == default ? DateTime.UtcNow : request.ClosedAt;
-
-            session.CountedAmount = request.CountedAmount;
-            session.ExpectedAmount = summary.ExpectedCash;
-            session.Difference = decimal.Round(
-                request.CountedAmount - (summary.ExpectedCash ?? 0m), 2, MidpointRounding.AwayFromZero);
-            session.ClosedAt = closedAt;
-            session.Status = (int)EnumCashSessionStatus.Closed;
-            session.UpdatedAt = DateTime.UtcNow;
-
-            await _sessionRepository.ExecuteInTransactionAsync(async () =>
+            return await _sessionRepository.ExecuteInTransactionAsync(async () =>
             {
+                await _sessionRepository.LockForUpdateAsync(sessionId);
+
+                var session = await _appDbContext.CashSession
+                    .FirstAsync(item => item.Id == sessionId && item.EnterpriseId == enterpriseId);
+
+                if (session.Status != (int)EnumCashSessionStatus.Open)
+                    return await BuildSummaryAsync(session, includeExpectedCash: true);
+
+                var summary = await BuildSummaryAsync(session, includeExpectedCash: true);
+                var closedAt = request.ClosedAt == default ? DateTime.UtcNow : request.ClosedAt;
+
+                session.CountedAmount = request.CountedAmount;
+                session.ExpectedAmount = summary.ExpectedCash;
+                session.Difference = decimal.Round(
+                    request.CountedAmount - (summary.ExpectedCash ?? 0m), 2, MidpointRounding.AwayFromZero);
+                session.ClosedAt = closedAt;
+                session.Status = (int)EnumCashSessionStatus.Closed;
+                session.UpdatedAt = DateTime.UtcNow;
+
                 _sessionRepository.Update(session);
 
                 await _movementRepository.CreateAsync(new CashMovement
@@ -214,9 +224,9 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 });
 
                 await _sessionRepository.CommitAsync();
-            });
 
-            return await BuildSummaryAsync(session, includeExpectedCash: true);
+                return await BuildSummaryAsync(session, includeExpectedCash: true);
+            });
         }
 
         public async Task<CashSessionSummaryDTO> GetSessionSummaryAsync(Guid clientSessionId, Guid enterpriseId, bool includeExpectedCash)
@@ -395,6 +405,12 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (claimed.Sale.Status == (int)EnumPdvSaleStatus.Synced || claimed.Sale.Status == (int)EnumPdvSaleStatus.Rejected)
                 return Describe(claimed.Sale, wasAlreadyRecorded: true);
 
+            var started = await TryStartProcessingAsync(claimed.Sale.Id);
+            if (!started.Acquired)
+                return Describe(started.Sale, wasAlreadyRecorded: true);
+
+            claimed.Sale = started.Sale;
+
             var expectedTotal = items.Sum(item => decimal.Round(item.Value * item.Quantity, 2, MidpointRounding.AwayFromZero));
             var tendered = payments.Sum(payment => payment.Amount);
 
@@ -450,10 +466,50 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             }
             catch (Exception exception)
             {
+                await ReleaseProcessingClaimAsync(claimed.Sale.Id);
                 Log.Logger.Error("PDV sale [{ClientSaleId}] failed to sync. ErrorType={ErrorType}",
                     request.ClientSaleId, exception.GetType().Name);
                 throw;
             }
+        }
+
+        private async Task<(PdvSale Sale, bool Acquired)> TryStartProcessingAsync(Guid saleId)
+        {
+            var acquired = false;
+            var sale = await _saleRepository.ExecuteInTransactionAsync(async () =>
+            {
+                await _saleRepository.LockForUpdateAsync(saleId);
+                var current = await _appDbContext.PdvSale.FirstAsync(item => item.Id == saleId);
+
+                if (current.Status == (int)EnumPdvSaleStatus.Pending)
+                {
+                    current.Status = (int)EnumPdvSaleStatus.Processing;
+                    current.UpdatedAt = DateTime.UtcNow;
+                    _saleRepository.Update(current);
+                    await _saleRepository.CommitAsync();
+                    acquired = true;
+                }
+
+                return current;
+            });
+
+            return (sale, acquired);
+        }
+
+        private async Task ReleaseProcessingClaimAsync(Guid saleId)
+        {
+            await _saleRepository.ExecuteInTransactionAsync(async () =>
+            {
+                await _saleRepository.LockForUpdateAsync(saleId);
+                var sale = await _appDbContext.PdvSale.FirstAsync(item => item.Id == saleId);
+                if (sale.Status != (int)EnumPdvSaleStatus.Processing)
+                    return;
+
+                sale.Status = (int)EnumPdvSaleStatus.Pending;
+                sale.UpdatedAt = DateTime.UtcNow;
+                _saleRepository.Update(sale);
+                await _saleRepository.CommitAsync();
+            });
         }
 
         /// <summary>
@@ -661,33 +717,35 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (since is { } cursor)
                 query = query.Where(product => (product.UpdatedAt ?? product.CreatedAt) > cursor);
 
-            var page = await query
+            var rows = await query
                 .OrderBy(product => product.UpdatedAt ?? product.CreatedAt)
                 .ThenBy(product => product.Id)
                 .Take(size + 1)
-                .Select(product => new PdvCatalogItemDTO
-                {
-                    Id = product.Id,
-                    Name = product.Name,
-                    Cean = product.Cean,
-                    Sku = product.Sku,
-                    DefaultValue = product.DefaultValue,
-                    StorageQuantity = product.StorageQuantity,
-                    UnitOfMeasure = product.UnitOfMeasure,
-                    IsService = product.IsService,
-                    IsActive = product.IsActive,
-                    Ncm = product.Ncm,
-                    Cest = product.Cest,
-                    CfopIntra = product.CfopIntra,
-                    Origem = product.Origem,
-                    UnidadeTributavel = product.UnidadeTributavel,
-                    ChangedAt = product.UpdatedAt ?? product.CreatedAt
-                })
                 .ToListAsync();
 
-            var hasMore = page.Count > size;
+            var hasMore = rows.Count > size;
             if (hasMore)
-                page.RemoveAt(page.Count - 1);
+            {
+                var overflow = rows[size];
+                rows.RemoveRange(size, rows.Count - size);
+                var boundary = rows[^1].UpdatedAt ?? rows[^1].CreatedAt;
+
+                if ((overflow.UpdatedAt ?? overflow.CreatedAt) == boundary)
+                {
+                    var boundaryRows = await query
+                        .Where(product => (product.UpdatedAt ?? product.CreatedAt) == boundary)
+                        .OrderBy(product => product.Id)
+                        .ToListAsync();
+
+                    rows = rows.Where(product => (product.UpdatedAt ?? product.CreatedAt) < boundary)
+                        .Concat(boundaryRows)
+                        .ToList();
+                    hasMore = await query.AnyAsync(product =>
+                        (product.UpdatedAt ?? product.CreatedAt) > boundary);
+                }
+            }
+
+            var page = rows.Select(ToCatalogItem).ToList();
 
             return new PdvCatalogPageDTO
             {
@@ -730,7 +788,31 @@ namespace EvangelionERPV2.PdvModule.Application.Services
 
             var hasMore = page.Count > size;
             if (hasMore)
-                page.RemoveAt(page.Count - 1);
+            {
+                var overflow = page[size];
+                page.RemoveRange(size, page.Count - size);
+                var boundary = page[^1].ChangedAt;
+
+                if (overflow.ChangedAt == boundary)
+                {
+                    var boundaryRows = await query
+                        .Where(product => (product.UpdatedAt ?? product.CreatedAt) == boundary)
+                        .OrderBy(product => product.Id)
+                        .Select(product => new
+                        {
+                            product.Id,
+                            product.PictureAdress,
+                            ChangedAt = product.UpdatedAt ?? product.CreatedAt
+                        })
+                        .ToListAsync();
+
+                    page = page.Where(item => item.ChangedAt < boundary)
+                        .Concat(boundaryRows)
+                        .ToList();
+                    hasMore = await query.AnyAsync(product =>
+                        (product.UpdatedAt ?? product.CreatedAt) > boundary);
+                }
+            }
 
             var items = new List<PdvProductImageDTO>(page.Count);
             foreach (var row in page)
@@ -757,6 +839,25 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         #endregion
 
         #region Helpers
+
+        private static PdvCatalogItemDTO ToCatalogItem(Product product) => new()
+        {
+            Id = product.Id,
+            Name = product.Name,
+            Cean = product.Cean,
+            Sku = product.Sku,
+            DefaultValue = product.DefaultValue,
+            StorageQuantity = product.StorageQuantity,
+            UnitOfMeasure = product.UnitOfMeasure,
+            IsService = product.IsService,
+            IsActive = product.IsActive,
+            Ncm = product.Ncm,
+            Cest = product.Cest,
+            CfopIntra = product.CfopIntra,
+            Origem = product.Origem,
+            UnidadeTributavel = product.UnidadeTributavel,
+            ChangedAt = product.UpdatedAt ?? product.CreatedAt
+        };
 
         private async Task<CashSession> RequireSessionAsync(Guid clientSessionId, Guid enterpriseId)
         {
