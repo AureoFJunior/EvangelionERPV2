@@ -51,7 +51,11 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
 
         public async Task<StorefrontQuoteDTO> QuoteAsync(IReadOnlyList<StorefrontCartLineDTO> lines)
         {
-            var ids = lines.Select(line => line.ProductId).Distinct().ToList();
+            var aggregatedLines = lines
+                .GroupBy(line => line.ProductId)
+                .Select(group => new StorefrontCartLineDTO(group.Key, group.Sum(line => line.Quantity)))
+                .ToList();
+            var ids = aggregatedLines.Select(line => line.ProductId).ToList();
             var products = await StorefrontService.Published(_context)
                 .Include(p => p.Enterprise)
                 .Where(p => ids.Contains(p.Id))
@@ -68,7 +72,7 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
                 .ToHashSet();
 
             var priced = new List<(StorefrontQuoteLineDTO Line, Enterprise? Store)>();
-            foreach (var input in lines)
+            foreach (var input in aggregatedLines)
             {
                 if (!products.TryGetValue(input.ProductId, out var product))
                 {
@@ -108,7 +112,8 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
                         subtotal,
                         subtotal > 0 ? store.StorefrontShippingFee : 0,
                         store.StorefrontHandlingDays + store.StorefrontDeliveryDaysMin,
-                        store.StorefrontHandlingDays + store.StorefrontDeliveryDaysMax);
+                        store.StorefrontHandlingDays + store.StorefrontDeliveryDaysMax,
+                        store.Id);
                 })
                 .ToList();
 
@@ -322,7 +327,9 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
         private async Task<StorefrontOutcomeDTO?> SettleStoreAsync(StorefrontCheckout checkout, StorefrontQuoteStoreDTO store, bool forceRefund)
         {
             var reference = checkout.Id.ToString();
-            var enterprise = await _context.Enterprise.AsNoTracking().FirstOrDefaultAsync(e => e.StorefrontSlug == store.Slug);
+            var enterprise = store.EnterpriseId is { } enterpriseId
+                ? await _context.Enterprise.AsNoTracking().FirstOrDefaultAsync(e => e.Id == enterpriseId)
+                : await _context.Enterprise.AsNoTracking().FirstOrDefaultAsync(e => e.StorefrontSlug == store.Slug);
 
             StorefrontOutcomeDTO Refunded() => Outcome(store, StorefrontOutcomeKind.RefundedOutOfStock, null, enterprise?.Email ?? "");
             StorefrontOutcomeDTO Ordered(Guid orderId) => Outcome(store, StorefrontOutcomeKind.Ordered, OrderNumber(orderId), enterprise!.Email);
@@ -739,7 +746,9 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
         {
             var number = OrderNumber(order.Id);
             var outcome = Read<List<StorefrontOutcomeDTO>>(checkout.OutcomesJson).FirstOrDefault(o => o.OrderNumber == number);
-            var store = Read<StorefrontQuoteDTO>(checkout.QuoteJson).Stores.FirstOrDefault(s => s.Slug == order.Enterprise?.StorefrontSlug);
+            var store = Read<StorefrontQuoteDTO>(checkout.QuoteJson).Stores.FirstOrDefault(s =>
+                s.EnterpriseId == order.EnterpriseId ||
+                (s.EnterpriseId == null && s.Slug == order.Enterprise?.StorefrontSlug));
             var address = Read<StorefrontAddressDTO>(checkout.AddressJson);
 
             return new StorefrontOrderDTO(

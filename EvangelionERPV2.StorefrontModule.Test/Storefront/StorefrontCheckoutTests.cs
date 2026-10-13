@@ -89,6 +89,17 @@ namespace EvangelionERPV2.StorefrontModule.Test
             Assert.Equal(0m, quote.Total);
         }
 
+        [Fact]
+        public async Task Quote_AggregatesDuplicateProductsBeforeApplyingTheOrderLimit()
+        {
+            var (_, _, mug, _) = await TwoShopsAsync(mugStock: 20);
+
+            var quote = await Service().QuoteAsync([new(mug.Id, 6), new(mug.Id, 6)]);
+
+            var line = Assert.Single(Assert.Single(quote.Stores).Lines);
+            Assert.Equal((10, 790m, "quantity-reduced"), (line.Quantity, line.LineTotal, line.Issue));
+        }
+
         #endregion
 
         #region R3 R4 create
@@ -232,6 +243,25 @@ namespace EvangelionERPV2.StorefrontModule.Test
             Assert.Equal([aurora.Id], await check.Order.Select(o => o.EnterpriseId!.Value).ToListAsync());
             Assert.Equal(1m, (await check.Product.SingleAsync(p => p.Id == pen.Id)).StorageQuantity);
             Assert.DoesNotContain(await check.Order.ToListAsync(), o => o.EnterpriseId == traco.Id);
+        }
+
+        [Fact]
+        public async Task Settlement_UsesTheStoreIdCapturedAtCheckout_WhenItsSlugChanges()
+        {
+            var (aurora, _, mug, _) = await TwoShopsAsync();
+            var created = await Service().CreateAsync(Request(99m, StorefrontPaymentMethod.Card, null, (mug.Id, 1)));
+            using (var context = _database.CreateContext())
+            {
+                (await context.Enterprise.SingleAsync(e => e.Id == aurora.Id)).StorefrontSlug = "aurora-nova";
+                await context.SaveChangesAsync();
+            }
+
+            var paid = (await Service().SimulateAsync(created.Checkout!.Id, StorefrontSimulatedOutcome.Approve))!;
+
+            Assert.Equal(StorefrontCheckoutStatus.Paid, paid.Status);
+            Assert.Equal(StorefrontOutcomeKind.Ordered, paid.Outcomes.Single().Outcome);
+            using var check = _database.CreateContext();
+            Assert.Equal(aurora.Id, (await check.Order.SingleAsync()).EnterpriseId);
         }
 
         [Fact]

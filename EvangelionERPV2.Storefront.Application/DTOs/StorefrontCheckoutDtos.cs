@@ -27,7 +27,8 @@ namespace EvangelionERPV2.StorefrontModule.Application.DTOs
         decimal Subtotal,
         decimal Shipping,
         int DeliveryDaysMin,
-        int DeliveryDaysMax);
+        int DeliveryDaysMax,
+        Guid? EnterpriseId = null);
 
     /// <summary><paramref name="Installments"/>: every card plan offered for <paramref name="Total"/>, 1× first (SPEC-limen-pricing-rules §3).</summary>
     public sealed record StorefrontQuoteDTO(
