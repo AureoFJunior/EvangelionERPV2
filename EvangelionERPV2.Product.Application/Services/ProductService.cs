@@ -46,24 +46,41 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                     throw new InsertDatabaseException($"{nameof(Product)} is null");
 
                 product.Product.Id = Guid.NewGuid();
+                var openingQuantity = product.Product.StorageQuantity;
+                product.Product.StorageQuantity = 0;
 
-                var family = await EnsureVariantGroupIsValidAsync(product.Product);
-                if (family != null)
+                var includedProduct = await _productRepository.ExecuteInTransactionAsync(async () =>
                 {
-                    product.Product.Name = family.Name;
-                    product.Product.StorefrontCategoryId = family.CategoryId ?? product.Product.StorefrontCategoryId;
-                }
-                if (product.Product.StorefrontCategoryId is { } categoryId && categoryId != family?.CategoryId)
-                {
-                    await EnsureStorefrontCategoryAssignableAsync(_appDbContext, categoryId);
+                    var family = await EnsureVariantGroupIsValidAsync(product.Product);
                     if (family != null)
-                        await SyncFamilyAsync(product.Product);
-                }
+                    {
+                        product.Product.Name = family.Name;
+                        product.Product.StorefrontCategoryId = family.CategoryId ?? product.Product.StorefrontCategoryId;
+                    }
+                    if (product.Product.StorefrontCategoryId is { } categoryId && categoryId != family?.CategoryId)
+                    {
+                        await EnsureStorefrontCategoryAssignableAsync(_appDbContext, categoryId);
+                        if (family != null)
+                            await SyncFamilyAsync(product.Product);
+                    }
 
-                Product includedProduct = new Product();
-                includedProduct = await _productRepository.CreateAsync(product.Product);
-                OpenPriceHistory(product.Product, DateTime.UtcNow);
-                await _productRepository.CommitAsync();
+                    var created = await _productRepository.CreateAsync(product.Product);
+                    OpenPriceHistory(product.Product, DateTime.UtcNow);
+                    await _productRepository.CommitAsync();
+
+                    if (openingQuantity > 0)
+                    {
+                        var opening = await ApplyStockMovementAsync(
+                            product.Product.Id,
+                            product.Product.EnterpriseId ?? Guid.Empty,
+                            openingQuantity,
+                            EnumStockMovementType.Adjustment,
+                            referenceId: null);
+                        product.Product.StorageQuantity = opening.BalanceAfter;
+                    }
+
+                    return created;
+                });
 
                 if (string.IsNullOrWhiteSpace(product.File))
                     return includedProduct;
@@ -91,6 +108,10 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             {
                 throw;
             }
+            catch (PeriodClosedException)
+            {
+                throw;
+            }
             catch (ArgumentException)
             {
                 throw;
@@ -105,39 +126,62 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         {
             try
             {
-                Product existentProduct = await _productRepository.GetByIdAsync(product.Id);
-
-                if (existentProduct == null)
-                    throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
-
-                var family = await EnsureVariantGroupIsValidAsync(product);
-                var joinsFamily = family != null && existentProduct.VariantGroupId != product.VariantGroupId;
-                if (joinsFamily)
+                return await _productRepository.ExecuteInTransactionAsync(async () =>
                 {
-                    product.Name = family!.Name;
-                    product.StorefrontCategoryId = family.CategoryId ?? product.StorefrontCategoryId;
-                }
-                if (product.StorefrontCategoryId is { } categoryId && categoryId != existentProduct.StorefrontCategoryId && categoryId != family?.CategoryId)
-                    await EnsureStorefrontCategoryAssignableAsync(_appDbContext, categoryId);
+                    Product existentProduct = await _productRepository.GetByIdAsync(product.Id);
 
-                // SPEC-limen-pricing-rules P5: reaching the "de" price ends the promotion.
-                if (product.CompareAtPrice is { } compareAt && product.DefaultValue >= compareAt)
-                    product.EndPromotion();
+                    if (existentProduct == null)
+                        throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
 
-                _productRepository.DetachEntity(existentProduct);
-                product.UpdatedAt = DateTime.UtcNow;
-                if (existentProduct.DefaultValue != product.DefaultValue)
-                    await MovePriceHistoryAsync(product, product.UpdatedAt.Value);
-                product.PictureAdress = SharedFunctions.EnsureEncryptedAddress(product.PictureAdress);
-                _productRepository.Update(product);
-                if (family != null &&
-                    (!string.Equals(family.Name, product.Name, StringComparison.Ordinal) || family.CategoryId != product.StorefrontCategoryId))
-                    await SyncFamilyAsync(product);
-                await _productRepository.CommitAsync();
+                    var requestedQuantity = product.StorageQuantity;
+                    var stockDelta = requestedQuantity - existentProduct.StorageQuantity;
+                    product.StorageQuantity = existentProduct.StorageQuantity;
 
-                return product;
+                    var family = await EnsureVariantGroupIsValidAsync(product);
+                    var joinsFamily = family != null && existentProduct.VariantGroupId != product.VariantGroupId;
+                    if (joinsFamily)
+                    {
+                        product.Name = family!.Name;
+                        product.StorefrontCategoryId = family.CategoryId ?? product.StorefrontCategoryId;
+                    }
+                    if (product.StorefrontCategoryId is { } categoryId && categoryId != existentProduct.StorefrontCategoryId && categoryId != family?.CategoryId)
+                        await EnsureStorefrontCategoryAssignableAsync(_appDbContext, categoryId);
+
+                    // SPEC-limen-pricing-rules P5: reaching the "de" price ends the promotion.
+                    if (product.CompareAtPrice is { } compareAt && product.DefaultValue >= compareAt)
+                        product.EndPromotion();
+
+                    _productRepository.DetachEntity(existentProduct);
+                    product.UpdatedAt = DateTime.UtcNow;
+                    if (existentProduct.DefaultValue != product.DefaultValue)
+                        await MovePriceHistoryAsync(product, product.UpdatedAt.Value);
+                    product.PictureAdress = SharedFunctions.EnsureEncryptedAddress(product.PictureAdress);
+                    _productRepository.Update(product);
+                    if (family != null &&
+                        (!string.Equals(family.Name, product.Name, StringComparison.Ordinal) || family.CategoryId != product.StorefrontCategoryId))
+                        await SyncFamilyAsync(product);
+                    await _productRepository.CommitAsync();
+
+                    if (stockDelta != 0)
+                    {
+                        var movement = await ApplyStockMovementAsync(
+                            product.Id,
+                            product.EnterpriseId ?? Guid.Empty,
+                            stockDelta,
+                            EnumStockMovementType.Adjustment,
+                            referenceId: null);
+                        await _appDbContext.Entry(product).ReloadAsync();
+                        product.StorageQuantity = movement.BalanceAfter;
+                    }
+
+                    return product;
+                });
             }
             catch (NotFoundDatabaseException)
+            {
+                throw;
+            }
+            catch (PeriodClosedException)
             {
                 throw;
             }
@@ -166,6 +210,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 return null;
 
             var siblings = await _appDbContext.Product
+                .IgnoreQueryFilters()
                 .AsNoTracking()
                 .Where(other => other.VariantGroupId == product.VariantGroupId && other.Id != product.Id)
                 .Select(other => new { other.EnterpriseId, other.VariantLabel, other.IsActive, other.Name, other.StorefrontCategoryId })
@@ -265,6 +310,14 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 if (enterpriseId == Guid.Empty)
                     throw new InsertDatabaseException("Order enterprise is required.");
 
+                var productIds = orderedProducts.Select(line => line.ProductId).Distinct().ToList();
+                var serviceIds = await _appDbContext.Product
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Where(product => product.EnterpriseId == enterpriseId && productIds.Contains(product.Id) && product.IsService)
+                    .Select(product => product.Id)
+                    .ToHashSetAsync();
+
                 foreach (var orderedProduct in orderedProducts)
                 {
                     await ApplyStockMovementAsync(
@@ -273,7 +326,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                         -orderedProduct.Quantity,
                         EnumStockMovementType.Sale,
                         order.Id,
-                        allowNegativeStock);
+                        allowNegativeStock || serviceIds.Contains(orderedProduct.ProductId));
                 }
             }
             catch (NotFoundDatabaseException)

@@ -79,6 +79,82 @@ namespace EvangelionERPV2.ProductModule.Test
         }
 
         [Fact]
+        public async Task UpdateForOrder_WithPhysicalAndServiceLines_ExemptsOnlyTheService()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+            var enterpriseId = Guid.NewGuid();
+
+            var physical = await SeedProductAsync(context, enterpriseId, "Mug", 2m);
+            var serviceProduct = await SeedProductAsync(context, enterpriseId, "Engraving", 0m, isService: true);
+
+            await service.UpdateForOrder(BuildOrder(enterpriseId, (physical, 1m), (serviceProduct, 1m)));
+
+            Assert.Equal(1m, await ReadStockAsync(context, physical));
+            Assert.Equal(-1m, await ReadStockAsync(context, serviceProduct));
+            Assert.Equal(2, (await ReadMovementsAsync(context)).Count);
+        }
+
+        [Fact]
+        public async Task CreateAsync_WithOpeningQuantity_WritesTheProductAndMovementTogether()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+            var enterpriseId = Guid.NewGuid();
+            var product = new Product("Opening stock", "", 10m, 6m, false, false, "", enterpriseId)
+            {
+                UnitOfMeasure = nameof(EnumUnitOfMeasure.Unit),
+                IsActive = true
+            };
+
+            var created = await service.CreateAsync(new ProductPicture { Product = product, File = string.Empty });
+
+            Assert.Equal(6m, await ReadStockAsync(context, created.Id));
+            var movement = Assert.Single(await ReadMovementsAsync(context));
+            Assert.Equal(6m, movement.Quantity);
+            Assert.Equal((int)EnumStockMovementType.Adjustment, movement.Type);
+        }
+
+        [Fact]
+        public async Task CreateAsync_WhenOpeningMovementIsLocked_RollsBackTheProduct()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+            var enterpriseId = Guid.NewGuid();
+            await SeedEnterpriseAsync(context, enterpriseId, DateTime.UtcNow.Date);
+            var product = new Product("Locked opening", "", 10m, 6m, false, false, "", enterpriseId)
+            {
+                UnitOfMeasure = nameof(EnumUnitOfMeasure.Unit),
+                IsActive = true
+            };
+
+            await Assert.ThrowsAsync<PeriodClosedException>(() =>
+                service.CreateAsync(new ProductPicture { Product = product, File = string.Empty }));
+
+            Assert.False(await context.Product.IgnoreQueryFilters().AnyAsync(row => row.Id == product.Id));
+            Assert.Empty(await ReadMovementsAsync(context));
+        }
+
+        [Fact]
+        public async Task UpdateAsync_WhenStockAdjustmentFails_RollsBackTheProductEdit()
+        {
+            var context = _database.CreateContext();
+            var service = CreateService(context);
+            var enterpriseId = Guid.NewGuid();
+            var productId = await SeedProductAsync(context, enterpriseId, "Original", 2m);
+            var edit = await context.Product.AsNoTracking().IgnoreQueryFilters().SingleAsync(row => row.Id == productId);
+            edit.Name = "Should roll back";
+            edit.StorageQuantity = -1m;
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.UpdateAsync(edit));
+
+            var stored = await context.Product.AsNoTracking().IgnoreQueryFilters().SingleAsync(row => row.Id == productId);
+            Assert.Equal("Original", stored.Name);
+            Assert.Equal(2m, stored.StorageQuantity);
+            Assert.Empty(await ReadMovementsAsync(context));
+        }
+
+        [Fact]
         public async Task ApplyStockMovementAsync_WhenTwoCallersRaceForTheLastUnit_OnlyOneWins()
         {
             var enterpriseId = Guid.NewGuid();
@@ -311,7 +387,12 @@ namespace EvangelionERPV2.ProductModule.Test
             context.ChangeTracker.Clear();
         }
 
-        private static async Task<Guid> SeedProductAsync(AppDbContext context, Guid enterpriseId, string name, decimal storageQuantity)
+        private static async Task<Guid> SeedProductAsync(
+            AppDbContext context,
+            Guid enterpriseId,
+            string name,
+            decimal storageQuantity,
+            bool isService = false)
         {
             var product = new Product
             {
@@ -322,6 +403,7 @@ namespace EvangelionERPV2.ProductModule.Test
                 UnitOfMeasure = nameof(EnumUnitOfMeasure.Unit),
                 DefaultValue = 10m,
                 StorageQuantity = storageQuantity,
+                IsService = isService,
                 IsActive = true
             };
 

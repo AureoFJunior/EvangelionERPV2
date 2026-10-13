@@ -290,7 +290,7 @@ namespace EvangelionERPV2.Web.Controllers
                         Description = normalizedRequest.Description?.Trim() ?? string.Empty,
                         DefaultValue = normalizedRequest.DefaultValue.GetValueOrDefault(),
                         CostPrice = await CanReadCostAsync() ? normalizedRequest.CostPrice : null,
-                        StorageQuantity = 0,
+                        StorageQuantity = normalizedRequest.StorageQuantity.GetValueOrDefault(),
                         UnitOfMeasure = normalizedRequest.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty,
                         IsExternal = normalizedRequest.IsExternal.GetValueOrDefault(),
                         IsService = normalizedRequest.IsService.GetValueOrDefault(),
@@ -309,19 +309,6 @@ namespace EvangelionERPV2.Web.Controllers
                 Product createdProduct = await _productService.CreateAsync(product);
                 if (createdProduct == null)
                     return NoContent();
-
-                var openingQuantity = normalizedRequest.StorageQuantity.GetValueOrDefault();
-                if (openingQuantity > 0)
-                {
-                    var opening = await _productService.ApplyStockMovementAsync(
-                        createdProduct.Id,
-                        enterpriseId.Value,
-                        openingQuantity,
-                        EnumStockMovementType.Adjustment,
-                        referenceId: null);
-
-                    createdProduct.StorageQuantity = opening.BalanceAfter;
-                }
 
                 return Ok(await ToProductDtoAsync(createdProduct));
             }
@@ -354,24 +341,15 @@ namespace EvangelionERPV2.Web.Controllers
                 var existentProduct = await _repository.GetByIdAsync(request.Id);
                 if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
                     return NoContent();
+                if (!string.IsNullOrWhiteSpace(request.PictureAdress))
+                    return BadRequest("PictureAdress cannot be updated here. Use UploadPicture.");
 
                 existentProduct.Name = request.Name.Trim();
                 existentProduct.Description = request.Description?.Trim() ?? string.Empty;
                 existentProduct.DefaultValue = request.DefaultValue;
                 if (request.CostPrice.HasValue && await CanReadCostAsync())
                     existentProduct.CostPrice = request.CostPrice;
-                var stockDelta = request.StorageQuantity - existentProduct.StorageQuantity;
-                if (stockDelta != 0)
-                {
-                    var adjustment = await _productService.ApplyStockMovementAsync(
-                        existentProduct.Id,
-                        enterpriseId,
-                        stockDelta,
-                        EnumStockMovementType.Adjustment,
-                        referenceId: null);
-
-                    existentProduct.StorageQuantity = adjustment.BalanceAfter;
-                }
+                existentProduct.StorageQuantity = request.StorageQuantity;
 
                 existentProduct.UnitOfMeasure = request.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty;
                 existentProduct.IsExternal = request.IsExternal;
@@ -382,8 +360,6 @@ namespace EvangelionERPV2.Web.Controllers
                     existentProduct.VariantLabel = Trimmed(request.VariantLabel);
                 }
                 existentProduct.StorefrontCategoryId = request.StorefrontCategoryId ?? existentProduct.StorefrontCategoryId;
-                if (!string.IsNullOrWhiteSpace(request.PictureAdress))
-                    return BadRequest("PictureAdress cannot be updated here. Use UploadPicture.");
                 existentProduct.IsActive = request.IsActive ?? existentProduct.IsActive;
                 ApplyFiscalFields(request, existentProduct);
                 existentProduct.UpdatedAt = DateTime.UtcNow;

@@ -678,7 +678,7 @@ namespace EvangelionERPV2.Shared.Utils
 
                     MessagesProcessed.WithLabels(_channelSettings.QueueName, "ok").Inc();
                     await TryCancelConsumerAsync(ea.ConsumerTag);
-                    await AckAsync(ea.DeliveryTag);
+                    await AckAsync(ea.DeliveryTag, cancellationToken);
                     tcs.TrySetResult(true);
                 }
                 catch (Exception ex)
@@ -694,7 +694,7 @@ namespace EvangelionERPV2.Shared.Utils
                             return;
                         }
 
-                        await NackAsync(ea.DeliveryTag);
+                        await NackAsync(ea.DeliveryTag, cancellationToken: cancellationToken);
                     }
                     catch (Exception nackException)
                     {

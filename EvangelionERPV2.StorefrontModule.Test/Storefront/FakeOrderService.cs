@@ -39,7 +39,7 @@ namespace EvangelionERPV2.StorefrontModule.Test
                     foreach (var line in lines)
                     {
                         var product = await context.Product.FirstAsync(p => p.Id == line.ProductId);
-                        if (!allowNegativeStock && product.StorageQuantity < line.Quantity)
+                        if (!allowNegativeStock && !product.IsService && product.StorageQuantity < line.Quantity)
                             throw new InvalidOperationException("Insufficient stock");
                         product.StorageQuantity -= line.Quantity;
                         line.Id = Guid.NewGuid();

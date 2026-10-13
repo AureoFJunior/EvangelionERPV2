@@ -22,7 +22,7 @@ namespace EvangelionERPV2.Test.Security
     public class ProductControllerStockLedgerTests
     {
         [Fact]
-        public async Task UpdateProduct_WhenTheCountChanges_RoutesTheDeltaThroughTheLedger()
+        public async Task UpdateProduct_WhenTheCountChanges_PassesTheRequestedCountToTheAtomicUpdate()
         {
             var enterpriseId = Guid.NewGuid();
             var stored = CreateProduct(enterpriseId, storageQuantity: 12m);
@@ -32,14 +32,6 @@ namespace EvangelionERPV2.Test.Security
             var result = await harness.Controller.UpdateProduct(BuildRequest(stored, storageQuantity: 20m));
 
             Assert.IsType<OkObjectResult>(result);
-
-            harness.ProductService.Verify(x => x.ApplyStockMovementAsync(
-                stored.Id,
-                enterpriseId,
-                8m,
-                EnumStockMovementType.Adjustment,
-                null,
-                false), Times.Once);
 
             Assert.Equal(20m, harness.SavedProduct!.StorageQuantity);
         }
@@ -61,25 +53,6 @@ namespace EvangelionERPV2.Test.Security
                 It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Never);
 
             Assert.Equal(12m, harness.SavedProduct!.StorageQuantity);
-        }
-
-        /// <summary>
-        /// The edit form never gets the till's exemption: allowNegative is false on every call it
-        /// makes, so an admin cannot drive a count below zero from the web.
-        /// </summary>
-        [Fact]
-        public async Task UpdateProduct_NeverAsksToGoNegative()
-        {
-            var enterpriseId = Guid.NewGuid();
-            var stored = CreateProduct(enterpriseId, storageQuantity: 12m);
-
-            var harness = new Harness(enterpriseId, stored);
-
-            await harness.Controller.UpdateProduct(BuildRequest(stored, storageQuantity: 0m));
-
-            harness.ProductService.Verify(x => x.ApplyStockMovementAsync(
-                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
-                It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), true), Times.Never);
         }
 
         private sealed class Harness

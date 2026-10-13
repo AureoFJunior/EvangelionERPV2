@@ -378,9 +378,9 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
 
             try
             {
-                // ponytail: services carry no stock, so an all-service order may go negative; a mixed
-                // order enforces stock for every line, and a service line at zero refunds that store.
-                var created = await _orderService.CreateAsync(order, allowNegativeStock: products.Values.All(p => p.IsService));
+                // ProductService exempts service lines individually while physical lines still
+                // enforce stock, including when both kinds share one order.
+                var created = await _orderService.CreateAsync(order, allowNegativeStock: false);
                 return Ordered(created.Id);
             }
             catch (Exception exception)

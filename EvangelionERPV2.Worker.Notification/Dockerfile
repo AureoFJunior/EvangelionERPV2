@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
-ARG APP_UID=0
+ARG APP_UID=1654
 USER $APP_UID
 WORKDIR /app
 

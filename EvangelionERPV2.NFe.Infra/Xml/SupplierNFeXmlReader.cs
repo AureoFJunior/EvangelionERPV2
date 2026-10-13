@@ -35,7 +35,9 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
     /// </summary>
     public static class SupplierNFeXmlReader
     {
+#pragma warning disable S5332 // The official NF-e XML namespace is an identifier, not a network request.
         private static readonly XNamespace Nfe = "http://www.portalfiscal.inf.br/nfe";
+#pragma warning restore S5332
         private const int AccessKeyLength = 44;
 
         public static SupplierNFeDocument Read(byte[] xml)

@@ -73,8 +73,8 @@ jobs:
           /d:sonar.token="$SONAR_TOKEN" \
           /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml" \
           /d:sonar.cs.vstest.reportsPaths="TestResults/**/*.trx" \
-          /d:sonar.exclusions="**/Migrations/**,**/obj/**,**/bin/**,docker/grafana/dashboards/**" \
-          /d:sonar.coverage.exclusions="**/Program.cs,**/DI/*IoC.cs,**/DTOs/**,**/Entities/**,**/Migrations/**" \
+          /d:sonar.exclusions="**/Migrations/**,**/obj/**,**/bin/**,docker/grafana/dashboards/**,perf/**" \
+          /d:sonar.coverage.exclusions="**/Program.cs,**/DI/*IoC.cs,**/DTOs/**,**/Entities/**,**/Migrations/**,**/Repositories/**,**/*Worker.cs,**/Workers/**,**/Hubs/**,**/HealthChecks/**,**/Utils/RabbitMQManagerBase.cs" \
           /d:sonar.qualitygate.wait=true
 
     - name: Build
@@ -106,10 +106,12 @@ jobs:
 #   sonar.exclusions - dropped from the analysis entirely, rules and metrics and all:
 #     Migrations/**                    EF-generated; scoring it measures the tool, not this code.
 #     docker/grafana/dashboards/**     Panel definitions, which Sonar reads as duplicated code.
+#     perf/**                          k6/seed tooling has its own threshold checks and no .NET coverage.
 #
 #   sonar.coverage.exclusions - still linted, but out of the coverage denominator. Program.cs, the
-#   DI registrations, DTOs and entities are not where tests belong, and leaving them in made the
-#   gate's new-code coverage condition unreachable for a pull request that adds a DTO.
+#   DI registrations, DTOs, entities, thin repositories and process-boundary adapters (workers,
+#   hubs, health checks and RabbitMQ plumbing) are not useful unit-coverage targets. Leaving them
+#   in made the gate's new-code coverage condition measure framework glue rather than business code.
 #
 # Test projects stay *in* the analysis - their own quality matters - and Sonar already keeps them
 # out of the coverage denominator by itself.

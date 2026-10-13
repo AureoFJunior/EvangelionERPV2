@@ -72,8 +72,10 @@ namespace EvangelionERPV2.Shared.Utils
         ];
 
         /// <summary>A stable id for a seeded slug (MD5 of a namespace + slug; not security relevant).</summary>
+#pragma warning disable S4790 // Compatibility identifier only; changing it would orphan persisted category IDs.
         public static Guid IdOf(string slug) =>
             new(MD5.HashData(Encoding.UTF8.GetBytes("limen-category:" + slug)));
+#pragma warning restore S4790
 
         public static IReadOnlyList<StorefrontCategory> Categories()
         {

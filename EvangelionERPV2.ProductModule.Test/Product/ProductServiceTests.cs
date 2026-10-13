@@ -220,7 +220,7 @@ namespace EvangelionERPV2.ProductModule.Test
 
             var request = new ProductPicture
             {
-                Product = new Product("Product", "Desc", 10, 5, false, false, string.Empty, enterpriseId),
+                Product = new Product("Product", "Desc", 10, 0, false, false, string.Empty, enterpriseId),
                 File = string.Empty
             };
 
@@ -262,7 +262,7 @@ namespace EvangelionERPV2.ProductModule.Test
 
             var request = new ProductPicture
             {
-                Product = new Product("Product", "Desc", 10, 5, false, false, string.Empty, enterpriseId),
+                Product = new Product("Product", "Desc", 10, 0, false, false, string.Empty, enterpriseId),
                 File = "not-a-valid-base64"
             };
 
@@ -292,6 +292,11 @@ namespace EvangelionERPV2.ProductModule.Test
                 });
             var kmsProvider = new AWSKMSKeyProvider(secretsManager.Object, configuration);
             var productRepository = new Mock<IRepository<Product>>();
+            productRepository
+                .Setup(r => r.ExecuteInTransactionAsync(
+                    It.IsAny<Func<Task<Product>>>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns((Func<Task<Product>> operation, CancellationToken _) => operation());
             var reportGenerator = new Mock<IProductReportGeneratorService>();
 
             var service = new ProductService(productRepository.Object, configuration, kmsProvider, reportGenerator.Object, _database.CreateContext());
@@ -369,6 +374,11 @@ namespace EvangelionERPV2.ProductModule.Test
 
             var kmsProvider = new AWSKMSKeyProvider(secretsManager.Object, configuration);
             var productRepository = new Mock<IRepository<Product>>();
+            productRepository
+                .Setup(r => r.ExecuteInTransactionAsync(
+                    It.IsAny<Func<Task<Product>>>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns((Func<Task<Product>> operation, CancellationToken _) => operation());
             var reportGenerator = new Mock<IProductReportGeneratorService>();
             var s3ClientMock = new Mock<IAmazonS3>();
 

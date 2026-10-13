@@ -420,7 +420,7 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
-        public async Task AddProduct_PostsTheOpeningCountAsAStockMovement()
+        public async Task AddProduct_PassesTheOpeningCountToTheAtomicCreate()
         {
             var enterpriseId = Guid.NewGuid();
             var callerId = Guid.NewGuid();
@@ -429,8 +429,6 @@ namespace EvangelionERPV2.Test.Security
             var productService = new Mock<IProductService<Product>>(MockBehavior.Strict);
             var mapper = CreateMapper();
             decimal? quantityAtPersist = null;
-            decimal? movedQuantity = null;
-            EnumStockMovementType? movementType = null;
 
             userRepository
                 .Setup(r => r.GetByIdAsync(callerId))
@@ -440,8 +438,6 @@ namespace EvangelionERPV2.Test.Security
                 .Setup(s => s.ApplyStockMovementAsync(
                     It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
                     It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
-                .Callback<Guid, Guid, decimal, EnumStockMovementType, Guid?, bool>(
-                    (_, _, delta, type, _, _) => { movedQuantity = delta; movementType = type; })
                 .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
                     new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
 
@@ -470,9 +466,10 @@ namespace EvangelionERPV2.Test.Security
             });
 
             Assert.IsType<OkObjectResult>(result);
-            Assert.Equal(0, quantityAtPersist);
-            Assert.Equal(12, movedQuantity);
-            Assert.Equal(EnumStockMovementType.Adjustment, movementType);
+            Assert.Equal(12, quantityAtPersist);
+            productService.Verify(s => s.ApplyStockMovementAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Never);
         }
     }
 }

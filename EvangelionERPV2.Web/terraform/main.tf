@@ -176,6 +176,8 @@ resource "aws_instance" "app" {
   subnet_id              = var.subnets[0]
   vpc_security_group_ids = [aws_security_group.evangelionerpv2_tasks.id]
   iam_instance_profile   = aws_iam_instance_profile.app_instance.name
+  # The only public address is the reserved EIP attached below; never assign an extra ephemeral IP.
+  associate_public_ip_address = false
 
   root_block_device {
     volume_size = var.root_volume_size
