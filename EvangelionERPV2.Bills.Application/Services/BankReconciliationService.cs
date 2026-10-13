@@ -223,30 +223,37 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (enterpriseId == Guid.Empty)
                 throw new InsertDatabaseException("Bank reconciliation enterprise is required.");
 
-            var line = await _lineRepository.GetByIdAsync(lineId);
-
-            if (line == null || line.IsActive != true || line.EnterpriseId != enterpriseId)
-                throw new NotFoundDatabaseException($"{nameof(BankStatementLine)} was not found in database.");
-
-            if (matchedReferenceId.HasValue)
+            return await _lineRepository.ExecuteInTransactionAsync(async () =>
             {
-                await EnsureReferenceIsClaimableAsync(enterpriseId, line, matchedReferenceId.Value);
+                var line = await _lineRepository.GetByIdAsync(lineId);
 
-                line.Status = (int)BankStatementLineStatus.Matched;
-                line.MatchedReferenceId = matchedReferenceId.Value;
-            }
-            else
-            {
-                line.Status = (int)BankStatementLineStatus.Ignored;
-                line.MatchedReferenceId = null;
-            }
+                if (line == null || line.IsActive != true || line.EnterpriseId != enterpriseId)
+                    throw new NotFoundDatabaseException($"{nameof(BankStatementLine)} was not found in database.");
 
-            line.UpdatedAt = DateTime.UtcNow;
+                if (matchedReferenceId.HasValue)
+                {
+                    if (line.Amount > 0)
+                        await _orderRepository.LockForUpdateAsync(matchedReferenceId.Value, cancellationToken);
+                    else
+                        await _payableBillRepository.LockForUpdateAsync(matchedReferenceId.Value, cancellationToken);
+                    await EnsureReferenceIsClaimableAsync(enterpriseId, line, matchedReferenceId.Value);
 
-            _lineRepository.Update(line);
-            await _lineRepository.CommitAsync(cancellationToken);
+                    line.Status = (int)BankStatementLineStatus.Matched;
+                    line.MatchedReferenceId = matchedReferenceId.Value;
+                }
+                else
+                {
+                    line.Status = (int)BankStatementLineStatus.Ignored;
+                    line.MatchedReferenceId = null;
+                }
 
-            return Map(line);
+                line.UpdatedAt = DateTime.UtcNow;
+
+                _lineRepository.Update(line);
+                await _lineRepository.CommitAsync(cancellationToken);
+
+                return Map(line);
+            }, cancellationToken);
         }
 
         /// <summary>

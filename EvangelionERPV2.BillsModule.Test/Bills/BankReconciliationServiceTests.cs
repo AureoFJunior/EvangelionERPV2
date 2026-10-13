@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using System.Text;
 using EvangelionERPV2.BillsModule.Application.Services;
+using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
@@ -447,6 +448,10 @@ namespace EvangelionERPV2.BillsModule.Test
                 lineRepository
                     .Setup(x => x.CommitAsync(It.IsAny<CancellationToken>()))
                     .Returns(Task.CompletedTask);
+                lineRepository
+                    .Setup(x => x.ExecuteInTransactionAsync(
+                        It.IsAny<Func<Task<BankStatementLineDTO>>>(), It.IsAny<CancellationToken>()))
+                    .Returns((Func<Task<BankStatementLineDTO>> operation, CancellationToken _) => operation());
                 lineRepository
                     .Setup(x => x.CreateRangeAsync(It.IsAny<IEnumerable<BankStatementLine>>()))
                     .ReturnsAsync((IEnumerable<BankStatementLine> created) =>

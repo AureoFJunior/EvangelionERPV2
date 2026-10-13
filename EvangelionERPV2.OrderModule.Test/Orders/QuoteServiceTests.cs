@@ -68,6 +68,25 @@ namespace EvangelionERPV2.OrderModule.Test
         }
 
         [Fact]
+        public async Task Create_RefusesACustomerFromAnotherTenant()
+        {
+            var product = BuildProduct("Plugsuit", defaultValue: 100m);
+            var customer = new Customer
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = Guid.NewGuid(),
+                Name = "Foreign customer",
+                IsActive = true
+            };
+            var (service, _, _, _) = BuildSut(products: [product], customers: [customer]);
+            var request = NewRequest(product);
+            request.CustomerId = customer.Id;
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => service.CreateAsync(EnterpriseId, request));
+        }
+
+        [Fact]
         public async Task Create_TakesItsNumberFromTheTenantsCounter()
         {
             var product = BuildProduct("Plugsuit", defaultValue: 10m);
@@ -275,7 +294,8 @@ namespace EvangelionERPV2.OrderModule.Test
         }
 
         private static (QuoteService Service, List<Quote> Quotes, List<QuoteItem> Items, Mock<IOrderService<Order>> OrderService)
-            BuildSut(List<Product>? products = null, Quote? stored = null, long nextNumber = 1)
+            BuildSut(List<Product>? products = null, Quote? stored = null, long nextNumber = 1,
+                List<Customer>? customers = null)
         {
             var quoteStore = stored == null ? [] : new List<Quote> { stored };
             var itemStore = stored?.Items?.ToList() ?? [];
@@ -291,6 +311,9 @@ namespace EvangelionERPV2.OrderModule.Test
                 .ReturnsAsync((Quote quote) => { quoteStore.Add(quote); return quote; });
             quoteRepository.Setup(x => x.Update(It.IsAny<Quote>())).Returns((Quote quote) => quote);
             quoteRepository.Setup(x => x.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            quoteRepository.Setup(x => x.ExecuteInTransactionAsync(
+                    It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
+                .Returns((Func<Task> operation, CancellationToken _) => operation());
 
             var itemRepository = new Mock<IRepository<QuoteItem>>();
             itemRepository.Setup(x => x.CreateRangeAsync(It.IsAny<IEnumerable<QuoteItem>>()))
@@ -330,11 +353,28 @@ namespace EvangelionERPV2.OrderModule.Test
                 });
 
             var orderService = new Mock<IOrderService<Order>>();
+            var customerStore = customers ?? [];
+            var customerRepository = new Mock<IRepository<Customer>>();
+            customerRepository.Setup(x => x.GetPagedAsync(
+                    It.IsAny<Expression<Func<Customer, bool>>?>(),
+                    It.IsAny<Func<IQueryable<Customer>, IOrderedQueryable<Customer>>?>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>()))
+                .ReturnsAsync((
+                    Expression<Func<Customer, bool>>? predicate,
+                    Func<IQueryable<Customer>, IOrderedQueryable<Customer>>? _,
+                    int? __,
+                    int? ___) =>
+                {
+                    var found = predicate == null ? customerStore : customerStore.Where(predicate.Compile()).ToList();
+                    return ((IReadOnlyList<Customer>)found, found.Count);
+                });
 
             var service = new QuoteService(
                 quoteRepository.Object,
                 itemRepository.Object,
                 productRepository.Object,
+                customerRepository.Object,
                 orderService.Object);
 
             return (service, quoteStore, itemStore, orderService);

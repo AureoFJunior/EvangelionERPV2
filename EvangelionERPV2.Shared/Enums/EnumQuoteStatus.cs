@@ -21,6 +21,9 @@ namespace EvangelionERPV2.Shared.Enums
         Expired = 5,
 
         /// <summary>Became an order. Terminal, and <c>ConvertedOrderId</c> names which one.</summary>
-        Converted = 6
+        Converted = 6,
+
+        /// <summary>An order conversion currently owns this quote.</summary>
+        Converting = 7
     }
 }

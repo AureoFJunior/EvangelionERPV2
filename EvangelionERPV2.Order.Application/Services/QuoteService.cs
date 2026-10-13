@@ -21,17 +21,20 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         private readonly IQuoteRepository _quoteRepository;
         private readonly IRepository<QuoteItem> _quoteItemRepository;
         private readonly IRepository<Product> _productRepository;
+        private readonly IRepository<Customer> _customerRepository;
         private readonly IOrderService<Order> _orderService;
 
         public QuoteService(
             IQuoteRepository quoteRepository,
             IRepository<QuoteItem> quoteItemRepository,
             IRepository<Product> productRepository,
+            IRepository<Customer> customerRepository,
             IOrderService<Order> orderService)
         {
             _quoteRepository = quoteRepository;
             _quoteItemRepository = quoteItemRepository;
             _productRepository = productRepository;
+            _customerRepository = customerRepository;
             _orderService = orderService;
         }
 
@@ -71,6 +74,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 throw new InsertDatabaseException("Enterprise is required.");
 
             var items = await ResolveItemsAsync(enterpriseId, request.Items);
+            await EnsureCustomerBelongsToEnterpriseAsync(request.CustomerId, enterpriseId);
 
             var quote = new Quote
             {
@@ -114,6 +118,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 throw new InsertDatabaseException("Only a draft quote can be edited.");
 
             var items = await ResolveItemsAsync(enterpriseId, request.Items);
+            await EnsureCustomerBelongsToEnterpriseAsync(request.CustomerId, enterpriseId);
             foreach (var item in items)
                 item.QuoteId = existing.Id;
 
@@ -145,7 +150,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 ?? throw new NotFoundDatabaseException($"{nameof(Quote)} was not found in database.");
 
             var effective = existing.StatusAsOf(DateTime.UtcNow);
-            if (effective is EnumQuoteStatus.Converted or EnumQuoteStatus.Expired or EnumQuoteStatus.Rejected)
+            if (effective is EnumQuoteStatus.Converted or EnumQuoteStatus.Converting or EnumQuoteStatus.Expired or EnumQuoteStatus.Rejected)
                 throw new InsertDatabaseException("This quote is closed and cannot change status.");
 
             existing.Status = (int)status;
@@ -168,23 +173,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             bool allowCreditOverride = false,
             CancellationToken cancellation = default)
         {
-            var existing = await _quoteRepository.GetWithItemsAsync(id, enterpriseId, cancellation)
-                ?? throw new NotFoundDatabaseException($"{nameof(Quote)} was not found in database.");
-
-            if (existing.ConvertedOrderId.HasValue)
-                throw new InsertDatabaseException("This quote has already been converted.");
-
-            var effective = existing.StatusAsOf(DateTime.UtcNow);
-            if (effective == EnumQuoteStatus.Expired)
-                throw new InsertDatabaseException("This quote has expired and cannot be converted.");
-
-            if (effective is EnumQuoteStatus.Rejected or EnumQuoteStatus.Converted)
-                throw new InsertDatabaseException("This quote is closed and cannot be converted.");
-
-            var items = existing.Items?.ToList() ?? [];
-            if (items.Count == 0)
-                throw new InsertDatabaseException("A quote with no items cannot be converted.");
-
+            var (existing, previousStatus, items) = await ClaimConversionAsync(id, enterpriseId, cancellation);
             var order = new Order
             {
                 EnterpriseId = enterpriseId,
@@ -203,7 +192,20 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 }).ToList()
             };
 
-            var createdOrder = await _orderService.CreateAsync(order, allowCreditOverride);
+            Order createdOrder;
+            try
+            {
+                createdOrder = await _orderService.CreateAsync(order, allowCreditOverride);
+            }
+            catch
+            {
+                existing.Status = previousStatus;
+                existing.UpdatedAt = DateTime.UtcNow;
+                existing.Items = null;
+                _quoteRepository.Update(existing);
+                await _quoteRepository.CommitAsync(CancellationToken.None);
+                throw;
+            }
 
             existing.ConvertedOrderId = createdOrder.Id;
             existing.Status = (int)EnumQuoteStatus.Converted;
@@ -217,6 +219,44 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 "Quote {Number} converted. QuoteId={QuoteId} OrderId={OrderId}", existing.Number, existing.Id, createdOrder.Id);
 
             return existing;
+        }
+
+        private async Task<(Quote Quote, int PreviousStatus, List<QuoteItem> Items)> ClaimConversionAsync(
+            Guid id, Guid enterpriseId, CancellationToken cancellation)
+        {
+            Quote? claimed = null;
+            var previousStatus = 0;
+            List<QuoteItem> items = [];
+
+            await _quoteRepository.ExecuteInTransactionAsync(async () =>
+            {
+                await _quoteRepository.LockForUpdateAsync(id, cancellation);
+                claimed = await _quoteRepository.GetWithItemsAsync(id, enterpriseId, cancellation)
+                    ?? throw new NotFoundDatabaseException($"{nameof(Quote)} was not found in database.");
+
+                if (claimed.ConvertedOrderId.HasValue)
+                    throw new InsertDatabaseException("This quote has already been converted.");
+
+                var effective = claimed.StatusAsOf(DateTime.UtcNow);
+                if (effective == EnumQuoteStatus.Expired)
+                    throw new InsertDatabaseException("This quote has expired and cannot be converted.");
+
+                if (effective is EnumQuoteStatus.Rejected or EnumQuoteStatus.Converted or EnumQuoteStatus.Converting)
+                    throw new InsertDatabaseException("This quote is closed or already being converted.");
+
+                items = claimed.Items?.ToList() ?? [];
+                if (items.Count == 0)
+                    throw new InsertDatabaseException("A quote with no items cannot be converted.");
+
+                previousStatus = claimed.Status;
+                claimed.Status = (int)EnumQuoteStatus.Converting;
+                claimed.UpdatedAt = DateTime.UtcNow;
+                claimed.Items = null;
+                _quoteRepository.Update(claimed);
+                await _quoteRepository.CommitAsync(cancellation);
+            }, cancellation);
+
+            return (claimed!, previousStatus, items);
         }
 
         public async Task<Quote> DeleteAsync(Guid id, Guid enterpriseId, CancellationToken cancellation = default)
@@ -281,6 +321,24 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     IsActive = true
                 };
             }).ToList();
+        }
+
+        private async Task EnsureCustomerBelongsToEnterpriseAsync(Guid? customerId, Guid enterpriseId)
+        {
+            if (!customerId.HasValue)
+                return;
+
+            var customer = (await _customerRepository.GetPagedAsync(
+                    item => item.Id == customerId.Value
+                        && item.EnterpriseId == enterpriseId
+                        && item.IsActive == true,
+                    pageNumber: 1,
+                    pageSize: 1))
+                .Items
+                .FirstOrDefault();
+
+            if (customer == null)
+                throw new InsertDatabaseException("The quote customer was not found in this enterprise.");
         }
     }
 }
