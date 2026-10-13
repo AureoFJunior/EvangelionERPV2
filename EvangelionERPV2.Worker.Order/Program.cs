@@ -1,4 +1,5 @@
-﻿using Amazon.SecretsManager;
+using Amazon.SecretsManager;
+using Prometheus;
 using EvangelionERPV2.Shared.Entities.RabbitMQ;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Worker.OrderModule.OrderWorker.RabbitMQ;
@@ -8,12 +9,13 @@ using Microsoft.Extensions.Hosting;
 
 namespace EvangelionERPV2.Worker.OrderModule.OrderWorker
 {
-
     public class Program
     {
         public static async Task Main(string[] args)
         {
             OrderLogConfig.Configure();
+            new KestrelMetricServer(port: 9101).Start();
+
             var host = CreateHostBuilder(args).Build();
             using (var scope = host.Services.CreateScope())
             {

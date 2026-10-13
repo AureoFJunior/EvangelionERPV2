@@ -5,7 +5,7 @@ namespace EvangelionERPV2.Shared.Utils
 {
     public static class EnterpriseBalanceContributionHelper
     {
-        public static double GetOrderRealizedContribution(Order? order, DateTime today)
+        public static decimal GetOrderRealizedContribution(Order? order, DateTime today)
         {
             if (order == null || order.IsActive != true)
                 return 0;
@@ -20,7 +20,7 @@ namespace EvangelionERPV2.Shared.Utils
             return order.TotalValue;
         }
 
-        public static double GetPayableRealizedContribution(PayableBill? payableBill, DateTime today)
+        public static decimal GetPayableRealizedContribution(PayableBill? payableBill, DateTime today)
         {
             if (payableBill == null || payableBill.IsActive != true)
                 return 0;

@@ -1,0 +1,49 @@
+# Puts Whisper on the GPU. Opt-in, because it needs the NVIDIA container toolkit installed on the
+# host — without it every `up` fails with "could not select device driver", which is why this is a
+# separate file rather than a profile in the main one.
+#
+#   sudo pacman -S nvidia-container-toolkit
+#   sudo nvidia-ctk runtime configure --runtime=docker
+#   sudo systemctl restart docker
+#
+# Then add it to any command that starts whisper:
+#
+#   docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.gpu.yml \
+#     --profile localdb --profile proxy --profile workers --profile voice up -d
+#
+# Ollama stays on the host either way. It is not in this file and does not want to be: it already
+# holds ~9.6 GB of the 16 GB on the card, which is the constraint that picks the model below.
+
+services:
+  whisper:
+    # The CUDA build, and this line is not optional. The default image is `latest-cpu`, which ships
+    # no cuDNN: point it at the GPU without changing the image and the process dies mid-transcription
+    # with "Could not load library libcudnn_ops_infer.so.8", the container restarts, and the caller
+    # waits out a reboot instead of getting a transcript. Observed 2026-09-14 — and `restart:
+    # unless-stopped` hides it as a slow response rather than a crash.
+    # Its own variable, deliberately not WHISPER_IMAGE: that one is set to the CPU build in the base
+    # file, and inheriting it here would point the GPU at an image with no cuDNN — the crash this
+    # comment exists to prevent.
+    image: ${WHISPER_CUDA_IMAGE:-fedirz/faster-whisper-server:latest-cuda}
+    environment:
+      # large-v3 is the best Whisper there is for pt-BR, and on a 4080 it is far quicker than medium
+      # on CPU. int8_float16 rather than float16 because of what is left after qwen3:14b: measured
+      # 2026-09-14 the card had ~3.1 GB free, float16 large-v3 wants ~3.1 GB of that, and a model
+      # that only just fits is a model that fails the day the LLM's context grows. int8_float16 asks
+      # for roughly half and costs very little accuracy.
+      WHISPER__MODEL: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-large-v3}
+      WHISPER__INFERENCE_DEVICE: cuda
+      WHISPER__COMPUTE_TYPE: ${EVA_AI_SPEECH_COMPUTE_TYPE:-int8_float16}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  evangelionerpv2:
+    environment:
+      # The API sends `model` with every clip, so it has to name the same model the server loaded —
+      # otherwise the per-request value silently wins and the GPU loads a second model to serve it.
+      AiSettings__SpeechModel: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-large-v3}

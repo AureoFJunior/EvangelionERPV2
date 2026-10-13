@@ -1,9 +1,12 @@
 using AutoMapper;
 using EvangelionERPV2.CustomerModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using System.Text.Json;
@@ -56,6 +59,9 @@ namespace EvangelionERPV2.Test.Security
                 customerService.Object,
                 customerRepository.Object,
                 userRepository.Object,
+                new Mock<ICustomerSummaryService>().Object,
+                new Mock<ICustomerLocationService>().Object,
+                Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())),
                 mapper.Object);
         }
     }

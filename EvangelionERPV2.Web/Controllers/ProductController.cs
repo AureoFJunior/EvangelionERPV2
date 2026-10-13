@@ -1,6 +1,8 @@
+using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using AutoMapper;
 using Serilog;
 using EvangelionERPV2.Shared.Entities;
@@ -21,8 +23,6 @@ namespace EvangelionERPV2.Web.Controllers
     public class ProductController : Controller
     {
         private const int MaxImageUploadRequestBodySizeInBytes = 8 * 1024 * 1024;
-        private const int DefaultPageNumber = 1;
-        private const int DefaultPageSize = 50;
         private const int MaxPageSize = 200;
         private const int MaxPageSizeWithPictures = 50;
 
@@ -30,16 +30,21 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _repository;
         private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
+        private readonly IAuthorizationService _authorizationService;
+
+        private bool? _canReadCost;
 
         public ProductController(IProductService<Product> productService,
             EvangelionERPV2.Shared.Repositories.IRepository<Product> repository,
             IRepository<User> userRepository,
-            IMapper mapper)
+            IMapper mapper,
+            IAuthorizationService authorizationService)
         {
             _productService = productService;
             _repository = repository;
             _userRepository = userRepository;
             _mapper = mapper;
+            _authorizationService = authorizationService;
         }
 
         /// <summary>
@@ -56,7 +61,6 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetProducts(int? pageNumber = null, int? pageSize = null, [FromQuery] bool includePictures = true)
         {
-
             if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
             if (!TryGetEnterpriseId(out var enterpriseId))
@@ -102,9 +106,15 @@ namespace EvangelionERPV2.Web.Controllers
                 filter ??= new ProductFilterRequestDTO();
                 var nameFilter = filter.Name?.Trim();
                 var isActiveFilter = filter.IsActive;
+                var groupIds = filter.VariantGroupIds is { Count: > 0 } ids ? ids.Distinct().ToList() : null;
+                var categoryId = filter.StorefrontCategoryId;
+                var uncategorized = filter.Uncategorized;
+                var publishedOnly = filter.PublishedOnly;
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
                 if (includePictures && normalizedPageSize > MaxPageSizeWithPictures)
                     normalizedPageSize = MaxPageSizeWithPictures;
+
+                var escapedNameFilter = SharedFunctions.EscapeLikePattern(nameFilter ?? string.Empty);
 
                 var products = await _repository.GetAllAsync(
                     normalizedPageNumber,
@@ -112,7 +122,11 @@ namespace EvangelionERPV2.Web.Controllers
                     x =>
                         x.EnterpriseId == enterpriseId &&
                         (!isActiveFilter.HasValue || x.IsActive == isActiveFilter.Value) &&
-                        (string.IsNullOrWhiteSpace(nameFilter) || x.Name.Contains(nameFilter, StringComparison.OrdinalIgnoreCase)));
+                        (groupIds == null || (x.VariantGroupId.HasValue && groupIds.Contains(x.VariantGroupId.Value))) &&
+                        (categoryId == null || x.StorefrontCategoryId == categoryId) &&
+                        (!uncategorized || x.StorefrontCategoryId == null) &&
+                        (!publishedOnly || x.IsPublishedOnStorefront) &&
+                        (string.IsNullOrWhiteSpace(nameFilter) || EF.Functions.Like(x.Name, $"%{escapedNameFilter}%", "\\")));
 
                 if (products == null || !products.Any())
                     return NoContent();
@@ -122,7 +136,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Products not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Products not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -160,6 +174,93 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
+        /// A product's photo as an image, so lists can load it lazily instead of carrying base64.
+        /// <c>thumb</c> is the long-edge-200 JPEG kept in S3 beside the original. The ETag is derived
+        /// from the stored key: a new upload gets a new key, so it also gets a new ETag.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Read)]
+        [HttpGet("{id:guid}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status304NotModified)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> Picture(Guid id, [FromQuery] string size = "thumb")
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            if (size is not ("thumb" or "full"))
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+            var product = await _repository.GetByIdAsync(id);
+            if (product == null || product.EnterpriseId != enterpriseId || product.IsActive != true)
+                return NotFound();
+
+            return await ServePictureAsync(product.PictureAdress, size);
+        }
+
+        /// <summary>A variant family's own photo (the one showing the whole family), same caching as <see cref="Picture"/>.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Read)]
+        [HttpGet("{variantGroupId:guid}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status304NotModified)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> FamilyPicture(Guid variantGroupId, [FromQuery] string size = "thumb")
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            if (size is not ("thumb" or "full"))
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+            return await ServePictureAsync(await _productService.GetFamilyPictureAddressAsync(enterpriseId, variantGroupId), size);
+        }
+
+        /// <summary>Sets the photo of a whole variant family; each variant keeps its own.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Update)]
+        [HttpPatch]
+        [RequestSizeLimit(MaxImageUploadRequestBodySizeInBytes)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UploadFamilyPicture([FromBody] UploadFamilyPictureRequestDTO request)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            return await _productService.SetFamilyPictureAsync(enterpriseId, request.VariantGroupId, request.File)
+                ? Ok(new { variantGroupId = request.VariantGroupId, hasPicture = true })
+                : NotFound();
+        }
+
+        private async Task<IActionResult> ServePictureAsync(string? pictureAddress, string size)
+        {
+            if (string.IsNullOrWhiteSpace(pictureAddress))
+                return NotFound();
+
+            var etag = $"\"{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(pictureAddress + "|" + size)))[..32]}\"";
+            Response.Headers.CacheControl = "private, max-age=300";
+            Response.Headers.ETag = etag;
+            if (Request.Headers.IfNoneMatch.Contains(etag))
+                return StatusCode(StatusCodes.Status304NotModified);
+
+            var base64 = size == "thumb"
+                ? (await _productService.GetThumbnailBase64Async(pictureAddress)).Base64
+                : await _productService.GetPictureBase64Async(pictureAddress);
+            if (string.IsNullOrWhiteSpace(base64))
+                return NotFound();
+
+            var bytes = Convert.FromBase64String(base64);
+            return File(bytes, ImageContentType(bytes));
+        }
+
+        private static string ImageContentType(byte[] bytes) => bytes switch
+        {
+            [0x89, 0x50, 0x4E, 0x47, ..] => "image/png",
+            [(byte)'R', (byte)'I', (byte)'F', (byte)'F', _, _, _, _, (byte)'W', (byte)'E', (byte)'B', (byte)'P', ..] => "image/webp",
+            [(byte)'G', (byte)'I', (byte)'F', ..] => "image/gif",
+            _ => "image/jpeg"
+        };
+
+        /// <summary>
         /// Add a new product
         /// </summary>
         /// <param name="product">Product to be added</param>
@@ -188,22 +289,39 @@ namespace EvangelionERPV2.Web.Controllers
                         Name = normalizedRequest.Name.Trim(),
                         Description = normalizedRequest.Description?.Trim() ?? string.Empty,
                         DefaultValue = normalizedRequest.DefaultValue.GetValueOrDefault(),
-                        StorageQuantity = normalizedRequest.StorageQuantity.GetValueOrDefault(),
+                        CostPrice = await CanReadCostAsync() ? normalizedRequest.CostPrice : null,
+                        StorageQuantity = 0,
                         UnitOfMeasure = normalizedRequest.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty,
                         IsExternal = normalizedRequest.IsExternal.GetValueOrDefault(),
                         IsService = normalizedRequest.IsService.GetValueOrDefault(),
                         PictureAdress = string.Empty,
+                        EnterpriseId = enterpriseId.Value,
                         VariantGroupId = normalizedRequest.VariantGroupId,
                         VariantLabel = Trimmed(normalizedRequest.VariantLabel),
-                        EnterpriseId = enterpriseId.Value,
+                        StorefrontCategoryId = normalizedRequest.StorefrontCategoryId,
                         IsActive = true
                     },
                     File = normalizedRequest.File ?? string.Empty
                 };
 
+                ApplyFiscalFields(normalizedRequest, product.Product);
+
                 Product createdProduct = await _productService.CreateAsync(product);
                 if (createdProduct == null)
                     return NoContent();
+
+                var openingQuantity = normalizedRequest.StorageQuantity.GetValueOrDefault();
+                if (openingQuantity > 0)
+                {
+                    var opening = await _productService.ApplyStockMovementAsync(
+                        createdProduct.Id,
+                        enterpriseId.Value,
+                        openingQuantity,
+                        EnumStockMovementType.Adjustment,
+                        referenceId: null);
+
+                    createdProduct.StorageQuantity = opening.BalanceAfter;
+                }
 
                 return Ok(await ToProductDtoAsync(createdProduct));
             }
@@ -240,7 +358,21 @@ namespace EvangelionERPV2.Web.Controllers
                 existentProduct.Name = request.Name.Trim();
                 existentProduct.Description = request.Description?.Trim() ?? string.Empty;
                 existentProduct.DefaultValue = request.DefaultValue;
-                existentProduct.StorageQuantity = request.StorageQuantity;
+                if (request.CostPrice.HasValue && await CanReadCostAsync())
+                    existentProduct.CostPrice = request.CostPrice;
+                var stockDelta = request.StorageQuantity - existentProduct.StorageQuantity;
+                if (stockDelta != 0)
+                {
+                    var adjustment = await _productService.ApplyStockMovementAsync(
+                        existentProduct.Id,
+                        enterpriseId,
+                        stockDelta,
+                        EnumStockMovementType.Adjustment,
+                        referenceId: null);
+
+                    existentProduct.StorageQuantity = adjustment.BalanceAfter;
+                }
+
                 existentProduct.UnitOfMeasure = request.UnitOfMeasure?.Trim().ToUpperInvariant() ?? string.Empty;
                 existentProduct.IsExternal = request.IsExternal;
                 existentProduct.IsService = request.IsService;
@@ -249,9 +381,11 @@ namespace EvangelionERPV2.Web.Controllers
                     existentProduct.VariantGroupId = request.VariantGroupId;
                     existentProduct.VariantLabel = Trimmed(request.VariantLabel);
                 }
+                existentProduct.StorefrontCategoryId = request.StorefrontCategoryId ?? existentProduct.StorefrontCategoryId;
                 if (!string.IsNullOrWhiteSpace(request.PictureAdress))
                     return BadRequest("PictureAdress cannot be updated here. Use UploadPicture.");
                 existentProduct.IsActive = request.IsActive ?? existentProduct.IsActive;
+                ApplyFiscalFields(request, existentProduct);
                 existentProduct.UpdatedAt = DateTime.UtcNow;
 
                 Product updatedProduct = await _productService.UpdateAsync(existentProduct);
@@ -398,10 +532,56 @@ namespace EvangelionERPV2.Web.Controllers
                 IsExternal = ResolveLegacyOrRootBoolValue(request.IsExternal, request.Product.IsExternal),
                 IsService = ResolveLegacyOrRootBoolValue(request.IsService, request.Product.IsService),
                 PictureAdress = ResolveLegacyOrRootValue(request.PictureAdress, request.Product.PictureAdress),
+                File = request.File,
+
+                CostPrice = request.CostPrice,
+
                 VariantGroupId = request.VariantGroupId,
                 VariantLabel = request.VariantLabel,
-                File = request.File
+                StorefrontCategoryId = request.StorefrontCategoryId,
+
+                Ncm = request.Ncm,
+                Cest = request.Cest,
+                Cean = request.Cean,
+                CfopIntra = request.CfopIntra,
+                CfopInter = request.CfopInter,
+                Origem = request.Origem,
+                UnidadeTributavel = request.UnidadeTributavel,
+                Cst = request.Cst,
+                Csosn = request.Csosn,
+                AliquotaIcms = request.AliquotaIcms,
+                ReducaoBaseIcms = request.ReducaoBaseIcms,
+                CstPis = request.CstPis,
+                AliquotaPis = request.AliquotaPis,
+                CstCofins = request.CstCofins,
+                AliquotaCofins = request.AliquotaCofins,
+                CodigoBeneficioFiscal = request.CodigoBeneficioFiscal
             };
+        }
+
+        private static void ApplyFiscalFields(IProductFiscalFields request, Product product)
+        {
+            product.Ncm = Trimmed(request.Ncm);
+            product.Cest = Trimmed(request.Cest);
+            product.Cean = Trimmed(request.Cean);
+            product.CfopIntra = Trimmed(request.CfopIntra);
+            product.CfopInter = Trimmed(request.CfopInter);
+            product.Origem = request.Origem;
+            product.UnidadeTributavel = Trimmed(request.UnidadeTributavel)?.ToUpperInvariant();
+            product.Cst = Trimmed(request.Cst);
+            product.Csosn = Trimmed(request.Csosn);
+            product.AliquotaIcms = request.AliquotaIcms;
+            product.ReducaoBaseIcms = request.ReducaoBaseIcms;
+            product.CstPis = Trimmed(request.CstPis);
+            product.AliquotaPis = request.AliquotaPis;
+            product.CstCofins = Trimmed(request.CstCofins);
+            product.AliquotaCofins = request.AliquotaCofins;
+            product.CodigoBeneficioFiscal = Trimmed(request.CodigoBeneficioFiscal);
+        }
+
+        private static string? Trimmed(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
         private static string ResolveLegacyOrRootValue(string? rootValue, string? legacyValue)
@@ -412,7 +592,7 @@ namespace EvangelionERPV2.Web.Controllers
             return legacyValue ?? string.Empty;
         }
 
-        private static double ResolveLegacyOrRootNumericValue(double? rootValue, double legacyValue)
+        private static decimal ResolveLegacyOrRootNumericValue(decimal? rootValue, decimal legacyValue)
         {
             return rootValue ?? legacyValue;
         }
@@ -422,19 +602,13 @@ namespace EvangelionERPV2.Web.Controllers
             return rootValue ?? legacyValue;
         }
 
-        private static string? Trimmed(string? value)
-        {
-            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-        }
-
-
-
-
         private async Task<IEnumerable<ProductDTO>> ToProductDtosAsync(IEnumerable<Product> products, bool includePictures = true)
         {
             var productList = products.ToList();
             if (productList.Count == 0)
                 return Enumerable.Empty<ProductDTO>();
+
+            await CanReadCostAsync();
 
             var productDtos = new ProductDTO[productList.Count];
             var parallelOptions = new ParallelOptions
@@ -444,15 +618,55 @@ namespace EvangelionERPV2.Web.Controllers
 
             await Parallel.ForEachAsync(Enumerable.Range(0, productList.Count), parallelOptions, async (index, _) =>
             {
-                productDtos[index] = await ToProductDtoAsync(productList[index], includePictures);
+                productDtos[index] = await ToProductDtoAsync(productList[index], includePictures, familyHasPicture: false);
             });
+
+            var groupIds = productList.Where(p => p.VariantGroupId != null).Select(p => p.VariantGroupId!.Value).Distinct().ToList();
+            if (groupIds.Count > 0 && TryGetEnterpriseId(out var enterpriseId))
+            {
+                var withPicture = await _productService.FamiliesWithPictureAsync(enterpriseId, groupIds);
+                for (var index = 0; index < productList.Count; index++)
+                    productDtos[index].FamilyHasPicture = productList[index].VariantGroupId is { } group && withPicture.Contains(group);
+            }
+
+            if (productList.Any(p => p.StorefrontCategoryId != null))
+            {
+                var paths = await _productService.GetStorefrontCategoryPathsAsync();
+                for (var index = 0; index < productList.Count; index++)
+                    productDtos[index].StorefrontCategoryPath = productList[index].StorefrontCategoryId is { } category ? paths.GetValueOrDefault(category) : null;
+            }
 
             return productDtos;
         }
 
-        private async Task<ProductDTO> ToProductDtoAsync(Product product, bool includePicture = true)
+        /// <summary>
+        /// Whether this caller may see what the goods cost. Manager tier and above — see
+        /// RbacRolePermissionMap. Cheap: the handler reads the caller's user row, which every
+        /// authorized action on this controller has already read.
+        /// </summary>
+        private async Task<bool> CanReadCostAsync()
+        {
+            _canReadCost ??= (await _authorizationService.AuthorizeAsync(User, RbacPolicies.Products.ReadCost)).Succeeded;
+            return _canReadCost.Value;
+        }
+
+        /// <param name="familyHasPicture">Known by a list caller, which looks every family up in one query; null asks for this product's.</param>
+        private async Task<ProductDTO> ToProductDtoAsync(Product product, bool includePicture = true, bool? familyHasPicture = null)
         {
             ProductDTO dto = _mapper.Map<ProductDTO>(product);
+            dto.HasPicture = !string.IsNullOrWhiteSpace(product.PictureAdress);
+            dto.FamilyHasPicture = familyHasPicture
+                ?? (product.VariantGroupId is { } group && product.EnterpriseId is { } enterprise &&
+                    (await _productService.FamiliesWithPictureAsync(enterprise, [group])).Contains(group));
+            if (familyHasPicture == null && product.StorefrontCategoryId is { } category)
+                dto.StorefrontCategoryPath = (await _productService.GetStorefrontCategoryPathsAsync()).GetValueOrDefault(category);
+
+            if (!await CanReadCostAsync())
+            {
+                dto.CostPrice = null;
+                dto.MarginPercent = null;
+            }
+
             if (!includePicture || string.IsNullOrWhiteSpace(product.PictureAdress))
             {
                 dto.PictureAdress = string.Empty;

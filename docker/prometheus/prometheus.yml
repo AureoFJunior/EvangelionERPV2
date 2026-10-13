@@ -1,0 +1,92 @@
+# Scrape config for the local stack. Targets are the unpublished :9101 metric servers the API and
+# the workers open (see EvangelionERPV2.Web/Program.cs) - not /metrics on 8080, which is behind RBAC
+# and would need a never-expiring token in this file to be scraped.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: local
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: api
+    static_configs:
+      - targets: ["evangelionerpv2:9101"]
+        labels:
+          service: api
+
+  # These stay configured with the `workers` profile off, and Prometheus marks them down. That is
+  # the correct reading of "the workers are not running" - not a reason to delete the job.
+  - job_name: workers
+    static_configs:
+      - targets: ["worker_order:9101"]
+        labels:
+          service: worker_order
+      - targets: ["worker_email:9101"]
+        labels:
+          service: worker_email
+      - targets: ["worker_notification:9101"]
+        labels:
+          service: worker_notification
+
+  # Dependency exporters, `exporters` profile. Absent when that profile is not up, which
+  # Prometheus reports as a down target rather than an error.
+  - job_name: sqlserver
+    static_configs:
+      - targets: ["mssql_exporter:4000"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis_exporter:9121"]
+
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ["rabbitmq_exporter:9419"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+# Grafana Cloud's free tier stores 10 000 active series. This API alone emits 14 000-24 000:
+# http_request_duration_seconds is 19 series per label combination (16 buckets, +Inf, _sum, _count)
+# across 184 controller actions. So the raw stream does not fit and must not be sent raw.
+#
+# The keep list below is deliberately narrow: the pre-aggregated recording rules instead of the raw
+# histogram, everything this project emits itself, and the runtime counters. That lands near 2 000
+# series. Per-action detail stays in this local TSDB, which is where anyone debugging is sitting.
+#
+# The credential is an access-policy token scoped to metrics:write and nothing else - not the
+# set:alloy-data-write bundle the Grafana wizard offers, which also grants logs, traces and profiles
+# write plus fleet-management read. It is read from a FILE, never inlined here: a token in this file
+# is a token in git. On ECS the file comes from the task definition's `secrets` block reading
+# evangelion/prd/grafana-cloud; locally, write it to the path below by hand.
+remote_write:
+  - url: https://prometheus-prod-40-prod-sa-east-1.grafana.net/api/prom/push
+    basic_auth:
+      username: 2783965
+      password_file: /run/secrets/grafana_cloud_token
+    write_relabel_configs:
+      # Tenant-identifying series stay on this machine. The opportunity-radar gauges are labelled
+      # with enterprise_id, and remote_write sends data to a third party - so per-tenant acceptance,
+      # implementation and margin-uplift rates would leave the host and land in an account whose
+      # read access is governed by Grafana's user model, not by this application's RBAC.
+      # Dropped BEFORE the keep rule below, which would otherwise match them via evangelion_.*.
+      # They remain available in the local TSDB, which is where the radar is actually analysed.
+      - source_labels: [__name__]
+        regex: 'evangelion_opportunity_.*'
+        action: drop
+
+      # Anchored implicitly by Prometheus, so "http_request_duration_seconds:.*" matches the
+      # recording rule and NOT http_request_duration_seconds_bucket - the colon is what keeps the
+      # 14 000-series raw histogram out. Do not "simplify" this to an underscore.
+      - source_labels: [__name__]
+        regex: 'up|http_request_duration_seconds:.*|http_requests:.*|evangelion_.*|dotnet_.*|process_.*|system_runtime_dotnet_thread_pool_.*|system_runtime_dotnet_monitor_lock_contentions'
+        action: keep
+
+      # Belt and braces: if a tenant-labelled series is ever added under a different name, the label
+      # itself still does not leave. Dropping the label would silently merge distinct series, so
+      # this is a last line of defence and not a substitute for the drop rule above.
+      - regex: 'enterprise_id'
+        action: labeldrop

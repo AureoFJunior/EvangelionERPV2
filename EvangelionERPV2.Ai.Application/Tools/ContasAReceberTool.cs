@@ -1,0 +1,50 @@
+using EvangelionERPV2.AiModule.Application.Interface;
+using EvangelionERPV2.AiModule.Application.Services;
+using EvangelionERPV2.BillsModule.Application.Interface;
+using EvangelionERPV2.Shared.Exceptions;
+using Microsoft.Extensions.AI;
+using System.Text.Json;
+
+namespace EvangelionERPV2.AiModule.Application.Tools
+{
+    public sealed class ContasAReceberTool : IAiTool
+    {
+        private readonly ICustomerSummaryService _service;
+
+        public ContasAReceberTool(ICustomerSummaryService service) => _service = service;
+
+        public string Name => "contas_a_receber";
+
+        public string Description =>
+            "Ficha financeira de um cliente: o que ele deve, o que está vencido e o histórico de " +
+            "pagamento. Parâmetro: clienteId (o id devolvido por buscar_clientes). " +
+            "Chame buscar_clientes antes se você só tiver o nome. " +
+            "É sempre de um cliente: para o total a receber da empresa use painel_do_dia.";
+
+        public string RequiredPermission => "bills.read";
+
+        public bool RequiresConfirmation => false;
+
+        public AIFunction Create(AiToolContext context) =>
+            AIFunctionFactory.Create(async (string clienteId) =>
+            {
+                if (!Guid.TryParse(clienteId, out var customerId) || customerId == Guid.Empty)
+                {
+                    return "{\"erro\":\"clienteId inválido. Use buscar_clientes para obter o id.\"}";
+                }
+
+                try
+                {
+                    var summary = await _service.GetSummaryAsync(customerId, context.EnterpriseId, includeFinancial: true);
+
+                    return summary is null
+                        ? "{\"erro\":\"cliente não encontrado nesta empresa\"}"
+                        : JsonSerializer.Serialize(summary, AiJson.Options);
+                }
+                catch (NotFoundDatabaseException)
+                {
+                    return "{\"erro\":\"cliente não encontrado nesta empresa\"}";
+                }
+            }, Name, Description);
+    }
+}

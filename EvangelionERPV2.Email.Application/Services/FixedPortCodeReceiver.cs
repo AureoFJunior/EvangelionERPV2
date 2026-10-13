@@ -43,7 +43,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 string responseString = "<html><body>Login concluído. Pode fechar esta aba.</body></html>";
                 var buffer = System.Text.Encoding.UTF8.GetBytes(responseString);
                 response.ContentLength64 = buffer.Length;
-                await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+                await response.OutputStream.WriteAsync(buffer, cancellationToken);
                 response.OutputStream.Close();
 
                 var query = context.Request.Url?.Query ?? string.Empty;

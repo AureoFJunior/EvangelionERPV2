@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Amazon.Runtime;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
@@ -10,10 +10,6 @@ namespace EvangelionERPV2.Shared.Utils
 {
     public class AWSKMSKeyProvider
     {
-        // Resolved secrets are cached for the process lifetime so repeated calls
-        // (e.g. per-login token signing / reCAPTCHA verification) do not issue a
-        // network call to Secrets Manager each time. Only successful, non-empty
-        // resolutions are cached, leaving transient failures retryable.
         private static readonly ConcurrentDictionary<string, string> _secretCache = new(StringComparer.Ordinal);
 
         private readonly IAmazonSecretsManager _secretsManager;
@@ -41,7 +37,26 @@ namespace EvangelionERPV2.Shared.Utils
         public Task<string> GetKMSKeyAsync(string secretName, CancellationToken cancellationToken = default)
             => GetKMSKeyInternalAsync(secretName, cancellationToken);
 
-        private async Task<string> GetKMSKeyInternalAsync(string secretName, CancellationToken cancellationToken = default)
+        /// <summary>
+        /// Resolves a secret, optionally ignoring and refreshing the process-lifetime cache.
+        /// </summary>
+        public Task<string> GetKMSKeyAsync(string secretName, bool bypassCache, CancellationToken cancellationToken = default)
+            => GetKMSKeyInternalAsync(secretName, cancellationToken, bypassCache);
+
+        /// <summary>
+        /// Drops a cached secret so the next resolution re-reads it. Used after rotating or
+        /// deleting rotatable material.
+        /// </summary>
+        public static void InvalidateCachedSecret(string secretName)
+        {
+            if (!string.IsNullOrWhiteSpace(secretName))
+                _secretCache.TryRemove(secretName, out _);
+        }
+
+        private async Task<string> GetKMSKeyInternalAsync(
+            string secretName,
+            CancellationToken cancellationToken = default,
+            bool bypassCache = false)
         {
             if (string.IsNullOrWhiteSpace(secretName))
             {
@@ -55,7 +70,7 @@ namespace EvangelionERPV2.Shared.Utils
                 return secretName.Substring(plainPrefix.Length);
             }
 
-            if (_secretCache.TryGetValue(secretName, out var cachedValue))
+            if (!bypassCache && _secretCache.TryGetValue(secretName, out var cachedValue))
                 return cachedValue;
 
             var (secretId, requestedKey) = SplitSecretReference(secretName);
@@ -69,8 +84,14 @@ namespace EvangelionERPV2.Shared.Utils
                 return string.Empty;
 
             var resolvedValue = ResolveSecretValue(secretString, requestedKey);
-            if (!string.IsNullOrEmpty(resolvedValue))
+            if (bypassCache)
+            {
+                _secretCache.TryRemove(secretName, out _);
+            }
+            else if (!string.IsNullOrEmpty(resolvedValue))
+            {
                 _secretCache[secretName] = resolvedValue;
+            }
 
             return resolvedValue;
         }

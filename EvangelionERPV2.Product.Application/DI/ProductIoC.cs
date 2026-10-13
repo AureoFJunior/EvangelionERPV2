@@ -60,13 +60,6 @@ namespace EvangelionERPV2.ProductModule.Application.DI
 
                 services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));
 
-                #region Redis
-                services.AddStackExchangeRedisCache(o =>
-                {
-                    o.InstanceName = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["InstanceName"] ?? string.Empty);
-                    o.Configuration = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["ConnectionString"] ?? string.Empty);
-                });
-                #endregion
             }
             catch (Exception ex)
             {

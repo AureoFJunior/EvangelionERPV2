@@ -27,7 +27,7 @@ namespace EvangelionERPV2.Test.Security
                 PhoneNumber = "+55 11 99999-0000",
                 Adress = "Av. Paulista",
                 Currency = "BRL",
-                CurrentBalance = 1234.56,
+                CurrentBalance = 1234.56m,
                 ShouldSendMonthlyBilling = true,
                 IsActive = true
             };
@@ -65,7 +65,7 @@ namespace EvangelionERPV2.Test.Security
                     IsActive = source.IsActive
                 });
 
-            var controller = new EnterpriseController(service.Object, repository.Object, enterpriseRepository.Object, userRepository.Object, mapper.Object)
+            var controller = new EnterpriseController(service.Object, repository.Object, enterpriseRepository.Object, mapper.Object, new Mock<Microsoft.AspNetCore.Authorization.IAuthorizationService>().Object)
             {
                 ControllerContext = new ControllerContext
                 {
@@ -80,7 +80,7 @@ namespace EvangelionERPV2.Test.Security
                 }
             };
 
-            var result = await controller.AddEnterprise(new Enterprise
+            var result = await controller.AddEnterprise(new CreateEnterpriseRequestDTO
             {
                 Name = "NERV",
                 Email = "hq@nerv.example",
@@ -93,7 +93,8 @@ namespace EvangelionERPV2.Test.Security
             var dto = Assert.IsType<EnterpriseDTO>(ok.Value);
             Assert.Equal(enterpriseId, dto.Id);
             Assert.Equal("NERV", dto.Name);
-            Assert.False(dto.GetType().GetProperty("ShouldSendMonthlyBilling") != null);
+            Assert.IsNotType<Shared.Entities.Enterprise>(ok.Value);
+            Assert.Null(typeof(CreateEnterpriseRequestDTO).GetProperty("CurrentBalance"));
         }
     }
 }

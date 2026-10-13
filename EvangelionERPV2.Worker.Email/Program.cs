@@ -1,4 +1,5 @@
-﻿using Amazon.SecretsManager;
+using Amazon.SecretsManager;
+using Prometheus;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Entities.RabbitMQ;
 using EvangelionERPV2.Shared.Utils;
@@ -9,12 +10,13 @@ using Microsoft.Extensions.Hosting;
 
 namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
 {
-
     public class Program
     {
         public static async Task Main(string[] args)
         {
             EmailLogConfig.Configure();
+            new KestrelMetricServer(port: 9101).Start();
+
             var host = CreateHostBuilder(args).Build();
             using (var scope = host.Services.CreateScope())
             {
@@ -45,6 +47,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                         return new AmazonSecretsManagerClient(region);
                     });
                     services.AddSingleton<AWSKMSKeyProvider>();
+                    services.AddSingleton<IDistributedLease, RedisLease>();
                     services.Configure<EmailChannelSettings>(
                         hostContext.Configuration.GetSection("EmailChannelSettings"));
                     services.Configure<RabbitMQSettings>(

@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
@@ -20,28 +21,26 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class EnterpriseController : Controller
     {
-        private const int DefaultPageNumber = 1;
-        private const int DefaultPageSize = 50;
         private const int MaxPageSize = 200;
         private const int MaxEnterpriseWriteRequestBodySizeInBytes = 64 * 1024;
 
         private readonly IEnterpriseRepository<Enterprise> _enterpriseRepository;
         private readonly IEnterpriseService<Enterprise> _enterpriseService;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _repository;
-        private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
+        private readonly IAuthorizationService _authorizationService;
 
         public EnterpriseController(IEnterpriseService<Enterprise> enterpriseService,
             EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> repository,
             IEnterpriseRepository<Enterprise> enterpriseRepository,
-            IRepository<User> userRepository,
-            IMapper mapper)
+            IMapper mapper,
+            IAuthorizationService authorizationService)
         {
             _enterpriseService = enterpriseService;
             _repository = repository;
             _enterpriseRepository = enterpriseRepository;
-            _userRepository = userRepository;
             _mapper = mapper;
+            _authorizationService = authorizationService;
         }
 
         /// <summary>
@@ -78,7 +77,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -93,7 +92,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="descending">Order by type.</param>
         /// <param name="pageNumber">Number of the current page</param>
         /// <param name="pageSize">Size of the desired page</param>
-        /// <param name="enterprise">Object used to filter data.</param>
+        /// <param name="filter">Object used to filter data.</param>
         /// <returns></returns>
         [Authorize(Policy = "rbac:" + RbacPermissions.Enterprise.Read)]
         [HttpPost("{descending}/{pageNumber?}/{pageSize?}")]
@@ -102,7 +101,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GetEnterprisesByFilter([FromBody] Enterprise enterprise, bool descending, int? pageNumber = null, int? pageSize = null)
+        public async Task<IActionResult> GetEnterprisesByFilter([FromBody] EnterpriseFilterRequestDTO? filter, bool descending, int? pageNumber = null, int? pageSize = null)
         {
             try
             {
@@ -112,8 +111,11 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                enterprise ??= new Enterprise();
-                enterprise.Id = enterpriseId;
+                var enterprise = new Enterprise
+                {
+                    Id = enterpriseId,
+                    Name = filter?.Name?.Trim() ?? string.Empty
+                };
 
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
                 IEnumerable<Enterprise> enterprises = await _enterpriseRepository.GetAllAsyncFiltering(
@@ -129,8 +131,42 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get the logged user's own enterprise (tenant resolved from the token claim).
+        /// </summary>
+        /// <returns>The details of the enterprise the user belongs to.</returns>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Enterprise.ReadSelf)]
+        [HttpGet]
+        [ProducesResponseType(typeof(EnterpriseDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> GetMyEnterprise()
+        {
+            try
+            {
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                Enterprise enterprise = await _repository.GetByIdAsync(enterpriseId);
+                if (enterprise == null || enterprise.IsActive != true)
+                    return NoContent();
+
+                EnterpriseDTO enterpriseDTO = _mapper.Map<EnterpriseDTO>(enterprise);
+
+                var canSeeBalance = (await _authorizationService.AuthorizeAsync(User, RbacPolicies.CashFlowForecast.Read)).Succeeded;
+                if (!canSeeBalance)
+                    enterpriseDTO.CurrentBalance = 0;
+
+                return Ok(enterpriseDTO);
             }
             catch (Exception)
             {
@@ -183,14 +219,26 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> AddEnterprise([FromBody] Enterprise enterprise)
+        public async Task<IActionResult> AddEnterprise([FromBody] CreateEnterpriseRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
-                if (enterprise == null) return BadRequest("Enterprise payload is required.");
-                if (!TryGetEnterpriseId(out var enterpriseId))
+                if (request == null) return BadRequest("Enterprise payload is required.");
+                if (!TryGetEnterpriseId(out _))
                     return Unauthorized();
+
+                var enterprise = new Enterprise
+                {
+                    Name = request.Name.Trim(),
+                    Email = request.Email.Trim(),
+                    PhoneNumber = request.PhoneNumber.Trim(),
+                    Adress = request.Adress.Trim(),
+                    Currency = request.Currency?.Trim() ?? string.Empty,
+                    ShouldSendMonthlyBilling = request.ShouldSendMonthlyBilling,
+                    ShouldSendDunning = request.ShouldSendDunning,
+                    IsActive = true
+                };
 
                 Enterprise createdEnterprise = await _enterpriseService.CreateAsync(enterprise);
                 return Ok(_mapper.Map<EnterpriseDTO>(createdEnterprise));
@@ -213,23 +261,73 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateEnterprise([FromBody] Enterprise enterprise)
+        public async Task<IActionResult> UpdateEnterprise([FromBody] UpdateEnterpriseRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
-                if (enterprise == null) return BadRequest("Enterprise payload is required.");
+                if (request == null) return BadRequest("Enterprise payload is required.");
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                if (enterprise.Id == Guid.Empty)
+                if (request.Id == Guid.Empty)
                     return BadRequest("Enterprise id is required.");
 
-                if (enterprise.Id != enterpriseId)
+                if (request.Id != enterpriseId)
                     return Forbid();
 
-                Enterprise updatedEnterprise = _enterpriseService.Update(enterprise);
+                Enterprise existingEnterprise = await _repository.GetByIdAsync(request.Id);
+                if (existingEnterprise == null || existingEnterprise.IsActive != true)
+                    return NoContent();
 
+                existingEnterprise.Name = request.Name.Trim();
+                existingEnterprise.Email = request.Email.Trim();
+                existingEnterprise.PhoneNumber = request.PhoneNumber.Trim();
+                existingEnterprise.Adress = request.Adress.Trim();
+                existingEnterprise.Currency = request.Currency?.Trim() ?? existingEnterprise.Currency;
+                existingEnterprise.ShouldSendMonthlyBilling = request.ShouldSendMonthlyBilling;
+                existingEnterprise.ShouldSendDunning = request.ShouldSendDunning;
+
+                Enterprise updatedEnterprise = _enterpriseService.Update(existingEnterprise);
+
+                if (updatedEnterprise == null)
+                    return NoContent();
+
+                return Ok(_mapper.Map<EnterpriseDTO>(updatedEnterprise));
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Closes the books through a date, or reopens them when the date is null.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Enterprise.Manage)]
+        [HttpPut]
+        [RequestSizeLimit(MaxEnterpriseWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(EnterpriseDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> CloseThrough([FromBody] ClosePeriodRequestDTO request)
+        {
+            try
+            {
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+                if (request == null) return BadRequest("Closing payload is required.");
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                Enterprise existingEnterprise = await _repository.GetByIdAsync(enterpriseId);
+                if (existingEnterprise == null || existingEnterprise.IsActive != true)
+                    return NoContent();
+
+                existingEnterprise.ClosedThroughUtc = request.ClosedThroughUtc?.Date;
+
+                Enterprise updatedEnterprise = _enterpriseService.Update(existingEnterprise);
                 if (updatedEnterprise == null)
                     return NoContent();
 
@@ -279,9 +377,5 @@ namespace EvangelionERPV2.Web.Controllers
             var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
         }
-
-
-
-
     }
 }

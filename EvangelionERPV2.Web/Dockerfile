@@ -3,6 +3,29 @@
 # This stage is used when running from VS in fast mode (Default for Debug configuration)
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 ARG APP_UID=0
+# libfontconfig1: BoletoNetCore renders the bill barcode through SkiaSharp, whose native
+# libSkiaSharp.so links against libfontconfig — without it bill generation dies with
+# DllNotFoundException.
+# The rest are the shared libraries headless Chromium needs to start; PuppeteerSharp downloads the
+# browser itself but cannot launch it on a bare image, failing bill PDFs with ProcessException.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libfontconfig1 \
+        libnss3 \
+        libatk1.0-0t64 \
+        libatk-bridge2.0-0t64 \
+        libcups2t64 \
+        libdrm2 \
+        libxkbcommon0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxrandr2 \
+        libgbm1 \
+        libpango-1.0-0 \
+        libcairo2 \
+        libasound2t64 \
+    && rm -rf /var/lib/apt/lists/*
 USER $APP_UID
 WORKDIR /app
 ENV ASPNETCORE_URLS=http://+:8080
@@ -17,6 +40,7 @@ WORKDIR /src
 
 # Copy solution and project files first to maximize restore layer caching
 COPY global.json ./
+COPY Directory.Packages.props Directory.Build.props .editorconfig ./
 COPY EvangelionERPV2.sln ./
 COPY EvangelionERPV2.Web/EvangelionERPV2.Web.csproj EvangelionERPV2.Web/
 COPY EvangelionERPV2.Audit.Application/*.csproj EvangelionERPV2.Audit.Application/

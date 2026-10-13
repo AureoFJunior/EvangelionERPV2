@@ -1,6 +1,7 @@
 using EvangelionERPV2.BillsModule.Application.Configs;
 using EvangelionERPV2.BillsModule.Application.Services;
 using EvangelionERPV2.BillsModule.Domain.Interface;
+using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -41,13 +42,17 @@ namespace EvangelionERPV2.Test.Resilience
                 {
                     Id = customerId,
                     Name = "Customer",
-                    Document = "44331610128"
+                    Document = "11144477735"
                 });
 
             billRepositoryCustomMock
                 .SetupSequence(x => x.GetByOrderIdAsync(orderId))
                 .ReturnsAsync((Bill?)null)
                 .ReturnsAsync(existingBill);
+
+            billRepositoryCustomMock
+                .Setup(x => x.AllocateNextNumberAsync(enterpriseId, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(1L);
 
             billRepositoryMock
                 .Setup(x => x.CreateAsync(It.IsAny<Bill>()))
@@ -64,6 +69,9 @@ namespace EvangelionERPV2.Test.Resilience
                 billRepositoryCustomMock.Object,
                 orderRepositoryMock.Object,
                 customerRepositoryMock.Object,
+                new Mock<IRepository<Enterprise>>().Object,
+                new Mock<IRepository<BillNumberSequence>>().Object,
+                () => new Mock<IEmailService<EmailStructure>>().Object,
                 Options.Create(settings));
 
             var result = await service.GenerateAsync(orderId, enterpriseId);
@@ -79,7 +87,7 @@ namespace EvangelionERPV2.Test.Resilience
             {
                 Enabled = true,
                 BankCode = 33,
-                BeneficiaryDocument = "86875666000109",
+                BeneficiaryDocument = "12345678000195",
                 BeneficiaryName = "Beneficiario Teste",
                 BeneficiaryAddress = "Rua Beneficiario",
                 BeneficiaryAddressNumber = "123",
@@ -103,7 +111,7 @@ namespace EvangelionERPV2.Test.Resilience
                 DocumentType = 1,
                 NossoNumeroLength = 8,
                 Instructions = "Instrucoes",
-                DefaultPayerDocument = "44331610128",
+                DefaultPayerDocument = "11144477735",
                 DefaultPayerName = "Pagador Teste",
                 DefaultPayerAddress = "Rua Pagador"
             };

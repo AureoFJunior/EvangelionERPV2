@@ -1,4 +1,5 @@
 using EvangelionERPV2.BillsModule.Application.Interface;
+using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Entities;
@@ -12,12 +13,14 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 {
     public class PayableBillService : IPayableBillService
     {
+        private const int CarryOverWindowInMonths = 12;
+
         private readonly IRepository<PayableBill> _payableBillRepository;
         private readonly IRepository<PayableBillProduct> _payableBillProductRepository;
         private readonly IRepository<Product> _productRepository;
         private readonly IRepository<Enterprise> _enterpriseRepository;
-        private readonly IRepository<Order> _orderRepository;
-        private readonly IRepository<OrderedProduct> _orderedProductRepository;
+        private readonly IRepository<StockMovement> _stockMovementRepository;
+        private readonly IProductService<Product> _productService;
         private readonly AppDbContext? _appDbContext;
 
         public PayableBillService(
@@ -25,20 +28,20 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             IRepository<PayableBillProduct> payableBillProductRepository,
             IRepository<Product> productRepository,
             IRepository<Enterprise> enterpriseRepository,
-            IRepository<Order> orderRepository,
-            IRepository<OrderedProduct> orderedProductRepository,
+            IRepository<StockMovement> stockMovementRepository,
+            IProductService<Product> productService,
             AppDbContext? appDbContext = null)
         {
             _payableBillRepository = payableBillRepository;
             _payableBillProductRepository = payableBillProductRepository;
             _productRepository = productRepository;
             _enterpriseRepository = enterpriseRepository;
-            _orderRepository = orderRepository;
-            _orderedProductRepository = orderedProductRepository;
+            _stockMovementRepository = stockMovementRepository;
+            _productService = productService;
             _appDbContext = appDbContext;
         }
 
-        public async Task<PayableBill> CreateAsync(PayableBill payableBill)
+        public async Task<PayableBill> CreateAsync(PayableBill payableBill, bool useAmbientTransaction = false, bool keepProvidedAmount = false)
         {
             if (payableBill == null)
                 throw new InsertDatabaseException($"{nameof(PayableBill)} is null.");
@@ -46,46 +49,17 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (payableBill.EnterpriseId == Guid.Empty)
                 throw new InsertDatabaseException("Payable bill enterprise is required.");
 
+            await AssertPeriodOpenAsync(payableBill.EnterpriseId, payableBill.DueDate, "This payable bill");
+
             var sourceItems = payableBill.Items?.ToList() ?? [];
             payableBill.Id = Guid.NewGuid();
 
             try
             {
-                await ExecuteInTransactionAsync(async () =>
-                {
-                    payableBill.CreatedAt = DateTime.UtcNow;
-                    payableBill.UpdatedAt = DateTime.UtcNow;
-                    payableBill.IsActive = true;
-                    payableBill.RefundReason = null;
-                    payableBill.RefundedAt = null;
-                    payableBill.BillType = NormalizeBillType(payableBill.BillType);
-                    payableBill.PaidAt = payableBill.IsPaid
-                        ? (payableBill.PaidAt ?? DateTime.UtcNow)
-                        : null;
-
-                    var hasProvidedItems = sourceItems.Any();
-                    var normalizedItems = hasProvidedItems
-                        ? await NormalizeItemsAsync(payableBill.Id, payableBill.EnterpriseId, sourceItems)
-                        : new List<PayableBillProduct>();
-
-                    if (hasProvidedItems)
-                        payableBill.Amount = normalizedItems.Sum(x => x.LineAmount);
-                    else
-                        payableBill.Amount = payableBill.Amount > 0 ? payableBill.Amount : 0;
-
-                    payableBill.Items = null;
-
-                    await _payableBillRepository.CreateAsync(payableBill);
-
-                    if (hasProvidedItems && normalizedItems.Any())
-                        await _payableBillProductRepository.CreateRangeAsync(normalizedItems);
-
-                    await _payableBillRepository.CommitAsync();
-
-                    await ApplyEnterpriseBalanceDeltaAsync(
-                        payableBill.EnterpriseId,
-                        EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(payableBill, DateTime.UtcNow.Date));
-                });
+                if (useAmbientTransaction)
+                    await CreateCoreAsync(payableBill, sourceItems, keepProvidedAmount);
+                else
+                    await ExecuteInTransactionAsync(() => CreateCoreAsync(payableBill, sourceItems, keepProvidedAmount));
             }
             catch (DbUpdateException ex)
             {
@@ -96,19 +70,76 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return createdBill ?? payableBill;
         }
 
+        private async Task CreateCoreAsync(PayableBill payableBill, List<PayableBillProduct> sourceItems, bool keepProvidedAmount = false)
+        {
+            payableBill.CreatedAt = DateTime.UtcNow;
+            payableBill.UpdatedAt = DateTime.UtcNow;
+            payableBill.IsActive = true;
+            payableBill.RefundReason = null;
+            payableBill.RefundedAt = null;
+            payableBill.BillType = NormalizeBillType(payableBill.BillType);
+            payableBill.PaidAt = payableBill.IsPaid
+                ? (payableBill.PaidAt ?? DateTime.UtcNow)
+                : null;
+
+            var hasProvidedItems = sourceItems.Any();
+            var normalizedItems = hasProvidedItems
+                ? await NormalizeItemsAsync(payableBill.Id, payableBill.EnterpriseId, sourceItems)
+                : new List<PayableBillProduct>();
+
+            if (hasProvidedItems && !keepProvidedAmount)
+                payableBill.Amount = normalizedItems.Sum(x => x.LineAmount);
+            else
+                payableBill.Amount = payableBill.Amount > 0 ? payableBill.Amount : 0;
+
+            payableBill.Items = null;
+
+            await _payableBillRepository.CreateAsync(payableBill);
+
+            if (hasProvidedItems && normalizedItems.Any())
+                await _payableBillProductRepository.CreateRangeAsync(normalizedItems);
+
+            await _payableBillRepository.CommitAsync();
+
+            await ApplyEnterpriseBalanceDeltaAsync(
+                payableBill.EnterpriseId,
+                EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(payableBill, DateTime.UtcNow.Date));
+        }
+
         public async Task<IEnumerable<PayableBill>> GetByEnterpriseIdAsync(
             Guid enterpriseId,
             int? pageNumber = null,
             int? pageSize = null,
             bool? isActive = true,
-            int? billType = null)
+            int? billType = null,
+            int? year = null,
+            int? month = null,
+            bool includePayroll = true)
         {
-            var bills = (await _payableBillRepository.GetAllAsync(
+            DateTime? periodStart = null;
+            DateTime? periodEnd = null;
+            DateTime? carryOverStart = null;
+            if (year.HasValue && month.HasValue)
+            {
+                periodStart = new DateTime(year.Value, month.Value, 1, 0, 0, 0, DateTimeKind.Utc);
+                periodEnd = periodStart.Value.AddMonths(1);
+                carryOverStart = periodStart.Value.AddMonths(-CarryOverWindowInMonths);
+            }
+
+            var payrollBillType = (int)EnumPayableBillType.Payroll;
+
+            var bills = (await _payableBillRepository.GetAllAsyncByFilter(
+                false,
                 pageNumber,
                 pageSize,
                 x => x.EnterpriseId == enterpriseId
                      && (!isActive.HasValue || x.IsActive == isActive.Value)
-                     && (!billType.HasValue || x.BillType == billType.Value))).ToList();
+                     && (!billType.HasValue || x.BillType == billType.Value)
+                     && (includePayroll || x.BillType != payrollBillType)
+                     && (!periodStart.HasValue
+                         || (x.DueDate >= periodStart.Value && x.DueDate < periodEnd!.Value)
+                         || (!x.IsPaid && x.DueDate < periodStart.Value && x.DueDate >= carryOverStart!.Value)),
+                x => x.DueDate)).ToList();
 
             NormalizeBillTypesOnRead(bills);
             await PopulateItemsAsync(bills);
@@ -142,6 +173,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 if (existing.RefundedAt.HasValue)
                     throw new InsertDatabaseException("Payable bill is refunded and cannot be edited.");
 
+                var lockedThrough = await GetClosedThroughUtcAsync(enterpriseId);
+                PeriodLock.Assert(lockedThrough, existing.DueDate, "This payable bill");
+                if (payableBill.DueDate != default)
+                    PeriodLock.Assert(lockedThrough, payableBill.DueDate, "The new due date");
+
                 var oldContribution = EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(existing, DateTime.UtcNow.Date);
                 var now = DateTime.UtcNow;
 
@@ -166,6 +202,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 existing.Description = payableBill.Description;
                 existing.DueDate = payableBill.DueDate;
+                existing.RecurrenceMonths = payableBill.RecurrenceMonths;
+                existing.RecurrenceUntilUtc = payableBill.RecurrenceUntilUtc;
                 existing.IsPaid = payableBill.IsPaid;
                 existing.PaidAt = payableBill.IsPaid
                     ? (payableBill.PaidAt ?? now)
@@ -241,12 +279,15 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 foreach (var item in items)
                 {
-                    if (!products.TryGetValue(item.ProductId, out var product))
+                    if (!products.ContainsKey(item.ProductId))
                         throw new InsertDatabaseException($"Product [{item.ProductId}] was not found.");
 
-                    product.StorageQuantity += item.Quantity;
-                    product.UpdatedAt = now;
-                    _productRepository.Update(product);
+                    await _productService.ApplyStockMovementAsync(
+                        item.ProductId,
+                        enterpriseId,
+                        item.Quantity,
+                        EnumStockMovementType.Receipt,
+                        existing.Id);
                 }
 
                 existing.ProductsReceivedAt = now;
@@ -274,6 +315,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                 if (existing.RefundedAt.HasValue)
                     throw new InsertDatabaseException("Payable bill was already refunded.");
+
+                await AssertPeriodOpenAsync(enterpriseId, existing.DueDate, "The payable bill being refunded");
 
                 var oldContribution = EnterpriseBalanceContributionHelper.GetPayableRealizedContribution(existing, DateTime.UtcNow.Date);
 
@@ -315,15 +358,15 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                     foreach (var item in items)
                     {
-                        if (!products.TryGetValue(item.ProductId, out var product))
+                        if (!products.ContainsKey(item.ProductId))
                             throw new InsertDatabaseException($"Product [{item.ProductId}] was not found.");
 
-                        product.StorageQuantity -= Math.Max(0, item.Quantity);
-                        if (product.StorageQuantity < 0)
-                            product.StorageQuantity = 0;
-
-                        product.UpdatedAt = now;
-                        _productRepository.Update(product);
+                        await _productService.ApplyStockMovementAsync(
+                            item.ProductId,
+                            enterpriseId,
+                            -Math.Max(0, item.Quantity),
+                            EnumStockMovementType.Adjustment,
+                            existing.Id);
                     }
                 }
 
@@ -366,23 +409,14 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var windowStart = DateTime.UtcNow.Date.AddDays(-historyWindowDays);
 
-            List<Order> orders;
+            List<StockMovement> movements;
             try
             {
-                var finalizedStatuses = new HashSet<int>
-                {
-                    (int)EnumOrderStatus.Paid,
-                    (int)EnumOrderStatus.Shipped,
-                    (int)EnumOrderStatus.Delivered,
-                    (int)EnumOrderStatus.Finished
-                };
-
-                orders = (await _orderRepository.GetAllAsync(
-                        x => x.IsActive == true
-                              && x.EnterpriseId == enterpriseId
-                              && !x.RefundedAt.HasValue
-                              && finalizedStatuses.Contains(x.Status)
-                              && x.CreatedAt >= windowStart))
+                movements = (await _stockMovementRepository.GetAllAsync(
+                        x => x.EnterpriseId == enterpriseId
+                             && x.CreatedAt >= windowStart
+                             && (x.Type == (int)EnumStockMovementType.Sale
+                                 || x.Type == (int)EnumStockMovementType.Refund)))
                     .ToList();
             }
             catch (NotFoundDatabaseException)
@@ -390,30 +424,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 return [];
             }
 
-            if (!orders.Any())
+            if (!movements.Any())
                 return [];
 
-            var orderIds = orders.Select(x => x.Id).ToHashSet();
-            var ordersById = orders.ToDictionary(x => x.Id, x => x);
-
-            List<OrderedProduct> orderedProducts;
-            try
-            {
-                orderedProducts = (await _orderedProductRepository.GetAllAsync(
-                        x => x.IsActive == true
-                             && x.OrderId.HasValue
-                             && orderIds.Contains(x.OrderId.Value)))
-                    .ToList();
-            }
-            catch (NotFoundDatabaseException)
-            {
-                return [];
-            }
-
-            if (!orderedProducts.Any())
-                return [];
-
-            var productIds = orderedProducts.Select(x => x.ProductId).Distinct().ToList();
+            var productIds = movements.Select(x => x.ProductId).Distinct().ToList();
             Dictionary<Guid, Product> productsById;
             try
             {
@@ -430,23 +444,20 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var suggestions = new List<ReplenishmentSuggestionDTO>();
 
-            foreach (var skuGroup in orderedProducts.GroupBy(x => x.ProductId))
+            foreach (var skuGroup in movements.GroupBy(x => x.ProductId))
             {
                 if (!productsById.TryGetValue(skuGroup.Key, out var product))
                     continue;
 
-                var groupedLines = skuGroup
-                    .Where(x => x.OrderId.HasValue && ordersById.ContainsKey(x.OrderId!.Value))
-                    .ToList();
+                var productMovements = skuGroup.ToList();
 
-                if (!groupedLines.Any())
-                    continue;
+                var intervals = BuildIntervals(
+                    productMovements.Where(x => x.Type == (int)EnumStockMovementType.Sale));
 
-                var intervals = BuildIntervals(groupedLines, ordersById);
                 if (intervals.Count < 3)
                     continue;
 
-                var totalSold = groupedLines.Sum(x => x.Quantity);
+                var totalSold = -productMovements.Sum(x => x.Quantity);
                 if (totalSold <= 0)
                     continue;
 
@@ -460,11 +471,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     minCoverageDays + 1,
                     (int)Math.Round(GetPercentile(intervals, 0.75) + leadTimeDays));
 
-                var currentStock = Math.Max(0, product.StorageQuantity);
+                var currentStock = Math.Max(0m, product.StorageQuantity);
                 var coverageDays = currentStock / dailyConsumption;
 
                 var targetStock = dailyConsumption * (leadTimeDays + minCoverageDays);
-                var suggestedQuantity = Math.Max(0, targetStock - currentStock);
+                var suggestedQuantity = Math.Max(0m, targetStock - currentStock);
 
                 var (alert, criticality) = ResolveAlertAndCriticality(coverageDays, minCoverageDays, maxCoverageDays);
 
@@ -472,13 +483,13 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 {
                     ProductId = product.Id,
                     ProductName = product.Name,
-                    CurrentStock = Math.Round(currentStock, 2),
+                    CurrentStock = Math.Round(currentStock, 4),
                     DailyConsumption = Math.Round(dailyConsumption, 4),
                     LeadTimeDays = leadTimeDays,
                     MinCoverageDays = minCoverageDays,
                     MaxCoverageDays = maxCoverageDays,
                     CoverageDays = Math.Round(coverageDays, 2),
-                    SuggestedQuantity = Math.Round(suggestedQuantity, 2),
+                    SuggestedQuantity = Math.Round(suggestedQuantity, 4),
                     Alert = alert,
                     Criticality = criticality
                 });
@@ -506,6 +517,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 var existing = await _payableBillRepository.GetByIdAsync(id);
                 if (existing == null || existing.EnterpriseId != enterpriseId || existing.IsActive != true)
                     throw new NotFoundDatabaseException($"{nameof(PayableBill)} was not found in database.");
+
+                await AssertPeriodOpenAsync(enterpriseId, existing.DueDate, "This payable bill");
 
                 var existingItems = (await _payableBillProductRepository.GetAllAsync(
                         x => x.IsActive == true && x.PayableBillId == existing.Id))
@@ -540,17 +553,16 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
                     foreach (var item in existingItems)
                     {
-                        if (!productsById.TryGetValue(item.ProductId, out var product))
+                        if (!productsById.ContainsKey(item.ProductId))
                             throw new InsertDatabaseException($"Product [{item.ProductId}] was not found.");
 
-                        product.StorageQuantity -= Math.Max(0, item.Quantity);
-                        if (product.StorageQuantity < 0)
-                            product.StorageQuantity = 0;
-
-                        product.UpdatedAt = now;
+                        await _productService.ApplyStockMovementAsync(
+                            item.ProductId,
+                            enterpriseId,
+                            -Math.Max(0, item.Quantity),
+                            EnumStockMovementType.Adjustment,
+                            existing.Id);
                     }
-
-                    _productRepository.UpdateRange(productsById.Values);
                 }
 
                 existing.IsActive = false;
@@ -613,7 +625,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                     ProductId = product.Id,
                     Quantity = item.Quantity,
                     UnitValue = resolvedUnitValue,
-                    LineAmount = Math.Round(lineAmount, 2),
+                    LineAmount = Math.Round(lineAmount, 2, MidpointRounding.AwayFromZero),
                     UnitOfMeasure = product.UnitOfMeasure,
                     CreatedAt = now,
                     UpdatedAt = now,
@@ -679,11 +691,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             _payableBillProductRepository.UpdateRange(existingItems);
         }
 
-        private static List<int> BuildIntervals(IEnumerable<OrderedProduct> orderedProducts, IReadOnlyDictionary<Guid, Order> ordersById)
+        private static List<int> BuildIntervals(IEnumerable<StockMovement> saleMovements)
         {
-            var demandDates = orderedProducts
-                .Where(x => x.OrderId.HasValue && ordersById.ContainsKey(x.OrderId!.Value))
-                .Select(x => ordersById[x.OrderId!.Value].CreatedAt.Date)
+            var demandDates = saleMovements
+                .Select(x => x.CreatedAt.Date)
                 .Distinct()
                 .OrderBy(x => x)
                 .ToList();
@@ -719,7 +730,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return sorted[lower] + (sorted[upper] - sorted[lower]) * weight;
         }
 
-        private static (string alert, string criticality) ResolveAlertAndCriticality(double coverageDays, int minCoverageDays, int maxCoverageDays)
+        private static (string alert, string criticality) ResolveAlertAndCriticality(decimal coverageDays, int minCoverageDays, int maxCoverageDays)
         {
             if (coverageDays < minCoverageDays)
                 return ("stockout", "high");
@@ -761,15 +772,30 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 : (int)EnumPayableBillType.Other;
         }
 
-        private async Task ApplyEnterpriseBalanceDeltaAsync(Guid enterpriseId, double delta)
+        /// <summary>The tenant's period lock, or null when nothing is closed.</summary>
+        private async Task<DateTime?> GetClosedThroughUtcAsync(Guid enterpriseId)
         {
-            if (Math.Abs(delta) < 0.000001)
+            if (enterpriseId == Guid.Empty)
+                return null;
+
+            var enterprise = await _enterpriseRepository.GetByIdAsync(enterpriseId);
+            return enterprise?.ClosedThroughUtc;
+        }
+
+        private async Task AssertPeriodOpenAsync(Guid enterpriseId, DateTime businessDate, string what)
+        {
+            PeriodLock.Assert(await GetClosedThroughUtcAsync(enterpriseId), businessDate, what);
+        }
+
+        private async Task ApplyEnterpriseBalanceDeltaAsync(Guid enterpriseId, decimal delta)
+        {
+            if (Math.Abs(delta) < 0.000001m)
                 return;
 
             if (_appDbContext != null)
             {
                 var now = DateTime.UtcNow;
-                var roundedDelta = Math.Round(delta, 2);
+                var roundedDelta = Math.Round(delta, 2, MidpointRounding.AwayFromZero);
                 var affectedRows = await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
                     $"UPDATE Enterprise SET CurrentBalance = ROUND(CurrentBalance + {roundedDelta}, 2), UpdatedAt = {now} WHERE Id = {enterpriseId}");
 
@@ -783,7 +809,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (enterprise == null)
                 throw new InsertDatabaseException("Enterprise was not found for balance update.");
 
-            enterprise.CurrentBalance = Math.Round(enterprise.CurrentBalance + delta, 2);
+            enterprise.CurrentBalance = Math.Round(enterprise.CurrentBalance + delta, 2, MidpointRounding.AwayFromZero);
             enterprise.UpdatedAt = DateTime.UtcNow;
             _enterpriseRepository.Update(enterprise);
             await _enterpriseRepository.CommitAsync();

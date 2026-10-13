@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
@@ -22,20 +23,23 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private const int MaxOrderRequestBodySizeInBytes = 1 * 1024 * 1024;
         private const int MaxRefundReasonLength = 500;
-        private const int DefaultPageNumber = 1;
-        private const int DefaultPageSize = 50;
         private const int MaxPageSize = 200;
 
         private readonly IOrderService<Order> _orderService;
         private readonly IRepository<User> _userRepository;
+        private readonly IAuthorizationService _authorizationService;
         private readonly IMapper _mapper;
+
+        private bool? _canReadCost;
 
         public OrderController(IOrderService<Order> orderService,
             IRepository<User> userRepository,
+            IAuthorizationService authorizationService,
             IMapper mapper)
         {
             _orderService = orderService;
             _userRepository = userRepository;
+            _authorizationService = authorizationService;
             _mapper = mapper;
         }
 
@@ -69,12 +73,12 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!orders.Any())
                     return NoContent();
 
-                IEnumerable<OrderDTO> orderDTO = _mapper.Map<IEnumerable<OrderDTO>>(orders);
+                IEnumerable<OrderDTO> orderDTO = await ToOrderDtosAsync(orders);
                 return Ok(orderDTO);
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -112,40 +116,24 @@ namespace EvangelionERPV2.Web.Controllers
 
                 filter ??= new OrderFilterRequestDTO();
 
-                var statusFilter = filter.Status;
-                var customerIdFilter = filter.CustomerId;
-                var startDateFilter = filter.StartDate?.Date;
-                var endDateFilter = filter.EndDate?.Date;
-                var isActiveFilter = filter.IsActive;
-
-                var orders = (await _orderService.GetByEnterpriseIdAsync(enterpriseId))
-                    .Where(x =>
-                        (!isActiveFilter.HasValue || x.IsActive == isActiveFilter.Value) &&
-                        (!statusFilter.HasValue || x.Status == statusFilter.Value) &&
-                        (!customerIdFilter.HasValue || x.CustomerId == customerIdFilter.Value) &&
-                        (!startDateFilter.HasValue || x.CreatedAt.Date >= startDateFilter.Value) &&
-                        (!endDateFilter.HasValue || x.CreatedAt.Date <= endDateFilter.Value))
-                    .OrderByDescending(x => x.CreatedAt)
-                    .ToList();
-
-                if (!descending)
-                    orders = orders.OrderBy(x => x.CreatedAt).ToList();
-
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
-                orders = orders
-                    .Skip((normalizedPageNumber - 1) * normalizedPageSize)
-                    .Take(normalizedPageSize)
-                    .ToList();
+
+                var orders = (await _orderService.GetByFilterAsync(
+                    enterpriseId,
+                    filter,
+                    descending,
+                    normalizedPageNumber,
+                    normalizedPageSize)).ToList();
 
                 if (!orders.Any())
                     return NoContent();
 
-                IEnumerable<OrderDTO> orderDTO = _mapper.Map<IEnumerable<OrderDTO>>(orders);
+                IEnumerable<OrderDTO> orderDTO = await ToOrderDtosAsync(orders);
                 return Ok(orderDTO);
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -177,7 +165,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (order == null)
                     return NoContent();
 
-                OrderDTO orderDTO = _mapper.Map<OrderDTO>(order);
+                OrderDTO orderDTO = await ToOrderDtoAsync(order);
                 return Ok(orderDTO);
             }
             catch (Exception)
@@ -197,6 +185,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> AddOrder([FromBody] CreateOrderRequestDTO request)
         {
             try
@@ -246,7 +235,7 @@ namespace EvangelionERPV2.Web.Controllers
                     return Unauthorized();
 
                 var order = MapCreateRequestToOrder(request, enterpriseId, userId);
-                await _orderService.CreateAsync(order);
+                await _orderService.CreateAsync(order, await CanOverrideCreditLimitAsync());
                 return Ok("Order created successfully");
             }
             catch (InsertDatabaseException ex)
@@ -298,8 +287,13 @@ namespace EvangelionERPV2.Web.Controllers
                 };
 
                 var order = MapCreateRequestToOrder(createRequest, request.EnterpriseId, request.UserId);
-                await _orderService.CreateAsync(order);
+                await _orderService.CreateAsync(order, messageId: request.MessageId);
                 return Ok("Order created successfully");
+            }
+            catch (DuplicateMessageException ex)
+            {
+                Log.Logger.Information("Queued order already processed. MessageId={MessageId}", ex.MessageId);
+                return Ok("Order already processed");
             }
             catch (InsertDatabaseException ex)
             {
@@ -338,11 +332,16 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedOrder == null)
                     return NoContent();
 
-                return Ok(_mapper.Map<OrderDTO>(updatedOrder));
+                return Ok(await ToOrderDtoAsync(updatedOrder));
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error("Invalid order update. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -370,7 +369,7 @@ namespace EvangelionERPV2.Web.Controllers
                     return BadRequest($"Reason must be {MaxRefundReasonLength} characters or fewer.");
 
                 var refundedOrder = await _orderService.RefundAsync(id, enterpriseId, reason);
-                return Ok(_mapper.Map<OrderDTO>(refundedOrder));
+                return Ok(await ToOrderDtoAsync(refundedOrder));
             }
             catch (InsertDatabaseException ex)
             {
@@ -379,7 +378,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Error("Order not found for refund. ErrorType={ErrorType}", ex.GetType().Name);
+                Log.Logger.Debug("Order not found for refund. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -409,17 +408,30 @@ namespace EvangelionERPV2.Web.Controllers
                 if (order == null)
                     return NoContent();
 
-                return Ok(_mapper.Map<OrderDTO>(order));
+                return Ok(await ToOrderDtoAsync(order));
+            }
+            catch (InsertDatabaseException ex)
+            {
+                Log.Logger.Error("Invalid order delete. ErrorType={ErrorType}", ex.GetType().Name);
+                return BadRequest(GetSafeInsertErrorMessage(ex));
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Orders not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
             {
                 throw;
             }
+        }
+
+        private async Task<bool> CanOverrideCreditLimitAsync()
+        {
+            var result = await _authorizationService.AuthorizeAsync(
+                User, RbacPolicies.Customers.CreditOverride);
+
+            return result.Succeeded;
         }
 
         private bool TryGetEnterpriseId(out Guid enterpriseId)
@@ -439,7 +451,6 @@ namespace EvangelionERPV2.Web.Controllers
             return null;
         }
 
-
         private async Task<bool> HasActiveTenantMembershipAsync(Guid? userId, Guid enterpriseId)
         {
             if (!userId.HasValue || enterpriseId == Guid.Empty)
@@ -451,9 +462,6 @@ namespace EvangelionERPV2.Web.Controllers
 
         private async Task<bool> IsActiveEnterpriseAsync(Guid enterpriseId)
         {
-            // Queued orders bypass ActiveTenantEnforcementMiddleware for the payload tenant
-            // (the middleware only validates the machine caller), so the tenant's enterprise
-            // must be re-checked here.
             var enterpriseRepository = HttpContext?.RequestServices?.GetService(typeof(IRepository<Enterprise>))
                 as IRepository<Enterprise>;
             if (enterpriseRepository == null)
@@ -469,7 +477,6 @@ namespace EvangelionERPV2.Web.Controllers
                 return false;
             }
         }
-
 
         private static Order MapCreateRequestToOrder(CreateOrderRequestDTO request, Guid enterpriseId, Guid? userId)
         {
@@ -502,7 +509,9 @@ namespace EvangelionERPV2.Web.Controllers
                 CustomerId = request.CustomerId,
                 PaymentScheduledDate = request.PaymentScheduledDate ?? default,
                 Status = request.Status,
-                Payday = request.Payday
+                Payday = request.Payday,
+                TrackingCode = request.TrackingCode,
+                TrackingUrl = request.TrackingUrl
             };
 
             return order;
@@ -540,6 +549,49 @@ namespace EvangelionERPV2.Web.Controllers
             }
 
             return "An internal error occurred. Please try again later.";
+        }
+
+        /// <summary>
+        /// Whether this caller may see what the order's goods cost, and therefore its margin.
+        /// Manager tier and above — the same products.cost.read gate ProductController applies.
+        /// </summary>
+        private async Task<bool> CanReadCostAsync()
+        {
+            _canReadCost ??= (await _authorizationService.AuthorizeAsync(User, RbacPolicies.Products.ReadCost)).Succeeded;
+            return _canReadCost.Value;
+        }
+
+        /// <summary>
+        /// The single funnel from Order to OrderDTO. Cost and margin are withheld here rather than
+        /// never mapped, so no read on this controller can leak them by forgetting; the per-line
+        /// UnitCost they are derived from is [JsonIgnore]d on the entity itself.
+        /// </summary>
+        private async Task<OrderDTO> ToOrderDtoAsync(Order order)
+        {
+            var dto = _mapper.Map<OrderDTO>(order);
+            if (!await CanReadCostAsync())
+                StripCost(dto);
+
+            return dto;
+        }
+
+        private async Task<IEnumerable<OrderDTO>> ToOrderDtosAsync(IEnumerable<Order> orders)
+        {
+            var dtos = _mapper.Map<IEnumerable<OrderDTO>>(orders).ToList();
+            if (await CanReadCostAsync())
+                return dtos;
+
+            foreach (var dto in dtos)
+                StripCost(dto);
+
+            return dtos;
+        }
+
+        private static void StripCost(OrderDTO dto)
+        {
+            dto.TotalCost = null;
+            dto.MarginAmount = null;
+            dto.MarginPercent = null;
         }
     }
 }

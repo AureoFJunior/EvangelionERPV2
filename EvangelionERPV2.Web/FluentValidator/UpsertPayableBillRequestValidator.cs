@@ -20,6 +20,20 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .Must(x => x != default)
                 .WithMessage("DueDate is required.");
 
+            RuleFor(x => x.RecurrenceMonths)
+                .InclusiveBetween(1, 12).WithMessage("Recurrence must be between 1 and 12 months.")
+                .When(x => x.RecurrenceMonths.HasValue);
+
+            // Cascade(Stop) is load-bearing, not style: FluentValidation runs every component of a
+            // rule by default, so without it the date comparison below dereferenced the null that
+            // NotNull had just reported and the request answered 500 instead of 400.
+            RuleFor(x => x.RecurrenceUntilUtc)
+                .Cascade(CascadeMode.Stop)
+                .NotNull().WithMessage("A recurring bill needs an end date.")
+                .Must((request, until) => until!.Value.Date > request.DueDate.Date)
+                    .WithMessage("The recurrence end date must be after the first due date.")
+                .When(x => x.RecurrenceMonths.HasValue);
+
             RuleFor(x => x.Amount)
                 .Must((request, amount) =>
                 {

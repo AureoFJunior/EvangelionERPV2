@@ -79,7 +79,7 @@ namespace EvangelionERPV2.Test.Security
             Guid enterpriseId,
             Guid userId)
         {
-            var controller = new CashFlowForecastController(service, userRepository);
+            var controller = new CashFlowForecastController(service);
             var claims = new ClaimsPrincipal(new ClaimsIdentity(
             [
                 new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),

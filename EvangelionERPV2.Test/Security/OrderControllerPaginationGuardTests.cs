@@ -6,6 +6,7 @@ using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using System.Security.Claims;
@@ -87,9 +88,17 @@ namespace EvangelionERPV2.Test.Security
 
             SetupActiveTenantMembership(userRepository, userId, enterpriseId);
 
+            int? capturedPageNumber = null;
+            int? capturedPageSize = null;
+
             orderService
-                .Setup(s => s.GetByEnterpriseIdAsync(enterpriseId, null, null))
-                .ReturnsAsync(CreateOrders(enterpriseId, 120));
+                .Setup(s => s.GetByFilterAsync(enterpriseId, It.IsAny<OrderFilterRequestDTO>(), true, It.IsAny<int>(), It.IsAny<int>()))
+                .Callback<Guid, OrderFilterRequestDTO, bool, int, int>((_, _, _, pageNumber, pageSize) =>
+                {
+                    capturedPageNumber = pageNumber;
+                    capturedPageSize = pageSize;
+                })
+                .ReturnsAsync(CreateOrders(enterpriseId, 50));
 
             var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId, userId);
 
@@ -98,6 +107,9 @@ namespace EvangelionERPV2.Test.Security
             var ok = Assert.IsType<OkObjectResult>(result);
             var orders = Assert.IsAssignableFrom<IEnumerable<OrderDTO>>(ok.Value);
             Assert.Equal(50, orders.Count());
+
+            Assert.Equal(1, capturedPageNumber);
+            Assert.Equal(50, capturedPageSize);
         }
 
         [Fact]
@@ -111,9 +123,12 @@ namespace EvangelionERPV2.Test.Security
 
             SetupActiveTenantMembership(userRepository, userId, enterpriseId);
 
+            int? capturedPageSize = null;
+
             orderService
-                .Setup(s => s.GetByEnterpriseIdAsync(enterpriseId, null, null))
-                .ReturnsAsync(CreateOrders(enterpriseId, 400));
+                .Setup(s => s.GetByFilterAsync(enterpriseId, It.IsAny<OrderFilterRequestDTO>(), true, It.IsAny<int>(), It.IsAny<int>()))
+                .Callback<Guid, OrderFilterRequestDTO, bool, int, int>((_, _, _, _, pageSize) => capturedPageSize = pageSize)
+                .ReturnsAsync(CreateOrders(enterpriseId, 200));
 
             var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId, userId);
 
@@ -122,6 +137,7 @@ namespace EvangelionERPV2.Test.Security
             var ok = Assert.IsType<OkObjectResult>(result);
             var orders = Assert.IsAssignableFrom<IEnumerable<OrderDTO>>(ok.Value);
             Assert.Equal(200, orders.Count());
+            Assert.Equal(200, capturedPageSize);
         }
 
         [Fact]
@@ -136,7 +152,7 @@ namespace EvangelionERPV2.Test.Security
             SetupActiveTenantMembership(userRepository, userId, enterpriseId);
 
             orderService
-                .Setup(s => s.CreateAsync(It.IsAny<Order>()))
+                .Setup(s => s.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
                 .ThrowsAsync(new InsertDatabaseException("Insufficient stock for product [aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa]."));
 
             var controller = CreateController(orderService.Object, userRepository.Object, mapper.Object, enterpriseId, userId);
@@ -196,7 +212,7 @@ namespace EvangelionERPV2.Test.Security
             Guid enterpriseId,
             Guid? userId = null)
         {
-            var controller = new OrderController(orderService, userRepository, mapper);
+            var controller = new OrderController(orderService, userRepository, Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())), mapper);
             var claims = new ClaimsPrincipal(new ClaimsIdentity(
             [
                 new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),

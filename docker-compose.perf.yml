@@ -1,0 +1,13 @@
+# Load-test override. Raises the per-IP rate limit for the API only, because every request in a k6
+# run (and in perf/seed.py) arrives from one address and nginx overwrites X-Real-IP with the real
+# peer, so the 300/min general rule is reached at about 5 requests a second.
+#
+#   docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.perf.yml up -d evangelionerpv2
+#
+# Bring the container back to its normal limit by running local-up.ps1, or the same command without
+# this file. Never use it for the rate_limit_guard scenario — that one exists to prove the limiter
+# still works.
+services:
+  evangelionerpv2:
+    environment:
+      IpRateLimiting__GeneralRules__0__Limit: "1000000"

@@ -53,12 +53,18 @@ namespace EvangelionERPV2.CustomerModule.Application.DI
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<Customer>), typeof(CustomerRepository));
                 services.AddTransient(typeof(ICustomerRepository<Customer>), typeof(CustomerRepository));
 
-
                 #endregion
 
                 #region Services
                 services.AddTransient(typeof(ICustomerService<Customer>), typeof(CustomerService));
 
+                services.AddScoped<ICustomerLocationService, CustomerLocationService>();
+                services.AddHttpClient<IAddressGeocoder, NominatimAddressGeocoder>(client =>
+                {
+                    client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
+                    client.Timeout = TimeSpan.FromSeconds(10);
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("EvangelionERPV2/1.0 (+https://github.com/evangelion-erp)");
+                });
 
                 #endregion
 
@@ -68,7 +74,6 @@ namespace EvangelionERPV2.CustomerModule.Application.DI
             {
                 Log.Logger.Error("Error at DI IoC Customer. ErrorType={ErrorType}", ex.GetType().Name);
             }
-
         }
     }
 }

@@ -1,16 +1,24 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using AspNetCoreRateLimit;
+using EvangelionERPV2.AiModule.Application.DI;
+using EvangelionERPV2.AiModule.Application.Interface;
 using EvangelionERPV2.AuditModule.Application.DI;
 using EvangelionERPV2.BillsModule.Application.DI;
+using EvangelionERPV2.NotificationModule.Application.DI;
 using EvangelionERPV2.CustomerModule.Application.DI;
+using EvangelionERPV2.EmployeeModule.Application.DI;
 using EvangelionERPV2.EmailModule.Application.DI;
 using EvangelionERPV2.EnterpriseModule.Application.DI;
 using EvangelionERPV2.NFeModule.Application.DI;
 using EvangelionERPV2.OpportunityRadarModule.Application.DI;
 using EvangelionERPV2.OrderModule.Application.DI;
+using EvangelionERPV2.PdvModule.Application.DI;
+using EvangelionERPV2.StorefrontModule.Application.DI;
 using EvangelionERPV2.ProductModule.Application.DI;
 using EvangelionERPV2.ReportsModule.Application.DI;
+using EvangelionERPV2.SupplierModule.Application.DI;
+using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using Prometheus;
@@ -19,13 +27,19 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.DI;
 using EvangelionERPV2.Web.FluentValidator;
 using EvangelionERPV2.Web.Logging;
+using EvangelionERPV2.Web.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using EvangelionERPV2.Web.Security;
+using EvangelionERPV2.Web.Services;
 using FluentValidation;
-using FluentValidation.AspNetCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Connections;
-using Microsoft.AspNetCore.Mvc.Versioning;
+using Asp.Versioning;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Http.Timeouts;
+using System.Threading.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Microsoft.OpenApi;
@@ -35,7 +49,10 @@ using Microsoft.Net.Http.Headers;
 var builder = WebApplication.CreateBuilder(args);
 const string DefaultCorsPolicyName = "DefaultCorsPolicy";
 
-// Add services to the container.
+Metrics.ConfigureMeterAdapter(options =>
+    options.InstrumentFilterPredicate = instrument =>
+        !instrument.Meter.Name.StartsWith("Microsoft.AspNetCore")
+        && !instrument.Meter.Name.StartsWith("Private.InternalDiagnostics"));
 
 #region Services
 
@@ -65,8 +82,6 @@ try
     Log.Logger.Information("Starting Swagger");
     AddSwaggerGen(builder);
 
-    builder.Services.AddFluentValidationAutoValidation();
-    builder.Services.AddFluentValidationClientsideAdapters();
     builder.Services.Configure<RequestLoggingOptions>(builder.Configuration.GetSection("RequestLogging"));
 
     Log.Logger.Information("Starting JWT"); 
@@ -85,6 +100,7 @@ try
     });
 
     AddRequestRateLimit(builder);
+    AddOverloadProtection(builder);
     builder.Services.AddSignalR();
     #endregion
 
@@ -96,8 +112,6 @@ try
     Log.Logger.Information("Swagger Config");
 
     app.UseMiddleware<ExceptionHandlingMiddleware>();
-
-    // Configure the HTTP request pipeline.
 
     SetupSwagger(app, app.Environment);
 
@@ -118,6 +132,9 @@ try
 
     app.UseIpRateLimiting();
 
+    app.UseRequestTimeouts();
+    app.UseRateLimiter();
+
     app.UseCors(DefaultCorsPolicyName);
 
     app.UseAuthentication();
@@ -126,6 +143,8 @@ try
     app.UseAuthorization();
 
     app.MapMetrics("/metrics").RequireAuthorization(RbacPolicies.Metrics.Read);
+
+    new KestrelMetricServer(port: 9101).Start();
     app.MapHub<OrderHub>("/orderHub", options =>
     {
         options.Transports =
@@ -134,10 +153,30 @@ try
             HttpTransportType.LongPolling;
     }).RequireAuthorization(RbacPolicies.Orders.Read);
 
+    app.MapHub<AiHub>("/aiHub", options =>
+    {
+        options.Transports =
+            HttpTransportType.WebSockets |
+            HttpTransportType.ServerSentEvents |
+            HttpTransportType.LongPolling;
+    }).RequireAuthorization(RbacPolicies.Ai.Chat);
+
     app.MapControllers();
-    app.MapHealthChecks("/health").AllowAnonymous();
+    app.MapGet("/health", async (HealthResultCache cache, HttpContext context) =>
+    {
+        var report = await cache.GetAsync(context.RequestAborted);
+
+        context.Response.StatusCode = report.Status == HealthStatus.Unhealthy
+            ? StatusCodes.Status503ServiceUnavailable
+            : StatusCodes.Status200OK;
+        context.Response.ContentType = "text/plain";
+
+        await context.Response.WriteAsync(report.Status.ToString(), context.RequestAborted);
+    }).AllowAnonymous();
 
     SharedFunctions.Initialize(app.Services);
+
+    await LogPendingMigrationsAsync(app);
 
     Log.Logger.Information("Starting App Run");
     app.Run();
@@ -150,25 +189,7 @@ catch (Exception ex)
 
 static void BuildValidators(WebApplicationBuilder builder)
 {
-    builder.Services.AddTransient<IValidator<User>, UserValidator>();
-    builder.Services.AddTransient<IValidator<Enterprise>, EnterpriseValidator>();
-    builder.Services.AddTransient<IValidator<Order>, OrderValidator>();
-    builder.Services.AddTransient<IValidator<OrderedProduct>, OrderedProductValidator>();
-    builder.Services.AddTransient<IValidator<Customer>, CustomerValidator>();
-    builder.Services.AddTransient<IValidator<Product>, ProductValidator>();
-    builder.Services.AddTransient<IValidator<ProductPicture>, ProductPictureValidator>();
-    builder.Services.AddTransient<IValidator<CreateOrderRequestDTO>, CreateOrderRequestValidator>();
-    builder.Services.AddTransient<IValidator<CreateQueuedOrderRequestDTO>, CreateQueuedOrderRequestValidator>();
-    builder.Services.AddTransient<IValidator<UpdateOrderRequestDTO>, UpdateOrderRequestValidator>();
-    builder.Services.AddTransient<IValidator<OrderFilterRequestDTO>, OrderFilterRequestValidator>();
-    builder.Services.AddTransient<IValidator<UpsertPayableBillRequestDTO>, UpsertPayableBillRequestValidator>();
-    builder.Services.AddTransient<IValidator<ProductFilterRequestDTO>, ProductFilterRequestValidator>();
-    builder.Services.AddTransient<IValidator<CreateProductRequestDTO>, CreateProductRequestValidator>();
-    builder.Services.AddTransient<IValidator<UpdateProductRequestDTO>, UpdateProductRequestValidator>();
-    builder.Services.AddTransient<IValidator<UploadProductPictureRequestDTO>, UploadProductPictureRequestValidator>();
-    builder.Services.AddTransient<IValidator<CustomerFilterRequestDTO>, CustomerFilterRequestValidator>();
-    builder.Services.AddTransient<IValidator<CreateCustomerRequestDTO>, CreateCustomerRequestValidator>();
-    builder.Services.AddTransient<IValidator<UpdateCustomerRequestDTO>, UpdateCustomerRequestValidator>();
+    builder.Services.AddValidatorsFromAssemblyContaining<UserValidator>(ServiceLifetime.Transient);
 }
 
 static void SetupSwagger(WebApplication app, IWebHostEnvironment env)
@@ -222,9 +243,11 @@ static void SetupJWT(WebApplicationBuilder builder)
                 {
                     var accessToken = context.Request.Query["access_token"].FirstOrDefault();
                     var path = context.HttpContext.Request.Path;
-                    var isOrderHubRequest = path.StartsWithSegments("/orderHub");
+                    var isSignalRHubRequest =
+                        path.StartsWithSegments("/orderHub") ||
+                        path.StartsWithSegments("/aiHub");
 
-                    if (!string.IsNullOrEmpty(accessToken) && isOrderHubRequest)
+                    if (!string.IsNullOrEmpty(accessToken) && isSignalRHubRequest)
                     {
                         context.Token = accessToken;
                     }
@@ -273,23 +296,25 @@ static void AddSwaggerGen(WebApplicationBuilder builder)
     });
 }
 
-
 static void SetupAPIVersioning(WebApplicationBuilder builder)
 {
     builder.Services.AddApiVersioning(opt =>
     {
-        opt.DefaultApiVersion = new Microsoft.AspNetCore.Mvc.ApiVersion(1, 0);
+        opt.DefaultApiVersion = new ApiVersion(1, 0);
         opt.AssumeDefaultVersionWhenUnspecified = true;
         opt.ReportApiVersions = true;
         opt.ApiVersionReader = ApiVersionReader.Combine(new UrlSegmentApiVersionReader(),
                                                         new HeaderApiVersionReader("x-api-version"),
                                                         new MediaTypeApiVersionReader("x-api-version"));
-    });
+    }).AddMvc();
 }
 
 static void SetupControllers(WebApplicationBuilder builder)
 {
-    builder.Services.AddControllers()
+    builder.Services.AddControllers(options =>
+       {
+           options.Filters.Add<FluentValidationActionFilter>(FluentValidationActionFilter.FilterOrder);
+       })
        .AddJsonOptions(options =>
        {
            options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -316,9 +341,81 @@ static void SetupRequestLimits(WebApplicationBuilder builder)
     });
 }
 
+/// <summary>
+/// Nothing in the app calls <c>Database.Migrate()</c>, by decision - so a committed migration has
+/// not run anywhere until somebody applies it, and nothing used to say which ones were waiting.
+/// Twice the first symptom was every request to the new tables answering 500 with
+/// <c>Invalid column name</c>; this turns that into one line at boot.
+/// Startup never fails on it: refusing to boot would strand an environment that is behind, which is
+/// exactly the environment that needs to serve while somebody applies them.
+/// </summary>
+static async Task LogPendingMigrationsAsync(WebApplication app)
+{
+    const int attempts = 3;
+    var retryDelay = TimeSpan.FromSeconds(3);
+
+    for (var attempt = 1; attempt <= attempts; attempt++)
+    {
+        try
+        {
+            using var scope = app.Services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var applied = (await context.Database.GetAppliedMigrationsAsync()).ToList();
+            var pending = (await context.Database.GetPendingMigrationsAsync()).ToList();
+
+            if (pending.Count == 0)
+            {
+                Log.Logger.Information("Database schema is up to date, no pending migrations");
+                return;
+            }
+
+            if (applied.Count == 0 && attempt < attempts)
+            {
+                Log.Logger.Information(
+                    "No applied migrations visible yet, the database may still be starting. Retrying ({Attempt}/{Attempts})",
+                    attempt,
+                    attempts);
+
+                await Task.Delay(retryDelay);
+                continue;
+            }
+
+            Log.Logger.Fatal(
+                "{Count} migration(s) have NOT been applied to this database: {PendingMigrations}. " +
+                "Requests touching the new tables will fail with 'Invalid column name' until they are",
+                pending.Count,
+                string.Join(", ", pending));
+
+            return;
+        }
+        catch (Exception exception)
+        {
+            if (attempt == attempts)
+            {
+                Log.Logger.Error("Could not read pending migrations at startup. ErrorType={ErrorType}", exception.GetType().Name);
+                return;
+            }
+
+            await Task.Delay(retryDelay);
+        }
+    }
+}
+
 static void SetupHealthCheck(WebApplicationBuilder builder)
 {
-    builder.Services.AddHealthChecks();
+    builder.Services.AddHealthChecks()
+        .AddCheck<DatabaseHealthCheck>("sqlserver")
+        .AddCheck<RedisHealthCheck>("redis")
+        .AddCheck<RabbitMqHealthCheck>("rabbitmq");
+
+    builder.Services.AddSingleton<HealthResultCache>();
+    builder.Services.AddSingleton<IHealthCheckPublisher, PrometheusHealthPublisher>();
+    builder.Services.Configure<HealthCheckPublisherOptions>(options =>
+    {
+        options.Period = TimeSpan.FromSeconds(30);
+        options.Delay = TimeSpan.FromSeconds(10);
+    });
 }
 
 static void ConfigureIoC(WebApplicationBuilder builder)
@@ -328,19 +425,27 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     ProductIoC.Configure(builder.Services, builder.Configuration);
     OrderIoC.Configure(builder.Services, builder.Configuration);
     BillsIoC.Configure(builder.Services, builder.Configuration);
+    NotificationIoC.Configure(builder.Services, builder.Configuration);
     NFeIoC.Configure(builder.Services, builder.Configuration);
     CustomerIoC.Configure(builder.Services, builder.Configuration);
+    EmployeeIoC.Configure(builder.Services, builder.Configuration);
+    SupplierIoC.Configure(builder.Services, builder.Configuration);
     EnterpriseIoC.Configure(builder.Services, builder.Configuration);
     EmailIoC.Configure(builder.Services, builder.Configuration);
     OpportunityRadarIoC.Configure(builder.Services, builder.Configuration);
     ReportsIoC.Configure(builder.Services, builder.Configuration);
+    PdvIoC.Configure(builder.Services, builder.Configuration);
+    StorefrontIoC.Configure(builder.Services, builder.Configuration);
+    AiIoC.Configure(builder.Services, builder.Configuration);
+    builder.Services.AddScoped<IAiProgressNotifier, AiProgressNotifier>();
     SharedIoC.Configure(builder.Services, builder.Configuration);
 
-    // reCAPTCHA verification (short timeout, fail-closed for auth endpoints).
     builder.Services.AddHttpClient<IRecaptchaVerifier, RecaptchaVerifier>(client =>
     {
         client.Timeout = TimeSpan.FromSeconds(5);
     });
+
+    builder.Services.AddScoped<PasswordLoginService>();
 }
 
 static void SetupCors(WebApplicationBuilder builder)
@@ -377,14 +482,71 @@ static void SetupCors(WebApplicationBuilder builder)
     });
 }
 
-static void AddRequestRateLimit(WebApplicationBuilder builder)
+static void AddRequestRateLimit(WebApplicationBuilder builder) =>
+    StorefrontRateLimit.AddIpRateLimiting(builder.Services, builder.Configuration);
+
+/// <summary>
+/// Bounds how much work the process will accept at once, so overload sheds instead of queueing.
+/// <para>
+/// Measured 2026-09-15 under a heavy read mix: with nothing bounding intake the API accepted
+/// everything offered, latency went from ~200ms straight past 32 seconds (the top histogram bucket),
+/// the working set grew from 1.7 GiB to 13 GiB, and the load generator sat at 4.7% CPU because it
+/// was simply waiting. That is not running out of capacity, it is queueing without limit - a client
+/// that has already given up is still holding a request the server is still working on.
+/// </para>
+/// <para>
+/// A rejected request is a better answer than one served after half a minute: the caller learns
+/// immediately, retries are cheap, and the queue never becomes the thing that kills the process.
+/// Both numbers are configuration because the right value depends on the hardware, and the defaults
+/// here are deliberately generous - this is a backstop against collapse, not a throughput knob.
+/// </para>
+/// </summary>
+static void AddOverloadProtection(WebApplicationBuilder builder)
 {
-    builder.Services.AddMemoryCache();
-    builder.Services.AddHttpContextAccessor();
-    builder.Services.Configure<IpRateLimitOptions>(builder.Configuration.GetSection("IpRateLimiting"));
-    builder.Services.Configure<IpRateLimitPolicies>(builder.Configuration.GetSection("IpRateLimitPolicies"));
-    builder.Services.AddInMemoryRateLimiting();
-    builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
+    var section = builder.Configuration.GetSection("OverloadProtection");
+
+    var permits = section.GetValue<int?>("MaxConcurrentRequests") ?? 400;
+    var queue = section.GetValue<int?>("QueueLimit") ?? 200;
+    var timeoutSeconds = section.GetValue<int?>("RequestTimeoutSeconds") ?? 30;
+
+    builder.Services.AddRequestTimeouts(options =>
+    {
+        options.DefaultPolicy = new RequestTimeoutPolicy
+        {
+            Timeout = TimeSpan.FromSeconds(timeoutSeconds),
+            TimeoutStatusCode = StatusCodes.Status503ServiceUnavailable
+        };
+    });
+
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status503ServiceUnavailable;
+
+        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        {
+            var path = context.Request.Path;
+            if (path.StartsWithSegments("/health") || path.StartsWithSegments("/metrics"))
+                return RateLimitPartition.GetNoLimiter("exempt");
+
+            return RateLimitPartition.GetConcurrencyLimiter("global", _ => new ConcurrencyLimiterOptions
+            {
+                PermitLimit = permits,
+                QueueLimit = queue,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            });
+        });
+
+        options.OnRejected = (context, _) =>
+        {
+            context.HttpContext.Response.Headers.RetryAfter = "1";
+            Log.Logger.Warning(
+                "Shedding request under load. Path={Path} Permits={Permits} Queue={Queue}",
+                context.HttpContext.Request.Path.Value,
+                permits,
+                queue);
+            return ValueTask.CompletedTask;
+        };
+    });
 }
 
 static void ApplySecurityHeaders(IHeaderDictionary headers)

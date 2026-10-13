@@ -1,0 +1,15 @@
+<Project>
+
+  <PropertyGroup>
+    <!--
+      The SDK's own analyzers ship with it and are off by default. They overlap Sonar's rules and
+      catch a different slice: framework misuse rather than code smell.
+    -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisMode>Default</AnalysisMode>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

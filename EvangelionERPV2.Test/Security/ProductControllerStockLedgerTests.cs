@@ -1,0 +1,200 @@
+using System.Linq.Expressions;
+using AutoMapper;
+using EvangelionERPV2.ProductModule.Application.Interface;
+using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
+using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Web.Controllers;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Moq;
+using System.Security.Claims;
+
+namespace EvangelionERPV2.Test.Security
+{
+    /// <summary>
+    /// The product edit form used to assign StorageQuantity straight onto the entity, which moved
+    /// stock without writing the StockMovement that explains it — the one thing the ledger exists
+    /// to prevent. These cover the routing that replaced it.
+    /// </summary>
+    public class ProductControllerStockLedgerTests
+    {
+        [Fact]
+        public async Task UpdateProduct_WhenTheCountChanges_RoutesTheDeltaThroughTheLedger()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var stored = CreateProduct(enterpriseId, storageQuantity: 12m);
+
+            var harness = new Harness(enterpriseId, stored);
+
+            var result = await harness.Controller.UpdateProduct(BuildRequest(stored, storageQuantity: 20m));
+
+            Assert.IsType<OkObjectResult>(result);
+
+            harness.ProductService.Verify(x => x.ApplyStockMovementAsync(
+                stored.Id,
+                enterpriseId,
+                8m,
+                EnumStockMovementType.Adjustment,
+                null,
+                false), Times.Once);
+
+            Assert.Equal(20m, harness.SavedProduct!.StorageQuantity);
+        }
+
+        [Fact]
+        public async Task UpdateProduct_WhenTheCountIsUnchanged_WritesNoMovement()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var stored = CreateProduct(enterpriseId, storageQuantity: 12m);
+
+            var harness = new Harness(enterpriseId, stored);
+
+            var result = await harness.Controller.UpdateProduct(BuildRequest(stored, storageQuantity: 12m));
+
+            Assert.IsType<OkObjectResult>(result);
+
+            harness.ProductService.Verify(x => x.ApplyStockMovementAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Never);
+
+            Assert.Equal(12m, harness.SavedProduct!.StorageQuantity);
+        }
+
+        /// <summary>
+        /// The edit form never gets the till's exemption: allowNegative is false on every call it
+        /// makes, so an admin cannot drive a count below zero from the web.
+        /// </summary>
+        [Fact]
+        public async Task UpdateProduct_NeverAsksToGoNegative()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var stored = CreateProduct(enterpriseId, storageQuantity: 12m);
+
+            var harness = new Harness(enterpriseId, stored);
+
+            await harness.Controller.UpdateProduct(BuildRequest(stored, storageQuantity: 0m));
+
+            harness.ProductService.Verify(x => x.ApplyStockMovementAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), true), Times.Never);
+        }
+
+        private sealed class Harness
+        {
+            public Mock<IProductService<Product>> ProductService { get; } = new(MockBehavior.Strict);
+            public ProductController Controller { get; }
+            public Product? SavedProduct { get; private set; }
+
+            public Harness(Guid enterpriseId, Product stored)
+            {
+                var callerId = Guid.NewGuid();
+                var productRepository = new Mock<IRepository<Product>>(MockBehavior.Strict);
+                var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
+
+                productRepository.Setup(r => r.GetByIdAsync(stored.Id)).ReturnsAsync(stored);
+
+                userRepository.Setup(r => r.GetByIdAsync(callerId)).ReturnsAsync(new User
+                {
+                    Id = callerId,
+                    EnterpriseId = enterpriseId,
+                    IsActive = true,
+                    AccessLevel = 0
+                });
+
+                ProductService
+                    .Setup(x => x.ApplyStockMovementAsync(
+                        It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                        It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                    .ReturnsAsync((Guid productId, Guid tenantId, decimal delta,
+                                   EnumStockMovementType type, Guid? referenceId, bool allowNegative)
+                        => new StockMovement
+                        {
+                            Id = Guid.NewGuid(),
+                            ProductId = productId,
+                            EnterpriseId = tenantId,
+                            Quantity = delta,
+                            BalanceAfter = stored.StorageQuantity + delta,
+                            Type = (int)type,
+                            ReferenceId = referenceId,
+                            IsActive = true
+                        });
+
+                ProductService
+                    .Setup(x => x.UpdateAsync(It.IsAny<Product>()))
+                    .ReturnsAsync((Product product) =>
+                    {
+                        SavedProduct = product;
+                        return product;
+                    });
+
+                Controller = new ProductController(
+                    ProductService.Object,
+                    productRepository.Object,
+                    userRepository.Object,
+                    CreateMapper().Object,
+                    Mock.Of<IAuthorizationService>(x =>
+                        x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>())
+                            == Task.FromResult(AuthorizationResult.Failed())));
+
+                Controller.ControllerContext = new ControllerContext
+                {
+                    HttpContext = new DefaultHttpContext
+                    {
+                        User = new ClaimsPrincipal(new ClaimsIdentity(
+                        [
+                            new Claim(ClaimTypes.GroupSid, enterpriseId.ToString()),
+                            new Claim(ClaimTypes.Sid, callerId.ToString())
+                        ], "TestAuth"))
+                    }
+                };
+            }
+        }
+
+        private static UpdateProductRequestDTO BuildRequest(Product stored, decimal storageQuantity)
+        {
+            return new UpdateProductRequestDTO
+            {
+                Id = stored.Id,
+                Name = stored.Name,
+                Description = stored.Description,
+                DefaultValue = stored.DefaultValue,
+                StorageQuantity = storageQuantity,
+                UnitOfMeasure = stored.UnitOfMeasure,
+                IsActive = true
+            };
+        }
+
+        private static Product CreateProduct(Guid enterpriseId, decimal storageQuantity)
+        {
+            return new Product
+            {
+                Id = Guid.NewGuid(),
+                Name = "Sample product",
+                Description = "Sample product",
+                UnitOfMeasure = nameof(EnumUnitOfMeasure.Unit),
+                DefaultValue = 10m,
+                StorageQuantity = storageQuantity,
+                PictureAdress = string.Empty,
+                EnterpriseId = enterpriseId,
+                IsActive = true
+            };
+        }
+
+        private static Mock<IMapper> CreateMapper()
+        {
+            var mapper = new Mock<IMapper>(MockBehavior.Strict);
+            mapper.Setup(m => m.Map<ProductDTO>(It.IsAny<Product>()))
+                .Returns<Product>(product => new ProductDTO
+                {
+                    Id = product.Id,
+                    Name = product.Name,
+                    PictureAdress = product.PictureAdress ?? string.Empty
+                });
+
+            return mapper;
+        }
+    }
+}

@@ -5,6 +5,7 @@ using EvangelionERPV2.Shared.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
+using Serilog;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Security.Claims;
@@ -13,6 +14,8 @@ using System.Text;
 
 namespace EvangelionERPV2.UserModule.Application.Token
 {
+    public sealed record RefreshRotation(Guid UserId, string RefreshToken);
+
     public class TokenService
     {
         private const int MaxTokenPersistAttempts = 2;
@@ -202,6 +205,97 @@ namespace EvangelionERPV2.UserModule.Application.Token
 
             var token = tokens?.FirstOrDefault();
             return token != null && token.RevokedAt == null && token.ExpiresAt > now;
+        }
+
+        /// <summary>
+        /// Spends <paramref name="refreshToken"/> and issues its replacement, or returns null when it is
+        /// unknown, expired or already spent. A rotated token that comes back means someone kept a copy,
+        /// so every active token of that user is revoked too; a token revoked because the user signed in
+        /// elsewhere only fails.
+        /// </summary>
+        public async Task<RefreshRotation?> RotateRefreshTokenAsync(string? refreshToken)
+        {
+            if (string.IsNullOrWhiteSpace(refreshToken))
+                return null;
+
+            var now = DateTime.UtcNow;
+            var tokenHash = HashToken(refreshToken);
+            RefreshRotation? rotation = null;
+            RefreshToken? insertedToken = null;
+
+            try
+            {
+                await _refreshTokenRepository.ExecuteInTransactionAsync(async () =>
+                {
+                    var token = (await _refreshTokenRepository.GetAllAsyncByFilter(
+                        descending: false,
+                        pageNumber: 1,
+                        pageSize: 1,
+                        predicate: x => x.TokenHash == tokenHash))?.FirstOrDefault();
+                    if (token == null)
+                        return;
+
+                    if (token.RevokedAt != null || token.IsActive != true)
+                    {
+                        if (token.ReplacedByTokenHash != null)
+                        {
+                            Log.Logger.Warning("Refresh token reuse detected; session revoked. UserId={UserId}", token.UserId);
+                            await RevokeAllActiveAsync(token.UserId, now);
+                        }
+                        return;
+                    }
+
+                    if (token.ExpiresAt <= now)
+                        return;
+
+                    var replacement = GenerateRefreshToken();
+                    token.RevokedAt = now;
+                    token.IsActive = false;
+                    token.UpdatedAt = now;
+                    token.ReplacedByTokenHash = HashToken(replacement);
+                    _refreshTokenRepository.Update(token);
+                    await _refreshTokenRepository.CommitAsync();
+
+                    insertedToken = new RefreshToken
+                    {
+                        UserId = token.UserId,
+                        TokenHash = token.ReplacedByTokenHash,
+                        ExpiresAt = now.AddDays(GetRefreshTokenDays()),
+                        IsActive = true,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    };
+                    await _refreshTokenRepository.CreateAsync(insertedToken);
+                    await _refreshTokenRepository.CommitAsync();
+                    rotation = new RefreshRotation(token.UserId, replacement);
+                });
+            }
+            catch (DbUpdateException ex) when (IsUniqueActiveTokenViolation(ex, "IX_RefreshToken_UserId_Active"))
+            {
+                DetachIfTracked(insertedToken);
+                return null;
+            }
+
+            return rotation;
+        }
+
+        private async Task RevokeAllActiveAsync(Guid userId, DateTime now)
+        {
+            var active = (await _refreshTokenRepository.GetAllAsyncByFilter(
+                descending: false,
+                pageNumber: 1,
+                pageSize: int.MaxValue,
+                predicate: x => x.UserId == userId && x.IsActive == true && x.RevokedAt == null)).ToList();
+            foreach (var token in active)
+            {
+                token.RevokedAt = now;
+                token.IsActive = false;
+                token.UpdatedAt = now;
+                _refreshTokenRepository.Update(token);
+            }
+
+            if (active.Count > 0)
+                await _refreshTokenRepository.CommitAsync();
         }
 
         public async Task RevokeRefreshTokenAsync(Guid userId, string refreshToken)
