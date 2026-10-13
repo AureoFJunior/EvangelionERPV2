@@ -46,6 +46,8 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
                 product.Product.Id = Guid.NewGuid();
 
+                await EnsureVariantGroupIsValidAsync(product.Product);
+
                 Product includedProduct = new Product();
                 includedProduct = await _productRepository.CreateAsync(product.Product);
                 await _productRepository.CommitAsync();
@@ -77,6 +79,10 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             {
                 throw;
             }
+            catch (ArgumentException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 throw new InsertDatabaseException("Unexpected error while creating product.", ex);
@@ -92,6 +98,8 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 if (existentProduct == null)
                     throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
 
+                await EnsureVariantGroupIsValidAsync(product);
+
                 _productRepository.DetachEntity(existentProduct);
                 product.UpdatedAt = DateTime.UtcNow;
                 product.PictureAdress = SharedFunctions.EnsureEncryptedAddress(product.PictureAdress);
@@ -104,10 +112,33 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             {
                 throw;
             }
+            catch (ArgumentException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 throw new InsertDatabaseException("Unexpected error while updating product.", ex);
             }
+        }
+
+        private async Task EnsureVariantGroupIsValidAsync(Product product)
+        {
+            if (!product.VariantGroupId.HasValue || _appDbContext == null)
+                return;
+
+            var siblings = await _appDbContext.Product
+                .AsNoTracking()
+                .Where(other => other.VariantGroupId == product.VariantGroupId && other.Id != product.Id)
+                .Select(other => new { other.EnterpriseId, other.VariantLabel, other.IsActive })
+                .ToListAsync();
+
+            if (siblings.Any(sibling => sibling.EnterpriseId != product.EnterpriseId))
+                throw new ArgumentException("A variant group cannot span enterprises.");
+
+            if (siblings.Any(sibling => sibling.IsActive == true
+                    && string.Equals(sibling.VariantLabel, product.VariantLabel, StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException("Another variant in this group already uses that label.");
         }
 
         public async Task UpdateForOrder(Order order)

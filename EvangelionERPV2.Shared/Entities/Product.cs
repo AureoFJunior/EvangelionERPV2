@@ -29,6 +29,11 @@ namespace EvangelionERPV2.Shared.Entities
         public bool IsService { get; set; } = false;
         public string? PictureAdress { get; set; }
 
+        public Guid? VariantGroupId { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(60)]
+        public string? VariantLabel { get; set; }
+
         [ForeignKey(nameof(Enterprise))]
         public Guid? EnterpriseId { get; set; } = null;
 

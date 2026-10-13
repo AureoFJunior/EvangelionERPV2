@@ -12,5 +12,8 @@ namespace EvangelionERPV2.Shared.DTOs
         public bool IsService { get; set; }
         public string? PictureAdress { get; set; }
         public bool? IsActive { get; set; }
+
+        public Guid? VariantGroupId { get; set; }
+        public string? VariantLabel { get; set; }
     }
 }

@@ -84,6 +84,11 @@ namespace EvangelionERPV2.Shared.Context
                 .HasFilter("[IsActive] = 1")
                 .IsUnique();
 
+            modelBuilder.Entity<Product>()
+                .HasIndex(product => new { product.VariantGroupId, product.VariantLabel })
+                .HasFilter("[IsActive] = 1 AND [VariantGroupId] IS NOT NULL")
+                .IsUnique();
+
             modelBuilder.Entity<PasswordResetToken>()
                 .HasOne(token => token.User)
                 .WithMany()

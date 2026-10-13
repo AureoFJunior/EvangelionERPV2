@@ -12,6 +12,9 @@ namespace EvangelionERPV2.Shared.DTOs
         public string? PictureAdress { get; set; }
         public string? File { get; set; }
         public LegacyCreateProductRequestDTO? Product { get; set; }
+
+        public Guid? VariantGroupId { get; set; }
+        public string? VariantLabel { get; set; }
     }
 
     public sealed class LegacyCreateProductRequestDTO

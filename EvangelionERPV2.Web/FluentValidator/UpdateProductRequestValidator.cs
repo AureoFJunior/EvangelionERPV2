@@ -23,6 +23,13 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.UnitOfMeasure)
                 .NotEmpty().WithMessage("UnitOfMeasure is required.")
                 .MaximumLength(30).WithMessage("UnitOfMeasure is too long.");
+
+            RuleFor(x => x.VariantLabel)
+                .MaximumLength(60).WithMessage("VariantLabel is too long.");
+
+            RuleFor(x => x)
+                .Must(x => x.VariantGroupId.HasValue == !string.IsNullOrWhiteSpace(x.VariantLabel))
+                .WithMessage("VariantGroupId and VariantLabel must be provided together.");
         }
     }
 }

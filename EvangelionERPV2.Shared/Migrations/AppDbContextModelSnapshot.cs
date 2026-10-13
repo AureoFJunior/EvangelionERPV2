@@ -1075,9 +1075,20 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid?>("VariantGroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("VariantLabel")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("EnterpriseId");
+
+                    b.HasIndex("VariantGroupId", "VariantLabel")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1 AND [VariantGroupId] IS NOT NULL");
 
                     b.HasIndex("Id", "CreatedAt", "UpdatedAt");
 

@@ -31,6 +31,13 @@ namespace EvangelionERPV2.Web.FluentValidator
                 .Must(Base64PayloadValidationHelper.HasSupportedImageSignature)
                     .WithMessage("Product image file must be PNG, JPEG, GIF, or WEBP.")
                 .When(x => !string.IsNullOrWhiteSpace(x.File));
+
+            RuleFor(x => x.VariantLabel)
+                .MaximumLength(60).WithMessage("VariantLabel is too long.");
+
+            RuleFor(x => x)
+                .Must(x => x.VariantGroupId.HasValue == !string.IsNullOrWhiteSpace(x.VariantLabel))
+                .WithMessage("VariantGroupId and VariantLabel must be provided together.");
         }
 
         private static string ResolveName(CreateProductRequestDTO request)
