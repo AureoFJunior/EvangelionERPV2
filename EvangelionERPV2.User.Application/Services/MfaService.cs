@@ -180,9 +180,14 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 var proof = await ProveAsync(user, code);
                 if (proof == null)
                 {
-                    await SaveFailuresAsync(user.Id, failures is null
-                        ? new Failures(1, _time.GetUtcNow() + AccountFailureWindow)
-                        : failures with { Count = failures.Count + 1 });
+                    var now = _time.GetUtcNow();
+                    var updatedFailures = failures is null
+                        ? new Failures(1, now + AccountFailureWindow)
+                        : failures with { Count = failures.Count + 1 };
+                    if (updatedFailures.Count >= MaxAccountFailures)
+                        updatedFailures = updatedFailures with { WindowEndsAt = now + AccountFailureWindow };
+
+                    await SaveFailuresAsync(user.Id, updatedFailures);
                     Log.Logger.Warning(
                         "MFA code rejected. UserId={UserId}, Failures={Failures}, ChallengeSpent={Spent}",
                         user.Id, current.Failures + 1, current.Failures + 1 >= MaxChallengeFailures);
