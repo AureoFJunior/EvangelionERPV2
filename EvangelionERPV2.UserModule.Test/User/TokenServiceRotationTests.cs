@@ -14,7 +14,7 @@ using Serilog.Events;
 namespace EvangelionERPV2.UserModule.Test.User
 {
     // BIO-01: a refresh token is spent once; a rotated token that comes back revokes the session.
-    [Collection(SerilogGlobalLoggerCollection.Name)]
+    [Collection(SharedFunctionsKeyCollection.Name)]
     public class TokenServiceRotationTests
     {
         private readonly List<RefreshToken> _tokens = new();
@@ -164,14 +164,5 @@ namespace EvangelionERPV2.UserModule.Test.User
                     Events.Add(logEvent);
             }
         }
-    }
-
-    /// <summary>Tests that swap the global Serilog logger must not overlap each other.</summary>
-    [CollectionDefinition(Name, DisableParallelization = true)]
-    public sealed class SerilogGlobalLoggerCollection
-    {
-        public const string Name = "Serilog global logger";
-
-        private SerilogGlobalLoggerCollection() { }
     }
 }

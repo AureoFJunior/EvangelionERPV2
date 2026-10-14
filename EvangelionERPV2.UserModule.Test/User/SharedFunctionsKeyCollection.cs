@@ -7,7 +7,10 @@ using Moq;
 
 namespace EvangelionERPV2.UserModule.Test.User
 {
-    /// <summary>Classes that set or read SharedFunctions' static encryption key must not run in parallel.</summary>
+    /// <summary>
+    /// Classes that touch process-wide statics — SharedFunctions' encryption key, the global Serilog
+    /// logger — must not run in parallel with each other.
+    /// </summary>
     [CollectionDefinition(Name, DisableParallelization = true)]
     public sealed class SharedFunctionsKeyCollection
     {
