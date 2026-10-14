@@ -26,6 +26,8 @@ namespace EvangelionERPV2.Shared.Entities
         }
 
         public string Name { get; set; } = "";
+        [NotMapped]
+        public string DisplayName => string.IsNullOrWhiteSpace(VariantLabel) ? Name : $"{Name} — {VariantLabel}";
         public string Description { get; set; } = "";
         public decimal DefaultValue { get; set; } = 0;
 
@@ -37,6 +39,8 @@ namespace EvangelionERPV2.Shared.Entities
         public bool IsExternal { get; set; } = false;
         public bool IsService { get; set; } = false;
         public string? PictureAdress { get; set; }
+        public int? PictureWidth { get; set; }
+        public int? PictureHeight { get; set; }
 
         [MaxLength(40)]
         public string? Sku { get; set; }

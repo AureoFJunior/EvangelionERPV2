@@ -86,6 +86,11 @@ namespace EvangelionERPV2.Web.Security
         [
             ..SupervisorPermissions,
 
+            // Only accounts below Manager: UserController.CanAssignLevel.
+            RbacPermissions.Users.Read,
+            RbacPermissions.Users.Create,
+            RbacPermissions.Users.Update,
+
             RbacPermissions.Customers.Delete,
 
             RbacPermissions.Customers.CreditOverride,

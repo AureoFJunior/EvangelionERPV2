@@ -483,7 +483,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 if (product.Id == Guid.Empty || string.IsNullOrWhiteSpace(product.Name))
                     continue;
 
-                namesByProductId[product.Id] = product.Name;
+                namesByProductId[product.Id] = product.DisplayName;
             }
 
             return namesByProductId;

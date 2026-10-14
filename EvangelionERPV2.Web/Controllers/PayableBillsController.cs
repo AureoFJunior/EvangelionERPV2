@@ -145,7 +145,9 @@ namespace EvangelionERPV2.Web.Controllers
 
                 var payableBill = MapRequestToPayableBill(request, enterpriseId);
                 payableBill.EnterpriseId = enterpriseId;
-                var created = await _payableBillService.CreateAsync(payableBill);
+                var created = request.ReceiveProducts
+                    ? await _payableBillService.CreateWithReceiptAsync(payableBill)
+                    : await _payableBillService.CreateAsync(payableBill);
                 return Ok(_mapper.Map<PayableBillDTO>(created));
             }
             catch (InsertDatabaseException ex)

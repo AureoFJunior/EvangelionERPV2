@@ -29,7 +29,7 @@ namespace EvangelionERPV2.Test.Security
                     AccessLevel = (short)EnumAccessLevel.Admin
                 });
 
-            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object);
+            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object, new RolePermissionEvaluator());
             var requirement = new SelfOrPermissionRequirement(
                 RbacPermissions.Users.ReadSelf,
                 RbacPermissions.Users.Read,
@@ -62,7 +62,7 @@ namespace EvangelionERPV2.Test.Security
                     AccessLevel = (short)EnumAccessLevel.Employee
                 });
 
-            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object);
+            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object, new RolePermissionEvaluator());
             var requirement = new SelfOrPermissionRequirement(
                 RbacPermissions.Users.ReadSelf,
                 RbacPermissions.Users.Read,
@@ -96,7 +96,7 @@ namespace EvangelionERPV2.Test.Security
                     AccessLevel = (short)EnumAccessLevel.Employee
                 });
 
-            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object);
+            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object, new RolePermissionEvaluator());
             var requirement = new SelfOrPermissionRequirement(
                 RbacPermissions.Users.ReadSelf,
                 RbacPermissions.Users.Read,

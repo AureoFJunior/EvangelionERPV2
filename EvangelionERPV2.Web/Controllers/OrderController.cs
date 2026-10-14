@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using AutoMapper;
 using Serilog;
 using EvangelionERPV2.OrderModule.Application.Interface;
+using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Enums;
@@ -326,6 +327,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
                 var order = MapUpdateRequestToOrder(request);
+                var before = await _orderService.GetByIdAsync(request.Id, enterpriseId);
 
                 Order updatedOrder = _orderService.Update(order, enterpriseId);
 
@@ -458,6 +460,40 @@ namespace EvangelionERPV2.Web.Controllers
 
             var user = await _userRepository.GetByIdAsync(userId.Value);
             return user != null && user.IsActive == true && user.EnterpriseId == enterpriseId;
+        }
+
+        /// <summary>
+        /// Tells the customer of a non-Limen order that it shipped, through the store's own SMTP via
+        /// Worker.Email. Limen shoppers hear from Storefront.Api instead. Never fails the update.
+        /// </summary>
+        private async Task QueueShipmentEmailAsync(Order? before, Order after, Guid enterpriseId)
+        {
+            if (before == null
+                || before.Channel == (int)EnumOrderChannel.Storefront
+                || !OrderShipmentNotice.ShouldNotify(before, after.Status, after.TrackingCode))
+                return;
+
+            try
+            {
+                var services = HttpContext?.RequestServices;
+                var emailService = services?.GetService(typeof(IEmailService<EmailStructure>)) as IEmailService<EmailStructure>;
+                var customerRepository = services?.GetService(typeof(IRepository<Customer>)) as IRepository<Customer>;
+                var enterpriseRepository = services?.GetService(typeof(IRepository<Enterprise>)) as IRepository<Enterprise>;
+                var customerId = after.CustomerId ?? before.CustomerId;
+                if (emailService == null || customerRepository == null || enterpriseRepository == null || customerId is not { } id)
+                    return;
+
+                var customer = await customerRepository.GetByIdAsync(id);
+                if (customer == null || customer.EnterpriseId != enterpriseId || string.IsNullOrWhiteSpace(customer.Email))
+                    return;
+
+                var enterprise = await enterpriseRepository.GetByIdAsync(enterpriseId) ?? new Enterprise { Id = enterpriseId };
+                await emailService.SendManualEmail(OrderShipmentNotice.BuildEmail(after, customer, enterprise.Name), enterprise);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Warning("Shipment e-mail for order [{OrderId}] was not queued. ErrorType={ErrorType}", after.Id, ex.GetType().Name);
+            }
         }
 
         private async Task<bool> IsActiveEnterpriseAsync(Guid enterpriseId)

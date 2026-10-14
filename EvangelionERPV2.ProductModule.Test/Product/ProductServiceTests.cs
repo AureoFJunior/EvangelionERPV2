@@ -164,7 +164,7 @@ namespace EvangelionERPV2.ProductModule.Test
                 Id = productId
             };
 
-            var payload = Convert.ToBase64String(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D });
+            var payload = Jpeg(3000, 2000);
             var request = new ProductPicture
             {
                 Product = new Product("Product", "Desc", 10, 5, false, false, existentProduct.PictureAdress, enterpriseId)
@@ -195,6 +195,7 @@ namespace EvangelionERPV2.ProductModule.Test
             var result = await service.UpdatePictureAsync(request);
 
             Assert.NotNull(result);
+            Assert.Equal((2048, 1365), (result.PictureWidth, result.PictureHeight));
             productRepository.Verify(r => r.Update(It.IsAny<Product>()), Times.Once);
             productRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
             s3ClientMock.Verify(
@@ -202,6 +203,74 @@ namespace EvangelionERPV2.ProductModule.Test
                     It.Is<DeleteObjectRequest>(request => request.Key == "products/old-picture-key"),
                     It.IsAny<CancellationToken>()),
                 Times.Once);
+        }
+
+        private static string Jpeg(int width, int height)
+        {
+            using var bitmap = new SkiaSharp.SKBitmap(width, height);
+            bitmap.Erase(SkiaSharp.SKColors.White);
+            using var data = bitmap.Encode(SkiaSharp.SKEncodedImageFormat.Jpeg, 90);
+            return Convert.ToBase64String(data.ToArray());
+        }
+
+        [Fact]
+        public async Task UpdatePictureAsync_StoresTheNormalisedPhotoNotTheUpload()
+        {
+            EnsureEncryptionKeyInitialized();
+            var (service, productRepository, _, s3ClientMock) = CreateServiceWithS3Mock();
+            var product = new Product("Product", "Desc", 10, 5, false, false, null, Guid.NewGuid()) { Id = Guid.NewGuid() };
+            productRepository.Setup(r => r.GetByIdAsync(product.Id)).ReturnsAsync(product);
+            productRepository.Setup(r => r.Update(It.IsAny<Product>())).Returns((Product p) => p);
+            byte[]? stored = null;
+            s3ClientMock.Setup(s => s.PutObjectAsync(It.IsAny<PutObjectRequest>(), It.IsAny<CancellationToken>()))
+                .Callback<PutObjectRequest, CancellationToken>((request, _) =>
+                {
+                    using var copy = new MemoryStream();
+                    request.InputStream.CopyTo(copy);
+                    stored = copy.ToArray();
+                })
+                .ReturnsAsync(new PutObjectResponse());
+
+            await service.UpdatePictureAsync(new ProductPicture { Product = product, File = Jpeg(4096, 4096) });
+
+            using var decoded = SkiaSharp.SKBitmap.Decode(stored);
+            Assert.Equal((2048, 2048), (decoded.Width, decoded.Height));
+        }
+
+        [Fact]
+        public async Task UpdatePictureAsync_WithAPhotoTooSmall_IsRefusedBeforeStorage()
+        {
+            EnsureEncryptionKeyInitialized();
+            var (service, productRepository, _, s3ClientMock) = CreateServiceWithS3Mock();
+            var product = new Product("Product", "Desc", 10, 5, false, false, "products/old", Guid.NewGuid()) { Id = Guid.NewGuid() };
+            productRepository.Setup(r => r.GetByIdAsync(product.Id)).ReturnsAsync(product);
+
+            var error = await Assert.ThrowsAsync<ArgumentException>(() =>
+                service.UpdatePictureAsync(new ProductPicture { Product = product, File = Jpeg(500, 300) }));
+
+            Assert.Equal("A foto precisa ter pelo menos 400 px no lado menor (esta tem 500×300).", error.Message);
+            Assert.Equal("products/old", product.PictureAdress);
+            s3ClientMock.Verify(s => s.PutObjectAsync(It.IsAny<PutObjectRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task DeletePictureAsync_RemovesTheOriginalAndItsThumbnail()
+        {
+            EnsureEncryptionKeyInitialized();
+            var (service, productRepository, _, s3ClientMock) = CreateServiceWithS3Mock();
+            var product = new Product("Product", "Desc", 10, 5, false, false, "products/photo-key", Guid.NewGuid()) { Id = Guid.NewGuid(), PictureWidth = 900, PictureHeight = 900 };
+            productRepository.Setup(r => r.Update(It.IsAny<Product>())).Returns((Product p) => p);
+            var deleted = new List<string>();
+            s3ClientMock.Setup(s => s.DeleteObjectAsync(It.IsAny<DeleteObjectRequest>(), It.IsAny<CancellationToken>()))
+                .Callback<DeleteObjectRequest, CancellationToken>((request, _) => deleted.Add(request.Key))
+                .ReturnsAsync(new DeleteObjectResponse());
+
+            Assert.True(await service.DeletePictureAsync(product));
+
+            Assert.Equal(["products/photo-key", "thumb200/products/photo-key", "thumb480/products/photo-key"], deleted);
+            Assert.Null(product.PictureAdress);
+            Assert.Null(product.PictureWidth);
+            productRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
         }
 
         [Fact]
@@ -241,7 +310,7 @@ namespace EvangelionERPV2.ProductModule.Test
         }
 
         [Fact]
-        public async Task CreateAsync_WhenImageUploadFails_ThrowsInsertDatabaseException()
+        public async Task CreateAsync_WhenTheImageIsUnreadable_KeepsTheProductAndSaysWhy()
         {
             EnsureEncryptionKeyInitialized();
 
@@ -271,7 +340,10 @@ namespace EvangelionERPV2.ProductModule.Test
                 File = "not-a-valid-base64"
             };
 
-            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.CreateAsync(request));
+            var created = await service.CreateAsync(request);
+
+            Assert.Same(createdEntity, created);
+            Assert.Equal("Não foi possível ler a imagem. Envie PNG, JPEG ou WebP.", request.PictureError);
             productRepository.Verify(r => r.CreateAsync(It.IsAny<Product>()), Times.Once);
             productRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
             s3ClientMock.Verify(
@@ -319,7 +391,7 @@ namespace EvangelionERPV2.ProductModule.Test
             var encryptedAddress = SharedFunctions.EnsureEncryptedAddress(objectKey);
 
             s3Client.Setup(client => client.GetObjectAsync(
-                    It.Is<GetObjectRequest>(request => request.Key == $"thumb/{objectKey}"),
+                    It.Is<GetObjectRequest>(request => request.Key == $"thumb200/{objectKey}"),
                     It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new GetObjectResponse
                 {
@@ -331,7 +403,7 @@ namespace EvangelionERPV2.ProductModule.Test
             Assert.Equal(Convert.ToBase64String([1, 2, 3]), base64);
             Assert.NotNull(hash);
             s3Client.Verify(client => client.GetObjectAsync(
-                It.Is<GetObjectRequest>(request => request.Key == $"thumb/{objectKey}"),
+                It.Is<GetObjectRequest>(request => request.Key == $"thumb200/{objectKey}"),
                 It.IsAny<CancellationToken>()), Times.Once);
         }
 
@@ -354,7 +426,7 @@ namespace EvangelionERPV2.ProductModule.Test
                 .ReturnsAsync(new PutObjectResponse());
             s3ClientMock.Setup(s => s.DeleteObjectAsync(It.IsAny<DeleteObjectRequest>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new DeleteObjectResponse());
-            var png = Convert.ToBase64String(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D });
+            var png = Jpeg(400, 400);
 
             Assert.True(await service.SetFamilyPictureAsync(enterpriseId, group, png));
             var first = await service.GetFamilyPictureAddressAsync(enterpriseId, group);

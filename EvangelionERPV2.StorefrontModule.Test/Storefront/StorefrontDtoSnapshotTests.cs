@@ -17,7 +17,7 @@ namespace EvangelionERPV2.StorefrontModule.Test
         [InlineData(typeof(StorefrontProductSummaryDTO),
             "Available,CompareAtPrice,CreatedAt,DiscountPercent,EnterpriseName,EnterpriseSlug,FamilyPictureId,HasPicture,Id,LowStock,MaxDiscountPercent,MaxInstallment,Name,PictureProductId,Price,PriceFrom,Swatches,VariantCount")]
         [InlineData(typeof(StorefrontProductDetailDTO),
-            "Available,CategoryPath,CompareAtPrice,CreatedAt,Description,DiscountPercent,Enterprise,EnterpriseName,EnterpriseSlug,FamilyPictureId,HasPicture,Id,Installments,LowStock,MaxDiscountPercent,MaxInstallment,MaxPerOrder,Name,PictureProductId,Price,PriceFrom,PromotionEndsAt,SelectedVariantId,Swatches,UnitOfMeasure,VariantCount,Variants")]
+            "Available,CategoryPath,CompareAtPrice,CreatedAt,Description,DiscountPercent,Enterprise,EnterpriseName,EnterpriseSlug,FamilyPictureId,HasPicture,Id,ImageIds,Installments,LowStock,MaxDiscountPercent,MaxInstallment,MaxPerOrder,Name,PictureProductId,Price,PriceFrom,PromotionEndsAt,SelectedVariantId,Swatches,UnitOfMeasure,VariantCount,Variants")]
         [InlineData(typeof(StorefrontFacetsDTO),
             "Categories,FreeShippingCount,OnSaleCount,Stores")]
         [InlineData(typeof(StorefrontStoreFacetDTO),

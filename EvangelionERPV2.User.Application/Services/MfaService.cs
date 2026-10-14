@@ -204,6 +204,29 @@ namespace EvangelionERPV2.UserModule.Application.Services
             });
         }
 
+        /// <summary>Validates a fresh MFA code for an already-authenticated step-up action.</summary>
+        public Task<bool> VerifyCodeAsync(Guid userId, string? code) =>
+            _users.ExecuteInTransactionAsync(async () =>
+            {
+                var user = await LoadLockedAsync(userId);
+                if (user == null || !user.MfaEnabled) return false;
+                var failures = await ReadFailuresAsync(user.Id);
+                if (failures?.Count >= MaxAccountFailures) return false;
+                if (await ProveAsync(user, code) == null)
+                {
+                    var now = _time.GetUtcNow();
+                    var next = failures is null
+                        ? new Failures(1, now + AccountFailureWindow)
+                        : failures with { Count = failures.Count + 1 };
+                    if (next.Count >= MaxAccountFailures) next = next with { WindowEndsAt = now + AccountFailureWindow };
+                    await SaveFailuresAsync(user.Id, next);
+                    return false;
+                }
+                Audit(user, user.Id, ("StepUp", null, "Verified"));
+                await _users.CommitAsync();
+                return true;
+            });
+
         /// <summary>
         /// True when <paramref name="code"/> has the shape of a TOTP or a recovery code. Lets a caller
         /// refuse a typo without spending one of the challenge's attempts.

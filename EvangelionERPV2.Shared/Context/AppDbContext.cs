@@ -69,6 +69,8 @@ namespace EvangelionERPV2.Shared.Context
         public DbSet<PdvSale> PdvSale { get; set; }
         public DbSet<StorefrontCheckout> StorefrontCheckout { get; set; }
         public DbSet<ProductVariantGroup> ProductVariantGroup { get; set; }
+        public DbSet<ProductImage> ProductImage { get; set; }
+        public DbSet<UserPermissionGrant> UserPermissionGrant { get; set; }
         public DbSet<StorefrontEvent> StorefrontEvent { get; set; }
         public DbSet<StorefrontCategory> StorefrontCategory { get; set; }
         public DbSet<StorefrontCategorySlugAlias> StorefrontCategorySlugAlias { get; set; }
@@ -420,6 +422,14 @@ namespace EvangelionERPV2.Shared.Context
                 .WithMany()
                 .HasForeignKey(code => code.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserPermissionGrant>()
+                .HasIndex(g => new { g.UserId, g.Permission })
+                .IsUnique()
+                .HasFilter("[RevokedAt] IS NULL");
+            modelBuilder.Entity<UserPermissionGrant>()
+                .HasIndex(g => new { g.EnterpriseId, g.Permission })
+                .HasFilter("[RevokedAt] IS NULL");
 
             modelBuilder.Entity<RefreshToken>()
                 .HasIndex(token => token.UserId)

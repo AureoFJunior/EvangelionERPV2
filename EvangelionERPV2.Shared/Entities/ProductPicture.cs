@@ -7,5 +7,8 @@ namespace EvangelionERPV2.Shared.Entities
 
         public Product Product { get; set; } = null!;
         public string File { get; set; } = string.Empty;
+
+        /// <summary>Set by the create path when the product was saved but this photo could not be.</summary>
+        public string? PictureError { get; set; }
     }
 }

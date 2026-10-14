@@ -10,10 +10,12 @@ namespace EvangelionERPV2.Web.Security
     public sealed class SelfOrPermissionAuthorizationHandler : AuthorizationHandler<SelfOrPermissionRequirement>
     {
         private readonly IRepository<User> _userRepository;
+        private readonly IPermissionEvaluator _permissions;
 
-        public SelfOrPermissionAuthorizationHandler(IRepository<User> userRepository)
+        public SelfOrPermissionAuthorizationHandler(IRepository<User> userRepository, IPermissionEvaluator permissions)
         {
             _userRepository = userRepository;
+            _permissions = permissions;
         }
 
         protected override async Task HandleRequirementAsync(
@@ -32,13 +34,14 @@ namespace EvangelionERPV2.Web.Security
             if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId.Value)
                 return;
 
-            if (StorefrontTokenScope.Grants(context.User, user.AccessLevel, requirement.ElevatedPermission))
+            var elevated = await _permissions.DecideAsync(context.User, user, requirement.ElevatedPermission);
+            if (elevated == PermissionDecision.Allowed)
             {
                 context.Succeed(requirement);
                 return;
             }
 
-            if (!StorefrontTokenScope.Grants(context.User, user.AccessLevel, requirement.SelfPermission))
+            if (await _permissions.DecideAsync(context.User, user, requirement.SelfPermission) != PermissionDecision.Allowed)
                 return;
 
             var targetUserId = ResolveRouteUserId(context.Resource, requirement.RouteKey);
@@ -47,6 +50,8 @@ namespace EvangelionERPV2.Web.Security
 
             if (targetUserId.Value == user.Id)
                 context.Succeed(requirement);
+            else
+                Iam.StepUpAuthorizationResultHandler.Remember(context, elevated, requirement.ElevatedPermission);
         }
 
         private static Guid? ResolveRouteUserId(object? resource, string routeKey)

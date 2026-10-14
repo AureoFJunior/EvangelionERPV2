@@ -8,6 +8,7 @@ using AutoMapper;
 using Serilog;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.ProductModule.Application.Interface;
+using EvangelionERPV2.ProductModule.Application.Services;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Enums;
@@ -311,7 +312,22 @@ namespace EvangelionERPV2.Web.Controllers
                 if (createdProduct == null)
                     return NoContent();
 
-                return Ok(await ToProductDtoAsync(createdProduct));
+                var openingQuantity = normalizedRequest.StorageQuantity.GetValueOrDefault();
+                if (openingQuantity > 0)
+                {
+                    var opening = await _productService.ApplyStockMovementAsync(
+                        createdProduct.Id,
+                        enterpriseId.Value,
+                        openingQuantity,
+                        EnumStockMovementType.Adjustment,
+                        referenceId: null);
+
+                    createdProduct.StorageQuantity = opening.BalanceAfter;
+                }
+
+                var created = await ToProductDtoAsync(createdProduct);
+                created.PictureError = product.PictureError;
+                return Ok(created);
             }
             catch (Exception)
             {
@@ -444,7 +460,15 @@ namespace EvangelionERPV2.Web.Controllers
                     File = request.File
                 };
 
-                Product updatedProduct = await _productService.UpdatePictureAsync(normalizedPayload);
+                Product updatedProduct;
+                try
+                {
+                    updatedProduct = await _productService.UpdatePictureAsync(normalizedPayload);
+                }
+                catch (ArgumentException ex)
+                {
+                    return BadRequest(new { message = ex.Message });
+                }
 
                 if (updatedProduct == null)
                     return NoContent();

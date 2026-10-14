@@ -56,6 +56,8 @@ namespace EvangelionERPV2.ProductModule.Application.DI
                 services.AddTransient(typeof(IProductService<Product>), typeof(ProductService));
                 services.AddTransient(typeof(IOrderedProductService<OrderedProduct>), typeof(OrderedProductService));
                 services.AddScoped(typeof(IProductReportGeneratorService), typeof(ProductReportGeneratorService));
+                if (configuration.GetValue<bool>("Products:BackfillPictures"))
+                    services.AddHostedService<ProductPictureBackfillWorker>();
                 #endregion
 
                 services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));

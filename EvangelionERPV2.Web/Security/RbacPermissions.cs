@@ -143,8 +143,17 @@ namespace EvangelionERPV2.Web.Security
             Users.Update,
             Users.UpdateSelf,
             Users.Delete,
-            Users.Manage
+            Users.Manage,
+
+            Iam.Read,
+            Iam.Manage
         ];
+
+        public static class Iam
+        {
+            public const string Read = "iam.read";
+            public const string Manage = "iam.manage";
+        }
 
         public static class Metrics
         {

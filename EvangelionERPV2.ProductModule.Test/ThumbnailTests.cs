@@ -82,7 +82,7 @@ public class ThumbnailOrchestrationTests
 {
     private const string BucketName = "test-product-bucket";
     private const string PictureAddress = "products/photo.jpg";
-    private const string ThumbnailKey = "thumb/products/photo.jpg";
+    private const string ThumbnailKey = "thumb200/products/photo.jpg";
 
     private static GetObjectResponse ResponseFor(byte[] bytes) => new()
     {

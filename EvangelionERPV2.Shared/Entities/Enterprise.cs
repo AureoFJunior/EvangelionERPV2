@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
+using EvangelionERPV2.Shared.Enums;
 using System.Text.Json.Serialization;
 
 namespace EvangelionERPV2.Shared.Entities
@@ -53,6 +54,8 @@ namespace EvangelionERPV2.Shared.Entities
 
         /// <summary>Invisible to the storefront until this is set; see <c>SPEC-ecommerce-storefront.md</c> §4.2.</summary>
         public bool IsListedOnStorefront { get; set; }
+        public EnumIamMode IamMode { get; set; } = EnumIamMode.Role;
+        public DateTime? IamSwitchedAt { get; set; }
 
         /// <summary>First time the shop was listed. Shown as "na Limen desde".</summary>
         public DateTime? StorefrontListedAt { get; set; }

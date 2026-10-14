@@ -11,6 +11,7 @@ namespace EvangelionERPV2.BillsModule.Application.Interface
         /// line value contains, and the payable is what gets paid.
         /// </param>
         Task<PayableBill> CreateAsync(PayableBill payableBill, bool useAmbientTransaction = false, bool keepProvidedAmount = false);
+        Task<PayableBill> CreateWithReceiptAsync(PayableBill payableBill);
         Task<IEnumerable<PayableBill>> GetByEnterpriseIdAsync(Guid enterpriseId, int? pageNumber = null, int? pageSize = null, bool? isActive = true, int? billType = null, int? year = null, int? month = null, bool includePayroll = true);
         Task<PayableBill?> GetByIdAsync(Guid id, Guid enterpriseId);
         Task<PayableBill> UpdateAsync(PayableBill payableBill, Guid enterpriseId);

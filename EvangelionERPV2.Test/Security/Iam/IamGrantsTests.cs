@@ -1,0 +1,381 @@
+using EvangelionERPV2.Shared.Auditing;
+using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
+using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.Shared.Security;
+using EvangelionERPV2.Web.Security;
+using EvangelionERPV2.Web.Security.Iam;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
+using System.Security.Claims;
+
+namespace EvangelionERPV2.Test.Security.Iam
+{
+    // SPEC-iam-zero-trust IAM-1: zero trust by default, per-user grants, the write rules and the switch.
+    public class IamGrantsTests : IDisposable
+    {
+        private readonly IamTestDatabase _database = new();
+        private readonly MemoryDistributedCache _cache = new(Options.Create(new MemoryDistributedCacheOptions()));
+        private readonly MovableTime _time = new(new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero));
+        private readonly Enterprise _enterprise = new() { Id = Guid.NewGuid(), Name = "Loja", IsActive = true };
+        private readonly User _admin;
+        private readonly User _clerk;
+
+        public IamGrantsTests()
+        {
+            _admin = NewUser("Ana", EnumAccessLevel.Admin, mfa: true);
+            _clerk = NewUser("Caio", EnumAccessLevel.Employee);
+            _database.SeedAsync(_enterprise, _admin, _clerk).GetAwaiter().GetResult();
+        }
+
+        public void Dispose() => _database.Dispose();
+
+        private User NewUser(string name, EnumAccessLevel level, bool mfa = false, Guid? enterprise = null) => new()
+        {
+            Id = Guid.NewGuid(),
+            FirstName = name,
+            LastName = "Silva",
+            UserName = name.ToLowerInvariant(),
+            Email = $"{name.ToLowerInvariant()}@loja.com",
+            Password = "x",
+            AccessLevel = (short)level,
+            EnterpriseId = enterprise ?? _enterprise.Id,
+            IsActive = true,
+            MfaEnabled = mfa
+        };
+
+        private static ClaimsPrincipal Token(User user, string? scope = null)
+        {
+            var claims = new List<Claim> { new(ClaimTypes.Sid, user.Id.ToString()), new(ClaimTypes.GroupSid, user.EnterpriseId.ToString()!) };
+            if (scope != null)
+                claims.Add(new Claim(MachineClaims.TokenScope, scope));
+            return new ClaimsPrincipal(new ClaimsIdentity(claims, "test"));
+        }
+
+        private PermissionEvaluator Evaluator() => new(_database.CreateContext(), _cache, _time);
+
+        private IamService Service()
+        {
+            var db = _database.CreateContext();
+            return new IamService(db, new AuditTrailWriter(db), _cache, new Repository<Enterprise>(db), _time);
+        }
+
+        /// <summary>The user as the next request's handler would read it.</summary>
+        private User Fresh(User user)
+        {
+            using var db = _database.CreateContext();
+            return db.User.AsNoTracking().Single(u => u.Id == user.Id);
+        }
+
+        /// <summary>Whether the user holds it through this token; step-up is IamStepUpTests' business.</summary>
+        private async Task<bool> Allowed(User user, string permission, string? scope = null) =>
+            (await Evaluator().HoldsAsync(Token(user, scope), Fresh(user))).Contains(permission);
+
+        private Task Grant(User target, params string[] permissions) =>
+            Service().ApplyAsync(Fresh(_admin), target.Id,
+                permissions.Select(p => new GrantChange(p, null, GrantState.Allow, null, "teste")).ToList());
+
+        private async Task SwitchToGrants() => await Service().SwitchAsync(Fresh(_admin), EnumIamMode.Grants);
+
+        private static async Task<IamException> Refused(Func<Task> act) => await Assert.ThrowsAsync<IamException>(act);
+
+        [Fact]
+        public async Task InGrantsMode_AUserWithNoGrants_HoldsOnlyTheBaseline()
+        {
+            await SwitchToGrants();
+
+            Assert.True(await Allowed(_clerk, RbacPermissions.Users.ReadSelf));
+            Assert.False(await Allowed(_clerk, RbacPermissions.Orders.Read));
+            Assert.Equal(IamCatalog.Baseline.OrderBy(p => p), (await Evaluator().EffectiveAsync(Token(_clerk), Fresh(_clerk))).OrderBy(p => p));
+        }
+
+        private Task Set(User target, string permission, GrantState state, string? reason = "teste") =>
+            Service().ApplyAsync(Fresh(_admin), target.Id, [new GrantChange(permission, null, state, null, reason)]);
+
+        [Fact]
+        public async Task InRoleMode_AnAllowAddsToTheRole_ADenyTakesAway_AndInheritRestores()
+        {
+            Assert.True(await Allowed(_clerk, RbacPermissions.Orders.Read));
+            Assert.False(await Allowed(_clerk, RbacPermissions.Bills.Settle));
+
+            await Set(_clerk, RbacPermissions.Bills.Settle, GrantState.Allow);
+            await Set(_clerk, RbacPermissions.Orders.Read, GrantState.Deny);
+
+            Assert.True(await Allowed(_clerk, RbacPermissions.Bills.Settle));
+            Assert.False(await Allowed(_clerk, RbacPermissions.Orders.Read));
+            Assert.True(await Allowed(_clerk, RbacPermissions.Orders.Create));
+
+            var leaves = (await Service().GetAccessAsync(_enterprise.Id, _clerk.Id)).Modules.SelectMany(m => m.Permissions).ToDictionary(p => p.Permission);
+            Assert.Equal(("allow", true, false), (leaves[RbacPermissions.Bills.Settle].Override, leaves[RbacPermissions.Bills.Settle].Effective, leaves[RbacPermissions.Bills.Settle].HeldByRole));
+            Assert.Equal(("deny", false, true), (leaves[RbacPermissions.Orders.Read].Override, leaves[RbacPermissions.Orders.Read].Effective, leaves[RbacPermissions.Orders.Read].HeldByRole));
+            Assert.Equal((null, true), (leaves[RbacPermissions.Orders.Create].Override, leaves[RbacPermissions.Orders.Create].Effective));
+
+            await Set(_clerk, RbacPermissions.Orders.Read, GrantState.Inherit);
+            Assert.True(await Allowed(_clerk, RbacPermissions.Orders.Read));
+        }
+
+        [Theory]
+        [InlineData(EnumAccessLevel.Admin)]
+        [InlineData(EnumAccessLevel.Manager)]
+        [InlineData(EnumAccessLevel.Supervisor)]
+        [InlineData(EnumAccessLevel.Employee)]
+        public async Task InRoleMode_WithoutChanges_AUserHoldsExactlyTheirRole(EnumAccessLevel level)
+        {
+            var user = NewUser("Duda", level);
+            await _database.SeedAsync(user);
+
+            var held = await Evaluator().HoldsAsync(Token(user), Fresh(user));
+
+            var expected = RbacRolePermissionMap.GetPermissions((short)level)
+                .Where(p => StorefrontTokenScope.AllowsThroughToken(Token(user), p))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(expected.OrderBy(p => p), held.OrderBy(p => p));
+        }
+
+        [Fact]
+        public async Task InRoleMode_DenyingTheLastAdminsIamManage_IsRefused()
+        {
+            var deputy = NewUser("Bia", EnumAccessLevel.Manager, mfa: true);
+            await _database.SeedAsync(deputy);
+            await Service().ApplyAsync(Fresh(_admin), deputy.Id,
+                [new GrantChange(RbacPermissions.Iam.Manage, null, GrantState.Allow, _time.GetUtcNow().UtcDateTime.AddDays(1), "cobrir férias")]);
+
+            var error = await Refused(() => Service().ApplyAsync(Fresh(deputy), _admin.Id,
+                [new GrantChange(RbacPermissions.Iam.Manage, null, GrantState.Deny, null, null)]));
+
+            Assert.Equal("last_iam_manager", error.Code);
+            Assert.True(await Allowed(_admin, RbacPermissions.Iam.Manage));
+        }
+
+        [Fact]
+        public async Task SwitchingToZeroTrust_IgnoresDenies_AndKeepsOnlyAllows()
+        {
+            await Set(_clerk, RbacPermissions.Orders.Read, GrantState.Deny);
+            await Set(_clerk, RbacPermissions.Bills.Settle, GrantState.Allow);
+
+            await SwitchToGrants();
+
+            Assert.True(await Allowed(_clerk, RbacPermissions.Bills.Settle));
+            Assert.False(await Allowed(_clerk, RbacPermissions.Orders.Read));
+            Assert.False(await Allowed(_clerk, RbacPermissions.Orders.Create));
+        }
+
+        [Fact]
+        public async Task AGrant_WorksOnTheNextRequest_AndARevokeStopsItOnTheNextRequest()
+        {
+            await SwitchToGrants();
+            Assert.False(await Allowed(_clerk, RbacPermissions.Orders.Read));
+
+            await Grant(_clerk, RbacPermissions.Orders.Read);
+            Assert.True(await Allowed(_clerk, RbacPermissions.Orders.Read));
+
+            await Service().ApplyAsync(Fresh(_admin), _clerk.Id, [new GrantChange(RbacPermissions.Orders.Read, null, GrantState.Inherit, null, null)]);
+            Assert.False(await Allowed(_clerk, RbacPermissions.Orders.Read));
+        }
+
+        [Fact]
+        public async Task ATimeBoxedGrant_EndsAtItsExpiry()
+        {
+            await SwitchToGrants();
+            await Service().ApplyAsync(Fresh(_admin), _clerk.Id,
+                [new GrantChange(RbacPermissions.Bills.Settle, null, GrantState.Allow, _time.GetUtcNow().UtcDateTime.AddMinutes(30), "fechamento do mês")]);
+
+            Assert.True(await Allowed(_clerk, RbacPermissions.Bills.Settle));
+            _time.Advance(TimeSpan.FromMinutes(31));
+            Assert.False(await Allowed(_clerk, RbacPermissions.Bills.Settle));
+        }
+
+        [Fact]
+        public async Task AModuleGrant_ExpandsToItsPermissionsAtWriteTime()
+        {
+            await Service().ApplyAsync(Fresh(_admin), _clerk.Id, [new GrantChange(null, "products", GrantState.Allow, null, "estoquista")]);
+
+            using var db = _database.CreateContext();
+            var stored = db.UserPermissionGrant.Where(g => g.UserId == _clerk.Id).Select(g => g.Permission).ToList();
+            Assert.Equal(IamCatalog.ExpandModule("products").OrderBy(p => p), stored.OrderBy(p => p));
+        }
+
+        [Theory]
+        [InlineData("storefront.catalog.read")]
+        [InlineData("users.self.read")]
+        [InlineData("nothing.such")]
+        public async Task ServiceBaselineAndUnknownPermissions_AreNotGrantable(string permission)
+        {
+            var error = await Refused(() => Grant(_clerk, permission));
+
+            Assert.Equal("not_grantable", error.Code);
+        }
+
+        [Fact]
+        public async Task NobodyChangesTheirOwnAccess()
+        {
+            var error = await Refused(() => Grant(_admin, RbacPermissions.Orders.Read));
+
+            Assert.Equal("self_grant", error.Code);
+        }
+
+        [Fact]
+        public async Task ASensitiveGrant_NeedsAReason()
+        {
+            var error = await Refused(() => Service().ApplyAsync(Fresh(_admin), _clerk.Id,
+                [new GrantChange(RbacPermissions.Bills.Settle, null, GrantState.Allow, null, " ")]));
+
+            Assert.Equal("reason_required", error.Code);
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(400)]
+        public async Task AnExpiry_MustBeInTheFutureAndWithinAYear(int days)
+        {
+            var error = await Refused(() => Service().ApplyAsync(Fresh(_admin), _clerk.Id,
+                [new GrantChange(RbacPermissions.Orders.Read, null, GrantState.Allow, _time.GetUtcNow().UtcDateTime.AddDays(days), null)]));
+
+            Assert.Equal("invalid_expiry", error.Code);
+        }
+
+        [Fact]
+        public async Task AfterStartingFromNone_TheAdminCanStillGrantAnything()
+        {
+            await SwitchToGrants();
+
+            await Grant(_clerk, RbacPermissions.Orders.Read, RbacPermissions.Payroll.Read);
+
+            Assert.True(await Allowed(_clerk, RbacPermissions.Orders.Read));
+            Assert.True(await Allowed(_clerk, RbacPermissions.Payroll.Read));
+            Assert.False(await Allowed(_admin, RbacPermissions.Payroll.Read));
+        }
+
+        [Fact]
+        public async Task AnotherEnterprisesUser_IsNotFound()
+        {
+            var other = new Enterprise { Id = Guid.NewGuid(), Name = "Outra", IsActive = true };
+            var stranger = NewUser("Duda", EnumAccessLevel.Employee, enterprise: other.Id);
+            await _database.SeedAsync(other, stranger);
+
+            var error = await Refused(() => Grant(stranger, RbacPermissions.Orders.Read));
+
+            Assert.Equal("not_found", error.Code);
+            Assert.Equal(404, error.Status);
+        }
+
+        [Fact]
+        public async Task TheLastManagerWithMfa_CannotBeRemoved()
+        {
+            var second = NewUser("Bia", EnumAccessLevel.Admin);
+            await _database.SeedAsync(second);
+            await SwitchToGrants();
+            await Grant(second, RbacPermissions.Iam.Read);
+            await Service().ApplyAsync(Fresh(_admin), second.Id,
+                [new GrantChange(RbacPermissions.Iam.Manage, null, GrantState.Allow, _time.GetUtcNow().UtcDateTime.AddDays(1), "férias da Ana")]);
+
+            var error = await Refused(() => Service().ApplyAsync(Fresh(second), _admin.Id,
+                [new GrantChange(RbacPermissions.Iam.Manage, null, GrantState.Inherit, null, null)]));
+
+            Assert.Equal("last_iam_manager", error.Code);
+            Assert.True(await Allowed(_admin, RbacPermissions.Iam.Manage));
+        }
+
+        [Fact]
+        public async Task TheSwitch_NeedsMfaOnTheCaller()
+        {
+            var admin = NewUser("Bia", EnumAccessLevel.Admin);
+            await _database.SeedAsync(admin);
+
+            var error = await Refused(() => Service().SwitchAsync(Fresh(admin), EnumIamMode.Grants));
+
+            Assert.Equal("mfa_required", error.Code);
+        }
+
+        [Fact]
+        public async Task TheSwitch_StartsFromNone_KeepsPreparedGrants_AndLeavesAdminsAbleToManage()
+        {
+            var prepared = NewUser("Duda", EnumAccessLevel.Employee);
+            await _database.SeedAsync(prepared);
+            await Grant(prepared, RbacPermissions.Orders.Read);
+            Assert.True(await Allowed(_clerk, RbacPermissions.Orders.Read));
+
+            await SwitchToGrants();
+
+            Assert.False(await Allowed(_clerk, RbacPermissions.Orders.Read));
+            Assert.True(await Allowed(prepared, RbacPermissions.Orders.Read));
+            Assert.False(await Allowed(prepared, RbacPermissions.Orders.Create));
+            Assert.True(await Allowed(_admin, RbacPermissions.Iam.Manage));
+            Assert.True(await Allowed(_admin, RbacPermissions.Iam.Read));
+            Assert.False(await Allowed(_admin, RbacPermissions.Bills.Settle));
+            Assert.True(Fresh(_clerk).IamVersion > 0);
+        }
+
+        [Fact]
+        public async Task AModeChangedOutsideTheService_BindsTheNextRequest()
+        {
+            Assert.True(await Allowed(_clerk, RbacPermissions.Orders.Read));
+
+            using (var db = _database.CreateContext())
+                await db.Enterprise.Where(e => e.Id == _clerk.EnterpriseId).ExecuteUpdateAsync(e => e.SetProperty(x => x.IamMode, EnumIamMode.Grants));
+
+            Assert.False(await Allowed(_clerk, RbacPermissions.Orders.Read));
+        }
+
+        [Fact]
+        public async Task SwitchingBack_RestoresRoleAccess()
+        {
+            await SwitchToGrants();
+            await Service().SwitchAsync(Fresh(_admin), EnumIamMode.Role);
+
+            Assert.True(await Allowed(_clerk, RbacPermissions.Orders.Read));
+        }
+
+        [Fact]
+        public async Task ATemplate_WritesTheRolesPermissions_AndReplaceDropsTheRest()
+        {
+            await Grant(_clerk, RbacPermissions.Bills.Settle);
+
+            await Service().ApplyTemplateAsync(Fresh(_admin), _clerk.Id, EnumAccessLevel.Employee, replace: true, "caixa");
+
+            using var db = _database.CreateContext();
+            var live = db.UserPermissionGrant.Where(g => g.UserId == _clerk.Id && g.RevokedAt == null).Select(g => g.Permission).ToList();
+            var expected = RbacRolePermissionMap.GetPermissions((short)EnumAccessLevel.Employee).Where(IamCatalog.IsGrantable);
+            Assert.Equal(expected.OrderBy(p => p), live.OrderBy(p => p));
+        }
+
+        [Fact]
+        public async Task EveryGrantChange_IsAudited()
+        {
+            await Grant(_clerk, RbacPermissions.Orders.Read, RbacPermissions.Orders.Create);
+
+            using var db = _database.CreateContext();
+            var row = Assert.Single(db.AuditTrails.Where(a => a.EntityName == AuditedEntities.Iam));
+            Assert.Equal(_admin.Id, row.UserId);
+            Assert.Equal(_clerk.Id, row.EntityId);
+            Assert.Contains(RbacPermissions.Orders.Create, row.ChangesJson);
+        }
+
+        [Fact]
+        public async Task TheTokenScopesStillBind_InGrantsMode()
+        {
+            await SwitchToGrants();
+            await Grant(_clerk, RbacPermissions.Pdv.Operate, RbacPermissions.Orders.Read);
+
+            Assert.True(await Allowed(_clerk, RbacPermissions.Pdv.Operate, PdvTokenScope.ClaimValue));
+            Assert.False(await Allowed(_clerk, RbacPermissions.Orders.Read, PdvTokenScope.ClaimValue));
+            Assert.False(await Allowed(_clerk, RbacPermissions.Storefront.CatalogRead));
+            Assert.True(await Allowed(_clerk, RbacPermissions.Storefront.CatalogRead, StorefrontTokenScope.ClaimValue));
+            Assert.False(await Allowed(_clerk, RbacPermissions.Orders.Read, StorefrontTokenScope.ClaimValue));
+        }
+
+        [Fact]
+        public async Task TheTillOperatorList_ReadsGrantsInGrantsMode()
+        {
+            await SwitchToGrants();
+            await Grant(_clerk, RbacPermissions.Pdv.Operate);
+
+            var granted = await Evaluator().GrantedAsync([Fresh(_clerk), Fresh(_admin)]);
+
+            Assert.Equal([RbacPermissions.Pdv.Operate], PdvTokenScope.PermissionsIn(granted[_clerk.Id]));
+            Assert.Empty(PdvTokenScope.PermissionsIn(granted[_admin.Id]));
+        }
+    }
+}

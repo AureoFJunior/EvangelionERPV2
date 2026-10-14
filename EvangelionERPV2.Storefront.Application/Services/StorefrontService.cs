@@ -225,6 +225,10 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
                 ? await StorefrontCategoryService.PathOfAsync(_context, categoryId)
                 : [];
             var available = IsAvailable(product.IsService, product.StorageQuantity);
+            var imageIds = await _context.ProductImage.AsNoTracking()
+                .Where(i => i.ProductId == product.Id && i.IsActive == true)
+                .OrderBy(i => i.Position).ThenBy(i => i.CreatedAt)
+                .Select(i => i.Id).ToListAsync();
 
             return new StorefrontProductDetailDTO(
                 product.Id,
@@ -250,7 +254,20 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
                 DiscountPercent: onSale ? Product.DiscountPercent(product.CompareAtPrice!.Value, product.DefaultValue) : null,
                 PromotionEndsAt: onSale ? product.PromotionEndsAt : null,
                 LowStock: available && !product.IsService && product.StorageQuantity <= LowStockThreshold,
-                Installments: _installments.Plans(product.DefaultValue));
+                Installments: _installments.Plans(product.DefaultValue),
+                ImageIds: imageIds);
+        }
+
+        public async Task<StorefrontPictureDTO?> GetProductImageAsync(Guid imageId)
+        {
+            var address = await _context.ProductImage.AsNoTracking()
+                .Where(i => i.Id == imageId && i.IsActive == true && PublishedProducts.Any(p => p.Id == i.ProductId))
+                .Select(i => i.Adress).FirstOrDefaultAsync();
+            if (string.IsNullOrWhiteSpace(address)) return null;
+            var base64 = await _productService.GetPictureBase64Async(address);
+            if (string.IsNullOrWhiteSpace(base64)) return null;
+            var bytes = Convert.FromBase64String(base64);
+            return new StorefrontPictureDTO(bytes, SniffImageType(bytes));
         }
 
         public async Task<StorefrontPictureDTO?> GetPictureAsync(Guid productId)

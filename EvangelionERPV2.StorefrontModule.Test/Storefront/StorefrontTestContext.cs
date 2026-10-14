@@ -45,7 +45,7 @@ namespace EvangelionERPV2.StorefrontModule.Test
                      {
                          typeof(Enterprise), typeof(EnterpriseFiscalSettings), typeof(Product), typeof(Order), typeof(OrderedProduct),
                          typeof(Customer), typeof(StorefrontCheckout), typeof(NFeDocument), typeof(Notification), typeof(User), typeof(ProductVariantGroup), typeof(StorefrontEvent),
-                         typeof(StorefrontCategory), typeof(StorefrontCategorySlugAlias), typeof(ProductPriceHistory)
+                         typeof(StorefrontCategory), typeof(StorefrontCategorySlugAlias), typeof(ProductPriceHistory), typeof(ProductImage)
                      })
                 CreateTable(schema, type);
         }

@@ -468,8 +468,8 @@ namespace EvangelionERPV2.Test.Security
             Assert.IsType<OkObjectResult>(result);
             Assert.Equal(12, quantityAtPersist);
             productService.Verify(s => s.ApplyStockMovementAsync(
-                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
-                It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Never);
+                It.IsAny<Guid>(), enterpriseId, 12,
+                EnumStockMovementType.Adjustment, null, false), Times.Once);
         }
     }
 }

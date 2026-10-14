@@ -190,6 +190,17 @@ namespace EvangelionERPV2.Web.Controllers
             return picture == null ? NotFound() : File(picture.Content, picture.ContentType);
         }
 
+        [HttpGet("{imageId:guid}")]
+        [ActionName("ProductImage")]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Storefront.CatalogRead)]
+        [ProducesResponseType(200)]
+        [ProducesResponseType(404)]
+        public async Task<IActionResult> ProductImage(Guid imageId)
+        {
+            var image = await _storefrontService.GetProductImageAsync(imageId);
+            return image == null ? NotFound() : File(image.Content, image.ContentType);
+        }
+
         /// <summary>A listed shop's uploaded logo, original bytes; Storefront.Api resizes it.</summary>
         [HttpGet("{slug}")]
         [Authorize(Policy = "rbac:" + RbacPermissions.Storefront.CatalogRead)]

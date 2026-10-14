@@ -60,6 +60,62 @@ namespace EvangelionERPV2.BillsModule.Test
         }
 
         [Fact]
+        public async Task CreateAsync_ReceivingProducts_PostsEachLineIntoStock()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Monster",
+                StorageQuantity = 1,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var (_, _, _, _, _, service, _) = BuildSut(products: [product]);
+
+            var result = await service.CreateWithReceiptAsync(new PayableBill
+            {
+                Description = "Compra de Monster",
+                EnterpriseId = enterpriseId,
+                BillType = 3,
+                Items = [new PayableBillProduct { ProductId = product.Id, Quantity = 4, UnitValue = 8 }]
+            });
+
+            Assert.NotNull(result.ProductsReceivedAt);
+            Assert.Equal(5, product.StorageQuantity);
+        }
+
+        [Fact]
+        public async Task CreateAsync_WithoutReceiving_LeavesStockForTheReceiptStep()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Monster",
+                StorageQuantity = 1,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var (_, _, _, _, _, service, _) = BuildSut(products: [product]);
+
+            var result = await service.CreateAsync(new PayableBill
+            {
+                Description = "NF-e de fornecedor",
+                EnterpriseId = enterpriseId,
+                BillType = 3,
+                Items = [new PayableBillProduct { ProductId = product.Id, Quantity = 4, UnitValue = 8 }]
+            });
+
+            Assert.Null(result.ProductsReceivedAt);
+            Assert.Equal(1, product.StorageQuantity);
+        }
+
+        [Fact]
         public async Task CreateAsync_WithoutItems_ShouldKeepManualAmount()
         {
             var enterpriseId = Guid.NewGuid();

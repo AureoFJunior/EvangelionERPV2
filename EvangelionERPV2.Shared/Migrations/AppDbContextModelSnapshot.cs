@@ -959,6 +959,12 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<byte>("IamMode")
+                        .HasColumnType("tinyint");
+
+                    b.Property<DateTime?>("IamSwitchedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<bool?>("IsActive")
                         .HasColumnType("bit");
 
@@ -2846,6 +2852,12 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<string>("PictureAdress")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("PictureHeight")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PictureWidth")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("PromotionAttestedAt")
                         .HasColumnType("datetime2");
 
@@ -2908,6 +2920,47 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasFilter("[IsActive] = 1 AND [VariantGroupId] IS NOT NULL");
 
                     b.ToTable("Product");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Adress")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("Height")
+                        .HasColumnType("int");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("Width")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId", "Position");
+
+                    b.ToTable("ProductImage");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.ProductPriceHistory", b =>
@@ -4148,6 +4201,9 @@ namespace EvangelionERPV2.Shared.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("IamVersion")
+                        .HasColumnType("int");
+
                     b.Property<bool?>("IsActive")
                         .HasColumnType("bit");
 
@@ -4177,6 +4233,9 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<string>("MfaSecret")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("bit");
 
                     b.Property<string>("NormalizedActiveEmail")
                         .ValueGeneratedOnAddOrUpdate()
@@ -4235,6 +4294,66 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.HasIndex("UserName", "Password");
 
                     b.ToTable("User");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.UserPermissionGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte>("Effect")
+                        .HasColumnType("tinyint");
+
+                    b.Property<Guid>("EnterpriseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("GrantedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Permission")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(280)
+                        .HasColumnType("nvarchar(280)");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("RevokedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnterpriseId", "Permission")
+                        .HasFilter("[RevokedAt] IS NULL");
+
+                    b.HasIndex("UserId", "Permission")
+                        .IsUnique()
+                        .HasFilter("[RevokedAt] IS NULL");
+
+                    b.ToTable("UserPermissionGrant");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.AiConversation", b =>
@@ -4732,6 +4851,17 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Navigation("StorefrontCategory");
                 });
 
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.ProductImage", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.Quote", b =>
                 {
                     b.HasOne("EvangelionERPV2.Shared.Entities.Customer", "Customer")
@@ -4846,6 +4976,17 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasForeignKey("EnterpriseId");
 
                     b.Navigation("Enterprise");
+                });
+
+            modelBuilder.Entity("EvangelionERPV2.Shared.Entities.UserPermissionGrant", b =>
+                {
+                    b.HasOne("EvangelionERPV2.Shared.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("EvangelionERPV2.Shared.Entities.AiConversation", b =>

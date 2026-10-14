@@ -172,6 +172,7 @@ namespace EvangelionERPV2.Web.Logging
         {
             var endpoint = path.Value ?? string.Empty;
             return endpoint.Contains("/User/LogInto", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/ChangeInitialPassword", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/User/LoginWithGoogle", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/User/LoginWithGoogleCode", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/User/AddUser", StringComparison.OrdinalIgnoreCase) ||
