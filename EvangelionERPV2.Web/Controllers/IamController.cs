@@ -71,7 +71,15 @@ namespace EvangelionERPV2.Web.Controllers
                 if (request.Changes.Count is 0 or > MaxChangesPerRequest)
                     return BadRequest(new { code = "invalid_changes", message = $"Envie de 1 a {MaxChangesPerRequest} alterações." });
 
-                var changes = request.Changes.Select(c => new GrantChange(c.Permission, c.Module, ParseState(c.State), c.ExpiresAt?.ToUniversalTime(), c.Reason)).ToList();
+                var changes = new List<GrantChange>(request.Changes.Count);
+                foreach (var change in request.Changes)
+                {
+                    if (!TryParseState(change.State, out var state))
+                        return BadRequest(new { code = "invalid_grant_state", message = "O estado da permissão deve ser allow, deny ou inherit." });
+
+                    changes.Add(new GrantChange(change.Permission, change.Module, state, change.ExpiresAt?.ToUniversalTime(), change.Reason));
+                }
+
                 return Ok(await _iam.ApplyAsync(caller, userId, changes));
             });
 
@@ -183,12 +191,16 @@ namespace EvangelionERPV2.Web.Controllers
             return NoContent();
         }
 
-        private static GrantState ParseState(string? state) => state?.Trim().ToLowerInvariant() switch
+        private static bool TryParseState(string? state, out GrantState grantState)
         {
-            "allow" => GrantState.Allow,
-            "deny" => GrantState.Deny,
-            _ => GrantState.Inherit
-        };
+            switch (state?.Trim().ToLowerInvariant())
+            {
+                case "allow": grantState = GrantState.Allow; return true;
+                case "deny": grantState = GrantState.Deny; return true;
+                case "inherit": grantState = GrantState.Inherit; return true;
+                default: grantState = default; return false;
+            }
+        }
 
         private async Task<IActionResult> Run(Func<User, Task<IActionResult>> action)
         {

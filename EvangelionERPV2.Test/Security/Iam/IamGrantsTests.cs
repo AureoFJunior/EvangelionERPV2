@@ -5,7 +5,12 @@ using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Security;
 using EvangelionERPV2.Web.Security;
 using EvangelionERPV2.Web.Security.Iam;
+using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.UserModule.Application.Services;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
@@ -76,6 +81,27 @@ namespace EvangelionERPV2.Test.Security.Iam
         private Task Grant(User target, params string[] permissions) =>
             Service().ApplyAsync(Fresh(_admin), target.Id,
                 permissions.Select(p => new GrantChange(p, null, GrantState.Allow, null, "teste")).ToList());
+
+        private IamController ControllerFor(User caller)
+        {
+            var db = _database.CreateContext();
+            var mfa = new MfaService(new Repository<User>(db), new Moq.Mock<Shared.Repositories.IRepository<MfaRecoveryCode>>().Object,
+                new Moq.Mock<Shared.Repositories.IRepository<RefreshToken>>().Object, new Moq.Mock<Shared.Auditing.IAuditTrailWriter>().Object, _cache, _time);
+            return new IamController(new IamService(db, new AuditTrailWriter(db), _cache, new Repository<Enterprise>(db), _time),
+                Evaluator(), new Repository<User>(db), mfa, _cache, _time)
+            {
+                ControllerContext = new ControllerContext
+                {
+                    HttpContext = new DefaultHttpContext
+                    {
+                        User = new ClaimsPrincipal(new ClaimsIdentity([
+                            new Claim(ClaimTypes.Sid, caller.Id.ToString()),
+                            new Claim(ClaimTypes.GroupSid, caller.EnterpriseId!.Value.ToString())
+                        ], "test"))
+                    }
+                }
+            };
+        }
 
         private async Task SwitchToGrants() => await Service().SwitchAsync(Fresh(_admin), EnumIamMode.Grants);
 
@@ -367,6 +393,23 @@ namespace EvangelionERPV2.Test.Security.Iam
             await Assert.ThrowsAsync<IamException>(() => Service().ApplyTemplateAsync(
                 Fresh(_admin), _clerk.Id, (EnumAccessLevel)999, replace: true, "invalid template"));
 
+            using var db = _database.CreateContext();
+            Assert.Contains(db.UserPermissionGrant, g => g.UserId == _clerk.Id
+                && g.Permission == RbacPermissions.Bills.Settle && g.RevokedAt == null);
+        }
+
+        [Fact]
+        public async Task Grants_WithUnknownState_IsRejectedWithoutRevokingExistingGrant()
+        {
+            await Grant(_clerk, RbacPermissions.Bills.Settle);
+
+            var result = await ControllerFor(_admin).Grants(_clerk.Id, new UpdateGrantsRequest
+            {
+                Changes = [new GrantChangeRequest { Permission = RbacPermissions.Bills.Settle, State = "alow" }]
+            });
+
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Equal("invalid_grant_state", badRequest.Value!.GetType().GetProperty("code")!.GetValue(badRequest.Value));
             using var db = _database.CreateContext();
             Assert.Contains(db.UserPermissionGrant, g => g.UserId == _clerk.Id
                 && g.Permission == RbacPermissions.Bills.Settle && g.RevokedAt == null);

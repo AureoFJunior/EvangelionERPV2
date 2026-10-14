@@ -1527,6 +1527,9 @@ namespace EvangelionERPV2.Web.Controllers
             if (target == null || target.IsActive != true || target.EnterpriseId != enterpriseId)
                 return NotFound();
 
+            if (await IsAccessManagerAsync(target) && await RequireIamManageAsync() is { } refused)
+                return refused;
+
             await _mfaService.ResetAsync(target.Id, TryGetUserId());
             Log.Logger.Warning(
                 "MFA reset by administrator. EmailId={EmailId}, ActorId={ActorId}",
