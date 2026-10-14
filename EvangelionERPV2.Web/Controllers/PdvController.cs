@@ -201,7 +201,7 @@ namespace EvangelionERPV2.Web.Controllers
 
             var token = _tokenService.GenerateToken(BuildPdvClaims(login.User, terminal.EnterpriseId));
             var refreshToken = _tokenService.GenerateRefreshToken();
-            await _tokenService.SaveRefreshTokenAsync(login.User.Id, refreshToken);
+            await _tokenService.SaveRefreshTokenAsync(login.User.Id, refreshToken, RefreshTokenKind.Till);
 
             return Ok(new PdvLoginResponseDTO
             {

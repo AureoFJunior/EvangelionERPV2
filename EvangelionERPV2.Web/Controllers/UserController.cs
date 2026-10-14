@@ -366,7 +366,7 @@ namespace EvangelionERPV2.Web.Controllers
         {
             var token = _tokenService.GenerateToken(user, isMachineClient);
             var refreshToken = _tokenService.GenerateRefreshToken();
-            await _tokenService.SaveRefreshTokenAsync(user.Id, refreshToken);
+            await _tokenService.SaveRefreshTokenAsync(user.Id, refreshToken, isMachineClient ? RefreshTokenKind.Machine : RefreshTokenKind.Session);
             return (token, refreshToken);
         }
 
