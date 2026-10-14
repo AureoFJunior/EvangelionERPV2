@@ -1057,6 +1057,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> LinkApple([FromBody] AppleTokenRequest request)
         {
             if (!IsWellFormedAppleRequest(request))
