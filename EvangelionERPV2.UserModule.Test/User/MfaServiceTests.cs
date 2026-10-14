@@ -193,6 +193,39 @@ namespace EvangelionERPV2.UserModule.Test.User
         }
 
         [Fact]
+        public async Task Challenge_AfterTenFailuresAcrossChallenges_RefusesEvenTheRightCodeUntilTheWindowEnds()
+        {
+            var (secret, _) = await EnableAsync();
+            var wrong = Totp.Code(secret, Step + 5);
+            for (var login = 0; login < 2; login++)
+            {
+                var token = await _service.CreateChallengeAsync(_user.Id);
+                for (var i = 0; i < 5; i++)
+                    Assert.Null(await _service.VerifyChallengeAsync(token, wrong));
+            }
+
+            Assert.Null(await _service.VerifyChallengeAsync(await _service.CreateChallengeAsync(_user.Id), Totp.Code(secret, Step)));
+
+            _time.Advance(TimeSpan.FromMinutes(15));
+            Assert.NotNull(await _service.VerifyChallengeAsync(await _service.CreateChallengeAsync(_user.Id), Totp.Code(secret, Step)));
+        }
+
+        [Fact]
+        public async Task Challenge_NineFailuresStillLetTheRightCodeIn()
+        {
+            var (secret, _) = await EnableAsync();
+            var wrong = Totp.Code(secret, Step + 5);
+            var first = await _service.CreateChallengeAsync(_user.Id);
+            for (var i = 0; i < 5; i++)
+                Assert.Null(await _service.VerifyChallengeAsync(first, wrong));
+            var second = await _service.CreateChallengeAsync(_user.Id);
+            for (var i = 0; i < 4; i++)
+                Assert.Null(await _service.VerifyChallengeAsync(second, wrong));
+
+            Assert.NotNull(await _service.VerifyChallengeAsync(second, Totp.Code(secret, Step)));
+        }
+
+        [Fact]
         public async Task Challenge_ExpiresAfterFiveMinutes()
         {
             var (secret, _) = await EnableAsync();
