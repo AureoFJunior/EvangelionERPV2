@@ -1,6 +1,7 @@
 using EvangelionERPV2.AiModule.Application.Interface;
 using EvangelionERPV2.AiModule.Application.Services;
 using EvangelionERPV2.ProductModule.Application.Interface;
+using EvangelionERPV2.ProductModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.Extensions.AI;
@@ -66,7 +67,10 @@ namespace EvangelionERPV2.AiModule.Application.Tools
                 if (preco < 0)
                     return "{\"erro\":\"preço não pode ser negativo\"}";
 
-                var product = await AiQuery.ByIdOrNullAsync(() => _repository.GetByIdAsync(productId));
+                var product = await AiQuery.ByIdOrNullAsync(() =>
+                    _repository is IProductRepository<Product> products
+                        ? products.GetFreshByIdAsync(productId)
+                        : _repository.GetByIdAsync(productId));
                 if (product is null || product.EnterpriseId != context.EnterpriseId)
                     return "{\"erro\":\"produto não encontrado nesta empresa\"}";
 
