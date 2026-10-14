@@ -14,7 +14,7 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
 {
     public class ProductRepository : Repository<Product>, IProductRepository<Product>
     {
-        private const string CacheKeyPrefix = "Product:v2:";
+        private const string CacheKeyPrefix = "Product:v3:";
 
         private readonly IDistributedCache _cache;
 
@@ -94,6 +94,14 @@ namespace EvangelionERPV2.ProductModule.Domain.Repositories
                     cacheKey,
                     ex.GetType().Name);
             }
+        }
+
+        public async Task<Product> GetFreshByIdAsync(Guid id)
+        {
+            var product = await _context.Set<Product>().AsNoTracking().FirstOrDefaultAsync(e => e.Id == id)
+                ?? throw new NotFoundDatabaseException();
+            NormalizePictureAddress(product);
+            return product;
         }
 
         private async Task<Tuple<string, string?>> GetCachedProductById(Guid id)

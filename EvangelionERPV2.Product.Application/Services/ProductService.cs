@@ -49,6 +49,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 var openingQuantity = product.Product.StorageQuantity;
                 product.Product.StorageQuantity = 0;
 
+                var productsToInvalidate = new HashSet<Guid>();
                 var includedProduct = await _productRepository.ExecuteInTransactionAsync(async () =>
                 {
                     var family = await EnsureVariantGroupIsValidAsync(product.Product);
@@ -61,7 +62,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                     {
                         await EnsureStorefrontCategoryAssignableAsync(_appDbContext, categoryId);
                         if (family != null)
-                            await SyncFamilyAsync(product.Product);
+                            productsToInvalidate.UnionWith(await SyncFamilyAsync(product.Product));
                     }
 
                     var created = await _productRepository.CreateAsync(product.Product);
@@ -81,6 +82,8 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
                     return created;
                 });
+
+                InvalidateCachedProducts(productsToInvalidate);
 
                 if (string.IsNullOrWhiteSpace(product.File))
                     return includedProduct;
@@ -126,9 +129,12 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         {
             try
             {
-                return await _productRepository.ExecuteInTransactionAsync(async () =>
+                var productsToInvalidate = new HashSet<Guid> { product.Id };
+                var updatedProduct = await _productRepository.ExecuteInTransactionAsync(async () =>
                 {
-                    Product existentProduct = await _productRepository.GetByIdAsync(product.Id);
+                    Product existentProduct = _productRepository is IProductRepository<Product> products
+                        ? await products.GetFreshByIdAsync(product.Id)
+                        : await _productRepository.GetByIdAsync(product.Id);
 
                     if (existentProduct == null)
                         throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
@@ -159,7 +165,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                     _productRepository.Update(product);
                     if (family != null &&
                         (!string.Equals(family.Name, product.Name, StringComparison.Ordinal) || family.CategoryId != product.StorefrontCategoryId))
-                        await SyncFamilyAsync(product);
+                        productsToInvalidate.UnionWith(await SyncFamilyAsync(product));
                     await _productRepository.CommitAsync();
 
                     if (stockDelta != 0)
@@ -176,6 +182,9 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
                     return product;
                 });
+
+                InvalidateCachedProducts(productsToInvalidate);
+                return updatedProduct;
             }
             catch (NotFoundDatabaseException)
             {
@@ -233,7 +242,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         /// The name and the Limen category are the family's (SPEC-product-variants §2, SPEC-limen-categories C4):
         /// changing them on one variant changes them on all, inactive ones included, in the same save.
         /// </summary>
-        private async Task SyncFamilyAsync(Product product)
+        private async Task<IReadOnlyList<Guid>> SyncFamilyAsync(Product product)
         {
             var siblings = await _appDbContext.Product
                 .Where(other => other.VariantGroupId == product.VariantGroupId
@@ -241,12 +250,24 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                     && other.Id != product.Id)
                 .ToListAsync();
 
+            var now = DateTime.UtcNow;
             foreach (var sibling in siblings)
             {
                 sibling.Name = product.Name;
                 sibling.StorefrontCategoryId = product.StorefrontCategoryId;
-                sibling.UpdatedAt = product.UpdatedAt;
+                sibling.UpdatedAt = now;
             }
+
+            return siblings.Select(sibling => sibling.Id).ToList();
+        }
+
+        private void InvalidateCachedProducts(IEnumerable<Guid> productIds)
+        {
+            if (_productRepository is not IProductRepository<Product> products)
+                return;
+
+            foreach (var productId in productIds)
+                products.RemoveCachedProduct(productId);
         }
 
         /// <summary>

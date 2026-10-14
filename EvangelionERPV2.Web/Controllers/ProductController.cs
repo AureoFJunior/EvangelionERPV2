@@ -1,3 +1,4 @@
+using EvangelionERPV2.ProductModule.Domain.Interface;
 using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using EvangelionERPV2.Web.Security;
@@ -338,7 +339,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (request == null) return BadRequest();
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var existentProduct = await _repository.GetByIdAsync(request.Id);
+                var existentProduct = await LoadForWriteAsync(request.Id);
                 if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
                     return NoContent();
                 if (!string.IsNullOrWhiteSpace(request.PictureAdress))
@@ -394,7 +395,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var existentProduct = await _repository.GetByIdAsync(id);
+                var existentProduct = await LoadForWriteAsync(id);
                 if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
                     return NoContent();
 
@@ -431,7 +432,7 @@ namespace EvangelionERPV2.Web.Controllers
                     return BadRequest("Product id is required.");
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var existentProduct = await _repository.GetByIdAsync(request.ProductId);
+                var existentProduct = await LoadForWriteAsync(request.ProductId);
                 if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
                     return NoContent();
 
@@ -455,6 +456,9 @@ namespace EvangelionERPV2.Web.Controllers
                 throw;
             }
         }
+
+        private Task<Product> LoadForWriteAsync(Guid id) =>
+            _repository is IProductRepository<Product> products ? products.GetFreshByIdAsync(id) : _repository.GetByIdAsync(id);
 
         private bool TryGetEnterpriseId(out Guid enterpriseId)
         {

@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using AutoMapper;
 using EvangelionERPV2.ProductModule.Application.Interface;
+using EvangelionERPV2.ProductModule.Domain.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
@@ -55,9 +56,43 @@ namespace EvangelionERPV2.Test.Security
             Assert.Equal(12m, harness.SavedProduct!.StorageQuantity);
         }
 
+        [Fact]
+        public async Task DeleteProduct_LoadsTheProductFromTheFreshRepositoryPath()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var stored = CreateProduct(enterpriseId, storageQuantity: 12m);
+            var harness = new Harness(enterpriseId, stored);
+            harness.ProductService.Setup(x => x.Delete(stored.Id)).Returns(stored);
+
+            var result = await harness.Controller.DeleteProduct(stored.Id);
+
+            Assert.IsType<OkObjectResult>(result);
+            harness.FreshProducts.Verify(x => x.GetFreshByIdAsync(stored.Id), Times.Once);
+        }
+
+        [Fact]
+        public async Task UploadPicture_LoadsTheProductFromTheFreshRepositoryPath()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var stored = CreateProduct(enterpriseId, storageQuantity: 12m);
+            var harness = new Harness(enterpriseId, stored);
+            harness.ProductService.Setup(x => x.UpdatePictureAsync(It.IsAny<ProductPicture>()))
+                .ReturnsAsync((ProductPicture picture) => picture.Product);
+
+            var result = await harness.Controller.UploadPicture(new UploadProductPictureRequestDTO
+            {
+                ProductId = stored.Id,
+                File = "image-data"
+            });
+
+            Assert.IsType<OkObjectResult>(result);
+            harness.FreshProducts.Verify(x => x.GetFreshByIdAsync(stored.Id), Times.Once);
+        }
+
         private sealed class Harness
         {
             public Mock<IProductService<Product>> ProductService { get; } = new(MockBehavior.Strict);
+            public Mock<IProductRepository<Product>> FreshProducts { get; private set; } = null!;
             public ProductController Controller { get; }
             public Product? SavedProduct { get; private set; }
 
@@ -65,9 +100,11 @@ namespace EvangelionERPV2.Test.Security
             {
                 var callerId = Guid.NewGuid();
                 var productRepository = new Mock<IRepository<Product>>(MockBehavior.Strict);
+                var products = productRepository.As<IProductRepository<Product>>();
+                FreshProducts = products;
                 var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
 
-                productRepository.Setup(r => r.GetByIdAsync(stored.Id)).ReturnsAsync(stored);
+                products.Setup(r => r.GetFreshByIdAsync(stored.Id)).ReturnsAsync(stored);
 
                 userRepository.Setup(r => r.GetByIdAsync(callerId)).ReturnsAsync(new User
                 {

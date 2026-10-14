@@ -13,6 +13,13 @@ namespace EvangelionERPV2.ProductModule.Domain.Interface
         void RemoveCachedProduct(Guid id);
         #endregion
 
+        /// <summary>
+        /// The row as the database has it, never the cache. Every read that is written back must use
+        /// this: other services (promotions, categories, stock) change product columns without the
+        /// repository, and a cached copy written back would undo them.
+        /// </summary>
+        Task<Product> GetFreshByIdAsync(Guid id);
+
         #region Async
         Task<(IEnumerable<Product>, int)> GetAllAsyncFiltering(bool descending,
         int? pageNumber,
