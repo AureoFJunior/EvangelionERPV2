@@ -360,6 +360,19 @@ namespace EvangelionERPV2.Test.Security.Iam
         }
 
         [Fact]
+        public async Task ATemplate_WithUndefinedAccessLevel_IsRejectedWithoutChangingGrants()
+        {
+            await Grant(_clerk, RbacPermissions.Bills.Settle);
+
+            await Assert.ThrowsAsync<IamException>(() => Service().ApplyTemplateAsync(
+                Fresh(_admin), _clerk.Id, (EnumAccessLevel)999, replace: true, "invalid template"));
+
+            using var db = _database.CreateContext();
+            Assert.Contains(db.UserPermissionGrant, g => g.UserId == _clerk.Id
+                && g.Permission == RbacPermissions.Bills.Settle && g.RevokedAt == null);
+        }
+
+        [Fact]
         public async Task EveryGrantChange_IsAudited()
         {
             await Grant(_clerk, RbacPermissions.Orders.Read, RbacPermissions.Orders.Create);

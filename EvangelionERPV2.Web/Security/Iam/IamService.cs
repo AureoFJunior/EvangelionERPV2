@@ -121,6 +121,9 @@ namespace EvangelionERPV2.Web.Security.Iam
 
         public Task<UserAccessDTO> ApplyTemplateAsync(User caller, Guid targetId, EnumAccessLevel template, bool replace, string? reason)
         {
+            if (!Enum.IsDefined(template))
+                throw new IamException("invalid_access_template", "O modelo de acesso informado é inválido.");
+
             var permissions = RbacRolePermissionMap.GetPermissions((short)template)
                 .Where(IamCatalog.IsGrantable)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
