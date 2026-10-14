@@ -3122,6 +3122,11 @@ namespace EvangelionERPV2.Shared.Migrations
                     b.Property<bool?>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
                     b.Property<string>("ReplacedByTokenHash")
                         .HasColumnType("nvarchar(max)");
 

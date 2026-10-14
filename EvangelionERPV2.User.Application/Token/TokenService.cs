@@ -111,7 +111,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
             return principal;
         }
 
-        public async Task SaveRefreshTokenAsync(Guid userId, string refreshToken)
+        public async Task SaveRefreshTokenAsync(Guid userId, string refreshToken, string kind)
         {
             if (userId == Guid.Empty || string.IsNullOrWhiteSpace(refreshToken))
                 throw new ArgumentException("UserId and refreshToken are required.");
@@ -163,7 +163,8 @@ namespace EvangelionERPV2.UserModule.Application.Token
                             ExpiresAt = now.AddDays(GetRefreshTokenDays()),
                             IsActive = true,
                             CreatedAt = now,
-                            UpdatedAt = now
+                            UpdatedAt = now,
+                            Kind = kind
                         };
 
                         await _refreshTokenRepository.CreateAsync(insertedToken);
@@ -248,6 +249,12 @@ namespace EvangelionERPV2.UserModule.Application.Token
                     if (token.ExpiresAt <= now)
                         return;
 
+                    if (token.Kind != RefreshTokenKind.Session)
+                    {
+                        Log.Logger.Warning("Refresh refused for a non-session token. Kind={Kind}, UserId={UserId}", token.Kind, token.UserId);
+                        return;
+                    }
+
                     var replacement = GenerateRefreshToken();
                     token.RevokedAt = now;
                     token.IsActive = false;
@@ -260,6 +267,7 @@ namespace EvangelionERPV2.UserModule.Application.Token
                     {
                         UserId = token.UserId,
                         TokenHash = token.ReplacedByTokenHash,
+                        Kind = RefreshTokenKind.Session,
                         ExpiresAt = now.AddDays(GetRefreshTokenDays()),
                         IsActive = true,
                         CreatedAt = now,

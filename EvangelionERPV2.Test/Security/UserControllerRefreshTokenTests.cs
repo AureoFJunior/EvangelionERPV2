@@ -75,8 +75,9 @@ namespace EvangelionERPV2.Test.Security
             };
         }
 
-        private void Issue(string raw) => _tokens.Add(new RefreshToken
+        private void Issue(string raw, string kind = RefreshTokenKind.Session) => _tokens.Add(new RefreshToken
         {
+            Kind = kind,
             Id = Guid.NewGuid(),
             UserId = _user.Id,
             TokenHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(raw))),
@@ -160,5 +161,13 @@ namespace EvangelionERPV2.Test.Security
             Assert.DoesNotContain(_tokens, t => t.IsActive == true && t.RevokedAt == null);
             Assert.IsType<UnauthorizedResult>(await Refresh("phone-token"));
         }
-    }
+
+        [Fact]
+        public async Task RefreshToken_FromATillSignIn_CannotBecomeAnErpSession()
+        {
+            Issue("till-token", RefreshTokenKind.Till);
+
+            Assert.IsType<UnauthorizedResult>(await Refresh("till-token"));
+        }
+}
 }

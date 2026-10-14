@@ -44,7 +44,7 @@ namespace EvangelionERPV2.UserModule.Test.User
 
         private static string Hash(string token) => Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
-        private RefreshToken Issue(string raw, DateTime? expiresAt = null)
+        private RefreshToken Issue(string raw, DateTime? expiresAt = null, string kind = RefreshTokenKind.Session)
         {
             var token = new RefreshToken
             {
@@ -52,7 +52,8 @@ namespace EvangelionERPV2.UserModule.Test.User
                 UserId = _userId,
                 TokenHash = Hash(raw),
                 ExpiresAt = expiresAt ?? DateTime.UtcNow.AddDays(7),
-                IsActive = true
+                IsActive = true,
+                Kind = kind
             };
             _tokens.Add(token);
             return token;
@@ -155,6 +156,30 @@ namespace EvangelionERPV2.UserModule.Test.User
             Assert.Null(await _service.RotateRefreshTokenAsync("old-token"));
         }
     
+        [Theory]
+        [InlineData(RefreshTokenKind.Till)]
+        [InlineData(RefreshTokenKind.Machine)]
+        [InlineData(RefreshTokenKind.Legacy)]
+        public async Task Rotate_RefusesEveryTokenThatIsNotAnInteractiveSession_AndLeavesItAlone(string kind)
+        {
+            var token = Issue("till-token", kind: kind);
+
+            Assert.Null(await _service.RotateRefreshTokenAsync("till-token"));
+
+            Assert.Null(token.RevokedAt);
+            Assert.Equal(token, Assert.Single(Active));
+        }
+
+        [Fact]
+        public async Task Rotate_IssuesTheReplacementAsASessionToken()
+        {
+            Issue("old-token");
+
+            var rotation = await _service.RotateRefreshTokenAsync("old-token");
+
+            Assert.Equal(RefreshTokenKind.Session, Assert.Single(Active, t => t.TokenHash == Hash(rotation!.RefreshToken)).Kind);
+        }
+
         private sealed class CollectingSink : ILogEventSink
         {
             public List<LogEvent> Events { get; } = new();

@@ -157,6 +157,7 @@ namespace EvangelionERPV2.Test.Security
             Assert.Equal(enterpriseId, dto.EnterpriseId);
             Assert.False(string.IsNullOrWhiteSpace(dto.Token));
             Assert.False(string.IsNullOrWhiteSpace(dto.RefreshToken));
+            Assert.Equal(RefreshTokenKind.Till, Assert.Single(_savedRefreshTokens).Kind);
         }
 
         [Fact]
@@ -180,6 +181,8 @@ namespace EvangelionERPV2.Test.Security
         {
             Assert.Null(typeof(PdvLoginRequestDTO).GetProperty("RecaptchaToken"));
         }
+
+        private readonly List<RefreshToken> _savedRefreshTokens = new();
 
         private PdvController CreateController(
             Guid terminalEnterpriseId,
@@ -227,7 +230,10 @@ namespace EvangelionERPV2.Test.Security
             var refreshTokenRepository = new Mock<IRepository<RefreshToken>>();
             refreshTokenRepository
                 .Setup(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
-                .Returns(Task.CompletedTask);
+                .Returns((Func<Task> operation, CancellationToken _) => operation());
+            refreshTokenRepository
+                .Setup(x => x.CreateAsync(It.IsAny<RefreshToken>()))
+                .ReturnsAsync((RefreshToken token) => { _savedRefreshTokens.Add(token); return token; });
 
             var controller = new PdvController(
                 new Mock<IPdvService>(MockBehavior.Strict).Object,

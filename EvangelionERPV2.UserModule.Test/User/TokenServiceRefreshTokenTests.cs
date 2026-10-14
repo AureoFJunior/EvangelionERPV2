@@ -66,7 +66,7 @@ namespace EvangelionERPV2.UserModule.Test.User
                     return Task.CompletedTask;
                 });
 
-            await service.SaveRefreshTokenAsync(userId, "new-refresh-token");
+            await service.SaveRefreshTokenAsync(userId, "new-refresh-token", RefreshTokenKind.Session);
 
             Assert.NotNull(activeToken.RevokedAt);
             Assert.True(operations.IndexOf("commit") < operations.IndexOf("create"));
@@ -102,7 +102,7 @@ namespace EvangelionERPV2.UserModule.Test.User
                     It.IsAny<Expression<Func<RefreshToken, object>>>()))
                 .ReturnsAsync([activeToken]);
 
-            await service.SaveRefreshTokenAsync(userId, refreshToken);
+            await service.SaveRefreshTokenAsync(userId, refreshToken, RefreshTokenKind.Session);
 
             Assert.True(activeToken.IsActive ?? false);
             Assert.Null(activeToken.RevokedAt);
@@ -159,7 +159,7 @@ namespace EvangelionERPV2.UserModule.Test.User
                 .Setup(r => r.CommitAsync(It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
 
-            await service.SaveRefreshTokenAsync(userId, "new-refresh-token");
+            await service.SaveRefreshTokenAsync(userId, "new-refresh-token", RefreshTokenKind.Session);
 
             Assert.False(persistedTokens[0].IsActive ?? true);
             Assert.NotNull(persistedTokens[0].RevokedAt);
@@ -173,7 +173,7 @@ namespace EvangelionERPV2.UserModule.Test.User
         {
             var (service, refreshTokenRepository) = CreateService();
 
-            await Assert.ThrowsAsync<ArgumentException>(() => service.SaveRefreshTokenAsync(Guid.Empty, "valid-token"));
+            await Assert.ThrowsAsync<ArgumentException>(() => service.SaveRefreshTokenAsync(Guid.Empty, "valid-token", RefreshTokenKind.Session));
 
             refreshTokenRepository.Verify(r => r.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()), Times.Never);
         }
@@ -198,7 +198,7 @@ namespace EvangelionERPV2.UserModule.Test.User
                 .ThrowsAsync(new DbUpdateException("UNIQUE violation IX_RefreshToken_UserId_Active UserId IsActive"));
 
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                service.SaveRefreshTokenAsync(userId, "new-refresh-token"));
+                service.SaveRefreshTokenAsync(userId, "new-refresh-token", RefreshTokenKind.Session));
 
             Assert.Contains("Unable to persist refresh token after retry attempts", exception.Message, StringComparison.Ordinal);
             refreshTokenRepository.Verify(r => r.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
@@ -244,7 +244,7 @@ namespace EvangelionERPV2.UserModule.Test.User
                     return Task.CompletedTask;
                 });
 
-            await service.SaveRefreshTokenAsync(userId, "new-refresh-token");
+            await service.SaveRefreshTokenAsync(userId, "new-refresh-token", RefreshTokenKind.Session);
 
             Assert.Equal(2, createdTokens.Count);
             refreshTokenRepository.Verify(r => r.DetachEntity(createdTokens[0]), Times.Once);
