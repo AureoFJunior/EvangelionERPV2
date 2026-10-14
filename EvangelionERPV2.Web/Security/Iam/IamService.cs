@@ -4,6 +4,7 @@ using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
+using EvangelionERPV2.UserModule.Application.Interface;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 
@@ -24,7 +25,7 @@ namespace EvangelionERPV2.Web.Security.Iam
     /// Writes and reads per-user grants (SPEC-iam-zero-trust §7). Every write for one enterprise runs
     /// under that enterprise's row lock, so the last-manager guard cannot be raced past.
     /// </summary>
-    public sealed class IamService
+    public sealed class IamService : IMfaDisableGuard
     {
         private const int MaxReasonLength = 280;
         private static readonly TimeSpan MaxGrantLifetime = TimeSpan.FromDays(366);
@@ -118,6 +119,33 @@ namespace EvangelionERPV2.Web.Security.Iam
                 await EnsureManagerRemainsAsync(enterpriseId, await ModeAsync(enterpriseId));
                 return user;
             });
+
+        /// <summary>Must be called inside the MFA transaction before locking the user row.</summary>
+        public Task LockEnterpriseForMfaChangeAsync(Guid enterpriseId) => _enterprises.LockForUpdateAsync(enterpriseId);
+
+        /// <summary>Checks the last-manager invariant while the caller holds the enterprise lock.</summary>
+        public async Task EnsureMfaCanBeDisabledAsync(Guid enterpriseId, Guid userId)
+        {
+            var mode = await ModeAsync(enterpriseId);
+            var now = Now;
+            var target = await _db.User.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId
+                && u.EnterpriseId == enterpriseId && u.IsActive == true);
+            if (target == null)
+                return;
+
+            var openManageGrant = await _db.UserPermissionGrant.AnyAsync(g => g.EnterpriseId == enterpriseId && g.UserId == userId
+                && g.Permission == RbacPermissions.Iam.Manage && g.Effect == EnumGrantEffect.Allow
+                && g.RevokedAt == null && g.ExpiresAt == null);
+            var isManager = mode == EnumIamMode.Grants
+                ? target.MfaEnabled && openManageGrant
+                : openManageGrant || (target.AccessLevel == (short)EnumAccessLevel.Admin
+                    && !_db.UserPermissionGrant.Any(g => g.EnterpriseId == enterpriseId && g.UserId == userId
+                        && g.Permission == RbacPermissions.Iam.Manage && g.Effect == EnumGrantEffect.Deny
+                        && g.RevokedAt == null && (g.ExpiresAt == null || g.ExpiresAt > now)));
+
+            if (isManager)
+                await EnsureManagerRemainsAsync(enterpriseId, mode, userId);
+        }
 
         public Task<UserAccessDTO> ApplyTemplateAsync(User caller, Guid targetId, EnumAccessLevel template, bool replace, string? reason)
         {
@@ -414,7 +442,7 @@ namespace EvangelionERPV2.Web.Security.Iam
         /// on an active user with MFA. Role mode: an active admin whose iam.manage is not denied, or an
         /// open-ended allow (no MFA demanded there, as role mode never demanded it).
         /// </summary>
-        private async Task EnsureManagerRemainsAsync(Guid enterpriseId, EnumIamMode mode)
+        private async Task EnsureManagerRemainsAsync(Guid enterpriseId, EnumIamMode mode, Guid? excludedUserId = null)
         {
             var now = Now;
             var manage = _db.UserPermissionGrant.Where(g =>
@@ -422,9 +450,9 @@ namespace EvangelionERPV2.Web.Security.Iam
             var openAllow = manage.Where(g => g.Effect == EnumGrantEffect.Allow && g.ExpiresAt == null);
 
             var any = mode == EnumIamMode.Grants
-                ? await openAllow.AnyAsync(g => _db.User.Any(u => u.Id == g.UserId && u.IsActive == true && u.MfaEnabled))
-                : await openAllow.AnyAsync(g => _db.User.Any(u => u.Id == g.UserId && u.IsActive == true))
-                  || await _db.User.AnyAsync(u => u.EnterpriseId == enterpriseId && u.IsActive == true && u.AccessLevel == (short)EnumAccessLevel.Admin
+                ? await openAllow.AnyAsync(g => g.UserId != excludedUserId && _db.User.Any(u => u.Id == g.UserId && u.IsActive == true && u.MfaEnabled))
+                : await openAllow.AnyAsync(g => g.UserId != excludedUserId && _db.User.Any(u => u.Id == g.UserId && u.IsActive == true))
+                  || await _db.User.AnyAsync(u => u.Id != excludedUserId && u.EnterpriseId == enterpriseId && u.IsActive == true && u.AccessLevel == (short)EnumAccessLevel.Admin
                                                   && !manage.Any(g => g.UserId == u.Id && g.Effect == EnumGrantEffect.Deny));
             if (!any)
                 throw new IamException("last_iam_manager", "A empresa ficaria sem ninguém com verificação em duas etapas para gerenciar acessos.", StatusCodes.Status409Conflict);

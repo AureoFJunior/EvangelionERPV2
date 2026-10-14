@@ -1477,8 +1477,15 @@ namespace EvangelionERPV2.Web.Controllers
             if (user == null)
                 return error!;
 
-            if (!await _mfaService.DisableAsync(user.Id, request?.Code))
-                return BadRequest("Invalid code.");
+            try
+            {
+                if (!await _mfaService.DisableAsync(user.Id, request?.Code))
+                    return BadRequest("Invalid code.");
+            }
+            catch (Security.Iam.IamException ex)
+            {
+                return StatusCode(ex.Status, new { code = ex.Code, message = ex.Message });
+            }
 
             Log.Logger.Information("MFA disabled. EmailId={EmailId}", GetLogSafeEmailIdentifier(user.Email));
             return NoContent();
@@ -1509,6 +1516,7 @@ namespace EvangelionERPV2.Web.Controllers
         [HttpPost("{id}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> ResetMfa(Guid id)
         {
             if (!TryGetEnterpriseId(out var enterpriseId))
@@ -1530,7 +1538,14 @@ namespace EvangelionERPV2.Web.Controllers
             if (await IsAccessManagerAsync(target) && await RequireIamManageAsync() is { } refused)
                 return refused;
 
-            await _mfaService.ResetAsync(target.Id, TryGetUserId());
+            try
+            {
+                await _mfaService.ResetAsync(target.Id, TryGetUserId());
+            }
+            catch (Security.Iam.IamException ex)
+            {
+                return StatusCode(ex.Status, new { code = ex.Code, message = ex.Message });
+            }
             Log.Logger.Warning(
                 "MFA reset by administrator. EmailId={EmailId}, ActorId={ActorId}",
                 GetLogSafeEmailIdentifier(target.Email),

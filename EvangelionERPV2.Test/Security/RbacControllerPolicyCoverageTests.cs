@@ -135,6 +135,7 @@ namespace EvangelionERPV2.Test.Security
         [InlineData(typeof(ProductController), nameof(ProductController.UploadPicture), RbacPermissions.Products.UploadPicture)]
         [InlineData(typeof(ProductController), nameof(ProductController.RemoveProductImage), RbacPermissions.Products.DeletePicture)]
         [InlineData(typeof(ProductController), nameof(ProductController.GetProductImages), RbacPermissions.Products.Read)]
+            [InlineData(typeof(ProductController), nameof(ProductController.GetProductImage), RbacPermissions.Products.Read)]
         [InlineData(typeof(ProductController), nameof(ProductController.AddProductImage), RbacPermissions.Products.UploadPicture)]
         [InlineData(typeof(ProductController), nameof(ProductController.MoveProductImage), RbacPermissions.Products.UploadPicture)]
         [InlineData(typeof(QuoteController), nameof(QuoteController.GetQuotes), RbacPermissions.Quotes.Read)]

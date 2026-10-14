@@ -108,6 +108,25 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task GetProductImage_ReturnsTenantScopedImageContent()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var stored = CreateProduct(enterpriseId, 12m);
+            var image = new ProductImage { Id = Guid.NewGuid(), ProductId = stored.Id, EnterpriseId = enterpriseId, Position = 1, Adress = "encrypted-address" };
+            var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x01, 0x02 };
+            var harness = new Harness(enterpriseId, stored);
+            harness.ProductService.Setup(x => x.GetImageAsync(enterpriseId, image.Id)).ReturnsAsync(image);
+            harness.ProductService.Setup(x => x.GetPictureBase64Async(image.Adress)).ReturnsAsync(Convert.ToBase64String(png));
+
+            var result = Assert.IsType<FileContentResult>(await harness.Controller.GetProductImage(image.Id));
+
+            Assert.Equal("image/png", result.ContentType);
+            Assert.Equal(png, result.FileContents);
+            harness.ProductService.Verify(x => x.GetImageAsync(enterpriseId, image.Id), Times.Once);
+            harness.ProductService.Verify(x => x.GetPictureBase64Async(image.Adress), Times.Once);
+        }
+
+        [Fact]
         public async Task MoveProductImage_UsesTenantScopedGalleryService()
         {
             var enterpriseId = Guid.NewGuid();

@@ -271,6 +271,8 @@ static void SetupAuthorization(WebApplicationBuilder builder)
 
     builder.Services.AddScoped<IPermissionEvaluator, EvangelionERPV2.Web.Security.Iam.PermissionEvaluator>();
     builder.Services.AddScoped<EvangelionERPV2.Web.Security.Iam.IamService>();
+    builder.Services.AddScoped<EvangelionERPV2.UserModule.Application.Interface.IMfaDisableGuard>(sp =>
+        sp.GetRequiredService<EvangelionERPV2.Web.Security.Iam.IamService>());
     builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, EvangelionERPV2.Web.Security.Iam.StepUpAuthorizationResultHandler>();
     builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
     builder.Services.AddScoped<IAuthorizationHandler, SelfOrPermissionAuthorizationHandler>();

@@ -3,6 +3,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Utils;
+using EvangelionERPV2.UserModule.Application.Interface;
 using Microsoft.Extensions.Caching.Distributed;
 using System.Security.Cryptography;
 using System.Text;
@@ -34,6 +35,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
         private readonly IAuditTrailWriter _audit;
         private readonly IDistributedCache _cache;
         private readonly TimeProvider _time;
+        private readonly IMfaDisableGuard? _iam;
 
         public MfaService(
             IRepository<User> users,
@@ -41,7 +43,8 @@ namespace EvangelionERPV2.UserModule.Application.Services
             IRepository<RefreshToken> refreshTokens,
             IAuditTrailWriter audit,
             IDistributedCache cache,
-            TimeProvider? time = null)
+            TimeProvider? time = null,
+            IMfaDisableGuard? iam = null)
         {
             _users = users;
             _recoveryCodes = recoveryCodes;
@@ -49,6 +52,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
             _audit = audit;
             _cache = cache;
             _time = time ?? TimeProvider.System;
+            _iam = iam;
         }
 
         public static string FailuresKey(Guid userId) => "mfa:failures:" + userId.ToString("N");
@@ -93,16 +97,23 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 return codes;
             });
 
-        public Task<bool> DisableAsync(Guid userId, string? code) =>
-            _users.ExecuteInTransactionAsync(async () =>
+        public async Task<bool> DisableAsync(Guid userId, string? code)
+        {
+            var enterpriseId = await GetEnterpriseIdAsync(userId);
+            return await _users.ExecuteInTransactionAsync(async () =>
             {
+                if (_iam != null && enterpriseId.HasValue)
+                    await _iam.LockEnterpriseForMfaChangeAsync(enterpriseId.Value);
                 var user = await LoadLockedAsync(userId);
-                if (user == null || !user.MfaEnabled || await ProveAsync(user, code) == null)
+                if (user == null || !user.MfaEnabled || (enterpriseId.HasValue && user.EnterpriseId != enterpriseId) || await ProveAsync(user, code) == null)
                     return false;
 
+                if (_iam != null && enterpriseId.HasValue)
+                    await _iam.EnsureMfaCanBeDisabledAsync(enterpriseId.Value, userId);
                 await TurnOffAsync(user, user.Id, "Turned off by the user");
                 return true;
             });
+        }
 
         public Task<IReadOnlyList<string>?> RegenerateRecoveryCodesAsync(Guid userId, string? code) =>
             _users.ExecuteInTransactionAsync<IReadOnlyList<string>?>(async () =>
@@ -118,16 +129,37 @@ namespace EvangelionERPV2.UserModule.Application.Services
             });
 
         /// <summary>Turns MFA off for a locked-out user; <paramref name="actorId"/> is the administrator.</summary>
-        public Task ResetAsync(Guid userId, Guid? actorId) =>
-            _users.ExecuteInTransactionAsync(async () =>
+        public async Task ResetAsync(Guid userId, Guid? actorId)
+        {
+            var enterpriseId = await GetEnterpriseIdAsync(userId);
+            await _users.ExecuteInTransactionAsync(async () =>
             {
+                if (_iam != null && enterpriseId.HasValue)
+                    await _iam.LockEnterpriseForMfaChangeAsync(enterpriseId.Value);
                 var user = await LoadLockedAsync(userId);
-                if (user == null)
+                if (user == null || (enterpriseId.HasValue && user.EnterpriseId != enterpriseId))
                     return false;
 
+                if (_iam != null && enterpriseId.HasValue)
+                    await _iam.EnsureMfaCanBeDisabledAsync(enterpriseId.Value, userId);
                 await TurnOffAsync(user, actorId, "Reset by an administrator");
                 return true;
             });
+        }
+
+        private async Task<Guid?> GetEnterpriseIdAsync(Guid userId)
+        {
+            if (_iam == null)
+                return null;
+            try
+            {
+                return (await _users.GetByIdAsync(userId)).EnterpriseId;
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return null;
+            }
+        }
 
         public async Task<string> CreateChallengeAsync(Guid userId)
         {

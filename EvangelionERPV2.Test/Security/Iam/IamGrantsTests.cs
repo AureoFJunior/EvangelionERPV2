@@ -416,6 +416,35 @@ namespace EvangelionERPV2.Test.Security.Iam
         }
 
         [Fact]
+        public async Task ResetMfa_ForTheOnlyGrantsModeManager_IsRejectedAndRolledBack()
+        {
+            using (var db = _database.CreateContext())
+            {
+                db.Enterprise.Single(e => e.Id == _enterprise.Id).IamMode = EnumIamMode.Grants;
+                db.User.Single(u => u.Id == _clerk.Id).MfaEnabled = true;
+                db.UserPermissionGrant.Add(new UserPermissionGrant
+                {
+                    Id = Guid.NewGuid(), EnterpriseId = _enterprise.Id, UserId = _clerk.Id,
+                    Permission = RbacPermissions.Iam.Manage, Effect = EnumGrantEffect.Allow,
+                    GrantedByUserId = _admin.Id, CreatedAt = _time.GetUtcNow().UtcDateTime, IsActive = true
+                });
+                await db.SaveChangesAsync();
+            }
+
+            using var context = _database.CreateContext();
+            var users = new Repository<User>(context);
+            var iam = new IamService(context, new AuditTrailWriter(context), _cache, new Repository<Enterprise>(context), _time);
+            var mfa = new MfaService(users, new Moq.Mock<Shared.Repositories.IRepository<MfaRecoveryCode>>().Object,
+                new Moq.Mock<Shared.Repositories.IRepository<RefreshToken>>().Object, new AuditTrailWriter(context), _cache, _time, iam);
+
+            var error = await Assert.ThrowsAsync<IamException>(() => mfa.ResetAsync(_clerk.Id, _admin.Id));
+
+            Assert.Equal("last_iam_manager", error.Code);
+            using var verify = _database.CreateContext();
+            Assert.True(verify.User.Single(u => u.Id == _clerk.Id).MfaEnabled);
+        }
+
+        [Fact]
         public async Task EveryGrantChange_IsAudited()
         {
             await Grant(_clerk, RbacPermissions.Orders.Read, RbacPermissions.Orders.Create);

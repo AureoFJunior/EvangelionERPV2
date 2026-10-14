@@ -487,6 +487,44 @@ namespace EvangelionERPV2.Web.Controllers
                 : Ok(images.Select(ToProductImageDto));
         }
 
+        /// <summary>Returns one tenant-owned gallery image so ERP clients can preview secondary photos.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Read)]
+        [HttpGet("image/{imageId:guid}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetProductImage(Guid imageId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var image = await _productService.GetImageAsync(enterpriseId, imageId);
+            if (image == null)
+                return NotFound();
+
+            var product = await LoadForWriteAsync(image.ProductId);
+            if (product == null || product.EnterpriseId != enterpriseId || product.IsActive != true)
+                return NotFound();
+
+            var base64 = await _productService.GetPictureBase64Async(image.Adress);
+            if (string.IsNullOrWhiteSpace(base64))
+                return NotFound();
+
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(base64);
+            }
+            catch (FormatException)
+            {
+                return NotFound();
+            }
+
+            var contentType = bytes.AsSpan().StartsWith(new byte[] { 0x89, 0x50, 0x4E, 0x47 })
+                ? "image/png"
+                : bytes.AsSpan().StartsWith(new byte[] { 0xFF, 0xD8, 0xFF }) ? "image/jpeg" : "application/octet-stream";
+            return File(bytes, contentType);
+        }
+
         [Authorize(Policy = "rbac:" + RbacPermissions.Products.UploadPicture)]
         [HttpPost]
         [RequestSizeLimit(MaxImageUploadRequestBodySizeInBytes)]
