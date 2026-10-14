@@ -241,11 +241,13 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                     && other.Id != product.Id)
                 .ToListAsync();
 
+            var now = DateTime.UtcNow;
             foreach (var sibling in siblings)
             {
                 sibling.Name = product.Name;
                 sibling.StorefrontCategoryId = product.StorefrontCategoryId;
-                sibling.UpdatedAt = product.UpdatedAt;
+                sibling.UpdatedAt = now;
+                (_productRepository as IProductRepository<Product>)?.RemoveCachedProduct(sibling.Id);
             }
         }
 
