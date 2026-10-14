@@ -458,6 +458,39 @@ namespace EvangelionERPV2.UserModule.Test.User
             Assert.False(AuditedEntities.Contains(typeof(UserEntity)));
         }
 
+        [Fact]
+        public async Task AFailedCode_IsLoggedWithTheUserAndTheFailureCount()
+        {
+            var (secret, _) = await EnableAsync();
+            var token = await _service.CreateChallengeAsync(_user.Id);
+            var sink = new CollectingSink();
+            var previous = Serilog.Log.Logger;
+            Serilog.Log.Logger = new Serilog.LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
+            try
+            {
+                await _service.VerifyChallengeAsync(token, Totp.Code(secret, Step + 5));
+            }
+            finally
+            {
+                Serilog.Log.Logger = previous;
+            }
+
+            var rejected = Assert.Single(sink.Events, e => e.MessageTemplate.Text.StartsWith("MFA code rejected"));
+            Assert.Equal(_user.Id.ToString(), rejected.Properties["UserId"].ToString());
+            Assert.Equal("1", rejected.Properties["Failures"].ToString());
+            Assert.DoesNotContain(Totp.Code(secret, Step + 5), rejected.RenderMessage());
+        }
+
+        private sealed class CollectingSink : Serilog.Core.ILogEventSink
+        {
+            public List<Serilog.Events.LogEvent> Events { get; } = new();
+            public void Emit(Serilog.Events.LogEvent logEvent)
+            {
+                lock (Events)
+                    Events.Add(logEvent);
+            }
+        }
+
         private sealed class FixedTime(DateTimeOffset now) : TimeProvider
         {
             private DateTimeOffset _now = now;

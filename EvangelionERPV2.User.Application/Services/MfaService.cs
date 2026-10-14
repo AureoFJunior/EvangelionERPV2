@@ -7,6 +7,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Serilog;
 
 namespace EvangelionERPV2.UserModule.Application.Services
 {
@@ -165,6 +166,9 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 var proof = await ProveAsync(user, code);
                 if (proof == null)
                 {
+                    Log.Logger.Warning(
+                        "MFA code rejected. UserId={UserId}, Failures={Failures}, ChallengeSpent={Spent}",
+                        user.Id, current.Failures + 1, current.Failures + 1 >= MaxChallengeFailures);
                     if (current.Failures + 1 >= MaxChallengeFailures)
                         await _cache.RemoveAsync(key);
                     else
