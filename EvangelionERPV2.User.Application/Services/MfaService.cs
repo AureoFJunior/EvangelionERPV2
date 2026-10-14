@@ -25,6 +25,8 @@ namespace EvangelionERPV2.UserModule.Application.Services
         private const int RecoveryCodeCount = 10;
         private const int MaxChallengeFailures = 5;
         private static readonly TimeSpan ChallengeLifetime = TimeSpan.FromMinutes(5);
+        private const int MaxAccountFailures = 10;
+        private static readonly TimeSpan AccountFailureWindow = TimeSpan.FromMinutes(15);
 
         private readonly IRepository<User> _users;
         private readonly IRepository<MfaRecoveryCode> _recoveryCodes;
@@ -48,6 +50,8 @@ namespace EvangelionERPV2.UserModule.Application.Services
             _cache = cache;
             _time = time ?? TimeProvider.System;
         }
+
+        public static string FailuresKey(Guid userId) => "mfa:failures:" + userId.ToString("N");
 
         public static string ChallengeKey(string mfaToken) =>
             "mfa:challenge:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(mfaToken)));
@@ -135,7 +139,9 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
         /// <summary>
         /// The challenged user when <paramref name="code"/> is a valid TOTP or unused recovery code;
-        /// null otherwise. The challenge is consumed on success and on the fifth failure.
+        /// null otherwise. The challenge is consumed on success and on the fifth failure, and every code is
+        /// refused for the rest of a 15-minute window once the account has failed ten times in it, so fresh
+        /// challenges from new logins cannot keep the guessing going.
         /// </summary>
         public async Task<MfaChallengeResult?> VerifyChallengeAsync(string? mfaToken, string? code)
         {
@@ -163,9 +169,25 @@ namespace EvangelionERPV2.UserModule.Application.Services
                     return null;
                 }
 
+                var failures = await ReadFailuresAsync(user.Id);
+                if (failures?.Count >= MaxAccountFailures)
+                {
+                    Log.Logger.Warning("MFA code refused: account failure limit reached. UserId={UserId}", user.Id);
+                    await _cache.RemoveAsync(key);
+                    return null;
+                }
+
                 var proof = await ProveAsync(user, code);
                 if (proof == null)
                 {
+                    var now = _time.GetUtcNow();
+                    var updatedFailures = failures is null
+                        ? new Failures(1, now + AccountFailureWindow)
+                        : failures with { Count = failures.Count + 1 };
+                    if (updatedFailures.Count >= MaxAccountFailures)
+                        updatedFailures = updatedFailures with { WindowEndsAt = now + AccountFailureWindow };
+
+                    await SaveFailuresAsync(user.Id, updatedFailures);
                     Log.Logger.Warning(
                         "MFA code rejected. UserId={UserId}, Failures={Failures}, ChallengeSpent={Spent}",
                         user.Id, current.Failures + 1, current.Failures + 1 >= MaxChallengeFailures);
@@ -203,6 +225,19 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 await _cache.RemoveAsync(key);
             return null;
         }
+
+        private async Task<Failures?> ReadFailuresAsync(Guid userId)
+        {
+            var raw = await _cache.GetStringAsync(FailuresKey(userId));
+            var failures = raw == null ? null : JsonSerializer.Deserialize<Failures>(raw);
+            return failures != null && failures.WindowEndsAt > _time.GetUtcNow() ? failures : null;
+        }
+
+        private Task SaveFailuresAsync(Guid userId, Failures failures) =>
+            _cache.SetStringAsync(FailuresKey(userId), JsonSerializer.Serialize(failures),
+                new DistributedCacheEntryOptions { AbsoluteExpiration = failures.WindowEndsAt });
+
+        private sealed record Failures(int Count, DateTimeOffset WindowEndsAt);
 
         private long CurrentStep => Totp.CurrentStep(_time.GetUtcNow());
 
