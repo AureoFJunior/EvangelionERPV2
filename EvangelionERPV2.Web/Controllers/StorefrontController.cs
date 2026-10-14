@@ -21,7 +21,7 @@ namespace EvangelionERPV2.Web.Controllers
     public class StorefrontController : Controller
     {
         private const int MaxLoginRequestBodySizeInBytes = 4 * 1024;
-        private const int MaxListingRequestBodySizeInBytes = 8 * 1024;
+        private const int MaxListingRequestBodySizeInBytes = 16 * 1024;
         private const int MaxListingImageRequestBodySizeInBytes = 8 * 1024 * 1024;
         private const int MaxPublishRequestBodySizeInBytes = 32 * 1024;
 
@@ -156,14 +156,16 @@ namespace EvangelionERPV2.Web.Controllers
             [FromQuery] bool available = false,
             [FromQuery] StorefrontProductSort sort = StorefrontProductSort.Relevance,
             [FromQuery] string? category = null,
-            [FromQuery] bool onSale = false)
+            [FromQuery] bool onSale = false,
+            [FromQuery] bool freeShipping = false,
+            [FromQuery] bool facets = false)
         {
             if (q?.Length > MaxQueryLength || category?.Length > MaxQueryLength)
                 return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
             return Ok(await _storefrontService.GetProductsAsync(new StorefrontProductQuery(
                 q, enterpriseSlug, minPrice, maxPrice, available, sort,
-                Math.Max(page, 1), Math.Clamp(size, 1, MaxProductPageSize), category, onSale)));
+                Math.Max(page, 1), Math.Clamp(size, 1, MaxProductPageSize), category, onSale, freeShipping, facets)));
         }
 
         [HttpGet("{id:guid}")]
