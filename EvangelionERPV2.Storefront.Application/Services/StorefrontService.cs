@@ -129,7 +129,10 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
                 })
                 .ToList();
 
-            var facets = query.Facets ? await FacetsAsync(candidates) : null;
+            var facetCandidates = query.Sort == StorefrontProductSort.BestSelling
+                ? candidates.Where(c => sold!.ContainsKey(c.Card.Id)).ToList()
+                : candidates;
+            var facets = query.Facets ? await FacetsAsync(facetCandidates) : null;
 
             var cards = candidates
                 .Where(c =>
@@ -165,11 +168,15 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
         private async Task<StorefrontFacetsDTO> FacetsAsync(IReadOnlyList<CatalogCard> cards)
         {
             var categoryIds = cards.SelectMany(c => c.CategoryIds).Distinct().ToList();
+            var categories = categoryIds.Count == 0
+                ? new Dictionary<Guid, (string Slug, Guid? ParentId, bool IsActive)>()
+                : await _context.StorefrontCategory.AsNoTracking()
+                    .ToDictionaryAsync(c => c.Id, c => (Slug: c.Slug, ParentId: c.ParentId, IsActive: c.IsActive == true));
             var slugs = categoryIds.Count == 0
                 ? new Dictionary<Guid, string>()
-                : await _context.StorefrontCategory.AsNoTracking()
-                    .Where(c => categoryIds.Contains(c.Id) && c.IsActive == true)
-                    .ToDictionaryAsync(c => c.Id, c => c.Slug);
+                : categoryIds
+                    .Where(id => categories.TryGetValue(id, out var category) && category.IsActive && ActiveAncestors(category.ParentId))
+                    .ToDictionary(id => id, id => categories[id].Slug);
 
             return new StorefrontFacetsDTO(
                 cards.GroupBy(c => (c.Card.EnterpriseSlug, c.Card.EnterpriseName))
@@ -183,6 +190,9 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
                     .ToList(),
                 cards.Count(c => c.FreeShipping),
                 cards.Count(c => c.Card.MaxDiscountPercent != null));
+
+            bool ActiveAncestors(Guid? parentId) =>
+                parentId is not { } id || (categories.TryGetValue(id, out var parent) && parent.IsActive && ActiveAncestors(parent.ParentId));
         }
 
         public async Task<StorefrontProductDetailDTO?> GetProductAsync(Guid id)

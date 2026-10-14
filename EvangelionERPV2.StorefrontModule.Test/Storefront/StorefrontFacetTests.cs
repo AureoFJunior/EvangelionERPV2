@@ -1,4 +1,5 @@
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.StorefrontModule.Application.DTOs;
 
 namespace EvangelionERPV2.StorefrontModule.Test
@@ -7,6 +8,24 @@ namespace EvangelionERPV2.StorefrontModule.Test
     public class StorefrontFacetTests : IDisposable
     {
         private readonly StorefrontTestContext _database = new();
+
+        private static Order StorefrontSale(Enterprise shop, Product product)
+        {
+            var order = new Order
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = shop.Id,
+                Channel = (int)EnumOrderChannel.Storefront,
+                Status = (int)EnumOrderStatus.Paid,
+                CreatedAt = DateTime.UtcNow.AddDays(-1),
+                IsActive = true
+            };
+            order.OrderedProduct = [new OrderedProduct
+            {
+                Id = Guid.NewGuid(), OrderId = order.Id, ProductId = product.Id, Quantity = 1, Value = product.DefaultValue, IsActive = true
+            }];
+            return order;
+        }
 
         public void Dispose() => _database.Dispose();
 
@@ -83,6 +102,38 @@ namespace EvangelionERPV2.StorefrontModule.Test
 
             Assert.Equal([("aurora", 1), ("traco", 1)], searched.Stores.Select(s => (s.Slug, s.Count)).ToArray());
             Assert.Equal(("traco", 1), (Assert.Single(inStationery.Stores).Slug, inStationery.Stores[0].Count));
+        }
+
+        [Fact]
+        public async Task Facets_IgnoreCategoriesWithAnInactiveAncestor()
+        {
+            var shop = Build.ListedShop("loja");
+            var inactiveParent = Build.Category("casa");
+            inactiveParent.IsActive = false;
+            var child = Build.Category("canecas", inactiveParent);
+            await _database.SeedAsync(shop, Build.Fiscal(shop), inactiveParent, child,
+                Build.Item(shop, "Caneca", 30m, category: child.Id));
+
+            var facets = (await _database.CreateService().GetProductsAsync(Query(facets: true))).Facets!;
+
+            Assert.Empty(facets.Categories);
+        }
+
+        [Fact]
+        public async Task BestSellingFacets_IgnoreUnsoldCards()
+        {
+            var shop = Build.ListedShop("loja");
+            var sold = Build.Item(shop, "Caneca", 30m);
+            var unsold = Build.Item(shop, "Vaso", 40m);
+            await _database.SeedAsync(shop, Build.Fiscal(shop), sold, unsold,
+                StorefrontSale(shop, sold));
+
+            var page = await _database.CreateService().GetProductsAsync(
+                new StorefrontProductQuery(null, null, null, null, false, StorefrontProductSort.BestSelling, 1, 20,
+                    Facets: true));
+
+            Assert.Equal(["loja"], page.Facets!.Stores.Select(s => s.Slug));
+            Assert.Equal(1, page.Facets.Stores.Single().Count);
         }
 
         [Fact]
