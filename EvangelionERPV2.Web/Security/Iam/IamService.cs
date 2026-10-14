@@ -133,12 +133,15 @@ namespace EvangelionERPV2.Web.Security.Iam
             if (target == null)
                 return;
 
-            var openManageGrant = await _db.UserPermissionGrant.AnyAsync(g => g.EnterpriseId == enterpriseId && g.UserId == userId
+            var activeManageGrant = await _db.UserPermissionGrant.AnyAsync(g => g.EnterpriseId == enterpriseId
                 && g.Permission == RbacPermissions.Iam.Manage && g.Effect == EnumGrantEffect.Allow
-                && g.RevokedAt == null && g.ExpiresAt == null);
+                && g.RevokedAt == null && (g.ExpiresAt == null || g.ExpiresAt > now));
+            var targetManageGrant = await _db.UserPermissionGrant.AnyAsync(g => g.EnterpriseId == enterpriseId && g.UserId == userId
+                && g.Permission == RbacPermissions.Iam.Manage && g.Effect == EnumGrantEffect.Allow
+                && g.RevokedAt == null && (g.ExpiresAt == null || g.ExpiresAt > now));
             var isManager = mode == EnumIamMode.Grants
-                ? target.MfaEnabled && openManageGrant
-                : openManageGrant || (target.AccessLevel == (short)EnumAccessLevel.Admin
+                ? target.MfaEnabled && (targetManageGrant || (target.AccessLevel == (short)EnumAccessLevel.Admin && !activeManageGrant))
+                : targetManageGrant || (target.AccessLevel == (short)EnumAccessLevel.Admin
                     && !_db.UserPermissionGrant.Any(g => g.EnterpriseId == enterpriseId && g.UserId == userId
                         && g.Permission == RbacPermissions.Iam.Manage && g.Effect == EnumGrantEffect.Deny
                         && g.RevokedAt == null && (g.ExpiresAt == null || g.ExpiresAt > now)));
