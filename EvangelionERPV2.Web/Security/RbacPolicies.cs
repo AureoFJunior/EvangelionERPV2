@@ -10,14 +10,25 @@ namespace EvangelionERPV2.Web.Security
         public static IReadOnlyCollection<string> All { get; } =
         [
             Metrics.Read,
+            Messaging.Redrive,
             Health.Read,
+
+            Accounting.Export,
 
             Audit.Read,
             Audit.CleanupRetention,
 
+            BankReconciliation.Read,
+            BankReconciliation.Import,
+            BankReconciliation.Resolve,
+
+            Dashboard.Read,
+
             Bills.Read,
             Bills.Generate,
             Bills.DownloadPdf,
+            Bills.Settle,
+            Bills.Reissue,
 
             CashFlowForecast.Read,
             CashFlowForecast.Simulate,
@@ -26,11 +37,21 @@ namespace EvangelionERPV2.Web.Security
             Customers.Create,
             Customers.Update,
             Customers.Delete,
+            Customers.CreditOverride,
+
+            EmployeeAbsences.Read,
+            EmployeeAbsences.Create,
+            EmployeeAbsences.Update,
+            EmployeeAbsences.Delete,
+
+            EmployeeVacations.Read,
+            EmployeeVacations.Schedule,
 
             Email.Manage,
             Email.Send,
 
             Enterprise.Read,
+            Enterprise.ReadSelf,
             Enterprise.Create,
             Enterprise.Update,
             Enterprise.Delete,
@@ -39,6 +60,10 @@ namespace EvangelionERPV2.Web.Security
             NFe.Read,
             NFe.Issue,
             NFe.Cancel,
+            NFe.SettingsRead,
+            NFe.SettingsUpdate,
+            NFe.CertificateManage,
+            NFe.CertificateRead,
 
             Opportunities.Read,
             Opportunities.Feedback,
@@ -57,15 +82,42 @@ namespace EvangelionERPV2.Web.Security
             PayableBills.Refund,
             PayableBills.Delete,
 
+            Payroll.Read,
+            Payroll.Generate,
+            Payroll.UpdateSettings,
+
+            Quotes.Read,
+            Quotes.Create,
+            Quotes.Update,
+            Quotes.Convert,
+            Quotes.Delete,
+
+            SalesPerformance.Read,
+            SalesPerformance.ManageGoals,
+
             Products.Read,
             Products.Create,
             Products.Update,
             Products.Delete,
             Products.UploadPicture,
             Products.DeletePicture,
+            Products.ReadCost,
 
             Reports.Read,
             Reports.Generate,
+
+            Storefront.CatalogRead,
+            Storefront.Checkout,
+            Storefront.OrdersRead,
+            Storefront.OrdersWrite,
+            Storefront.Manage,
+            Storefront.CategoriesRead,
+            Storefront.CategoriesManage,
+
+            Suppliers.Read,
+            Suppliers.Create,
+            Suppliers.Update,
+            Suppliers.Delete,
 
             Users.Read,
             Users.ReadSelfOrRead,
@@ -108,6 +160,15 @@ namespace EvangelionERPV2.Web.Security
                     "id"));
             });
 
+            options.AddPolicy(SalesPerformance.ReadSelfOrRead, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new SelfOrPermissionRequirement(
+                    RbacPermissions.SalesPerformance.ReadSelf,
+                    RbacPermissions.SalesPerformance.Read,
+                    "id"));
+            });
+
             options.AddPolicy(LegacyInternalMetricsAccess, policy =>
             {
                 policy.RequireAuthenticatedUser();
@@ -136,9 +197,31 @@ namespace EvangelionERPV2.Web.Security
             public const string Read = "rbac:metrics.read";
         }
 
+        public static class Messaging
+        {
+            public const string Redrive = "rbac:messaging.redrive";
+        }
+
         public static class Health
         {
             public const string Read = "rbac:health.read";
+        }
+
+        public static class Accounting
+        {
+            public const string Export = "rbac:accounting.export";
+        }
+
+        public static class Ai
+        {
+            public const string Chat = "rbac:ai.chat";
+            public const string Act = "rbac:ai.act";
+        }
+
+        public static class Notifications
+        {
+            public const string Read = "rbac:notifications.read";
+            public const string Broadcast = "rbac:notifications.broadcast";
         }
 
         public static class Audit
@@ -147,11 +230,25 @@ namespace EvangelionERPV2.Web.Security
             public const string CleanupRetention = "rbac:audit.retention.cleanup";
         }
 
+        public static class BankReconciliation
+        {
+            public const string Read = "rbac:bank-reconciliation.read";
+            public const string Import = "rbac:bank-reconciliation.import";
+            public const string Resolve = "rbac:bank-reconciliation.resolve";
+        }
+
+        public static class Dashboard
+        {
+            public const string Read = "rbac:dashboard.read";
+        }
+
         public static class Bills
         {
             public const string Read = "rbac:bills.read";
             public const string Generate = "rbac:bills.generate";
             public const string DownloadPdf = "rbac:bills.pdf.download";
+            public const string Settle = "rbac:bills.settle";
+            public const string Reissue = "rbac:bills.reissue";
         }
 
         public static class CashFlowForecast
@@ -166,6 +263,21 @@ namespace EvangelionERPV2.Web.Security
             public const string Create = "rbac:customers.create";
             public const string Update = "rbac:customers.update";
             public const string Delete = "rbac:customers.delete";
+            public const string CreditOverride = "rbac:customers.credit.override";
+        }
+
+        public static class EmployeeAbsences
+        {
+            public const string Read = "rbac:employee-absences.read";
+            public const string Create = "rbac:employee-absences.create";
+            public const string Update = "rbac:employee-absences.update";
+            public const string Delete = "rbac:employee-absences.delete";
+        }
+
+        public static class EmployeeVacations
+        {
+            public const string Read = "rbac:employee-vacations.read";
+            public const string Schedule = "rbac:employee-vacations.schedule";
         }
 
         public static class Email
@@ -177,6 +289,7 @@ namespace EvangelionERPV2.Web.Security
         public static class Enterprise
         {
             public const string Read = "rbac:enterprise.read";
+            public const string ReadSelf = "rbac:enterprise.self.read";
             public const string Create = "rbac:enterprise.create";
             public const string Update = "rbac:enterprise.update";
             public const string Delete = "rbac:enterprise.delete";
@@ -188,6 +301,10 @@ namespace EvangelionERPV2.Web.Security
             public const string Read = "rbac:nfe.read";
             public const string Issue = "rbac:nfe.issue";
             public const string Cancel = "rbac:nfe.cancel";
+            public const string SettingsRead = "rbac:nfe.settings.read";
+            public const string SettingsUpdate = "rbac:nfe.settings.update";
+            public const string CertificateManage = "rbac:nfe.certificate.manage";
+            public const string CertificateRead = "rbac:nfe.certificate.read";
         }
 
         public static class Opportunities
@@ -216,6 +333,21 @@ namespace EvangelionERPV2.Web.Security
             public const string Delete = "rbac:payable-bills.delete";
         }
 
+        public static class Payroll
+        {
+            public const string Read = "rbac:payroll.read";
+            public const string Generate = "rbac:payroll.generate";
+            public const string UpdateSettings = "rbac:payroll.settings.update";
+        }
+
+        public static class SalesPerformance
+        {
+            public const string Read = "rbac:sales.performance.read";
+            public const string ReadSelf = "rbac:sales.performance.read.self";
+            public const string ReadSelfOrRead = "rbac:sales.performance.self-or-read";
+            public const string ManageGoals = "rbac:sales.goals.manage";
+        }
+
         public static class Products
         {
             public const string Read = "rbac:products.read";
@@ -224,12 +356,41 @@ namespace EvangelionERPV2.Web.Security
             public const string Delete = "rbac:products.delete";
             public const string UploadPicture = "rbac:products.picture.upload";
             public const string DeletePicture = "rbac:products.picture.delete";
+            public const string ReadCost = "rbac:products.cost.read";
+        }
+
+        public static class Quotes
+        {
+            public const string Read = "rbac:quotes.read";
+            public const string Create = "rbac:quotes.create";
+            public const string Update = "rbac:quotes.update";
+            public const string Convert = "rbac:quotes.convert";
+            public const string Delete = "rbac:quotes.delete";
         }
 
         public static class Reports
         {
             public const string Read = "rbac:reports.read";
             public const string Generate = "rbac:reports.generate";
+        }
+
+        public static class Storefront
+        {
+            public const string CatalogRead = "rbac:storefront.catalog.read";
+            public const string Checkout = "rbac:storefront.checkout";
+            public const string OrdersRead = "rbac:storefront.orders.read";
+            public const string OrdersWrite = "rbac:storefront.orders.write";
+            public const string Manage = "rbac:storefront.manage";
+            public const string CategoriesRead = "rbac:storefront.categories.read";
+            public const string CategoriesManage = "rbac:storefront.categories.manage";
+        }
+
+        public static class Suppliers
+        {
+            public const string Read = "rbac:suppliers.read";
+            public const string Create = "rbac:suppliers.create";
+            public const string Update = "rbac:suppliers.update";
+            public const string Delete = "rbac:suppliers.delete";
         }
 
         public static class Users

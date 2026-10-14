@@ -8,9 +8,10 @@ namespace EvangelionERPV2.Shared.Entities
     [Table("PayableBillProduct")]
     public class PayableBillProduct : BaseEntity
     {
-        public double Quantity { get; set; } = 0;
-        public double UnitValue { get; set; } = 0;
-        public double LineAmount { get; set; } = 0;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal Quantity { get; set; } = 0;
+        public decimal UnitValue { get; set; } = 0;
+        public decimal LineAmount { get; set; } = 0;
         public string UnitOfMeasure { get; set; } = string.Empty;
 
         [ForeignKey(nameof(PayableBill))]

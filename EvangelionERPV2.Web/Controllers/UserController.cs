@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using AutoMapper;
 using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
@@ -6,6 +7,7 @@ using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
+using EvangelionERPV2.UserModule.Application.Services;
 using EvangelionERPV2.UserModule.Application.Token;
 using EvangelionERPV2.Web.FluentValidator;
 using EvangelionERPV2.Web.Security;
@@ -36,6 +38,9 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly TokenService _tokenService;
         private readonly IEmailService<EmailStructure> _emailService;
         private readonly IRecaptchaVerifier _recaptchaVerifier;
+        private readonly PasswordLoginService _passwordLoginService;
+        private readonly MfaService _mfaService;
+        private readonly AppleSignInService _appleSignInService;
         private static readonly HttpClient _httpClient = new HttpClient();
         private static readonly ConcurrentDictionary<string, ResetPasswordRateLimitEntry> _resetPasswordRateLimit = new();
         private static readonly object _resetPasswordRateLimitSync = new();
@@ -48,13 +53,20 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxProfilePictureRequestBodySizeInBytes = 8 * 1024 * 1024;
         private const int MaxPasswordResetRequestBodySizeInBytes = 16 * 1024;
         private const int MaxAnonymousLoginRequestBodySizeInBytes = 32 * 1024;
-        private const int MaxPasswordLoginCandidates = 20;
         private const int MaxUserWriteRequestBodySizeInBytes = 64 * 1024;
+        private const int MaxMfaTokenLength = 128;
+        private const int MaxRefreshTokenLength = 256;
+        private const int MaxAppleIdentityTokenLength = 4096;
+        private const int MinAppleNonceLength = 16;
+        private const int MaxAppleNonceLength = 128;
+        private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
+
         private const int MaxGoogleAuthorizationCodeLength = 2048;
         private const int MaxGoogleRedirectUriLength = 2048;
-        private static readonly Regex GooglePkceCodeVerifierRegex = new("^[A-Za-z0-9\\-._~]{43,128}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
-        private const int DefaultPageNumber = 1;
-        private const int DefaultPageSize = 50;
+        private static readonly Regex GooglePkceCodeVerifierRegex = new(
+            "^[A-Za-z0-9\\-._~]{43,128}$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant,
+            RegexTimeout);
         private const int MaxPageSize = 200;
         private const int MaxPageSizeWithPictures = 50;
 
@@ -65,7 +77,10 @@ namespace EvangelionERPV2.Web.Controllers
             AWSKMSKeyProvider kmsProvider,
             TokenService tokenService,
             IEmailService<EmailStructure> emailService,
-            IRecaptchaVerifier recaptchaVerifier)
+            IRecaptchaVerifier recaptchaVerifier,
+            PasswordLoginService passwordLoginService,
+            MfaService mfaService,
+            AppleSignInService appleSignInService)
         {
             _userService = userService;
             _userRepository = userRepository;
@@ -75,6 +90,9 @@ namespace EvangelionERPV2.Web.Controllers
             _tokenService = tokenService;
             _emailService = emailService;
             _recaptchaVerifier = recaptchaVerifier;
+            _passwordLoginService = passwordLoginService;
+            _mfaService = mfaService;
+            _appleSignInService = appleSignInService;
         }
 
         /// <summary>
@@ -106,28 +124,10 @@ namespace EvangelionERPV2.Web.Controllers
                 if (string.IsNullOrWhiteSpace(normalizedUserName))
                     return BadRequest("userName and password are required.");
 
-                // Usernames are only unique per enterprise, and the login request carries no
-                // tenant discriminator, so the password picks the account: verify against every
-                // active candidate and log in only when exactly one matches.
-                var candidates = await GetActivePasswordLoginCandidatesAsync(normalizedUserName);
+                var login = await _passwordLoginService.AuthenticateAsync(normalizedUserName, request.Password);
 
-                Shared.Entities.User? user = null;
-                var needsRehash = false;
-                foreach (var candidate in candidates)
-                {
-                    if (!SharedFunctions.VerifyPassword(request.Password, candidate.Password, out var candidateNeedsRehash))
-                        continue;
-
-                    if (user != null)
-                    {
-                        // Same username and password active in more than one tenant — ambiguous.
-                        user = null;
-                        break;
-                    }
-
-                    user = candidate;
-                    needsRehash = candidateNeedsRehash;
-                }
+                var user = login.User;
+                var needsRehash = login.NeedsRehash;
 
                 if (user == null)
                     return Unauthorized();
@@ -137,6 +137,13 @@ namespace EvangelionERPV2.Web.Controllers
 
                 if (needsRehash)
                     user.Password = SharedFunctions.HashPassword(request.Password);
+
+                if (user.MfaEnabled && !isSelfApiMachineLogin)
+                {
+                    if (needsRehash)
+                        _userService.Update(user);
+                    return await ChallengeMfaAsync(user);
+                }
 
                 user.IsLogged = 1;
                 _userService.Update(user);
@@ -153,7 +160,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("User not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("User not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -178,7 +185,6 @@ namespace EvangelionERPV2.Web.Controllers
         {
             try
             {
-
                 string? idToken = null;
                 if (payload.ValueKind == JsonValueKind.String)
                 {
@@ -203,6 +209,9 @@ namespace EvangelionERPV2.Web.Controllers
                         GetLogSafeEmailIdentifier(user?.Email));
                     return Unauthorized();
                 }
+
+                if (user.MfaEnabled)
+                    return await ChallengeMfaAsync(user);
 
                 var (token, refreshToken) = await GenerateTokensAsync(user);
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
@@ -257,8 +266,8 @@ namespace EvangelionERPV2.Web.Controllers
                 var clientIdName = _configuration.GetSection("GoogleSettings")["ClientId"] ?? string.Empty;  
                 var clientSecretName = _configuration.GetSection("GoogleSettings")["ClientSecret"] ?? string.Empty;
 
-                var clientId = _kmsProvider.GetKMSKey(clientIdName);
-                var clientSecret = _kmsProvider.GetKMSKey(clientSecretName);
+                var clientId = await _kmsProvider.GetKMSKeyAsync(clientIdName);
+                var clientSecret = await _kmsProvider.GetKMSKeyAsync(clientSecretName);
 
                 if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
                 {
@@ -293,6 +302,9 @@ namespace EvangelionERPV2.Web.Controllers
                         GetLogSafeEmailIdentifier(user?.Email));
                     return Unauthorized();
                 }
+
+                if (user.MfaEnabled)
+                    return await ChallengeMfaAsync(user);
 
                 var (token, refreshToken) = await GenerateTokensAsync(user);
                 if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
@@ -358,24 +370,6 @@ namespace EvangelionERPV2.Web.Controllers
             return (token, refreshToken);
         }
 
-        private async Task<IReadOnlyList<Shared.Entities.User>> GetActivePasswordLoginCandidatesAsync(string normalizedUserName)
-        {
-            if (string.IsNullOrWhiteSpace(normalizedUserName))
-                return Array.Empty<Shared.Entities.User>();
-
-            var normalizedUserNameLower = normalizedUserName.ToLowerInvariant();
-            return (await _userRepository.GetAllAsyncByFilter(
-                    descending: false,
-                    pageNumber: 1,
-                    pageSize: MaxPasswordLoginCandidates,
-                    predicate: x =>
-                        x.IsActive == true &&
-                        x.UserName != null &&
-                        x.UserName.ToLower() == normalizedUserNameLower,
-                    orderBy: x => x.Id))
-                .ToList();
-        }
-
         private static string NormalizeUserName(string? userName)
         {
             return (userName ?? string.Empty).Trim();
@@ -414,8 +408,29 @@ namespace EvangelionERPV2.Web.Controllers
                 Enterprise = user.Enterprise,
                 ActualTheme = user.ActualTheme,
                 AccessLevel = user.AccessLevel,
-                Language = user.Language
+                Language = user.Language,
+                MfaEnabled = user.MfaEnabled,
+                AppleLinked = user.AppleSubject != null
             };
+        }
+
+        private async Task<IActionResult> ChallengeMfaAsync(Shared.Entities.User user)
+        {
+            string mfaToken;
+            try
+            {
+                mfaToken = await _mfaService.CreateChallengeAsync(user.Id);
+            }
+            catch (Exception ex)
+            {
+                Log.Logger.Error("MFA challenge could not be stored. ErrorType={ErrorType}", ex.GetType().Name);
+                return StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
+
+            Log.Logger.Information(
+                "MFA challenge issued. EmailId={EmailId}",
+                GetLogSafeEmailIdentifier(user.Email ?? user.UserName));
+            return Ok(new MfaChallengeResponse { MfaToken = mfaToken });
         }
 
         private async Task<IEnumerable<UserDTO>> ToUserDtosAsync(IEnumerable<Shared.Entities.User> users, bool includePictures = false)
@@ -452,7 +467,6 @@ namespace EvangelionERPV2.Web.Controllers
             return dto;
         }
 
-
         /// <summary>
         /// Return all the users.
         /// </summary>
@@ -488,7 +502,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Enterprises not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -522,7 +536,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("User not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("User not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -543,18 +557,32 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> AddUser([FromBody] Shared.Entities.User user)
+        public async Task<IActionResult> AddUser([FromBody] CreateUserRequestDTO request)
         {
             try
             {
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+                if (request == null) return BadRequest("User payload is required.");
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                user.EnterpriseId = enterpriseId;
-                user.AccessLevel = (short)EnumAccessLevel.Employee;
-                user.IsLogged = 0;
+                var user = new Shared.Entities.User
+                {
+                    FirstName = request.FirstName.Trim(),
+                    LastName = request.LastName.Trim(),
+                    UserName = request.UserName.Trim(),
+                    Password = request.Password,
+                    Email = request.Email.Trim(),
+                    BirthDate = request.BirthDate,
+                    ProfilePicture = request.ProfilePicture?.Trim() ?? string.Empty,
+                    ActualTheme = request.ActualTheme,
+                    Language = request.Language,
+                    EnterpriseId = enterpriseId,
+                    AccessLevel = (short)EnumAccessLevel.Employee,
+                    IsLogged = 0,
+                    IsActive = true
+                };
 
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
                 return Ok(await ToUserDtoAsync(createdUser));
@@ -581,11 +609,11 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateUser([FromBody] Shared.Entities.User user)
+        public async Task<IActionResult> UpdateUser([FromBody] UpdateUserRequestDTO request)
         {
             try
             {
-                if (user == null)
+                if (request == null)
                     return BadRequest("User payload is required.");
 
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
@@ -593,17 +621,27 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                var existentUser = await _userRepository.GetByIdAsync(user.Id);
+                var existentUser = await _userRepository.GetByIdAsync(request.Id);
                 if (existentUser == null || existentUser.IsActive != true || existentUser.EnterpriseId != enterpriseId)
                     return NoContent();
 
-                if (!Enum.IsDefined(typeof(EnumAccessLevel), user.AccessLevel))
+                if (!Enum.IsDefined(typeof(EnumAccessLevel), (int)request.AccessLevel))
                     return BadRequest("Invalid access level.");
 
-                user.EnterpriseId = existentUser.EnterpriseId;
-                user.IsLogged = existentUser.IsLogged;
-                user.Password = string.IsNullOrWhiteSpace(user.Password) ? existentUser.Password : user.Password;
-                user.ProfilePicture = string.IsNullOrWhiteSpace(user.ProfilePicture) ? existentUser.ProfilePicture : user.ProfilePicture;
+                var user = existentUser;
+                user.FirstName = request.FirstName.Trim();
+                user.LastName = request.LastName.Trim();
+                user.UserName = request.UserName.Trim();
+                user.Email = request.Email.Trim();
+                user.BirthDate = request.BirthDate;
+                user.AccessLevel = request.AccessLevel;
+                user.ActualTheme = request.ActualTheme;
+                user.Language = request.Language;
+                user.CommissionRate = request.CommissionRate;
+                user.IsServiceAccount = request.IsServiceAccount ?? existentUser.IsServiceAccount;
+                user.IsActive = request.IsActive;
+                user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
+                user.ProfilePicture = string.IsNullOrWhiteSpace(request.ProfilePicture) ? existentUser.ProfilePicture : request.ProfilePicture;
 
                 Shared.Entities.User updatedUser = _userService.Update(user);
 
@@ -730,6 +768,15 @@ namespace EvangelionERPV2.Web.Controllers
         public sealed class UpdateProfilePictureRequest
         {
             public string? ProfilePicture { get; set; }
+        }
+
+        public sealed class UpdateProfileRequest
+        {
+            public string? FirstName { get; set; }
+            public string? LastName { get; set; }
+
+            /// <summary>Optional. An empty string clears the number; omitting it leaves it alone.</summary>
+            public string? PhoneNumber { get; set; }
         }
 
         /// <summary>
@@ -882,6 +929,423 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
+        /// Update the current user's own name and contact number.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
+        [HttpPut]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
+        {
+            try
+            {
+                if (request == null)
+                    return BadRequest("Profile is required.");
+
+                if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+
+                var firstName = request.FirstName?.Trim();
+                var lastName = request.LastName?.Trim();
+
+                if (string.IsNullOrEmpty(firstName) || string.IsNullOrEmpty(lastName))
+                    return BadRequest("First name and last name are required.");
+
+                if (firstName.Length > 100 || lastName.Length > 100 || (request.PhoneNumber?.Trim().Length ?? 0) > 30)
+                    return BadRequest("Profile field is too long.");
+
+                var userId = TryGetUserId();
+                if (!userId.HasValue)
+                    return Unauthorized();
+
+                if (!TryGetEnterpriseId(out var enterpriseId))
+                    return Unauthorized();
+
+                var user = await _userRepository.GetByIdAsync(userId.Value);
+                if (user == null || user.IsActive != true)
+                    return NotFound();
+
+                if (user.EnterpriseId != enterpriseId)
+                    return Forbid();
+
+                user.FirstName = firstName;
+                user.LastName = lastName;
+
+                if (request.PhoneNumber != null)
+                    user.PhoneNumber = request.PhoneNumber.Trim();
+
+                var updatedUser = _userService.Update(user);
+                if (updatedUser == null)
+                    return NoContent();
+
+                return Ok(await ToUserDtoAsync(updatedUser));
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        public sealed class AppleTokenRequest
+        {
+            public string? IdentityToken { get; set; }
+            public string? Nonce { get; set; }
+        }
+
+        /// <summary>
+        /// Signs in with an Apple identity token. Answers like the Google login: the session, an MFA
+        /// challenge for an account that has two-factor on, or 401 with <c>apple_not_linked</c> when no
+        /// ERP user owns that Apple id.
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [RequestSizeLimit(MaxAnonymousLoginRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<IActionResult> LoginWithApple([FromBody] AppleTokenRequest request)
+        {
+            if (!IsWellFormedAppleRequest(request))
+                return BadRequest("identityToken and nonce are required.");
+
+            var result = await _appleSignInService.SignInAsync(request.IdentityToken, request.Nonce);
+            if (result.Outcome == AppleSignInOutcome.InvalidToken)
+                return Unauthorized();
+
+            if (result.Outcome == AppleSignInOutcome.NotLinked || result.User == null)
+            {
+                Log.Logger.Warning("Apple login rejected: no linked user.");
+                return Unauthorized(new { code = "apple_not_linked" });
+            }
+
+            var user = result.User;
+            if (!await CanIssueTokensToUserAsync(user))
+            {
+                Log.Logger.Warning("Apple login rejected for inactive account. EmailId={EmailId}", GetLogSafeEmailIdentifier(user.Email));
+                return Unauthorized();
+            }
+
+            if (user.MfaEnabled)
+                return await ChallengeMfaAsync(user);
+
+            user.IsLogged = 1;
+            _userService.Update(user);
+
+            var (token, refreshToken) = await GenerateTokensAsync(user);
+            if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
+                throw new InvalidOperationException("Token generation failed.");
+
+            Log.Logger.Information("Apple login succeeded. EmailId={EmailId}", GetLogSafeEmailIdentifier(user.Email));
+            return Ok(await BuildUserDtoAsync(user, token, refreshToken));
+        }
+
+        /// <summary>Links the caller's account to the Apple id in the token, so Apple sign-in finds it.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
+        [HttpPost]
+        [RequestSizeLimit(MaxAnonymousLoginRequestBodySizeInBytes)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> LinkApple([FromBody] AppleTokenRequest request)
+        {
+            if (!IsWellFormedAppleRequest(request))
+                return BadRequest("identityToken and nonce are required.");
+
+            var (user, error) = await LoadSelfAsync();
+            if (user == null)
+                return error!;
+
+            switch (await _appleSignInService.LinkAsync(user, request.IdentityToken, request.Nonce))
+            {
+                case AppleLinkOutcome.InvalidToken:
+                    return BadRequest("Invalid Apple identity token.");
+                case AppleLinkOutcome.LinkedToAnotherUser:
+                    return Conflict("This Apple ID is already linked to another account.");
+                default:
+                    Log.Logger.Information("Apple id linked. EmailId={EmailId}", GetLogSafeEmailIdentifier(user.Email));
+                    return NoContent();
+            }
+        }
+
+        /// <summary>Removes the caller's Apple link; Apple sign-in stops finding this account.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
+        [HttpPost]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public async Task<IActionResult> UnlinkApple()
+        {
+            var (user, error) = await LoadSelfAsync();
+            if (user == null)
+                return error!;
+
+            await _appleSignInService.UnlinkAsync(user);
+            Log.Logger.Information("Apple id unlinked. EmailId={EmailId}", GetLogSafeEmailIdentifier(user.Email));
+            return NoContent();
+        }
+
+        private static bool IsWellFormedAppleRequest(AppleTokenRequest? request) =>
+            !string.IsNullOrWhiteSpace(request?.IdentityToken) && request.IdentityToken.Length <= MaxAppleIdentityTokenLength
+            && request.Nonce is { Length: >= MinAppleNonceLength and <= MaxAppleNonceLength };
+
+        public sealed class RefreshTokenRequest
+        {
+            public string? RefreshToken { get; set; }
+        }
+
+        /// <summary>
+        /// Trades a refresh token for a new access token and a new refresh token. The old one is spent:
+        /// presenting it again fails, and if it had already been rotated the whole session is revoked.
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [RequestSizeLimit(MaxAnonymousLoginRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request?.RefreshToken) || request.RefreshToken.Length > MaxRefreshTokenLength)
+                return BadRequest("refreshToken is required.");
+
+            var rotation = await _tokenService.RotateRefreshTokenAsync(request.RefreshToken);
+            if (rotation == null)
+            {
+                Log.Logger.Warning("Refresh token rejected.");
+                return Unauthorized();
+            }
+
+            Shared.Entities.User user;
+            try
+            {
+                user = await _userRepository.GetByIdAsync(rotation.UserId);
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return Unauthorized();
+            }
+
+            if (!await CanIssueTokensToUserAsync(user))
+            {
+                await _tokenService.RevokeRefreshTokenAsync(rotation.UserId, rotation.RefreshToken);
+                return Unauthorized();
+            }
+
+            var token = _tokenService.GenerateToken(user);
+            Log.Logger.Information(
+                "Refresh token rotated. EmailId={EmailId}",
+                GetLogSafeEmailIdentifier(user.Email ?? user.UserName));
+            return Ok(await BuildUserDtoAsync(user, token, rotation.RefreshToken));
+        }
+
+        /// <summary>Revokes the caller's refresh token so it cannot mint another session.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.ReadSelf)]
+        [HttpPost]
+        [RequestSizeLimit(MaxAnonymousLoginRequestBodySizeInBytes)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<IActionResult> Logout([FromBody] RefreshTokenRequest request)
+        {
+            var userId = TryGetUserId();
+            if (!userId.HasValue)
+                return Unauthorized();
+
+            if (!string.IsNullOrWhiteSpace(request?.RefreshToken) && request.RefreshToken.Length <= MaxRefreshTokenLength)
+                await _tokenService.RevokeRefreshTokenAsync(userId.Value, request.RefreshToken);
+
+            return NoContent();
+        }
+
+        public sealed class MfaCodeRequest
+        {
+            public string? Code { get; set; }
+        }
+
+        public sealed class VerifyMfaRequest
+        {
+            public string? MfaToken { get; set; }
+            public string? Code { get; set; }
+            public string? RecoveryCode { get; set; }
+        }
+
+        /// <summary>
+        /// Completes a login that answered <c>mfaRequired</c>: trades the challenge token plus a TOTP or
+        /// recovery code for the same tokens a login without MFA returns.
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [RequestSizeLimit(MaxAnonymousLoginRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<IActionResult> VerifyMfa([FromBody] VerifyMfaRequest request)
+        {
+            var code = string.IsNullOrWhiteSpace(request?.Code) ? request?.RecoveryCode : request.Code;
+            if (string.IsNullOrWhiteSpace(request?.MfaToken) || request.MfaToken.Length > MaxMfaTokenLength || string.IsNullOrWhiteSpace(code))
+                return BadRequest("mfaToken and code are required.");
+
+            if (!MfaService.IsWellFormedCode(code))
+                return BadRequest("Code must be 6 digits or a recovery code.");
+
+            var result = await _mfaService.VerifyChallengeAsync(request.MfaToken, code);
+            if (result == null)
+            {
+                Log.Logger.Warning("MFA verification failed.");
+                return Unauthorized();
+            }
+
+            var user = result.User;
+            if (!await CanIssueTokensToUserAsync(user))
+                return Unauthorized();
+
+            user.IsLogged = 1;
+            _userService.Update(user);
+
+            var (token, refreshToken) = await GenerateTokensAsync(user);
+            if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
+                throw new InvalidOperationException("Token generation failed.");
+
+            var emailId = GetLogSafeEmailIdentifier(user.Email ?? user.UserName);
+            if (result.RecoveryCodesRemaining.HasValue)
+                Log.Logger.Warning("MFA recovery code used. EmailId={EmailId}, Remaining={Remaining}", emailId, result.RecoveryCodesRemaining);
+            Log.Logger.Information("MFA login succeeded. EmailId={EmailId}", emailId);
+
+            var dto = await BuildUserDtoAsync(user, token, refreshToken);
+            dto.RecoveryCodesRemaining = result.RecoveryCodesRemaining;
+            return Ok(dto);
+        }
+
+        /// <summary>Starts MFA setup: a new secret the user scans, not active until confirmed.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
+        [HttpPost]
+        [ProducesResponseType(typeof(MfaSetupResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> BeginMfaSetup()
+        {
+            var (user, error) = await LoadSelfAsync();
+            if (user == null)
+                return error!;
+
+            if (user.MfaEnabled)
+                return Conflict("Two-factor authentication is already enabled.");
+
+            var setup = await _mfaService.BeginSetupAsync(user);
+            return Ok(new MfaSetupResponse { Secret = setup.Secret, OtpauthUri = setup.OtpauthUri });
+        }
+
+        /// <summary>Turns MFA on once the user proves the pending secret; returns the recovery codes, once.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
+        [HttpPost]
+        [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(MfaRecoveryCodesResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> ConfirmMfaSetup([FromBody] MfaCodeRequest request)
+        {
+            var (user, error) = await LoadSelfAsync();
+            if (user == null)
+                return error!;
+
+            var codes = await _mfaService.ConfirmSetupAsync(user.Id, request?.Code);
+            if (codes == null)
+                return BadRequest("Invalid code.");
+
+            Log.Logger.Information("MFA enabled. EmailId={EmailId}", GetLogSafeEmailIdentifier(user.Email));
+            return Ok(new MfaRecoveryCodesResponse { RecoveryCodes = codes });
+        }
+
+        /// <summary>Turns MFA off; needs a current TOTP or recovery code.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
+        [HttpPost]
+        [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> DisableMfa([FromBody] MfaCodeRequest request)
+        {
+            var (user, error) = await LoadSelfAsync();
+            if (user == null)
+                return error!;
+
+            if (!await _mfaService.DisableAsync(user.Id, request?.Code))
+                return BadRequest("Invalid code.");
+
+            Log.Logger.Information("MFA disabled. EmailId={EmailId}", GetLogSafeEmailIdentifier(user.Email));
+            return NoContent();
+        }
+
+        /// <summary>Replaces every recovery code; needs a current TOTP or recovery code.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.UpdateSelf)]
+        [HttpPost]
+        [RequestSizeLimit(MaxUserWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(MfaRecoveryCodesResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> RegenerateRecoveryCodes([FromBody] MfaCodeRequest request)
+        {
+            var (user, error) = await LoadSelfAsync();
+            if (user == null)
+                return error!;
+
+            var codes = await _mfaService.RegenerateRecoveryCodesAsync(user.Id, request?.Code);
+            if (codes == null)
+                return BadRequest("Invalid code.");
+
+            Log.Logger.Information("MFA recovery codes regenerated. EmailId={EmailId}", GetLogSafeEmailIdentifier(user.Email));
+            return Ok(new MfaRecoveryCodesResponse { RecoveryCodes = codes });
+        }
+
+        /// <summary>Turns another user's MFA off, for someone locked out after losing their phone.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Users.Update)]
+        [HttpPost("{id}")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> ResetMfa(Guid id)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            Shared.Entities.User target;
+            try
+            {
+                target = await _userRepository.GetByIdAsync(id);
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return NotFound();
+            }
+
+            if (target == null || target.IsActive != true || target.EnterpriseId != enterpriseId)
+                return NotFound();
+
+            await _mfaService.ResetAsync(target.Id, TryGetUserId());
+            Log.Logger.Warning(
+                "MFA reset by administrator. EmailId={EmailId}, ActorId={ActorId}",
+                GetLogSafeEmailIdentifier(target.Email),
+                TryGetUserId());
+            return NoContent();
+        }
+
+        private async Task<(Shared.Entities.User? User, IActionResult? Error)> LoadSelfAsync()
+        {
+            var userId = TryGetUserId();
+            if (!userId.HasValue || !TryGetEnterpriseId(out var enterpriseId))
+                return (null, Unauthorized());
+
+            Shared.Entities.User user;
+            try
+            {
+                user = await _userRepository.GetByIdAsync(userId.Value);
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return (null, NotFound());
+            }
+
+            if (user == null || user.IsActive != true)
+                return (null, NotFound());
+
+            return user.EnterpriseId == enterpriseId ? (user, null) : (null, Forbid());
+        }
+
+        /// <summary>
         /// Delete an user
         /// </summary>
         /// <param name="id">User's Id</param>
@@ -968,7 +1432,8 @@ namespace EvangelionERPV2.Web.Controllers
             if (string.IsNullOrWhiteSpace(rawError))
                 return "unknown";
 
-            var normalized = Regex.Replace(rawError, "[^a-zA-Z0-9_.-]+", string.Empty, RegexOptions.CultureInvariant);
+            var normalized = Regex.Replace(
+                rawError, "[^a-zA-Z0-9_.-]+", string.Empty, RegexOptions.CultureInvariant, RegexTimeout);
             if (string.IsNullOrWhiteSpace(normalized))
                 return "unknown";
 
@@ -1023,7 +1488,7 @@ namespace EvangelionERPV2.Web.Controllers
                 return explicitAllowList.Contains(normalizedCandidateUri);
 
             var frontendBaseUrl = (_configuration.GetSection("Frontend")["BaseUrl"] ?? string.Empty).Trim();
-            if (!TryNormalizeAbsoluteUri(frontendBaseUrl, out var normalizedFrontendUri, out var frontendUri))
+            if (!TryNormalizeAbsoluteUri(frontendBaseUrl, out _, out var frontendUri))
                 return false;
 
             if (!IsAllowedRedirectUriScheme(frontendUri))
@@ -1105,7 +1570,6 @@ namespace EvangelionERPV2.Web.Controllers
 
             return $"{uri.Scheme}://{uri.Host}:{uri.Port}".ToLowerInvariant();
         }
-
 
         private string BuildResetPasswordRateLimitKey(string? email)
         {

@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
@@ -20,9 +21,6 @@ namespace EvangelionERPV2.Web.Controllers
     public class EmailController : Controller
     {
         private const int MaxEmailConfigRequestBodySizeInBytes = 64 * 1024;
-        // Queued delivery carries full signed MIME payloads (scheduled stock/monthly reports
-        // render unbounded HTML tables), so it gets a much larger limit than the small
-        // settings/manual-email payloads.
         private const int MaxQueuedEmailRequestBodySizeInBytes = 4 * 1024 * 1024;
         private const int MaxManualEmailRecipients = 50;
         private const int MaxManualEmailSubjectLength = 200;
@@ -31,16 +29,10 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MaxEmailUserNameLength = 320;
         private const int MaxEmailPasswordLength = 512;
         private readonly IEmailService<EmailStructure> _emailService;
-        private readonly IRepository<Shared.Entities.User> _userRepository;
-        private readonly IMapper _mapper;
 
-        public EmailController(IEmailService<EmailStructure> emailService,
-            IRepository<Shared.Entities.User> userRepository,
-            IMapper mapper)
+        public EmailController(IEmailService<EmailStructure> emailService)
         {
             _emailService = emailService;
-            _userRepository = userRepository;
-            _mapper = mapper;
         }
 
         /// <summary>
@@ -346,9 +338,6 @@ namespace EvangelionERPV2.Web.Controllers
             var claimValue = User?.FindFirst(ClaimTypes.GroupSid)?.Value;
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
         }
-
-
-
 
         private static bool IsValidEmailSettingsPayload(Email email)
         {

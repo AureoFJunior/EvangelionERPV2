@@ -42,9 +42,6 @@ namespace EvangelionERPV2.Web.Security
             Enterprise? enterprise;
             try
             {
-                // Repositories throw NotFoundDatabaseException when the row is gone (e.g. a still-valid
-                // JWT whose user/enterprise was deleted). Treat that as an invalid token (401) rather than
-                // letting the outer exception middleware map it to a misleading 204 No Content.
                 user = await userRepository.GetByIdAsync(userId.Value);
                 enterprise = user == null ? null : await enterpriseRepository.GetByIdAsync(enterpriseId.Value);
             }

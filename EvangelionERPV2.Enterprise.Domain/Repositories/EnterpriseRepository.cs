@@ -25,12 +25,14 @@ namespace EvangelionERPV2.EnterpriseModule.Domain.Repositories
             return enterprise;
         }
 
-        public async override Task<IEnumerable<Enterprise>> GetAllAsync(Func<Enterprise, bool>? predicate)
+        public async override Task<IEnumerable<Enterprise>> GetAllAsync(Expression<Func<Enterprise, bool>>? predicate)
         {
             IQueryable<Enterprise> query = _context.Set<Enterprise>().AsNoTracking();
-            IEnumerable<Enterprise> result = predicate != null
-                ? query.AsEnumerable().Where(predicate).ToList()
-                : await query.ToListAsync();
+
+            if (predicate != null)
+                query = query.Where(predicate);
+
+            IEnumerable<Enterprise> result = await query.ToListAsync();
 
             if (!result.Any())
                 throw new NotFoundDatabaseException();
@@ -38,17 +40,23 @@ namespace EvangelionERPV2.EnterpriseModule.Domain.Repositories
             return result;
         }
 
-        public async override Task<IEnumerable<Enterprise>> GetAllAsync(int? pageNumber, int? pageSize, Func<Enterprise, bool>? predicate = null)
+        public async override Task<IEnumerable<Enterprise>> GetAllAsync(int? pageNumber, int? pageSize, Expression<Func<Enterprise, bool>>? predicate = null)
         {
             if (pageNumber == null || pageSize == null)
                 return await GetAllAsync(predicate);
 
             IQueryable<Enterprise> query = _context.Set<Enterprise>().AsNoTracking();
+
+            if (predicate != null)
+                query = query.Where(predicate);
+
             int skip = (pageNumber.Value - 1) * pageSize.Value;
 
-            IEnumerable<Enterprise> result = predicate != null
-                ? query.AsEnumerable().Where(predicate).Skip(skip).Take(pageSize.Value).ToList()
-                : await query.Skip(skip).Take(pageSize.Value).ToListAsync();
+            IEnumerable<Enterprise> result = await query
+                .OrderBy(entity => entity.Id)
+                .Skip(skip)
+                .Take(pageSize.Value)
+                .ToListAsync();
 
             if (!result.Any())
                 throw new NotFoundDatabaseException();

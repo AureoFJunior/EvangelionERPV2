@@ -30,7 +30,7 @@ namespace EvangelionERPV2.Web.Security
             if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId.Value)
                 return;
 
-            if (RbacRolePermissionMap.HasPermission(user.AccessLevel, requirement.Permission))
+            if (StorefrontTokenScope.Grants(context.User, user.AccessLevel, requirement.Permission))
                 context.Succeed(requirement);
         }
 

@@ -1,5 +1,7 @@
+using Asp.Versioning;
 using System.Security.Claims;
 using AutoMapper;
+using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.CustomerModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
@@ -10,6 +12,7 @@ using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
 using System.Linq;
 
@@ -20,25 +23,151 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class CustomerController : Controller
     {
-        private const int DefaultPageNumber = 1;
-        private const int DefaultPageSize = 50;
         private const int MaxPageSize = 200;
         private const int MaxCustomerWriteRequestBodySizeInBytes = 64 * 1024;
 
         private readonly ICustomerService<Customer> _customerService;
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Customer> _repository;
         private readonly IRepository<User> _userRepository;
+        private readonly ICustomerSummaryService _customerSummaryService;
+        private readonly ICustomerLocationService _customerLocationService;
+        private readonly IAuthorizationService _authorizationService;
         private readonly IMapper _mapper;
 
         public CustomerController(ICustomerService<Customer> customerService,
             EvangelionERPV2.Shared.Repositories.IRepository<Customer> repository,
             IRepository<User> userRepository,
+            ICustomerSummaryService customerSummaryService,
+            ICustomerLocationService customerLocationService,
+            IAuthorizationService authorizationService,
             IMapper mapper)
         {
             _customerService = customerService;
             _repository = repository;
             _userRepository = userRepository;
+            _customerSummaryService = customerSummaryService;
+            _customerLocationService = customerLocationService;
+            _authorizationService = authorizationService;
             _mapper = mapper;
+        }
+
+        /// <summary>
+        /// Customers within a radius of a point, nearest first. Both limits apply: the radius and
+        /// the count.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Read)]
+        [HttpGet]
+        [ProducesResponseType(typeof(IEnumerable<NearbyCustomerDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetNearbyCustomers(
+            decimal latitude,
+            decimal longitude,
+            double radiusKm = 50,
+            int take = 100,
+            string? place = null)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                var nearby = await _customerLocationService.GetNearbyAsync(
+                    enterpriseId, latitude, longitude, radiusKm, take, place, HttpContext.RequestAborted);
+
+                return Ok(nearby);
+            }
+            catch (InsertDatabaseException ex)
+            {
+                return BadRequest(GetSafeLocationErrorMessage(ex));
+            }
+        }
+
+        /// <summary>
+        /// Fills in coordinates for customers that have a CEP and no location yet.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Update)]
+        [HttpPost]
+        [ProducesResponseType(typeof(GeocodeBackfillResultDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GeocodePendingCustomers(int take = 25)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var result = await _customerLocationService.GeocodePendingAsync(enterpriseId, take, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// Pins a customer exactly where somebody says they are.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Update)]
+        [HttpPut]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> SetCustomerLocation([FromBody] SetCustomerLocationRequestDTO request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+            if (request == null) return BadRequest();
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            try
+            {
+                await _customerLocationService.SetLocationAsync(
+                    enterpriseId, request.CustomerId, request.Latitude, request.Longitude, HttpContext.RequestAborted);
+
+                return NoContent();
+            }
+            catch (InsertDatabaseException ex)
+            {
+                return BadRequest(GetSafeLocationErrorMessage(ex));
+            }
+        }
+
+        /// <summary>Echoes back only messages this code wrote, never a submitted value.</summary>
+        private static string GetSafeLocationErrorMessage(InsertDatabaseException ex)
+        {
+            if (ex.InnerException != null)
+                return "An internal error occurred. Please try again later.";
+
+            var message = ex.Message?.Trim() ?? string.Empty;
+
+            string[] allowed =
+            [
+                "Latitude or longitude is out of range.",
+                "Radius must be greater than zero."
+            ];
+
+            return allowed.Contains(message) ? message : "An internal error occurred. Please try again later.";
+        }
+
+        /// <summary>
+        /// The ficha do cliente: identity, history and — for a caller who may also read the
+        /// carteira — what they still owe.
+        /// </summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Customers.Read)]
+        [HttpGet("{id}")]
+        [ProducesResponseType(typeof(CustomerSummaryDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetCustomerSummary(Guid id)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var includeFinancial = (await _authorizationService.AuthorizeAsync(User, RbacPolicies.Bills.Read)).Succeeded;
+
+            var summary = await _customerSummaryService.GetSummaryAsync(
+                id, enterpriseId, includeFinancial, HttpContext.RequestAborted);
+
+            return summary == null ? NoContent() : Ok(summary);
         }
 
         /// <summary>
@@ -74,7 +203,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Customers not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Customers not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -115,16 +244,21 @@ namespace EvangelionERPV2.Web.Controllers
                 var isActiveFilter = filter.IsActive;
                 var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
 
+                var escapedNameFilter = SharedFunctions.EscapeLikePattern(nameFilter ?? string.Empty);
+                var escapedEmailFilter = SharedFunctions.EscapeLikePattern(emailFilter ?? string.Empty);
+                var escapedDocumentFilter = SharedFunctions.EscapeLikePattern(documentFilter ?? string.Empty);
+                var escapedPhoneFilter = SharedFunctions.EscapeLikePattern(phoneFilter ?? string.Empty);
+
                 var customers = await _repository.GetAllAsync(
                     normalizedPageNumber,
                     normalizedPageSize,
                     x =>
                         x.EnterpriseId == enterpriseId &&
                         (!isActiveFilter.HasValue || x.IsActive == isActiveFilter.Value) &&
-                        (string.IsNullOrWhiteSpace(nameFilter) || x.Name.Contains(nameFilter, StringComparison.OrdinalIgnoreCase)) &&
-                        (string.IsNullOrWhiteSpace(emailFilter) || x.Email.Contains(emailFilter, StringComparison.OrdinalIgnoreCase)) &&
-                        (string.IsNullOrWhiteSpace(documentFilter) || (x.Document != null && x.Document.Contains(documentFilter, StringComparison.OrdinalIgnoreCase))) &&
-                        (string.IsNullOrWhiteSpace(phoneFilter) || x.PhoneNumber.Contains(phoneFilter, StringComparison.OrdinalIgnoreCase)));
+                        (string.IsNullOrWhiteSpace(nameFilter) || EF.Functions.Like(x.Name, $"%{escapedNameFilter}%", "\\")) &&
+                        (string.IsNullOrWhiteSpace(emailFilter) || EF.Functions.Like(x.Email, $"%{escapedEmailFilter}%", "\\")) &&
+                        (string.IsNullOrWhiteSpace(documentFilter) || (x.Document != null && EF.Functions.Like(x.Document, $"%{escapedDocumentFilter}%", "\\"))) &&
+                        (string.IsNullOrWhiteSpace(phoneFilter) || EF.Functions.Like(x.PhoneNumber, $"%{escapedPhoneFilter}%", "\\")));
 
                 if (customers == null || !customers.Any())
                     return NoContent();
@@ -134,7 +268,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException exnf)
             {
-                Log.Logger.Error("Customers not found. ErrorType={ErrorType}", exnf.GetType().Name);
+                Log.Logger.Debug("Customers not found. ErrorType={ErrorType}", exnf.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -234,6 +368,16 @@ namespace EvangelionERPV2.Web.Controllers
                 existingCustomer.PhoneNumber = request.PhoneNumber.Trim();
                 existingCustomer.Adress = request.Adress.Trim();
                 existingCustomer.Document = request.Document?.Trim();
+                existingCustomer.Logradouro = Blank(request.Logradouro);
+                existingCustomer.Numero = Blank(request.Numero);
+                existingCustomer.Complemento = Blank(request.Complemento);
+                existingCustomer.Bairro = Blank(request.Bairro);
+                existingCustomer.CodigoMunicipioIbge = Digits(request.CodigoMunicipioIbge);
+                existingCustomer.Municipio = Blank(request.Municipio);
+                existingCustomer.Uf = Blank(request.Uf)?.ToUpperInvariant();
+                existingCustomer.Cep = Digits(request.Cep);
+                existingCustomer.InscricaoEstadual = Blank(request.InscricaoEstadual);
+                existingCustomer.CreditLimit = request.CreditLimit;
                 existingCustomer.IsActive = request.IsActive;
                 existingCustomer.UpdatedAt = DateTime.UtcNow;
 
@@ -292,9 +436,38 @@ namespace EvangelionERPV2.Web.Controllers
                 PhoneNumber = request.PhoneNumber.Trim(),
                 Adress = request.Adress.Trim(),
                 Document = request.Document?.Trim(),
+                Logradouro = Blank(request.Logradouro),
+                Numero = Blank(request.Numero),
+                Complemento = Blank(request.Complemento),
+                Bairro = Blank(request.Bairro),
+                CodigoMunicipioIbge = Digits(request.CodigoMunicipioIbge),
+                Municipio = Blank(request.Municipio),
+                Uf = Blank(request.Uf)?.ToUpperInvariant(),
+                Cep = Digits(request.Cep),
+                InscricaoEstadual = Blank(request.InscricaoEstadual),
+                CreditLimit = request.CreditLimit,
                 EnterpriseId = enterpriseId,
                 IsActive = request.IsActive ?? true
             };
+        }
+
+        /// <summary>
+        /// Trims, and collapses a whitespace-only value to null. The fiscal address fields are
+        /// "absent or complete": an empty string would look present to the issuance pre-flight
+        /// check and produce an enderDest with a blank xLgr instead of a named error.
+        /// </summary>
+        private static string? Blank(string? value) =>
+            string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+        /// <summary>
+        /// Keeps only the digits. The validator accepts a formatted "90230-000" because that is what
+        /// a form sends, but the columns are exactly 8 and 7 characters wide — storing the separators
+        /// would truncate on write.
+        /// </summary>
+        private static string? Digits(string? value)
+        {
+            var digits = DocumentValidationHelper.NormalizeDocument(value);
+            return digits.Length == 0 ? null : digits;
         }
 
         private Guid? TryGetUserId()
@@ -308,7 +481,6 @@ namespace EvangelionERPV2.Web.Controllers
             return null;
         }
 
-
         private async Task<bool> HasActiveTenantMembershipAsync(Guid? userId, Guid enterpriseId)
         {
             if (!userId.HasValue || enterpriseId == Guid.Empty)
@@ -317,7 +489,6 @@ namespace EvangelionERPV2.Web.Controllers
             var user = await _userRepository.GetByIdAsync(userId.Value);
             return user != null && user.IsActive == true && user.EnterpriseId == enterpriseId;
         }
-
 
         private bool TryGetEnterpriseId(out Guid enterpriseId)
         {

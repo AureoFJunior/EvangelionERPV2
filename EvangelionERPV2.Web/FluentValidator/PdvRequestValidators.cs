@@ -1,0 +1,228 @@
+using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Enums;
+using FluentValidation;
+
+namespace EvangelionERPV2.Web.FluentValidator
+{
+    public sealed class OpenCashSessionRequestValidator : AbstractValidator<OpenCashSessionRequestDTO>
+    {
+        public OpenCashSessionRequestValidator()
+        {
+            RuleFor(x => x.ClientSessionId)
+                .NotEmpty().WithMessage("ClientSessionId is required.");
+
+            RuleFor(x => x.TerminalId)
+                .NotEmpty().WithMessage("TerminalId is required.")
+                .MaximumLength(64).WithMessage("TerminalId is too long.");
+
+            RuleFor(x => x.OpeningFloat)
+                .GreaterThanOrEqualTo(0).WithMessage("OpeningFloat must be zero or greater.");
+        }
+    }
+
+    public sealed class CloseCashSessionRequestValidator : AbstractValidator<CloseCashSessionRequestDTO>
+    {
+        public CloseCashSessionRequestValidator()
+        {
+            RuleFor(x => x.ClientSessionId)
+                .NotEmpty().WithMessage("ClientSessionId is required.");
+
+            RuleFor(x => x.CountedAmount)
+                .GreaterThanOrEqualTo(0).WithMessage("CountedAmount must be zero or greater.");
+        }
+    }
+
+    public sealed class CashMovementRequestValidator : AbstractValidator<CashMovementRequestDTO>
+    {
+        public CashMovementRequestValidator()
+        {
+            RuleFor(x => x.ClientMovementId)
+                .NotEmpty().WithMessage("ClientMovementId is required.");
+
+            RuleFor(x => x.ClientSessionId)
+                .NotEmpty().WithMessage("ClientSessionId is required.");
+
+            RuleFor(x => x.Type)
+                .Must(type => type == (int)EnumCashMovementType.Sangria || type == (int)EnumCashMovementType.Suprimento)
+                .WithMessage("Only a sangria or a suprimento may be registered.");
+
+            RuleFor(x => x.Amount)
+                .GreaterThan(0).WithMessage("Amount must be greater than zero.");
+
+            RuleFor(x => x.Reason)
+                .NotEmpty().WithMessage("Reason is required.")
+                .MaximumLength(200).WithMessage("Reason is too long.");
+        }
+    }
+
+    public sealed class PdvSaleSyncRequestValidator : AbstractValidator<PdvSaleSyncRequestDTO>
+    {
+        /// <summary>
+        /// A basket this size is a bug or an attack. A real trolley tops out well under it, and the
+        /// sale still has to be rung item by item by a person.
+        /// </summary>
+        private const int MaxItems = 500;
+        private const int MaxPayments = 20;
+
+        public PdvSaleSyncRequestValidator()
+        {
+            RuleFor(x => x.ClientSaleId)
+                .NotEmpty().WithMessage("ClientSaleId is required.");
+
+            RuleFor(x => x.ClientSessionId)
+                .NotEmpty().WithMessage("ClientSessionId is required.");
+
+            RuleFor(x => x.TerminalId)
+                .MaximumLength(64).WithMessage("TerminalId is too long.");
+
+            RuleFor(x => x.DiscountAmount)
+                .GreaterThanOrEqualTo(0).WithMessage("DiscountAmount must be zero or greater.");
+
+            RuleFor(x => x.SurchargeAmount)
+                .GreaterThanOrEqualTo(0).WithMessage("SurchargeAmount must be zero or greater.");
+
+            RuleFor(x => x.Items)
+                .NotEmpty().WithMessage("A sale must have at least one item.")
+                .Must(items => items.Count() <= MaxItems).WithMessage("Too many items on one sale.");
+
+            RuleForEach(x => x.Items).SetValidator(new PdvSaleItemRequestValidator());
+
+            RuleFor(x => x.Payments)
+                .NotEmpty().WithMessage("A sale must have at least one payment.")
+                .Must(payments => payments.Count() <= MaxPayments).WithMessage("Too many payments on one sale.");
+
+            RuleForEach(x => x.Payments).SetValidator(new PdvSalePaymentRequestValidator());
+        }
+    }
+
+    public sealed class PdvSaleItemRequestValidator : AbstractValidator<PdvSaleItemRequestDTO>
+    {
+        public PdvSaleItemRequestValidator()
+        {
+            RuleFor(x => x.ProductId)
+                .NotEmpty().WithMessage("ProductId is required.");
+
+            RuleFor(x => x.Quantity)
+                .GreaterThan(0).WithMessage("Quantity must be greater than zero.");
+
+            RuleFor(x => x.Value)
+                .GreaterThanOrEqualTo(0).WithMessage("Value must be zero or greater.");
+        }
+    }
+
+    public sealed class PdvSalePaymentRequestValidator : AbstractValidator<PdvSalePaymentRequestDTO>
+    {
+        public PdvSalePaymentRequestValidator()
+        {
+            RuleFor(x => x.Method)
+                .Must(method => Enum.IsDefined(typeof(EnumPaymentMethod), method))
+                .WithMessage("Unknown payment method.")
+                .Must(method => method != (int)EnumPaymentMethod.Mixed)
+                .WithMessage("Mixed is not a tender — send each payment with its own method.");
+
+            RuleFor(x => x.Amount)
+                .GreaterThan(0).WithMessage("A payment must be greater than zero.");
+
+            RuleFor(x => x.ChangeGiven)
+                .GreaterThanOrEqualTo(0).WithMessage("ChangeGiven must be zero or greater.");
+
+            RuleFor(x => x)
+                .Must(payment => payment.ChangeGiven == 0 || payment.Method == (int)EnumPaymentMethod.Cash)
+                .WithMessage("Only a cash payment can give change.");
+
+            RuleFor(x => x.AuthorizationCode)
+                .MaximumLength(64).WithMessage("AuthorizationCode is too long.");
+
+            RuleFor(x => x.Installments)
+                .InclusiveBetween(1, 36).WithMessage("Installments must be between 1 and 36.")
+                .When(x => x.Installments.HasValue);
+        }
+    }
+
+    public sealed class PdvSaleSyncBatchRequestValidator : AbstractValidator<PdvSaleSyncBatchRequestDTO>
+    {
+        public PdvSaleSyncBatchRequestValidator()
+        {
+            RuleFor(x => x.Sales)
+                .NotEmpty().WithMessage("A batch must carry at least one sale.");
+
+            RuleForEach(x => x.Sales).SetValidator(new PdvSaleSyncRequestValidator());
+        }
+    }
+
+    public sealed class EnrollTerminalRequestValidator : AbstractValidator<EnrollTerminalRequestDTO>
+    {
+        public EnrollTerminalRequestValidator()
+        {
+            RuleFor(x => x.TerminalId)
+                .NotEmpty().WithMessage("TerminalId is required.")
+                .MaximumLength(64).WithMessage("TerminalId is too long.");
+        }
+    }
+
+    public sealed class PdvLoginRequestValidator : AbstractValidator<PdvLoginRequestDTO>
+    {
+        public PdvLoginRequestValidator()
+        {
+            RuleFor(x => x.UserName)
+                .NotEmpty().WithMessage("UserName is required.")
+                .MaximumLength(256).WithMessage("UserName is too long.");
+
+            RuleFor(x => x.Password)
+                .NotEmpty().WithMessage("Password is required.")
+                .MaximumLength(256).WithMessage("Password is too long.");
+        }
+    }
+
+    public sealed class SetPdvPinRequestValidator : AbstractValidator<SetPdvPinRequestDTO>
+    {
+        public SetPdvPinRequestValidator()
+        {
+            RuleFor(x => x.Pin)
+                .NotEmpty().WithMessage("Pin is required.")
+                .Matches("^[0-9]{6,12}$").WithMessage("Pin must be 6 to 12 digits.");
+        }
+    }
+
+    public sealed class RegisterOverrideRequestValidator : AbstractValidator<RegisterOverrideRequestDTO>
+    {
+        public RegisterOverrideRequestValidator()
+        {
+            RuleFor(x => x.ClientOverrideId).NotEmpty().WithMessage("ClientOverrideId is required.");
+            RuleFor(x => x.SupervisorUserId).NotEmpty().WithMessage("SupervisorUserId is required.");
+
+            RuleFor(x => x.TerminalId)
+                .NotEmpty().WithMessage("TerminalId is required.")
+                .MaximumLength(64).WithMessage("TerminalId is too long.");
+
+            RuleFor(x => x.Permission)
+                .NotEmpty().WithMessage("Permission is required.")
+                .MaximumLength(64).WithMessage("Permission is too long.");
+        }
+    }
+
+    /// <summary>
+    /// The bounds are Stripe's, restated at the edge.
+    /// </summary>
+    public sealed class StartPixChargeRequestValidator : AbstractValidator<StartPixChargeRequestDTO>
+    {
+        public StartPixChargeRequestValidator()
+        {
+            RuleFor(x => x.ClientSaleId)
+                .NotEmpty().WithMessage("ClientSaleId is required.");
+
+            RuleFor(x => x.Amount)
+                .InclusiveBetween(0.50m, 3000m)
+                .WithMessage("A PIX charge must be between 0.50 and 3000.00.");
+        }
+    }
+
+    public sealed class CancelPixChargeRequestValidator : AbstractValidator<CancelPixChargeRequestDTO>
+    {
+        public CancelPixChargeRequestValidator()
+        {
+            RuleFor(x => x.ChargeId)
+                .NotEmpty().WithMessage("ChargeId is required.");
+        }
+    }
+}

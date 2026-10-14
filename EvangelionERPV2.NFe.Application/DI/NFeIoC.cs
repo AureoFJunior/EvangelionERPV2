@@ -2,9 +2,13 @@ using Amazon.SecretsManager;
 using EvangelionERPV2.NFeModule.Application.Configs;
 using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.NFeModule.Application.Providers;
+using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Domain.Interface;
 using EvangelionERPV2.NFeModule.Domain.Repositories;
+using EvangelionERPV2.NFeModule.Infra.Certificates;
+using EvangelionERPV2.NFeModule.Infra.Sefaz;
+using Microsoft.Extensions.Caching.Memory;
 using EvangelionERPV2.Shared.Configs;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Entities;
@@ -49,6 +53,9 @@ namespace EvangelionERPV2.NFeModule.Application.DI
 
                 services.Configure<NFeSettings>(configuration.GetSection("NFeSettings"));
 
+                services.Configure<EvangelionERPV2.NFeModule.Infra.Sefaz.NFeRespTecSettings>(
+                    configuration.GetSection("NFeRespTecSettings"));
+
                 #region Repositorys
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<>), typeof(EvangelionERPV2.Shared.Repositories.Repository<>));
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<NFeDocument>), typeof(NFeRepository));
@@ -56,12 +63,52 @@ namespace EvangelionERPV2.NFeModule.Application.DI
                 #endregion
 
                 #region Providers
-                services.AddSingleton<INFeProvider, StubNFeProvider>();
+                services.AddScoped<INFeProvider, SefazNFeProvider>();
+
+                services.AddMemoryCache();
+
+                services.AddSingleton<IEnterpriseCertificateProvider>(serviceProvider =>
+                {
+                    var certificateSecretPrefix =
+                        configuration.GetValue<string>("NFeSettings:CertificateSecretPrefix")
+                        ?? new NFeSettings().CertificateSecretPrefix;
+
+                    return new EnterpriseCertificateProvider(
+                        serviceProvider.GetRequiredService<IAmazonSecretsManager>(),
+                        serviceProvider.GetRequiredService<AWSKMSKeyProvider>(),
+                        serviceProvider.GetRequiredService<IMemoryCache>(),
+                        certificateSecretPrefix);
+                });
+
+                services.AddSingleton<IEnterpriseCscProvider>(serviceProvider =>
+                {
+                    var cscSecretPrefix =
+                        configuration.GetValue<string>("NFeSettings:CscSecretPrefix")
+                        ?? new NFeSettings().CscSecretPrefix;
+
+                    return new EnterpriseCscProvider(
+                        serviceProvider.GetRequiredService<IAmazonSecretsManager>(),
+                        serviceProvider.GetRequiredService<AWSKMSKeyProvider>(),
+                        serviceProvider.GetRequiredService<IMemoryCache>(),
+                        cscSecretPrefix);
+                });
                 #endregion
 
                 #region Services
                 services.AddScoped(typeof(INFeService<NFeDocument>), typeof(NFeService));
+                services.AddScoped<INFeFiscalSettingsService, NFeFiscalSettingsService>();
+                services.AddScoped<INFeCertificateService, NFeCertificateService>();
+
+                services.AddScoped<ISupplierNFeImportService, SupplierNFeImportService>();
+
+                services.AddScoped<NFeReconciliationService>();
+                services.AddHostedService<NFeReconciliationWorker>();
+
+                services.AddScoped<NFeContingencyService>();
+                services.AddHostedService<NFeContingencyWorker>();
                 #endregion
+
+                Log.Logger.Information("NFe fiscal settings and certificate services registered.");
 
                 services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));
             }

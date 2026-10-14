@@ -20,7 +20,7 @@ namespace EvangelionERPV2.Shared.Repositories
         public Task CommitAsync(CancellationToken cancellationToken = default)
         {
             if (_context.ChangeTracker.HasChanges())
-                return _context.SaveChangesAsync();
+                return _context.SaveChangesAsync(cancellationToken);
 
             return Task.CompletedTask;
         }

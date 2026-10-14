@@ -1,61 +1,83 @@
-using System.Security.Cryptography;
 using System.Text;
-using EvangelionERPV2.NFeModule.Application.Configs;
-using EvangelionERPV2.NFeModule.Application.Models;
+using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.Shared.Entities;
 
 namespace EvangelionERPV2.NFeModule.Application.Providers
 {
+    /// <summary>
+    /// Placeholder transport. Fabricates an authorization without contacting anybody, and is
+    /// deleted once a real transport ships. It is only safe because NFeSettings.Enabled is false
+    /// in every environment.
+    /// </summary>
     public sealed class StubNFeProvider : INFeProvider
     {
-        public Task<NFeProviderResult> IssueAsync(Order order, Enterprise? enterprise, Customer? customer, NFeDocumentType type, NFeSettings settings)
+        public Task<NFeProviderResult> IssueAsync(NFeIssueContext context, CancellationToken cancellationToken = default)
         {
-            var accessKey = BuildNumericString(44);
-            var series = string.IsNullOrWhiteSpace(settings.Series) ? "1" : settings.Series;
-            var number = BuildNumericString(9);
-            var environment = string.IsNullOrWhiteSpace(settings.Environment) ? "Homologation" : settings.Environment;
             var issuedAt = DateTime.UtcNow;
 
             var xmlBuilder = new StringBuilder();
             xmlBuilder.AppendLine("<nfeStub>");
-            xmlBuilder.AppendLine($"  <type>{type}</type>");
-            xmlBuilder.AppendLine($"  <accessKey>{accessKey}</accessKey>");
-            xmlBuilder.AppendLine($"  <orderId>{order.Id}</orderId>");
+            xmlBuilder.AppendLine($"  <type>{context.Type}</type>");
+            xmlBuilder.AppendLine($"  <orderId>{context.Order.Id}</orderId>");
             xmlBuilder.AppendLine($"  <issuedAt>{issuedAt:O}</issuedAt>");
-            xmlBuilder.AppendLine($"  <environment>{environment}</environment>");
             xmlBuilder.AppendLine("</nfeStub>");
 
-            var result = new NFeProviderResult
+            return Task.FromResult(new NFeProviderResult
             {
-                AccessKey = accessKey,
+                AccessKey = context.AccessKey,
                 Protocol = $"HOMOLOG-{issuedAt:yyyyMMddHHmmss}",
                 XmlContent = xmlBuilder.ToString(),
-                Number = number,
-                Series = series,
-                Environment = environment,
                 IssuedAt = issuedAt,
-                TotalValue = order.TotalValue,
-                Status = NFeStatus.Authorized
-            };
-
-            return Task.FromResult(result);
+                TotalValue = context.Order.TotalValue,
+                Status = NFeStatus.Authorized,
+                Cstat = "100",
+                XMotivo = "Autorizado o uso da NF-e"
+            });
         }
 
-        private static string BuildNumericString(int length)
-        {
-            if (length <= 0)
-                return "";
-
-            var bytes = new byte[length];
-            RandomNumberGenerator.Fill(bytes);
-
-            var chars = new char[length];
-            for (var i = 0; i < length; i++)
+        public Task<NFeProviderResult> TransmitSignedAsync(
+            string accessKey,
+            string signedXml,
+            EnterpriseFiscalSettings fiscalSettings,
+            NFeDocumentType type,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new NFeProviderResult
             {
-                chars[i] = (char)('0' + (bytes[i] % 10));
-            }
+                AccessKey = accessKey,
+                Status = NFeStatus.Error,
+                XMotivo = "The stub provider transmits nothing.",
+                NeverTransmitted = true
+            });
 
-            return new string(chars);
-        }
+        public Task<NFeProviderResult> ConsultAsync(
+            string accessKey, EnterpriseFiscalSettings fiscalSettings, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new NFeProviderResult
+            {
+                AccessKey = accessKey,
+                Status = NFeStatus.Pending
+            });
+
+        public Task<NFeProviderResult> CancelAsync(
+            string accessKey,
+            string protocol,
+            string reason,
+            EnterpriseFiscalSettings fiscalSettings,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new NFeProviderResult
+            {
+                AccessKey = accessKey,
+                Status = NFeStatus.Pending,
+                XMotivo = "Cancellation is not available: no fiscal transport is configured.",
+                NeverTransmitted = true
+            });
+
+        public Task<NFeProviderResult> GetServiceStatusAsync(
+            EnterpriseFiscalSettings fiscalSettings, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new NFeProviderResult
+            {
+                Status = NFeStatus.Pending,
+                XMotivo = "No fiscal transport is configured.",
+                NeverTransmitted = true
+            });
     }
 }

@@ -12,6 +12,12 @@ namespace EvangelionERPV2.Web.Logging
     {
         private const int MaxBodyLength = 10000;
         private const long MaxBodyBytesToReadForLogging = 256 * 1024;
+        /// <summary>
+        /// These run over the request body, whose size and shape the caller chooses. A redaction
+        /// pass with no ceiling is a way to spend the server's CPU by posting something long.
+        /// </summary>
+        private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
+
         private static readonly string[] SensitiveJsonFields =
         [
             "password",
@@ -176,10 +182,15 @@ namespace EvangelionERPV2.Web.Logging
                    endpoint.Contains("/Customer/GetCustomersByFilter", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Customer/AddCustomer", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Customer/UpdateCustomer", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/Employee/GetEmployeesByFilter", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/Employee/AddEmployee", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/Employee/UpdateEmployee", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Enterprise/GetEnterprisesByFilter", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Enterprise/AddEnterprise", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Enterprise/UpdateEnterprise", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/NFe/Cancel", StringComparison.OrdinalIgnoreCase) ||
+
+                   endpoint.Contains("/NFeFiscalSettings/UpdateCsc", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Order/AddOrder", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Order/InsertOrder", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Order/InsertQueuedOrder", StringComparison.OrdinalIgnoreCase) ||
@@ -187,13 +198,22 @@ namespace EvangelionERPV2.Web.Logging
                    endpoint.Contains("/Order/RefundOrder", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Product/AddProduct", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Product/UploadPicture", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/Storefront/UploadListingImage", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/opportunities/", StringComparison.OrdinalIgnoreCase) && endpoint.Contains("/feedback", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/PayableBills/AddPayableBill", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/PayableBills/UpdatePayableBill", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/PayableBills/RefundPayableBill", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/User/RequestPasswordReset", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/User/UpdateProfilePicture", StringComparison.OrdinalIgnoreCase) ||
-                   endpoint.Contains("/User/ResetPassword", StringComparison.OrdinalIgnoreCase);
+                   endpoint.Contains("/User/ResetPassword", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/VerifyMfa", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/ConfirmMfaSetup", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/DisableMfa", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/RegenerateRecoveryCodes", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/RefreshToken", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/Logout", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/LoginWithApple", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/User/LinkApple", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string SanitizeEndpointPath(PathString path)
@@ -241,20 +261,23 @@ namespace EvangelionERPV2.Web.Logging
                     redacted,
                     $"(\"{Regex.Escape(field)}\"\\s*:\\s*\")([^\"]*)(\")",
                     "$1***$3",
-                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                    RegexTimeout);
             }
 
             redacted = Regex.Replace(
                 redacted,
                 "(?i)(password|newPassword|token|refreshToken|refresh_token|authorizationCode|code|codeVerifier|idToken|id_token|accessToken|access_token|userName|email|document|cpf|cnpj|cpfCnpj|phoneNumber|firstName|lastName|adress|address|birthDate|metadataJson|clientSecret|client_secret|accessKey|file|profilePicture)=([^&\\s]+)",
                 "$1=***",
-                RegexOptions.CultureInvariant);
+                RegexOptions.CultureInvariant,
+                RegexTimeout);
 
             redacted = Regex.Replace(
                 redacted,
                 "(?i)(authorizationCode|code|codeVerifier|accessKey)=([^&\\s]+)",
                 "$1=***",
-                RegexOptions.CultureInvariant);
+                RegexOptions.CultureInvariant,
+                RegexTimeout);
 
             return redacted;
         }

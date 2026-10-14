@@ -97,18 +97,30 @@ jobs:
             aureofjunior/evangelionerpv2-worker-order:latest
           platforms: linux/amd64,linux/arm64
 
-  deploy_to_ecs:
+      - name: Build and push worker notification image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./EvangelionERPV2.Worker.Notification/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:worker-notification-latest
+            aureofjunior/evangelionerpv2-worker-notification:latest
+          platforms: linux/amd64,linux/arm64
+
+  # Phase 1 deploys to one EC2 instance running docker-compose.yml, not to ECS. The ECS path is
+  # Phase 2: the task definitions still exist in terraform behind var.enable_ecs, and the
+  # ECS_*_SERVICE_NAME secrets are deliberately left in place for when it comes back.
+  #
+  # SSM rather than SSH: no inbound port 22, no deploy key in GitHub secrets, and the instance
+  # role already carries AmazonSSMManagedInstanceCore.
+  deploy_to_instance:
     needs: build_and_push
     runs-on: ubuntu-latest
     env:
       AWS_GITHUB_ROLE_ARN: ${{ secrets.AWS_GITHUB_ROLE_ARN }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
       - name: Configure AWS credentials (OIDC)
         if: ${{ env.AWS_GITHUB_ROLE_ARN != '' }}
         uses: aws-actions/configure-aws-credentials@v5
@@ -125,107 +137,92 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Deploy ECS services with configured names
+      - name: Pull and restart on the instance
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-          ECR_REPOSITORY: ${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}
-          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
-          ECS_WEB_SERVICE_NAME: ${{ secrets.ECS_SERVICE_NAME }}
-          ECS_WORKER_EMAIL_SERVICE_NAME: ${{ secrets.ECS_WORKER_EMAIL_SERVICE_NAME }}
-          ECS_WORKER_ORDER_SERVICE_NAME: ${{ secrets.ECS_WORKER_ORDER_SERVICE_NAME }}
+          INSTANCE_ID: ${{ secrets.DEPLOY_INSTANCE_ID }}
+          APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
         run: |
           set -euo pipefail
 
-          required_envs=(
-            AWS_REGION
-            AWS_ACCOUNT_ID
-            ECR_REPOSITORY
-            ECS_CLUSTER
-            ECS_WEB_SERVICE_NAME
-            ECS_WORKER_EMAIL_SERVICE_NAME
-            ECS_WORKER_ORDER_SERVICE_NAME
-          )
-          for env_name in "${required_envs[@]}"; do
+          for env_name in AWS_REGION INSTANCE_ID; do
             if [ -z "${!env_name:-}" ]; then
               echo "Required environment variable ${env_name} is missing."
               exit 1
             fi
           done
 
-          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          ECR_IMAGE_BASE="${ECR_REGISTRY}/${ECR_REPOSITORY}"
+          APP_DIR="${APP_DIR:-/opt/evangelion}"
 
-          WEB_CONTAINER_NAME="evangelionerpv2-container"
-          WORKER_EMAIL_CONTAINER_NAME="evangelionerpv2-worker-email"
-          WORKER_ORDER_CONTAINER_NAME="evangelionerpv2-worker-order"
+          # `set -e` inside the remote script matters: without it a failed pull is followed by a
+          # cheerful `up -d` that silently keeps the old containers running, and the deploy reports
+          # success having changed nothing.
+          COMMAND_ID="$(aws ssm send-command \
+            --region "${AWS_REGION}" \
+            --instance-ids "${INSTANCE_ID}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "deploy ${GITHUB_SHA::7}" \
+            --timeout-seconds 3600 \
+            --parameters commands="[\"set -euo pipefail\",\"cd ${APP_DIR}\",\"git fetch --prune origin release\",\"git checkout --detach ${GITHUB_SHA}\",\"./scripts/rds-db-update.sh\",\"docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml --profile workers --profile voice pull\",\"docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml --profile workers --profile voice up -d\",\"docker image prune -f\"]" \
+            --query 'Command.CommandId' --output text)"
 
-          deploy_service() {
-            local service_name="$1"
-            local container_name="$2"
-            local image_tag="$3"
+          echo "SSM command ${COMMAND_ID}"
 
-            local image_uri="${ECR_IMAGE_BASE}:${image_tag}"
-            echo "Deploying ${service_name} using ${image_uri}"
-
-            local current_task_def_arn
-            current_task_def_arn="$(aws ecs describe-services \
-              --cluster "${ECS_CLUSTER}" \
-              --services "${service_name}" \
+          # A pre-migration RDS snapshot can take longer than the AWS CLI waiter's short default
+          # window, so poll the invocation for up to the command's one-hour timeout.
+          STATUS="Pending"
+          for attempt in $(seq 1 360); do
+            STATUS="$(aws ssm get-command-invocation \
               --region "${AWS_REGION}" \
-              --query 'services[0].taskDefinition' \
-              --output text)"
+              --command-id "${COMMAND_ID}" \
+              --instance-id "${INSTANCE_ID}" \
+              --query 'Status' --output text 2>/dev/null || echo Pending)"
 
-            if [ -z "${current_task_def_arn}" ] || [ "${current_task_def_arn}" = "None" ]; then
-              echo "Could not resolve current task definition for service ${service_name}"
-              exit 1
+            case "${STATUS}" in
+              Success|Cancelled|TimedOut|Failed|Cancelling) break ;;
+            esac
+
+            sleep 10
+          done
+
+          echo "--- stdout"
+          aws ssm get-command-invocation --region "${AWS_REGION}" \
+            --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" \
+            --query 'StandardOutputContent' --output text || true
+
+          if [ "${STATUS}" != "Success" ]; then
+            echo "--- stderr"
+            aws ssm get-command-invocation --region "${AWS_REGION}" \
+              --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" \
+              --query 'StandardErrorContent' --output text || true
+            echo "Deploy finished with status ${STATUS}."
+            exit 1
+          fi
+
+          echo "Deploy succeeded."
+
+      - name: Verify the instance is serving
+        env:
+          HEALTH_URL: ${{ secrets.DEPLOY_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HEALTH_URL:-}" ]; then
+            echo "DEPLOY_HEALTH_URL not set; skipping the post-deploy check."
+            exit 0
+          fi
+
+          # The containers restarting is not the same as the application answering. /health covers
+          # SQL Server, Redis and the broker, so this fails loudly if a dependency is misconfigured
+          # rather than leaving it to be discovered by a user.
+          for attempt in $(seq 1 30); do
+            body="$(curl -fsS --max-time 10 "${HEALTH_URL}" || true)"
+            if [ "${body}" = "Healthy" ]; then
+              echo "Healthy after ${attempt} attempt(s)."
+              exit 0
             fi
+            sleep 10
+          done
 
-            aws ecs describe-task-definition \
-              --task-definition "${current_task_def_arn}" \
-              --region "${AWS_REGION}" \
-              --query 'taskDefinition' > current-task-def.json
-
-            if ! jq -e --arg CONTAINER_NAME "${container_name}" '.containerDefinitions[] | select(.name == $CONTAINER_NAME)' current-task-def.json >/dev/null; then
-              echo "Container ${container_name} not found in task definition ${current_task_def_arn}"
-              exit 1
-            fi
-
-            jq --arg IMAGE_URI "${image_uri}" --arg CONTAINER_NAME "${container_name}" '
-              .containerDefinitions |= map(
-                if .name == $CONTAINER_NAME then .image = $IMAGE_URI else . end
-              )
-              | del(
-                  .taskDefinitionArn,
-                  .revision,
-                  .status,
-                  .requiresAttributes,
-                  .compatibilities,
-                  .registeredAt,
-                  .registeredBy
-                )
-            ' current-task-def.json > new-task-def.json
-
-            local new_task_def_arn
-            new_task_def_arn="$(aws ecs register-task-definition \
-              --cli-input-json file://new-task-def.json \
-              --region "${AWS_REGION}" \
-              --query 'taskDefinition.taskDefinitionArn' \
-              --output text)"
-
-            aws ecs update-service \
-              --cluster "${ECS_CLUSTER}" \
-              --service "${service_name}" \
-              --task-definition "${new_task_def_arn}" \
-              --force-new-deployment \
-              --region "${AWS_REGION}"
-          }
-
-          echo "Using ECS cluster ${ECS_CLUSTER}"
-          echo "Web service ${ECS_WEB_SERVICE_NAME}"
-          echo "Worker email service ${ECS_WORKER_EMAIL_SERVICE_NAME}"
-          echo "Worker order service ${ECS_WORKER_ORDER_SERVICE_NAME}"
-
-          deploy_service "${ECS_WEB_SERVICE_NAME}" "${WEB_CONTAINER_NAME}" "latest"
-          deploy_service "${ECS_WORKER_EMAIL_SERVICE_NAME}" "${WORKER_EMAIL_CONTAINER_NAME}" "worker-email-latest"
-          deploy_service "${ECS_WORKER_ORDER_SERVICE_NAME}" "${WORKER_ORDER_CONTAINER_NAME}" "worker-order-latest"
+          echo "::error::${HEALTH_URL} did not report Healthy within five minutes (last: ${body:-no response})."
+          exit 1

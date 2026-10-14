@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using System.Security.Claims;
 using EvangelionERPV2.OpportunityRadarModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
@@ -20,12 +21,10 @@ namespace EvangelionERPV2.Web.Controllers
     {
         private const int MaxOpportunityWriteRequestBodySizeInBytes = 64 * 1024;
         private readonly IOpportunityRadarService _opportunityRadarService;
-        private readonly IRepository<User> _userRepository;
 
-        public OpportunitiesController(IOpportunityRadarService opportunityRadarService, IRepository<User> userRepository)
+        public OpportunitiesController(IOpportunityRadarService opportunityRadarService)
         {
             _opportunityRadarService = opportunityRadarService;
-            _userRepository = userRepository;
         }
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Read)]
@@ -36,7 +35,6 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var userId = TryGetUserId();
                 var result = await _opportunityRadarService.GetOpportunitiesAsync(enterpriseId, filter ?? new OpportunityFilterDTO());
                 return Ok(result);
             }
@@ -59,7 +57,6 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var userId = TryGetUserId();
                 var result = await _opportunityRadarService.GetOpportunityByIdAsync(id, enterpriseId);
                 if (result == null)
                     return NoContent();
@@ -153,7 +150,6 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var userId = TryGetUserId();
                 var result = await _opportunityRadarService.GetSummaryAsync(enterpriseId);
                 return Ok(result);
             }

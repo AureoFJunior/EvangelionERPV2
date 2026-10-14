@@ -78,7 +78,7 @@ namespace EvangelionERPV2.Test.Security
             IEnumerable<Claim> claims)
         {
             var mapper = new Mock<IMapper>(MockBehavior.Strict).Object;
-            var controller = new EmailController(emailService.Object, userRepository.Object, mapper);
+            var controller = new EmailController(emailService.Object);
             var identity = new ClaimsIdentity(claims, "TestAuthType");
 
             controller.ControllerContext = new ControllerContext

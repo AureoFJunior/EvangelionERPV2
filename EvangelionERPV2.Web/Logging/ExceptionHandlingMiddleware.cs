@@ -27,9 +27,17 @@ namespace EvangelionERPV2.Web.Logging
             {
                 await _next(context);
             }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+            {
+                Log.Logger.Information(
+                    "Request abandoned by the caller. Method={Method}, Path={Path}, TraceId={TraceId}",
+                    context.Request.Method,
+                    context.Request.Path,
+                    context.TraceIdentifier);
+            }
             catch (Exception ex)
             {
-                LogException(ex, context);
+                LogException(ex, context, _environment);
                 var statusCode = GetStatusCodeFromException(ex);
 
                 if (context.Response.HasStarted)
@@ -44,7 +52,9 @@ namespace EvangelionERPV2.Web.Logging
 
                 context.Response.StatusCode = statusCode;
 
-                // Keep 204 fully bodyless by HTTP contract.
+                if (statusCode == StatusCodes.Status503ServiceUnavailable)
+                    context.Response.Headers.RetryAfter = "5";
+
                 if (statusCode == StatusCodes.Status204NoContent)
                     return;
 
@@ -56,18 +66,33 @@ namespace EvangelionERPV2.Web.Logging
             }
         }
 
-        private static void LogException(Exception ex, HttpContext context)
+        private static void LogException(Exception ex, HttpContext context, IHostEnvironment environment)
         {
             var sanitizedPath = SanitizeEndpointPath(context.Request.Path);
 
             if (ShouldLogExceptionDetails(ex))
             {
                 Log.Logger.Error(
-                    "Unhandled exception. Method={Method}, Path={Path}, TraceId={TraceId}, ErrorType={ErrorType}",
+                    "Unhandled exception. Method={Method}, Path={Path}, TraceId={TraceId}, ErrorType={ErrorType}, ErrorChain={ErrorChain}, Source={Source}",
                     context.Request.Method,
                     sanitizedPath,
                     context.TraceIdentifier,
-                    GetSafeExceptionType(ex));
+                    GetSafeExceptionType(ex),
+                    GetSafeExceptionChain(ex),
+                    ex.TargetSite?.DeclaringType?.FullName ?? "Unknown");
+                return;
+            }
+
+            if (environment.IsDevelopment())
+            {
+                Log.Logger.Warning(
+                    "Handled client exception. Method={Method}, Path={Path}, TraceId={TraceId}, ErrorType={ErrorType}, ErrorMessage={ErrorMessage}, Source={Source}",
+                    context.Request.Method,
+                    sanitizedPath,
+                    context.TraceIdentifier,
+                    GetSafeExceptionType(ex),
+                    ex.Message,
+                    ex.TargetSite?.DeclaringType?.FullName ?? "Unknown");
                 return;
             }
 
@@ -86,13 +111,17 @@ namespace EvangelionERPV2.Web.Logging
                 ArgumentException or FormatException => StatusCodes.Status400BadRequest,
                 UnauthorizedAccessException or SecurityTokenException => StatusCodes.Status401Unauthorized,
                 NotFoundDatabaseException => StatusCodes.Status204NoContent,
+                PeriodClosedException or CreditLimitExceededException => StatusCodes.Status409Conflict,
+
+                MessageBrokerUnavailableException => StatusCodes.Status503ServiceUnavailable,
+
                 _ => StatusCodes.Status500InternalServerError
             };
         }
 
         private static bool ShouldLogExceptionDetails(Exception ex)
         {
-            return ex is not (ArgumentException or FormatException or NotFoundDatabaseException or UnauthorizedAccessException or SecurityTokenException);
+            return ex is not (ArgumentException or FormatException or NotFoundDatabaseException or PeriodClosedException or CreditLimitExceededException or UnauthorizedAccessException or SecurityTokenException);
         }
 
         private ProblemDetails CreateProblemDetails(Exception ex, int statusCode, string traceId)
@@ -112,6 +141,9 @@ namespace EvangelionERPV2.Web.Logging
         {
             if (statusCode == StatusCodes.Status400BadRequest)
                 return GetSafeBadRequestDetail(ex);
+
+            if (statusCode == StatusCodes.Status409Conflict)
+                return ex is PeriodClosedException or CreditLimitExceededException ? ex.Message : null;
 
             if (statusCode == StatusCodes.Status401Unauthorized)
                 return null;
@@ -133,6 +165,8 @@ namespace EvangelionERPV2.Web.Logging
             {
                 StatusCodes.Status400BadRequest => "The request was invalid. Please check the input and try again.",
                 StatusCodes.Status401Unauthorized => "The request could not be authorized.",
+                StatusCodes.Status409Conflict => "The request conflicts with the current state of the data.",
+                StatusCodes.Status503ServiceUnavailable => "The service is temporarily unable to accept this request. Please retry shortly.",
                 StatusCodes.Status500InternalServerError => "An internal server error occurred. Please try again later.",
                 _ => "An unexpected error occurred."
             };
@@ -141,6 +175,26 @@ namespace EvangelionERPV2.Web.Logging
         private static string GetSafeExceptionType(Exception? exception)
         {
             return exception?.GetType().Name ?? "UnknownError";
+        }
+
+        /// <summary>
+        /// Type names only (never messages, which can carry user data), walking the inner chain so a
+        /// wrapper like TypeInitializationException still points at what actually failed.
+        /// </summary>
+        private static string GetSafeExceptionChain(Exception? exception)
+        {
+            var segments = new List<string>();
+
+            for (var current = exception; current != null && segments.Count < 5; current = current.InnerException)
+            {
+                var segment = current.GetType().Name;
+                if (current is TypeInitializationException typeInitialization)
+                    segment = $"{segment}({typeInitialization.TypeName})";
+
+                segments.Add(segment);
+            }
+
+            return segments.Count == 0 ? "UnknownError" : string.Join(" -> ", segments);
         }
 
         private static string SanitizeEndpointPath(PathString path)

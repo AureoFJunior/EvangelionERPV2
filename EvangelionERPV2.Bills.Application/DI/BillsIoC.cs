@@ -48,6 +48,7 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 #endregion
 
                 services.Configure<BillsSettings>(configuration.GetSection("BillsSettings"));
+                services.Configure<DunningSettings>(configuration.GetSection("DunningSettings"));
                 #region Repositorys
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<>), typeof(EvangelionERPV2.Shared.Repositories.Repository<>));
                 services.AddTransient(typeof(EvangelionERPV2.Shared.Repositories.IRepository<Bill>), typeof(BillsRepository));
@@ -55,10 +56,27 @@ namespace EvangelionERPV2.BillsModule.Application.DI
                 #endregion
 
                 #region Services
+                services.AddScoped<Func<EmailModule.Application.Interface.IEmailService<EmailStructure>>>(
+                    sp => () => sp.GetRequiredService<EmailModule.Application.Interface.IEmailService<EmailStructure>>());
                 services.AddScoped(typeof(IBillsService<Bill>), typeof(BillsService));
                 services.AddScoped<IPayableBillService, PayableBillService>();
+                services.AddScoped<IPayrollService, PayrollService>();
                 services.AddScoped<IPayableBillReportGeneratorService, PayableBillReportGeneratorService>();
                 services.AddScoped<ICashFlowForecastService, CashFlowForecastService>();
+                services.AddScoped<IBankReconciliationService, BankReconciliationService>();
+                services.AddScoped<IDailyPanelService, DailyPanelService>();
+                services.AddScoped<IReceivablesReportService, ReceivablesReportService>();
+
+                services.AddScoped<ICustomerSummaryService, CustomerSummaryService>();
+                services.AddScoped<IAccountingExportService, AccountingExportService>();
+
+                services.AddScoped<DunningService>();
+
+                services.AddScoped<RecurringPayableService>();
+                services.AddHostedService<DailySweepWorker>();
+
+                services.AddScoped<VacationProvisionDrawdownService>();
+                services.AddScoped<IVacationPayService, VacationPayService>();
                 #endregion
 
                 services.AddScoped(typeof(EvangelionERPV2.Shared.Repositories.IUnitOfWork<AppDbContext>), typeof(EvangelionERPV2.Shared.Repositories.UnitOfWork<AppDbContext>));
@@ -72,4 +90,3 @@ namespace EvangelionERPV2.BillsModule.Application.DI
         }
     }
 }
-

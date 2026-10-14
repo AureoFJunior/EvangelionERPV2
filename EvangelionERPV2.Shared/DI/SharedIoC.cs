@@ -4,7 +4,7 @@ using Serilog;
 using EvangelionERPV2.Shared.Configs;
 using Amazon.SecretsManager;
 using EvangelionERPV2.Shared.Utils;
-
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 
 namespace EvangelionERPV2.OrderModule.Application.DI
 {
@@ -21,6 +21,20 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                     return new AmazonSecretsManagerClient(region);
                 });
                 services.AddSingleton<AWSKMSKeyProvider>();
+                #endregion
+
+                services.AddSingleton<IDistributedLease, RedisLease>();
+
+                services.AddHostedService<ProcessedMessageRetentionWorker>();
+
+                #region Redis
+                services.AddStackExchangeRedisCache(_ => { });
+                services.AddOptions<RedisCacheOptions>()
+                    .Configure<AWSKMSKeyProvider>((options, kmsProvider) =>
+                    {
+                        options.InstanceName = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["InstanceName"] ?? string.Empty);
+                        options.Configuration = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["ConnectionString"] ?? string.Empty);
+                    });
                 #endregion
 
                 services.AddLogging();
@@ -42,7 +56,6 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                     "Error at DI IoC Shared. ErrorType={ErrorType}",
                     ex.GetType().Name);
             }
-
         }
     }
 }

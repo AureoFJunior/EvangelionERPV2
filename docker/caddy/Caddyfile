@@ -1,0 +1,67 @@
+# Production edge. nginx stays the local proxy (port 8082, no TLS); this is the thing that faces
+# the internet on the EC2 instance, and it exists because there is no load balancer to terminate
+# TLS. Caddy rather than nginx + certbot: certificates are obtained and renewed with no cron, no
+# renewal hook and no second container.
+#
+# Requires two variables, both set in .env on the instance:
+#   CADDY_DOMAIN  app.evangelionerp.com
+#   CADDY_EMAIL   the address Let's Encrypt writes to about expiry
+#
+# Ports 80 and 443 must be open in the instance security group. 80 is not redundant: it carries the
+# HTTP-01 challenge, and Caddy uses it to redirect to HTTPS.
+
+{
+	email {$CADDY_EMAIL}
+
+	# Nothing here listens on a port an operator would reach directly; admin off removes the local
+	# API surface entirely rather than leaving it bound to a loopback nobody audits.
+	admin off
+}
+
+{$CADDY_DOMAIN} {
+	encode zstd gzip
+
+	# Same reasoning as the nginx config it mirrors: metrics are scraped over the Docker network on
+	# a port this proxy does not publish. Nothing legitimate arrives here, and leaving the route
+	# open makes one relaxed RBAC policy the whole distance to a public metrics endpoint carrying
+	# enterprise_id labels.
+	handle /metrics {
+		abort
+	}
+
+	# Development-only in the application, so it should not be reachable in production even if the
+	# environment is ever misconfigured.
+	handle /swagger* {
+		abort
+	}
+
+	# SignalR. Caddy proxies WebSocket upgrades without the explicit Upgrade/Connection dance nginx
+	# needs, but the long read timeout still has to be said out loud: these connections idle for
+	# minutes between frames.
+	handle /orderHub* {
+		reverse_proxy evangelionerpv2:8080 {
+			transport http {
+				read_timeout 600s
+				write_timeout 600s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy evangelionerpv2:8080 {
+			# X-Real-IP is what AspNetCoreRateLimit reads to identify a caller. Without it every
+			# request appears to come from the proxy and the per-IP limit becomes a global one -
+			# one noisy client would rate-limit everybody.
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	# No worker or connection tuning here, unlike nginx. That config carried worker_processes auto
+	# and 8192 connections because a single worker with 1024 returned 62,364 502s at ~400 req/s.
+	# Caddy is not worker-per-connection, so there is no equivalent knob to get wrong.
+
+	log {
+		output stdout
+		format console
+	}
+}

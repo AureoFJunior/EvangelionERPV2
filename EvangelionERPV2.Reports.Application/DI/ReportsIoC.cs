@@ -21,12 +21,6 @@ namespace EvangelionERPV2.ReportsModule.Application.DI
                 var kmsProvider = new AWSKMSKeyProvider(secretsManagerClient, configuration);
                 services.AddSingleton(kmsProvider);
 
-                services.AddStackExchangeRedisCache(o =>
-                {
-                    o.InstanceName = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["InstanceName"] ?? string.Empty);
-                    o.Configuration = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["ConnectionString"] ?? string.Empty);
-                });
-
                 services.AddScoped<IReportsService, ReportsService>();
             }
             catch (Exception ex)

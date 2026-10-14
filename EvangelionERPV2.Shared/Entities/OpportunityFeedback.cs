@@ -24,8 +24,8 @@ namespace EvangelionERPV2.Shared.Entities
         public string Status { get; set; } = "ignored";
         public string Comment { get; set; } = string.Empty;
         public string MetadataJson { get; set; } = "{}";
-        public double? RealRevenueImpact { get; set; }
-        public double? RealMarginImpact { get; set; }
-        public double? RealCashImpact { get; set; }
+        public decimal? RealRevenueImpact { get; set; }
+        public decimal? RealMarginImpact { get; set; }
+        public decimal? RealCashImpact { get; set; }
     }
 }

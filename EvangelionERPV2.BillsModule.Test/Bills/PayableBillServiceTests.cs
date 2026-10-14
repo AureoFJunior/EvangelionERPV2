@@ -1,4 +1,6 @@
+using System.Linq.Expressions;
 using EvangelionERPV2.BillsModule.Application.Services;
+using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
@@ -40,7 +42,7 @@ namespace EvangelionERPV2.BillsModule.Test
                     {
                         ProductId = product.Id,
                         Quantity = 2,
-                        UnitValue = 12.5,
+                        UnitValue = 12.5m,
                         UnitOfMeasure = "Box"
                     }
                 ]
@@ -52,7 +54,7 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(3, result.BillType);
             Assert.Single(payableItems);
             Assert.Equal("Unit", payableItems[0].UnitOfMeasure);
-            productRepo.Verify(x => x.GetAllAsync(It.IsAny<Func<Product, bool>?>()), Times.AtLeastOnce);
+            productRepo.Verify(x => x.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>?>()), Times.AtLeastOnce);
             payableBillRepo.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
             payableBillProductRepo.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
         }
@@ -130,7 +132,7 @@ namespace EvangelionERPV2.BillsModule.Test
                         {
                             ProductId = product.Id,
                             Quantity = 2,
-                            UnitValue = 12.5,
+                            UnitValue = 12.5m,
                             UnitOfMeasure = "Box"
                         }
                     ]
@@ -526,6 +528,250 @@ namespace EvangelionERPV2.BillsModule.Test
         }
 
         [Fact]
+        public async Task GetByEnterpriseIdAsync_WithPeriod_ShouldReturnMonthBillsAndUnpaidCarryover()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var dueInJuly = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "July rent",
+                DueDate = new DateTime(2026, 7, 5, 0, 0, 0, DateTimeKind.Utc),
+                IsActive = true
+            };
+
+            var unpaidFromJune = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "June power, still unpaid",
+                DueDate = new DateTime(2026, 6, 15, 0, 0, 0, DateTimeKind.Utc),
+                IsPaid = false,
+                IsActive = true
+            };
+
+            var paidInJune = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "June rent, paid",
+                DueDate = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
+                IsPaid = true,
+                PaidAt = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
+                IsActive = true
+            };
+
+            var dueInAugust = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "August rent",
+                DueDate = new DateTime(2026, 8, 5, 0, 0, 0, DateTimeKind.Utc),
+                IsActive = true
+            };
+
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [dueInJuly, unpaidFromJune, paidInJune, dueInAugust]);
+
+            var julyView = (await service.GetByEnterpriseIdAsync(enterpriseId, year: 2026, month: 7)).ToList();
+
+            Assert.Equal(2, julyView.Count);
+            Assert.Contains(julyView, x => x.Id == dueInJuly.Id);
+            Assert.Contains(julyView, x => x.Id == unpaidFromJune.Id);
+
+            var juneView = (await service.GetByEnterpriseIdAsync(enterpriseId, year: 2026, month: 6)).ToList();
+            Assert.Equal(2, juneView.Count);
+            Assert.DoesNotContain(juneView, x => x.Id == dueInAugust.Id);
+        }
+
+        [Fact]
+        public async Task GetByEnterpriseIdAsync_WithPeriod_ShouldBoundCarryoverToTwelveMonths()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var withinWindow = BuildPeriodBill(enterpriseId, "Unpaid 11 months ago", new DateTime(2025, 8, 10, 0, 0, 0, DateTimeKind.Utc));
+            var onWindowEdge = BuildPeriodBill(enterpriseId, "Unpaid 12 months ago", new DateTime(2025, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+            var outsideWindow = BuildPeriodBill(enterpriseId, "Unpaid 13 months ago", new DateTime(2025, 6, 30, 0, 0, 0, DateTimeKind.Utc));
+
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [withinWindow, onWindowEdge, outsideWindow]);
+
+            var julyView = (await service.GetByEnterpriseIdAsync(enterpriseId, year: 2026, month: 7)).ToList();
+
+            Assert.Equal(2, julyView.Count);
+            Assert.Contains(julyView, x => x.Id == withinWindow.Id);
+            Assert.Contains(julyView, x => x.Id == onWindowEdge.Id);
+            Assert.DoesNotContain(julyView, x => x.Id == outsideWindow.Id);
+        }
+
+        [Fact]
+        public async Task GetByEnterpriseIdAsync_ShouldOrderByDueDateSoTheFirstPageIsTheOldestBills()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var last = BuildPeriodBill(enterpriseId, "Due last", new DateTime(2026, 7, 28, 0, 0, 0, DateTimeKind.Utc));
+            var first = BuildPeriodBill(enterpriseId, "Due first", new DateTime(2026, 7, 2, 0, 0, 0, DateTimeKind.Utc));
+            var middle = BuildPeriodBill(enterpriseId, "Due in between", new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc));
+
+            var (_, _, _, _, _, service, _) = BuildSut(payableBills: [last, first, middle]);
+
+            var page = (await service.GetByEnterpriseIdAsync(enterpriseId, pageNumber: 1, pageSize: 2, year: 2026, month: 7)).ToList();
+
+            Assert.Equal([first.Id, middle.Id], page.Select(x => x.Id).ToArray());
+        }
+
+        [Fact]
+        public async Task GetByEnterpriseIdAsync_WithoutPayrollAccess_ShouldFilterPayrollBillsBeforePaging()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var payrollBills = Enumerable.Range(1, 3)
+                .Select(day => new PayableBill
+                {
+                    Id = Guid.NewGuid(),
+                    EnterpriseId = enterpriseId,
+                    Description = $"Folha {day}",
+                    BillType = (int)EnumPayableBillType.Payroll,
+                    DueDate = new DateTime(2026, 7, day, 0, 0, 0, DateTimeKind.Utc),
+                    IsActive = true
+                })
+                .ToList();
+
+            var rent = BuildPeriodBill(enterpriseId, "July rent", new DateTime(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc));
+
+            var (_, _, _, _, _, service, _) = BuildSut(payableBills: [.. payrollBills, rent]);
+
+            var page = (await service.GetByEnterpriseIdAsync(
+                enterpriseId,
+                pageNumber: 1,
+                pageSize: 3,
+                year: 2026,
+                month: 7,
+                includePayroll: false)).ToList();
+
+            var bill = Assert.Single(page);
+            Assert.Equal(rent.Id, bill.Id);
+        }
+
+        private static StockMovement BuildSaleMovement(Guid enterpriseId, Guid productId, DateTime soldAt, decimal quantity)
+        {
+            return new StockMovement
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                ProductId = productId,
+                Quantity = -quantity,
+                Type = (int)EnumStockMovementType.Sale,
+                CreatedAt = soldAt,
+                IsActive = true
+            };
+        }
+
+        #region Period lock
+
+        private static readonly DateTime ClosedThrough = new(2026, 3, 31, 0, 0, 0, DateTimeKind.Utc);
+
+        [Fact]
+        public async Task CreateAsync_IntoAClosedMonth_IsRefused()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var (_, _, _, _, _, service, _) = BuildSut(enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            var bill = BuildPeriodBill(enterpriseId, "Rent", new DateTime(2026, 3, 10));
+
+            await Assert.ThrowsAsync<PeriodClosedException>(() => service.CreateAsync(bill));
+        }
+
+        [Fact]
+        public async Task CreateAsync_AfterTheLock_StillWorks()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var (payableBillRepo, _, _, _, _, service, _) = BuildSut(enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            var bill = BuildPeriodBill(enterpriseId, "Rent", new DateTime(2026, 4, 1));
+            bill.Amount = 1500;
+
+            await service.CreateAsync(bill);
+
+            payableBillRepo.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task UpdateAsync_OfABillInAClosedMonth_IsRefused()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var existing = BuildPeriodBill(enterpriseId, "Rent", new DateTime(2026, 3, 10));
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [existing], enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            var edit = new PayableBill
+            {
+                Id = existing.Id,
+                EnterpriseId = enterpriseId,
+                Description = "Rent (corrected)",
+                DueDate = existing.DueDate,
+                Amount = 1600
+            };
+
+            await Assert.ThrowsAsync<PeriodClosedException>(() => service.UpdateAsync(edit, enterpriseId));
+        }
+
+        [Fact]
+        public async Task UpdateAsync_MovingAnOpenBillIntoAClosedMonth_IsRefused()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var existing = BuildPeriodBill(enterpriseId, "Rent", new DateTime(2026, 4, 10));
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [existing], enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            var edit = new PayableBill
+            {
+                Id = existing.Id,
+                EnterpriseId = enterpriseId,
+                Description = "Rent",
+                DueDate = new DateTime(2026, 3, 10),
+                Amount = 1500
+            };
+
+            await Assert.ThrowsAsync<PeriodClosedException>(() => service.UpdateAsync(edit, enterpriseId));
+        }
+
+        [Fact]
+        public async Task RefundAsync_OfABillInAClosedMonth_IsRefused()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var existing = BuildPeriodBill(enterpriseId, "Supplier", new DateTime(2026, 3, 10));
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [existing], enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            await Assert.ThrowsAsync<PeriodClosedException>(
+                () => service.RefundAsync(existing.Id, enterpriseId, "Wrong invoice"));
+        }
+
+        [Fact]
+        public async Task DeleteAsync_OfABillInAClosedMonth_IsRefused()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var existing = BuildPeriodBill(enterpriseId, "Supplier", new DateTime(2026, 3, 10));
+            var (_, _, _, _, _, service, _) = BuildSut(
+                payableBills: [existing], enterpriseId: enterpriseId, closedThroughUtc: ClosedThrough);
+
+            await Assert.ThrowsAsync<PeriodClosedException>(() => service.DeleteAsync(existing.Id, enterpriseId));
+        }
+
+        #endregion
+
+        private static PayableBill BuildPeriodBill(Guid enterpriseId, string description, DateTime dueDate)
+        {
+            return new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = description,
+                DueDate = dueDate,
+                IsPaid = false,
+                IsActive = true
+            };
+        }
+
+        [Fact]
         public async Task GetReplenishmentSuggestions_ShouldInferCoverageAndSortByCriticality()
         {
             var enterpriseId = Guid.NewGuid();
@@ -563,30 +809,21 @@ namespace EvangelionERPV2.BillsModule.Test
                 IsActive = true
             };
 
-            var orders = new List<Order>
-            {
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-40), IsActive = true, Status = (int)EnumOrderStatus.Paid },
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-30), IsActive = true, Status = (int)EnumOrderStatus.Shipped },
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-20), IsActive = true, Status = (int)EnumOrderStatus.Delivered },
-                new() { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, CreatedAt = now.AddDays(-10), IsActive = true, Status = (int)EnumOrderStatus.Finished },
-            };
+            var saleDates = new[] { now.AddDays(-40), now.AddDays(-30), now.AddDays(-20), now.AddDays(-10) };
 
-            var orderedProducts = new List<OrderedProduct>();
-            foreach (var order in orders)
+            var stockMovements = new List<StockMovement>();
+            foreach (var saleDate in saleDates)
             {
-                orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = order.Id, ProductId = productHigh.Id, Quantity = 10, Value = 10 });
-                orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = order.Id, ProductId = productMedium.Id, Quantity = 10, Value = 10 });
-                orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = order.Id, ProductId = productLow.Id, Quantity = 10, Value = 10 });
+                stockMovements.Add(BuildSaleMovement(enterpriseId, productHigh.Id, saleDate, 10));
+                stockMovements.Add(BuildSaleMovement(enterpriseId, productMedium.Id, saleDate, 10));
+                stockMovements.Add(BuildSaleMovement(enterpriseId, productLow.Id, saleDate, 10));
             }
 
-            // Insufficient history: only 3 orders => 2 intervals
-            orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = orders[0].Id, ProductId = productNoHistory.Id, Quantity = 2, Value = 3 });
-            orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = orders[1].Id, ProductId = productNoHistory.Id, Quantity = 2, Value = 3 });
-            orderedProducts.Add(new OrderedProduct { Id = Guid.NewGuid(), IsActive = true, OrderId = orders[2].Id, ProductId = productNoHistory.Id, Quantity = 2, Value = 3 });
+            foreach (var saleDate in saleDates.Take(3))
+                stockMovements.Add(BuildSaleMovement(enterpriseId, productNoHistory.Id, saleDate, 2));
 
             var (_, _, _, _, _, service, _) = BuildSut(
-                orders: orders,
-                orderedProducts: orderedProducts,
+                stockMovements: stockMovements,
                 products: [productHigh, productMedium, productLow, productNoHistory]);
 
             var suggestions = (await service.GetReplenishmentSuggestionsAsync(
@@ -638,26 +875,208 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Empty(suggestions);
         }
 
+        [Fact]
+        public async Task MarkProductsReceived_ShouldWriteReceiptMovement_PerItem()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var cable = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Cable",
+                StorageQuantity = 5,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+            var mouse = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Mouse",
+                StorageQuantity = 0,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "IT purchase",
+                IsActive = true
+            };
+
+            var items = new List<PayableBillProduct>
+            {
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    PayableBillId = bill.Id,
+                    ProductId = cable.Id,
+                    Quantity = 7,
+                    UnitValue = 10,
+                    LineAmount = 70,
+                    UnitOfMeasure = cable.UnitOfMeasure,
+                    IsActive = true
+                },
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    PayableBillId = bill.Id,
+                    ProductId = mouse.Id,
+                    Quantity = 3,
+                    UnitValue = 20,
+                    LineAmount = 60,
+                    UnitOfMeasure = mouse.UnitOfMeasure,
+                    IsActive = true
+                }
+            };
+
+            var (_, _, _, _, movements, service, _) = BuildSut(
+                payableBills: [bill],
+                payableItems: items,
+                products: [cable, mouse]);
+
+            await service.MarkProductsReceivedAsync(bill.Id, enterpriseId);
+
+            Assert.Equal(2, movements.Count);
+            Assert.All(movements, movement =>
+            {
+                Assert.Equal((int)EnumStockMovementType.Receipt, movement.Type);
+                Assert.Equal(bill.Id, movement.ReferenceId);
+                Assert.Equal(enterpriseId, movement.EnterpriseId);
+                Assert.True(movement.Quantity > 0);
+            });
+
+            var cableMovement = movements.Single(x => x.ProductId == cable.Id);
+            Assert.Equal(7, cableMovement.Quantity);
+            Assert.Equal(12, cableMovement.BalanceAfter);
+        }
+
+        [Fact]
+        public async Task RefundAsync_WithReceivedProducts_ShouldWriteAdjustmentMovement_NotNegativeReceipt()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Keyboard",
+                StorageQuantity = 4,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "Wrong model",
+                Amount = 100,
+                ProductsReceivedAt = DateTime.UtcNow.AddDays(-1),
+                IsActive = true
+            };
+
+            var item = new PayableBillProduct
+            {
+                Id = Guid.NewGuid(),
+                PayableBillId = bill.Id,
+                ProductId = product.Id,
+                Quantity = 4,
+                UnitValue = 25,
+                LineAmount = 100,
+                UnitOfMeasure = product.UnitOfMeasure,
+                IsActive = true
+            };
+
+            var (_, _, _, _, movements, service, _) = BuildSut(
+                payableBills: [bill],
+                payableItems: [item],
+                products: [product]);
+
+            await service.RefundAsync(bill.Id, enterpriseId, "Supplier shipped wrong model");
+
+            var movement = Assert.Single(movements);
+            Assert.Equal((int)EnumStockMovementType.Adjustment, movement.Type);
+            Assert.Equal(-4, movement.Quantity);
+            Assert.Equal(0, movement.BalanceAfter);
+            Assert.Equal(bill.Id, movement.ReferenceId);
+            Assert.Equal(0, product.StorageQuantity);
+        }
+
+        /// <summary>
+        /// M14 behaviour change: the reversal used to clamp at zero and carry on. The shared
+        /// ledger entry point refuses instead, because a balance that cannot go below zero is the
+        /// invariant the whole ledger rests on.
+        /// </summary>
+        [Fact]
+        public async Task RefundAsync_WhenReceivedStockAlreadyLeft_ShouldThrowInsteadOfClampingToZero()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Name = "Monitor",
+                StorageQuantity = 1,
+                UnitOfMeasure = "Unit",
+                IsActive = true
+            };
+
+            var bill = new PayableBill
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = enterpriseId,
+                Description = "Monitors",
+                Amount = 900,
+                ProductsReceivedAt = DateTime.UtcNow.AddDays(-2),
+                IsActive = true
+            };
+
+            var item = new PayableBillProduct
+            {
+                Id = Guid.NewGuid(),
+                PayableBillId = bill.Id,
+                ProductId = product.Id,
+                Quantity = 3,
+                UnitValue = 300,
+                LineAmount = 900,
+                UnitOfMeasure = product.UnitOfMeasure,
+                IsActive = true
+            };
+
+            var (_, _, _, _, movements, service, _) = BuildSut(
+                payableBills: [bill],
+                payableItems: [item],
+                products: [product]);
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(
+                () => service.RefundAsync(bill.Id, enterpriseId, "Returning to supplier"));
+
+            Assert.Empty(movements);
+            Assert.Equal(1, product.StorageQuantity);
+        }
+
         private static (
             Mock<IRepository<PayableBill>> payableBillRepo,
             Mock<IRepository<PayableBillProduct>> payableBillProductRepo,
             Mock<IRepository<Product>> productRepo,
-            Mock<IRepository<Order>> orderRepo,
-            Mock<IRepository<OrderedProduct>> orderedProductRepo,
+            Mock<IProductService<Product>> productService,
+            List<StockMovement> movements,
             PayableBillService service,
             List<PayableBillProduct> payableItemsStore)
             BuildSut(
                 List<PayableBill>? payableBills = null,
                 List<PayableBillProduct>? payableItems = null,
                 List<Product>? products = null,
-                List<Order>? orders = null,
-                List<OrderedProduct>? orderedProducts = null)
+                List<StockMovement>? stockMovements = null,
+                Guid? enterpriseId = null,
+                DateTime? closedThroughUtc = null)
         {
             var payableBillStore = payableBills ?? [];
             var payableItemsStore = payableItems ?? [];
             var productStore = products ?? [];
-            var orderStore = orders ?? [];
-            var orderedProductStore = orderedProducts ?? [];
+            var stockMovementStore = stockMovements ?? [];
 
             var payableBillRepo = CreateRepositoryMock(payableBillStore);
             var payableBillProductRepo = CreateRepositoryMock(payableItemsStore);
@@ -666,27 +1085,71 @@ namespace EvangelionERPV2.BillsModule.Test
             {
                 new()
                 {
-                    Id = payableBillStore.FirstOrDefault()?.EnterpriseId
+                    Id = enterpriseId
+                         ?? payableBillStore.FirstOrDefault()?.EnterpriseId
                          ?? productStore.FirstOrDefault()?.EnterpriseId
-                         ?? orderStore.FirstOrDefault()?.EnterpriseId
                          ?? Guid.NewGuid(),
                     Name = "Enterprise",
                     IsActive = true,
-                    CurrentBalance = 0
+                    CurrentBalance = 0,
+                    ClosedThroughUtc = closedThroughUtc
                 }
             });
-            var orderRepo = CreateRepositoryMock(orderStore, throwsWhenEmpty: true);
-            var orderedProductRepo = CreateRepositoryMock(orderedProductStore, throwsWhenEmpty: true);
+            var stockMovementRepo = CreateRepositoryMock(stockMovementStore, throwsWhenEmpty: true);
+            var productService = CreateStockLedgerMock(productStore, stockMovementStore);
 
             var service = new PayableBillService(
                 payableBillRepo.Object,
                 payableBillProductRepo.Object,
                 productRepo.Object,
                 enterpriseRepo.Object,
-                orderRepo.Object,
-                orderedProductRepo.Object);
+                stockMovementRepo.Object,
+                productService.Object);
 
-            return (payableBillRepo, payableBillProductRepo, productRepo, orderRepo, orderedProductRepo, service, payableItemsStore);
+            return (payableBillRepo, payableBillProductRepo, productRepo, productService, stockMovementStore, service, payableItemsStore);
+        }
+
+        private static Mock<IProductService<Product>> CreateStockLedgerMock(
+            List<Product> products,
+            List<StockMovement> movements)
+        {
+            var service = new Mock<IProductService<Product>>();
+
+            service
+                .Setup(x => x.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid enterpriseId, decimal delta, EnumStockMovementType type, Guid? referenceId, bool allowNegative) =>
+                {
+                    var product = products.FirstOrDefault(x =>
+                        x.Id == productId && x.EnterpriseId == enterpriseId && x.IsActive == true);
+
+                    if (product == null || (product.StorageQuantity + delta < 0 && !allowNegative))
+                        throw new InsertDatabaseException(delta < 0
+                            ? $"Insufficient stock for product [{productId}]."
+                            : $"Product [{productId}] was not found.");
+
+                    product.StorageQuantity += delta;
+                    product.UpdatedAt = DateTime.UtcNow;
+
+                    var movement = new StockMovement
+                    {
+                        Id = Guid.NewGuid(),
+                        ProductId = productId,
+                        EnterpriseId = enterpriseId,
+                        Quantity = delta,
+                        BalanceAfter = product.StorageQuantity,
+                        Type = (int)type,
+                        ReferenceId = referenceId,
+                        CreatedAt = DateTime.UtcNow,
+                        IsActive = true
+                    };
+
+                    movements.Add(movement);
+                    return movement;
+                });
+
+            return service;
         }
 
         private static Mock<IRepository<TEntity>> CreateRepositoryMock<TEntity>(List<TEntity> records, bool throwsWhenEmpty = false)
@@ -697,12 +1160,12 @@ namespace EvangelionERPV2.BillsModule.Test
             repo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>()))
                 .ReturnsAsync((Guid id) => records.FirstOrDefault(entity => entity.Id == id)!);
 
-            repo.Setup(x => x.GetAllAsync(It.IsAny<Func<TEntity, bool>?>()))
-                .ReturnsAsync((Func<TEntity, bool>? predicate) =>
+            repo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<TEntity, bool>>?>()))
+                .ReturnsAsync((Expression<Func<TEntity, bool>>? predicate) =>
                 {
                     IEnumerable<TEntity> query = records;
                     if (predicate != null)
-                        query = query.Where(predicate);
+                        query = query.Where(predicate.Compile());
 
                     var result = query.ToList();
                     if (throwsWhenEmpty && result.Count == 0)
@@ -711,12 +1174,51 @@ namespace EvangelionERPV2.BillsModule.Test
                     return result;
                 });
 
-            repo.Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<TEntity, bool>?>()))
-                .ReturnsAsync((int? pageNumber, int? pageSize, Func<TEntity, bool>? predicate) =>
+            repo.Setup(x => x.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<TEntity, bool>>?>()))
+                .ReturnsAsync((int? pageNumber, int? pageSize, Expression<Func<TEntity, bool>>? predicate) =>
                 {
                     IEnumerable<TEntity> query = records;
                     if (predicate != null)
-                        query = query.Where(predicate);
+                        query = query.Where(predicate.Compile());
+
+                    if (pageNumber.HasValue && pageSize.HasValue && pageNumber.Value > 0 && pageSize.Value > 0)
+                    {
+                        query = query
+                            .Skip((pageNumber.Value - 1) * pageSize.Value)
+                            .Take(pageSize.Value);
+                    }
+
+                    var result = query.ToList();
+                    if (throwsWhenEmpty && result.Count == 0)
+                        throw new NotFoundDatabaseException();
+
+                    return result;
+                });
+
+            repo.Setup(x => x.GetAllAsyncByFilter(
+                    It.IsAny<bool>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<int?>(),
+                    It.IsAny<Expression<Func<TEntity, bool>>?>(),
+                    It.IsAny<Expression<Func<TEntity, object>>?>()))
+                .ReturnsAsync((
+                    bool descending,
+                    int? pageNumber,
+                    int? pageSize,
+                    Expression<Func<TEntity, bool>>? predicate,
+                    Expression<Func<TEntity, object>>? orderBy) =>
+                {
+                    IEnumerable<TEntity> query = records;
+                    if (predicate != null)
+                        query = query.Where(predicate.Compile());
+
+                    if (orderBy != null)
+                    {
+                        var keySelector = orderBy.Compile();
+                        query = descending
+                            ? query.OrderByDescending(keySelector)
+                            : query.OrderBy(keySelector);
+                    }
 
                     if (pageNumber.HasValue && pageSize.HasValue && pageNumber.Value > 0 && pageSize.Value > 0)
                     {

@@ -1,11 +1,15 @@
+using EvangelionERPV2.Web.FluentValidator;
+using System.Linq.Expressions;
 using AutoMapper;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using EvangelionERPV2.Web.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
@@ -38,8 +42,8 @@ namespace EvangelionERPV2.Test.Security
                 });
 
             productRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Product, bool>>()))
-                .Callback<int?, int?, Func<Product, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Product, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -78,8 +82,8 @@ namespace EvangelionERPV2.Test.Security
                 });
 
             productRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Product, bool>>()))
-                .Callback<int?, int?, Func<Product, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Product, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -123,8 +127,8 @@ namespace EvangelionERPV2.Test.Security
                 });
 
             productRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Product, bool>>()))
-                .Callback<int?, int?, Func<Product, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Product, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -170,6 +174,13 @@ namespace EvangelionERPV2.Test.Security
                 });
 
             productService
+                .Setup(s => s.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
+                    new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
+
+            productService
                 .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
                 .Callback<ProductPicture>(payload => capturedPayload = payload)
                 .ReturnsAsync((ProductPicture payload) =>
@@ -212,6 +223,13 @@ namespace EvangelionERPV2.Test.Security
             userRepository
                 .Setup(r => r.GetByIdAsync(callerId))
                 .ThrowsAsync(new NotFoundDatabaseException());
+
+            productService
+                .Setup(s => s.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
+                    new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
 
             productService
                 .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
@@ -264,6 +282,13 @@ namespace EvangelionERPV2.Test.Security
                 });
 
             productService
+                .Setup(s => s.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
+                    new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
+
+            productService
                 .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
                 .Callback<ProductPicture>(payload => capturedPayload = payload)
                 .ReturnsAsync((ProductPicture payload) =>
@@ -299,6 +324,49 @@ namespace EvangelionERPV2.Test.Security
             productService.Verify(s => s.CreateAsync(It.IsAny<ProductPicture>()), Times.Once);
         }
 
+        /// <summary>
+        /// The Products screen completes a variant family that paging cut in two by asking for its
+        /// groups by id — still only inside the caller's enterprise.
+        /// </summary>
+        [Fact]
+        public async Task GetProductsByFilter_WithVariantGroupIds_KeepsOnlyThoseGroupsOfTheCallersEnterprise()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var callerId = Guid.NewGuid();
+            var wanted = Guid.NewGuid();
+            var productRepository = new Mock<IRepository<Product>>(MockBehavior.Strict);
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
+            var productService = new Mock<IProductService<Product>>(MockBehavior.Strict);
+            Expression<Func<Product, bool>>? predicate = null;
+
+            userRepository
+                .Setup(r => r.GetByIdAsync(callerId))
+                .ReturnsAsync(new User { Id = callerId, EnterpriseId = enterpriseId, IsActive = true });
+            productRepository
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Product, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Product, bool>>?>((_, _, filter) => predicate = filter)
+                .ReturnsAsync([CreateProduct(enterpriseId)]);
+
+            var controller = CreateController(productService.Object, productRepository.Object, userRepository.Object, CreateMapper().Object, enterpriseId, callerId);
+            await controller.GetProductsByFilter(
+                new ProductFilterRequestDTO { IsActive = true, VariantGroupIds = [wanted] }, descending: false, pageNumber: 1, pageSize: 50, includePictures: false);
+
+            var matches = predicate!.Compile();
+            Assert.True(matches(new Product { EnterpriseId = enterpriseId, IsActive = true, Name = "Camiseta", VariantGroupId = wanted }));
+            Assert.False(matches(new Product { EnterpriseId = enterpriseId, IsActive = true, Name = "Camiseta", VariantGroupId = Guid.NewGuid() }));
+            Assert.False(matches(new Product { EnterpriseId = enterpriseId, IsActive = true, Name = "Caneca" }));
+            Assert.False(matches(new Product { EnterpriseId = Guid.NewGuid(), IsActive = true, Name = "Camiseta", VariantGroupId = wanted }));
+            Assert.False(matches(new Product { EnterpriseId = enterpriseId, IsActive = false, Name = "Camiseta", VariantGroupId = wanted }));
+        }
+
+        [Fact]
+        public void ProductFilter_TakesAtMostFiftyVariantGroups()
+        {
+            var validator = new ProductFilterRequestValidator();
+            Assert.True(validator.Validate(new ProductFilterRequestDTO { VariantGroupIds = Enumerable.Range(0, 50).Select(_ => Guid.NewGuid()).ToList() }).IsValid);
+            Assert.False(validator.Validate(new ProductFilterRequestDTO { VariantGroupIds = Enumerable.Range(0, 51).Select(_ => Guid.NewGuid()).ToList() }).IsValid);
+        }
+
         private static Mock<IMapper> CreateMapper()
         {
             var mapper = new Mock<IMapper>(MockBehavior.Strict);
@@ -321,7 +389,7 @@ namespace EvangelionERPV2.Test.Security
             Guid enterpriseId,
             Guid callerId)
         {
-            var controller = new ProductController(productService, productRepository, userRepository, mapper);
+            var controller = new ProductController(productService, productRepository, userRepository, mapper, Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())));
             var claims = new ClaimsPrincipal(new ClaimsIdentity(
             [
                 new Claim(ClaimTypes.GroupSid, enterpriseId.ToString())
@@ -349,6 +417,59 @@ namespace EvangelionERPV2.Test.Security
                 EnterpriseId = enterpriseId,
                 IsActive = true
             };
+        }
+
+        [Fact]
+        public async Task AddProduct_PassesTheOpeningCountToTheAtomicCreate()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var callerId = Guid.NewGuid();
+            var productRepository = new Mock<IRepository<Product>>(MockBehavior.Strict);
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
+            var productService = new Mock<IProductService<Product>>(MockBehavior.Strict);
+            var mapper = CreateMapper();
+            decimal? quantityAtPersist = null;
+
+            userRepository
+                .Setup(r => r.GetByIdAsync(callerId))
+                .ReturnsAsync(new User { Id = callerId, EnterpriseId = enterpriseId, IsActive = true });
+
+            productService
+                .Setup(s => s.ApplyStockMovementAsync(
+                    It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                    It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
+                .ReturnsAsync((Guid productId, Guid _, decimal delta, EnumStockMovementType type, Guid? _, bool _) =>
+                    new StockMovement { ProductId = productId, Quantity = delta, BalanceAfter = delta, Type = (int)type });
+
+            productService
+                .Setup(s => s.CreateAsync(It.IsAny<ProductPicture>()))
+                .Callback<ProductPicture>(payload => quantityAtPersist = payload.Product.StorageQuantity)
+                .ReturnsAsync((ProductPicture payload) =>
+                {
+                    payload.Product.Id = Guid.NewGuid();
+                    return payload.Product;
+                });
+
+            var controller = CreateController(
+                productService.Object, productRepository.Object, userRepository.Object, mapper.Object, enterpriseId, callerId);
+
+            var result = await controller.AddProduct(new CreateProductRequestDTO
+            {
+                Name = "Opening stock product",
+                Description = "Description",
+                DefaultValue = 10,
+                StorageQuantity = 12,
+                UnitOfMeasure = "unit",
+                IsExternal = false,
+                IsService = false,
+                File = "base64-placeholder"
+            });
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.Equal(12, quantityAtPersist);
+            productService.Verify(s => s.ApplyStockMovementAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<decimal>(),
+                It.IsAny<EnumStockMovementType>(), It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Never);
         }
     }
 }

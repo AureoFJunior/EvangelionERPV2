@@ -136,7 +136,7 @@ namespace EvangelionERPV2.Test.Security
                     .ReturnsAsync(false);
             }
 
-            var controller = new EmailController(emailService.Object, userRepositoryMock.Object, mapper);
+            var controller = new EmailController(emailService.Object);
 
             if (!withAdminClaims)
                 return controller;

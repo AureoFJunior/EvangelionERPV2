@@ -1,9 +1,12 @@
+using System.Linq.Expressions;
 using AutoMapper;
 using EvangelionERPV2.CustomerModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.BillsModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
@@ -25,8 +28,8 @@ namespace EvangelionERPV2.Test.Security
             int? capturedPageSize = null;
 
             customerRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Customer, bool>>()))
-                .Callback<int?, int?, Func<Customer, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Customer, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Customer, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -59,8 +62,8 @@ namespace EvangelionERPV2.Test.Security
             int? capturedPageSize = null;
 
             customerRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Customer, bool>>()))
-                .Callback<int?, int?, Func<Customer, bool>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Customer, bool>>>()))
+                .Callback<int?, int?, Expression<Func<Customer, bool>>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -107,7 +110,7 @@ namespace EvangelionERPV2.Test.Security
             IMapper mapper,
             Guid enterpriseId)
         {
-            var controller = new CustomerController(customerService, customerRepository, userRepository, mapper);
+            var controller = new CustomerController(customerService, customerRepository, userRepository, new Mock<ICustomerSummaryService>().Object, new Mock<ICustomerLocationService>().Object, Mock.Of<IAuthorizationService>(x => x.AuthorizeAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<object>(), It.IsAny<string>()) == Task.FromResult(AuthorizationResult.Failed())), mapper);
 
             var claims = new ClaimsPrincipal(new ClaimsIdentity(
             [

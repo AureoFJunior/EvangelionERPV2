@@ -1,4 +1,4 @@
-﻿using Amazon;
+using Amazon;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Configuration;
@@ -17,6 +17,13 @@ namespace EvangelionERPV2.Shared.Utils
 {
     public static class SharedFunctions
     {
+        /// <summary>
+        /// A bound on backtracking, not a performance knob. Several of these patterns run over a
+        /// value a caller chose — an e-mail, a storage key — and a regex with no ceiling turns a
+        /// long non-matching input into CPU the request never gives back.
+        /// </summary>
+        private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
+
         private static readonly HttpClient _httpClient;
         private static IConfiguration _configuration = null!;
         private static string _defaultApiUrl = string.Empty;
@@ -256,6 +263,15 @@ namespace EvangelionERPV2.Shared.Utils
             return GetProductBucketName(configuration);
         }
 
+        public static string GetEmployeeBucketName(IConfiguration configuration)
+        {
+            var employeeBucket = GetAWSSetting(configuration, "BucketEmployeeName");
+            if (!string.IsNullOrWhiteSpace(employeeBucket))
+                return employeeBucket;
+
+            return GetUserBucketName(configuration);
+        }
+
         public static RegionEndpoint GetAWSRegion(IConfiguration configuration)
         {
             var configuredRegion = GetAWSSetting(configuration, "Region");
@@ -278,7 +294,8 @@ namespace EvangelionERPV2.Shared.Utils
                 (prefix ?? string.Empty).Trim().ToLowerInvariant(),
                 "[^a-z0-9/_-]+",
                 string.Empty,
-                RegexOptions.CultureInvariant)
+                RegexOptions.CultureInvariant,
+                RegexTimeout)
                 .Trim('/');
 
             if (string.IsNullOrWhiteSpace(normalizedPrefix))
@@ -377,7 +394,7 @@ namespace EvangelionERPV2.Shared.Utils
 
             if (response.IsSuccessStatusCode)
             {
-                var content = await response.Content.ReadAsStringAsync();
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
                 return JsonSerializer.Deserialize<T>(content, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
@@ -406,7 +423,7 @@ namespace EvangelionERPV2.Shared.Utils
             var response = await _httpClient.SendAsync(request, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
-                var responseContent = await response.Content.ReadAsStringAsync();
+                var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 return JsonSerializer.Deserialize<T>(responseContent, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
@@ -456,8 +473,7 @@ namespace EvangelionERPV2.Shared.Utils
         {
             string pattern = @"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$";
 
-            // Use Regex.IsMatch to check if the email matches the pattern
-            return Regex.IsMatch(email, pattern);
+            return Regex.IsMatch(email, pattern, RegexOptions.None, RegexTimeout);
         }
 
         #endregion
@@ -509,7 +525,11 @@ namespace EvangelionERPV2.Shared.Utils
         private const int PasswordSaltSize = 16;
         private const int PasswordKeySize = 32;
         private const int PasswordIterations = 100_000;
+        // S2068: a prefix written into the stored hash so a verifier can tell the format apart.
+        // It is the algorithm's name, not a credential.
+#pragma warning disable S2068
         private const string PasswordHashPrefix = "PBKDF2";
+#pragma warning restore S2068
 
         public static string Encrypt(string value)
         {
@@ -539,9 +559,7 @@ namespace EvangelionERPV2.Shared.Utils
                             Buffer.BlockCopy(iv, 0, result, 0, iv.Length);
                             Buffer.BlockCopy(decryptedContent, 0, result, iv.Length, decryptedContent.Length);
 
-                            var str = Convert.ToBase64String(result);
-                            var fullCipher = Convert.FromBase64String(str);
-                            return str;
+                            return Convert.ToBase64String(result);
                         }
                     }
                 }
@@ -680,7 +698,7 @@ namespace EvangelionERPV2.Shared.Utils
 
         public static string ClearString(this string source)
         {
-            return Regex.Replace(source, "[^0-9a-zA-Z]+", "");
+            return Regex.Replace(source, "[^0-9a-zA-Z]+", "", RegexOptions.None, RegexTimeout);
         }
 
         #endregion
@@ -717,7 +735,7 @@ namespace EvangelionERPV2.Shared.Utils
             {
                 var responseStream = new MemoryStream();
                 await response.ResponseStream.CopyToAsync(responseStream);
-                responseStream.Position = 0;  // Reset the stream position to the beginning
+                responseStream.Position = 0;
                 return responseStream;
             }
         }
@@ -736,7 +754,6 @@ namespace EvangelionERPV2.Shared.Utils
             await _s3Client.DeleteObjectAsync(deleteRequest);
         }
 
-
         public static async Task DeleteItemIfExistsAsync(this IAmazonS3 _s3Client, string bucketName, string? encryptedOrPlainKey)
         {
             if (string.IsNullOrWhiteSpace(bucketName))
@@ -752,7 +769,6 @@ namespace EvangelionERPV2.Shared.Utils
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound || ex.StatusCode == HttpStatusCode.BadRequest)
             {
-                // Ignore not found/legacy key formats so replace flows can continue.
             }
         }
 
@@ -794,7 +810,8 @@ namespace EvangelionERPV2.Shared.Utils
                 return false;
             }
 
-            if (!Regex.IsMatch(trimmed, "^[A-Za-z0-9][A-Za-z0-9/_.-]{0,1023}$", RegexOptions.CultureInvariant))
+            if (!Regex.IsMatch(
+                    trimmed, "^[A-Za-z0-9][A-Za-z0-9/_.-]{0,1023}$", RegexOptions.CultureInvariant, RegexTimeout))
                 return false;
 
             normalizedKey = trimmed;
