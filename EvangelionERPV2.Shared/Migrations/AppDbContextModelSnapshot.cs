@@ -1010,6 +1010,13 @@ namespace EvangelionERPV2.Shared.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<string>("StorefrontPolicies")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int?>("StorefrontReplyTimeHours")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("StorefrontShippingFee")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");

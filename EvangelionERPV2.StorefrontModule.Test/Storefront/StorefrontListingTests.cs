@@ -115,5 +115,63 @@ namespace EvangelionERPV2.StorefrontModule.Test
             Assert.NotNull(await service.GetProductAsync(own.Id));
             Assert.Null(await service.GetProductAsync(foreign.Id));
         }
-    }
+
+        [Fact]
+        public async Task ReplyTimeAndPolicies_AreSavedAndShownOnTheShopProfile()
+        {
+            var shop = Build.ListedShop("x", listed: false);
+            await _database.SeedAsync(shop, Build.Fiscal(shop));
+            var request = Request();
+            request.ReplyTimeHours = 24;
+            request.Policies = "  Trocas em até 7 dias.\nGarantia de 90 dias.  ";
+
+            var listing = await _database.CreateService().SetListingAsync(shop.Id, request);
+
+            Assert.Equal((24, "Trocas em até 7 dias.\nGarantia de 90 dias."), (listing.ReplyTimeHours, listing.Policies));
+            var profile = await _database.CreateService().GetEnterpriseAsync("aurora");
+            Assert.Equal((24, "Trocas em até 7 dias.\nGarantia de 90 dias."), (profile!.ReplyTimeHours, profile.Policies));
+        }
+
+        [Fact]
+        public async Task BlankPolicies_AndNoReplyTime_AreStoredAsNothing()
+        {
+            var shop = Build.ListedShop("x", listed: false);
+            await _database.SeedAsync(shop, Build.Fiscal(shop));
+            var request = Request();
+            request.Policies = "   ";
+
+            var listing = await _database.CreateService().SetListingAsync(shop.Id, request);
+
+            Assert.Null(listing.ReplyTimeHours);
+            Assert.Null(listing.Policies);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(169)]
+        public async Task ReplyTime_OutsideOneToOneSixtyEightHours_IsRefused(int hours)
+        {
+            var shop = Build.ListedShop("x", listed: false);
+            await _database.SeedAsync(shop, Build.Fiscal(shop));
+            var request = Request();
+            request.ReplyTimeHours = hours;
+
+            var error = await Assert.ThrowsAsync<ArgumentException>(() => _database.CreateService().SetListingAsync(shop.Id, request));
+
+            Assert.Equal("O tempo de resposta deve ser de 1 a 168 horas.", error.Message);
+        }
+
+        [Fact]
+        public async Task Policies_LongerThan4000Characters_AreRefused()
+        {
+            var shop = Build.ListedShop("x", listed: false);
+            await _database.SeedAsync(shop, Build.Fiscal(shop));
+            var request = Request();
+            request.Policies = new string('a', 4001);
+
+            var error = await Assert.ThrowsAsync<ArgumentException>(() => _database.CreateService().SetListingAsync(shop.Id, request));
+
+            Assert.Equal("As políticas podem ter até 4.000 caracteres.", error.Message);
+        }
+}
 }

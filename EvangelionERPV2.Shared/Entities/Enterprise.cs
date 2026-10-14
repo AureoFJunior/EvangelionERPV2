@@ -72,6 +72,13 @@ namespace EvangelionERPV2.Shared.Entities
         [JsonIgnore]
         public string? StorefrontLogoAdress { get; set; }
 
+        /// <summary>How fast the shop usually answers shoppers, in hours (1–168); null hides "responde em".</summary>
+        public int? StorefrontReplyTimeHours { get; set; }
+
+        /// <summary>Returns, exchanges and warranty, plain text. Null shows Limen's platform defaults.</summary>
+        [MaxLength(4000)]
+        public string? StorefrontPolicies { get; set; }
+
         /// <summary>Encrypted S3 key of the store's 16:5 cover banner.</summary>
         [MaxLength(512)]
         [JsonIgnore]

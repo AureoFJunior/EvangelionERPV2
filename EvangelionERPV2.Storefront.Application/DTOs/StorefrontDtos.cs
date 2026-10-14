@@ -4,7 +4,25 @@ namespace EvangelionERPV2.StorefrontModule.Application.DTOs
     // entity field here without asking whether a stranger on the internet may read it; the snapshot
     // test in StorefrontModule.Test fails on any new property so that question gets asked.
 
-    public sealed record StorefrontPageDTO<T>(IReadOnlyList<T> Items, int Total);
+    /// <summary><see cref="Facets"/> is filled only when the caller asks, so cached pages stay small.</summary>
+    public sealed record StorefrontPageDTO<T>(IReadOnlyList<T> Items, int Total, StorefrontFacetsDTO? Facets = null);
+
+    /// <summary>
+    /// What each filter would leave: cards counted after the search and category, before the shop, price,
+    /// stock, sale and free-shipping filters, so choosing a facet gives the number it shows.
+    /// </summary>
+    public sealed record StorefrontFacetsDTO(
+        IReadOnlyList<StorefrontStoreFacetDTO> Stores,
+        IReadOnlyList<StorefrontCategoryFacetDTO> Categories,
+        int FreeShippingCount,
+        int OnSaleCount);
+
+    public sealed record StorefrontStoreFacetDTO(string Slug, string Name, int Count);
+
+    public sealed record StorefrontCategoryFacetDTO(string Slug, int Count);
+
+    /// <summary>One published variant of a card's family, for the dots that preview it.</summary>
+    public sealed record StorefrontSwatchDTO(Guid Id, string Label, bool HasPicture);
 
     public record StorefrontEnterpriseSummaryDTO(
         Guid Id,
@@ -40,7 +58,9 @@ namespace EvangelionERPV2.StorefrontModule.Application.DTOs
         int DeliveryDaysMax,
         DateOnly ListedSince,
         string? LogoVersion,
-        string? CoverVersion)
+        string? CoverVersion,
+        int? ReplyTimeHours,
+        string? Policies)
         : StorefrontEnterpriseSummaryDTO(Id, Slug, Name, LogoUrl, Description, City, Uf, ProductCount, LogoVersion, CoverVersion);
 
     /// <summary>
@@ -66,7 +86,8 @@ namespace EvangelionERPV2.StorefrontModule.Application.DTOs
         int? DiscountPercent = null,
         int? MaxDiscountPercent = null,
         StorefrontInstallmentDTO? MaxInstallment = null,
-        bool LowStock = false);
+        bool LowStock = false,
+        IReadOnlyList<StorefrontSwatchDTO>? Swatches = null);
 
     /// <summary>One row of a group, as the picker shows it. Unpublished rows come as unavailable.</summary>
     public sealed record StorefrontVariantDTO(Guid Id, string Label, decimal Price, bool Available, bool HasPicture = false);
@@ -120,7 +141,9 @@ namespace EvangelionERPV2.StorefrontModule.Application.DTOs
         int Page,
         int Size,
         string? Category = null,
-        bool OnSale = false);
+        bool OnSale = false,
+        bool FreeShipping = false,
+        bool Facets = false);
 
     /// <summary>What ERP staff edit on the "Loja na Limen" screen.</summary>
     public sealed class StorefrontListingDTO
@@ -134,6 +157,8 @@ namespace EvangelionERPV2.StorefrontModule.Application.DTOs
         /// <summary>Null when no logo was uploaded; otherwise changes with every upload, for cache busting.</summary>
         public string? LogoVersion { get; set; }
         public string? CoverVersion { get; set; }
+        public int? ReplyTimeHours { get; set; }
+        public string? Policies { get; set; }
         public decimal ShippingFee { get; set; }
         public int HandlingDays { get; set; }
         public int DeliveryDaysMin { get; set; }
@@ -153,6 +178,8 @@ namespace EvangelionERPV2.StorefrontModule.Application.DTOs
         public int HandlingDays { get; set; }
         public int DeliveryDaysMin { get; set; }
         public int DeliveryDaysMax { get; set; }
+        public int? ReplyTimeHours { get; set; }
+        public string? Policies { get; set; }
     }
 
     public enum StorefrontImageKind { Logo, Cover }

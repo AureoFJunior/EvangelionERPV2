@@ -13,11 +13,19 @@ namespace EvangelionERPV2.StorefrontModule.Test
         [InlineData(typeof(StorefrontEnterpriseSummaryDTO),
             "City,CoverVersion,Description,Id,LogoUrl,LogoVersion,Name,ProductCount,Slug,Uf")]
         [InlineData(typeof(StorefrontEnterpriseProfileDTO),
-            "City,Cnpj,CoverVersion,DeliveryDaysMax,DeliveryDaysMin,Description,Email,Id,LegalName,ListedSince,LogoUrl,LogoVersion,Name,Phone,ProductCount,ShippingFee,Slug,Uf")]
+            "City,Cnpj,CoverVersion,DeliveryDaysMax,DeliveryDaysMin,Description,Email,Id,LegalName,ListedSince,LogoUrl,LogoVersion,Name,Phone,Policies,ProductCount,ReplyTimeHours,ShippingFee,Slug,Uf")]
         [InlineData(typeof(StorefrontProductSummaryDTO),
-            "Available,CompareAtPrice,CreatedAt,DiscountPercent,EnterpriseName,EnterpriseSlug,FamilyPictureId,HasPicture,Id,LowStock,MaxDiscountPercent,MaxInstallment,Name,PictureProductId,Price,PriceFrom,VariantCount")]
+            "Available,CompareAtPrice,CreatedAt,DiscountPercent,EnterpriseName,EnterpriseSlug,FamilyPictureId,HasPicture,Id,LowStock,MaxDiscountPercent,MaxInstallment,Name,PictureProductId,Price,PriceFrom,Swatches,VariantCount")]
         [InlineData(typeof(StorefrontProductDetailDTO),
-            "Available,CategoryPath,CompareAtPrice,CreatedAt,Description,DiscountPercent,Enterprise,EnterpriseName,EnterpriseSlug,FamilyPictureId,HasPicture,Id,Installments,LowStock,MaxDiscountPercent,MaxInstallment,MaxPerOrder,Name,PictureProductId,Price,PriceFrom,PromotionEndsAt,SelectedVariantId,UnitOfMeasure,VariantCount,Variants")]
+            "Available,CategoryPath,CompareAtPrice,CreatedAt,Description,DiscountPercent,Enterprise,EnterpriseName,EnterpriseSlug,FamilyPictureId,HasPicture,Id,Installments,LowStock,MaxDiscountPercent,MaxInstallment,MaxPerOrder,Name,PictureProductId,Price,PriceFrom,PromotionEndsAt,SelectedVariantId,Swatches,UnitOfMeasure,VariantCount,Variants")]
+        [InlineData(typeof(StorefrontFacetsDTO),
+            "Categories,FreeShippingCount,OnSaleCount,Stores")]
+        [InlineData(typeof(StorefrontStoreFacetDTO),
+            "Count,Name,Slug")]
+        [InlineData(typeof(StorefrontCategoryFacetDTO),
+            "Count,Slug")]
+        [InlineData(typeof(StorefrontSwatchDTO),
+            "HasPicture,Id,Label")]
         [InlineData(typeof(StorefrontPublicCategoryDTO),
             "Children,Description,Icon,Name,ProductCount,Slug")]
         [InlineData(typeof(StorefrontCategoryPathItemDTO),

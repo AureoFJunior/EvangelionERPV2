@@ -79,7 +79,8 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
         public async Task<StorefrontPageDTO<StorefrontProductSummaryDTO>> GetProductsAsync(StorefrontProductQuery query)
         {
             var source = PublishedProducts;
-            if (!string.IsNullOrWhiteSpace(query.EnterpriseSlug))
+            var shopFilteredInSql = !query.Facets && !string.IsNullOrWhiteSpace(query.EnterpriseSlug);
+            if (shopFilteredInSql)
                 source = source.Where(p => p.Enterprise!.StorefrontSlug == query.EnterpriseSlug);
             if (!string.IsNullOrWhiteSpace(query.Category))
             {
@@ -104,7 +105,9 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
                     p.Enterprise.StorefrontSlug!,
                     p.EnterpriseId!.Value,
                     p.CompareAtPrice,
-                    p.PromotionEndsAt))
+                    p.PromotionEndsAt,
+                    p.Enterprise.StorefrontShippingFee,
+                    p.StorefrontCategoryId))
                 .ToListAsync();
 
             var sold = query.Sort == StorefrontProductSort.BestSelling ? CardUnits(rows, await UnitsSoldAsync()) : null;
@@ -112,18 +115,32 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
             var words = string.IsNullOrWhiteSpace(query.Q) ? [] : SearchWords(query.Q);
             var foldedQuery = string.IsNullOrWhiteSpace(query.Q) ? null : Fold(query.Q.Trim());
 
-            var cards = rows
+            var candidates = rows
                 // A group id is typed by the client, so two shops can share one: a card is per shop.
                 .GroupBy(row => (row.GroupKey, row.EnterpriseId))
                 .Where(group => words.Length == 0 || group.Any(row => words.All(Fold(row.SearchText).Contains)))
-                .Select(group => ToCard(group, group.Key.GroupKey, familyPhotos.Contains(group.Key)))
-                .Select(card => _installments.Plans(card.Price) is { Count: > 1 } plans ? card with { MaxInstallment = plans[^1] } : card)
-                .Where(card =>
-                    (query.MinPrice is null || card.Price >= query.MinPrice) &&
-                    (query.MaxPrice is null || card.Price <= query.MaxPrice) &&
-                    (!query.Available || card.Available) &&
-                    (!query.OnSale || card.MaxDiscountPercent != null) &&
-                    (sold == null || sold.ContainsKey(card.Id)));
+                .Select(group =>
+                {
+                    var card = ToCard(group, group.Key.GroupKey, familyPhotos.Contains(group.Key));
+                    if (_installments.Plans(card.Price) is { Count: > 1 } plans)
+                        card = card with { MaxInstallment = plans[^1] };
+                    var first = group.First();
+                    return new CatalogCard(card, first.ShippingFee == 0, group.Select(row => row.CategoryId).OfType<Guid>().Distinct().ToList());
+                })
+                .ToList();
+
+            var facets = query.Facets ? await FacetsAsync(candidates) : null;
+
+            var cards = candidates
+                .Where(c =>
+                    (shopFilteredInSql || string.IsNullOrWhiteSpace(query.EnterpriseSlug) || c.Card.EnterpriseSlug == query.EnterpriseSlug) &&
+                    (query.MinPrice is null || c.Card.Price >= query.MinPrice) &&
+                    (query.MaxPrice is null || c.Card.Price <= query.MaxPrice) &&
+                    (!query.Available || c.Card.Available) &&
+                    (!query.OnSale || c.Card.MaxDiscountPercent != null) &&
+                    (!query.FreeShipping || c.FreeShipping) &&
+                    (sold == null || sold.ContainsKey(c.Card.Id)))
+                .Select(c => c.Card);
 
             var sorted = query.Sort switch
             {
@@ -140,7 +157,32 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
             var matched = sorted.ThenBy(card => card.Id).ToList();
             var items = matched.Skip((query.Page - 1) * query.Size).Take(query.Size).ToList();
 
-            return new StorefrontPageDTO<StorefrontProductSummaryDTO>(items, matched.Count);
+            return new StorefrontPageDTO<StorefrontProductSummaryDTO>(items, matched.Count, facets);
+        }
+
+        private sealed record CatalogCard(StorefrontProductSummaryDTO Card, bool FreeShipping, IReadOnlyList<Guid> CategoryIds);
+
+        private async Task<StorefrontFacetsDTO> FacetsAsync(IReadOnlyList<CatalogCard> cards)
+        {
+            var categoryIds = cards.SelectMany(c => c.CategoryIds).Distinct().ToList();
+            var slugs = categoryIds.Count == 0
+                ? new Dictionary<Guid, string>()
+                : await _context.StorefrontCategory.AsNoTracking()
+                    .Where(c => categoryIds.Contains(c.Id) && c.IsActive == true)
+                    .ToDictionaryAsync(c => c.Id, c => c.Slug);
+
+            return new StorefrontFacetsDTO(
+                cards.GroupBy(c => (c.Card.EnterpriseSlug, c.Card.EnterpriseName))
+                    .Select(g => new StorefrontStoreFacetDTO(g.Key.EnterpriseSlug, g.Key.EnterpriseName, g.Count()))
+                    .OrderByDescending(f => f.Count).ThenBy(f => f.Name, StringComparer.Ordinal)
+                    .ToList(),
+                cards.SelectMany(c => c.CategoryIds.Where(slugs.ContainsKey).Select(id => slugs[id]).Distinct())
+                    .GroupBy(slug => slug)
+                    .Select(g => new StorefrontCategoryFacetDTO(g.Key, g.Count()))
+                    .OrderByDescending(f => f.Count).ThenBy(f => f.Slug, StringComparer.Ordinal)
+                    .ToList(),
+                cards.Count(c => c.FreeShipping),
+                cards.Count(c => c.Card.MaxDiscountPercent != null));
         }
 
         public async Task<StorefrontProductDetailDTO?> GetProductAsync(Guid id)
@@ -300,7 +342,9 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
                 e.StorefrontHandlingDays + e.StorefrontDeliveryDaysMax,
                 DateOnly.FromDateTime(e.StorefrontListedAt ?? e.CreatedAt),
                 ImageVersion(e.StorefrontLogoAdress),
-                ImageVersion(e.StorefrontCoverAdress));
+                ImageVersion(e.StorefrontCoverAdress),
+                e.StorefrontReplyTimeHours,
+                e.StorefrontPolicies);
 
         /// <summary>A short token that changes whenever the stored image does, so caches keyed on it never go stale.</summary>
         internal static string? ImageVersion(string? address) =>
@@ -314,6 +358,8 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
         /// family's own, else that row's, else the first variant that has one, so the card never
         /// shows the placeholder while any photo exists (review spec W3).
         /// </summary>
+        private const int MaxSwatches = 5;
+
         private static StorefrontProductSummaryDTO ToCard(IEnumerable<CatalogRow> group, Guid groupKey, bool familyHasPicture)
         {
             var rows = group.ToList();
@@ -347,7 +393,11 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
                 DiscountPercent: floorOnSale ? Product.DiscountPercent(floor!.CompareAtPrice!.Value, floor.Price) : null,
                 MaxDiscountPercent: discounts.Count > 0 ? discounts.Max() : null,
                 LowStock: rows.Any(row => row.Available) && rows.Where(row => row.Available).All(row => !row.IsService) &&
-                          rows.Where(row => row.Available).Sum(row => row.Stock) <= LowStockThreshold);
+                          rows.Where(row => row.Available).Sum(row => row.Stock) <= LowStockThreshold,
+                Swatches: rows.Count > 1
+                    ? rows.OrderBy(row => row.CreatedAt).ThenBy(row => row.Id).Take(MaxSwatches)
+                        .Select(row => new StorefrontSwatchDTO(row.Id, row.Label ?? string.Empty, row.HasPicture)).ToList()
+                    : null);
         }
 
         /// <summary>A family sells as one card: its rows' units add up, and every row id maps to the total, so the card's representative finds it. Unsold families are absent.</summary>
@@ -386,7 +436,9 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
             string EnterpriseSlug,
             Guid EnterpriseId,
             decimal? CompareAtPrice = null,
-            DateTime? PromotionEndsAt = null)
+            DateTime? PromotionEndsAt = null,
+            decimal ShippingFee = 0,
+            Guid? CategoryId = null)
         {
             public bool Available => IsAvailable(IsService, Stock);
 
@@ -460,6 +512,13 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
             if (logoUrl != null && (logoUrl.Length > 500 || !Uri.TryCreate(logoUrl, UriKind.Absolute, out var logo) || logo.Scheme != Uri.UriSchemeHttps))
                 throw new ArgumentException("O logo deve ser um endereço https.");
 
+            if (request.ReplyTimeHours is < 1 or > 168)
+                throw new ArgumentException("O tempo de resposta deve ser de 1 a 168 horas.");
+
+            var policies = string.IsNullOrWhiteSpace(request.Policies) ? null : request.Policies.Trim();
+            if (policies?.Length > 4000)
+                throw new ArgumentException("As políticas podem ter até 4.000 caracteres.");
+
             if (request.ShippingFee is < 0 or > 9999)
                 throw new ArgumentException("O frete deve estar entre R$ 0 e R$ 9.999.");
 
@@ -475,6 +534,8 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
             enterprise.StorefrontHandlingDays = request.HandlingDays;
             enterprise.StorefrontDeliveryDaysMin = request.DeliveryDaysMin;
             enterprise.StorefrontDeliveryDaysMax = request.DeliveryDaysMax;
+            enterprise.StorefrontReplyTimeHours = request.ReplyTimeHours;
+            enterprise.StorefrontPolicies = policies;
 
             if (request.IsListed)
             {
@@ -631,6 +692,8 @@ namespace EvangelionERPV2.StorefrontModule.Application.Services
             DeliveryDaysMax = enterprise.StorefrontDeliveryDaysMax,
             LogoVersion = ImageVersion(enterprise.StorefrontLogoAdress),
             CoverVersion = ImageVersion(enterprise.StorefrontCoverAdress),
+            ReplyTimeHours = enterprise.StorefrontReplyTimeHours,
+            Policies = enterprise.StorefrontPolicies,
             MissingRequirements = await MissingRequirementsAsync(enterprise)
         };
 

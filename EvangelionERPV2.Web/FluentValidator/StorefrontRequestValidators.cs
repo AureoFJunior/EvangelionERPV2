@@ -29,6 +29,7 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x.Slug).MaximumLength(60).WithMessage("Slug is too long.");
             RuleFor(x => x.Description).MaximumLength(500).WithMessage("Description is too long.");
             RuleFor(x => x.LogoUrl).MaximumLength(500).WithMessage("LogoUrl is too long.");
+            RuleFor(x => x.Policies).MaximumLength(4000).WithMessage("Policies is too long.");
         }
     }
 
