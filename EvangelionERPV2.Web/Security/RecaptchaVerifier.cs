@@ -50,6 +50,7 @@ namespace EvangelionERPV2.Web.Security
         {
             var section = _configuration.GetSection("RecaptchaSettings");
 
+            // Toggle lets local/dev environments and tests run without a live reCAPTCHA challenge.
             if (!section.GetValue<bool>("Enabled"))
                 return RecaptchaVerificationResult.Success;
 

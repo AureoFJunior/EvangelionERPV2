@@ -10,7 +10,7 @@ namespace EvangelionERPV2.Shared.Entities
         public DateTime ExecutedAt { get; set; } = DateTime.UtcNow;
         public string ScenarioName { get; set; } = string.Empty;
         public int HorizonInDays { get; set; }
-        public decimal FinalProjectedBalance { get; set; }
+        public double FinalProjectedBalance { get; set; }
         public string InputsJson { get; set; } = string.Empty;
     }
 }

@@ -34,8 +34,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x)
                 .Must(x => x.VariantGroupId.HasValue == !string.IsNullOrWhiteSpace(x.VariantLabel))
                 .WithMessage("VariantGroupId and VariantLabel must be provided together.");
-
-            ProductFiscalRules.AddTo(this);
         }
     }
 }

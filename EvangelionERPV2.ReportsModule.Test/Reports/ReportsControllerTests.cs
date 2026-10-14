@@ -189,7 +189,7 @@ namespace EvangelionERPV2.ReportsModule.Test.Reports
             {
                 userRepository
                     .Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
-                    .Returns(Task.FromResult<User>(null!));
+                    .ReturnsAsync((User?)null);
             }
 
             var serviceProvider = new ServiceCollection()

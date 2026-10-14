@@ -2,11 +2,9 @@ name: SonarCloud analysis
 
 on:
   push:
-    # main included deliberately: it is the default branch, and without it SonarCloud's main-branch
-    # baseline never updates from the branch everything merges into.
-    branches: [ "main", "develop", "release" ]
+    branches: [ "develop", "release" ]
   pull_request:
-    branches: [ "main", "develop", "release" ]
+    branches: [ "develop", "release" ]
   workflow_dispatch:
 
 
@@ -14,104 +12,41 @@ permissions:
   contents: read
   pull-requests: read # Allows SonarCloud to decorate PRs with analysis results
 
-# Two pushes in quick succession would otherwise each hold a runner until SonarCloud finishes
-# computing the gate, and the superseded commit's result could land after the newer one's.
-concurrency:
-  group: sonar-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   Analysis:
     runs-on: ubuntu-latest
 
     steps:
+    # Step 1: Checkout the code
     - name: Checkout code
       uses: actions/checkout@v6
       with:
         persist-credentials: false
         # SonarCloud needs full history (blame/SCM info) and the PR base branch
-        # to compute new code; a shallow clone breaks both.
+        # (develop/release) to compute new code; a shallow clone breaks both.
         fetch-depth: 0
 
+    # Step 2: Install .NET SDK
     - name: Setup .NET Core
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: '10.0.x'
 
-    # The scanner is a Java program, whatever language it is pointed at.
-    - name: Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: temurin
-        java-version: '17'
+    # Step 3: Build the project
+    - name: Build the project
+      run: dotnet build --configuration Release
 
-    - name: Cache SonarCloud packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.sonar/cache
-        key: ${{ runner.os }}-sonar
-        restore-keys: ${{ runner.os }}-sonar
-
-    # Pinned: an unpinned install turns CI red on a morning nobody changed anything, and the
-    # failure does not look like a scanner failure. Bump it deliberately, like every other version.
-    - name: Install the scanner for .NET
-      run: dotnet tool install --global dotnet-sonarscanner --version 11.3.0
-
-    # begin/build/test/end are four steps rather than one `run:` block on purpose. Actions runs a
-    # `run:` under `bash -e`, so a failing test used to abort before `sonarscanner end` and the
-    # pull request that most needed a report got none.
-    #
-    # A *build* failure still aborts, and should: with no compilation there is nothing to analyse.
-    - name: Begin analysis
+    - name: Verify SonarCloud token
       env:
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      run: |
-        dotnet sonarscanner begin \
-          /k:"AureoFJunior_EvangelionERPV2" \
-          /o:"aureofjunior-1" \
-          /d:sonar.host.url="https://sonarcloud.io" \
-          /d:sonar.token="$SONAR_TOKEN" \
-          /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml" \
-          /d:sonar.cs.vstest.reportsPaths="TestResults/**/*.trx" \
-          /d:sonar.exclusions="**/Migrations/**,**/obj/**,**/bin/**,docker/grafana/dashboards/**,perf/**" \
-          /d:sonar.coverage.exclusions="**/Program.cs,**/DI/*IoC.cs,**/DTOs/**,**/Entities/**,**/Migrations/**,**/Repositories/**,**/*Worker.cs,**/Workers/**,**/Hubs/**,**/HealthChecks/**,**/Utils/RabbitMQManagerBase.cs" \
-          /d:sonar.qualitygate.wait=true
+        SONAR_TOKEN: ${{ secrets.sonar_token }}
+      run: test -n "$SONAR_TOKEN" || { echo "::error::The sonar_token repository secret is unavailable to this workflow."; exit 1; }
 
-    - name: Build
-      run: dotnet build EvangelionERPV2.sln -c Release
-
-    # --logger trx is what tells Sonar the tests ran at all: coverage was imported and execution
-    # was not, so the project page reported "tests: 0" beside a coverage figure.
-    - name: Test
-      id: test
-      continue-on-error: true
-      run: |
-        dotnet test EvangelionERPV2.sln -c Release --no-build \
-          --logger trx --results-directory TestResults \
-          --collect:"XPlat Code Coverage;Format=opencover"
-
-    - name: End analysis
+    # Step 4: SonarCloud analysis
+    - name: Analyze with SonarCloud
+      uses: SonarSource/sonarcloud-github-action@v5
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      run: dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
-
-    # Without this, continue-on-error above would turn a failing test suite into a green check.
-    - name: Fail the job if the tests failed
-      if: always() && steps.test.outcome == 'failure'
-      run: exit 1
-
-# Exclusions, because each one is a decision and not a default:
-#
-#   sonar.exclusions - dropped from the analysis entirely, rules and metrics and all:
-#     Migrations/**                    EF-generated; scoring it measures the tool, not this code.
-#     docker/grafana/dashboards/**     Panel definitions, which Sonar reads as duplicated code.
-#     perf/**                          k6/seed tooling has its own threshold checks and no .NET coverage.
-#
-#   sonar.coverage.exclusions - still linted, but out of the coverage denominator. Program.cs, the
-#   DI registrations, DTOs, entities, thin repositories and process-boundary adapters (workers,
-#   hubs, health checks and RabbitMQ plumbing) are not useful unit-coverage targets. Leaving them
-#   in made the gate's new-code coverage condition measure framework glue rather than business code.
-#
-# Test projects stay *in* the analysis - their own quality matters - and Sonar already keeps them
-# out of the coverage denominator by itself.
+        SONAR_TOKEN: ${{ secrets.sonar_token }}
+      with:
+        args: >
+          -Dsonar.projectKey=AureoFJunior_EvangelionERPV2 -Dsonar.organization=aureofjunior-1 -Dsonar.host.url=https://sonarcloud.io

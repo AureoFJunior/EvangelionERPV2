@@ -21,7 +21,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
 
             var productA = new Product { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, Name = "A", DefaultValue = 120, StorageQuantity = 60, IsActive = true };
             var productB = new Product { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, Name = "B", DefaultValue = 100, StorageQuantity = 55, IsActive = true };
-            var productC = new Product { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, Name = "C", DefaultValue = 80, StorageQuantity = 0.5m, IsActive = true };
+            var productC = new Product { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, Name = "C", DefaultValue = 80, StorageQuantity = 0.5, IsActive = true };
             var productD = new Product { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, Name = "D", DefaultValue = 70, StorageQuantity = 40, IsActive = true };
 
             var customerPremium = new Customer { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, Name = "Premium", Document = "12345678000199", Adress = "Sao Paulo, SP", IsActive = true };
@@ -53,6 +53,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
                 CreateOrderLine(orders[4].Id, productD.Id, 1, 40),
                 CreateOrderLine(orders[5].Id, productC.Id, 1, 80),
                 CreateOrderLine(orders[5].Id, productD.Id, 1, 40),
+                // open demand on product C
                 CreateOrderLine(orders[6].Id, productC.Id, 4, 80),
                 CreateOrderLine(orders[7].Id, productC.Id, 3, 80)
             };
@@ -107,7 +108,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
 
             var productA = new Product { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, Name = "A", DefaultValue = 120, StorageQuantity = 70, IsActive = true };
             var productB = new Product { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, Name = "B", DefaultValue = 60, StorageQuantity = 65, IsActive = true };
-            var productC = new Product { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, Name = "C", DefaultValue = 80, StorageQuantity = 0.5m, IsActive = true };
+            var productC = new Product { Id = Guid.NewGuid(), EnterpriseId = enterpriseId, Name = "C", DefaultValue = 80, StorageQuantity = 0.5, IsActive = true };
 
             var customer = new Customer
             {
@@ -142,6 +143,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
                 CreateOrderLine(orders[2].Id, productB.Id, 1, 60),
                 CreateOrderLine(orders[2].Id, productC.Id, 10, 80),
 
+                // Open demand pressure on product C
                 CreateOrderLine(orders[3].Id, productC.Id, 30, 80),
                 CreateOrderLine(orders[4].Id, productC.Id, 15, 80)
             };
@@ -461,7 +463,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
             return list;
         }
 
-        private static Order CreateOrder(Guid enterpriseId, Guid customerId, DateTime createdAt, decimal totalValue, int status)
+        private static Order CreateOrder(Guid enterpriseId, Guid customerId, DateTime createdAt, double totalValue, int status)
         {
             return new Order
             {
@@ -475,7 +477,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
             };
         }
 
-        private static OrderedProduct CreateOrderLine(Guid orderId, Guid productId, decimal quantity, decimal value)
+        private static OrderedProduct CreateOrderLine(Guid orderId, Guid productId, double quantity, double value)
         {
             return new OrderedProduct
             {
@@ -546,40 +548,14 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
             repo.Setup(x => x.GetByIdAsync(It.IsAny<Guid>()))
                 .ReturnsAsync((Guid id) => records.FirstOrDefault(entity => entity.Id == id)!);
 
-            repo.Setup(x => x.GetAllAsync(It.IsAny<Expression<Func<TEntity, bool>>?>()))
-                .ReturnsAsync((Expression<Func<TEntity, bool>>? predicate) =>
+            repo.Setup(x => x.GetAllAsync(It.IsAny<Func<TEntity, bool>?>()))
+                .ReturnsAsync((Func<TEntity, bool>? predicate) =>
                 {
                     IEnumerable<TEntity> query = records;
                     if (predicate != null)
-                        query = query.Where(predicate.Compile());
-
-                    return query.ToList();
-                });
-
-            repo.Setup(x => x.GetPagedAsync(
-                    It.IsAny<Expression<Func<TEntity, bool>>?>(),
-                    It.IsAny<Func<IQueryable<TEntity>, IOrderedQueryable<TEntity>>?>(),
-                    It.IsAny<int?>(),
-                    It.IsAny<int?>()))
-                .ReturnsAsync((Expression<Func<TEntity, bool>>? predicate,
-                    Func<IQueryable<TEntity>, IOrderedQueryable<TEntity>>? orderBy,
-                    int? pageNumber,
-                    int? pageSize) =>
-                {
-                    IQueryable<TEntity> query = records.AsQueryable();
-
-                    if (predicate != null)
                         query = query.Where(predicate);
 
-                    var totalItems = query.Count();
-
-                    if (orderBy != null)
-                        query = orderBy(query);
-
-                    if (pageNumber.HasValue && pageSize.HasValue && pageNumber.Value > 0 && pageSize.Value > 0)
-                        query = query.Skip((pageNumber.Value - 1) * pageSize.Value).Take(pageSize.Value);
-
-                    return ((IReadOnlyList<TEntity>)query.ToList(), totalItems);
+                    return query.ToList();
                 });
 
             repo.Setup(x => x.GetAllAsyncByFilter(
@@ -667,3 +643,4 @@ namespace EvangelionERPV2.OpportunityRadarModule.Test
             List<OpportunityFeedback> FeedbackStore);
     }
 }
+

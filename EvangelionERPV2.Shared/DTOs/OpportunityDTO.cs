@@ -14,9 +14,9 @@ namespace EvangelionERPV2.Shared.DTOs
         public string ExplainabilityJson { get; set; } = "{}";
         public Guid RunId { get; set; }
         public double ConfidenceScore { get; set; }
-        public decimal EstimatedRevenueImpact { get; set; }
-        public decimal EstimatedMarginImpact { get; set; }
-        public decimal EstimatedCashImpact { get; set; }
+        public double EstimatedRevenueImpact { get; set; }
+        public double EstimatedMarginImpact { get; set; }
+        public double EstimatedCashImpact { get; set; }
         public double PriorityScore { get; set; }
         public DateTime DetectedAt { get; set; }
         public DateTime LastEvaluatedAt { get; set; }

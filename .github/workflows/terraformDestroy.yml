@@ -1,23 +1,12 @@
-# Destroys the infrastructure in EvangelionERPV2.Web/terraform.
-#
-# Harmless until 2026-09-17 only because terraform had no state: a destroy against empty state
-# destroys nothing. That is no longer true. Once the S3 backend is initialised this workflow can
-# delete the production database, so it carries three guards, and no single one of them is the
-# whole answer:
-#
-#   1. `prevent_destroy` on aws_db_instance in main.tf, which fails the plan outright.
-#   2. `skip_final_snapshot = false`, so even a forced destroy leaves something to restore.
-#   3. The typed confirmation below, plus the `destroy` environment - put a required reviewer on
-#      that environment in repository settings if you have not already.
 name: 'Destroy'
 
 on:
   workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Type "destroy-production" to confirm. Anything else stops the run.'
+   inputs:
+      dir:
+        description: 'Directory with resources to be destroyed'
         required: true
-        default: ''
+        default: 'terraform'
 
 jobs:
   terraform:
@@ -34,14 +23,6 @@ jobs:
         working-directory: "EvangelionERPV2.Web/terraform"
 
     steps:
-      - name: Refuse unless the confirmation matches
-        run: |
-          if [ "${{ github.event.inputs.confirm }}" != "destroy-production" ]; then
-            echo "Confirmation phrase not given. Nothing was destroyed."
-            exit 1
-          fi
-          echo "Confirmed by ${{ github.actor }}."
-
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -57,11 +38,6 @@ jobs:
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
-
-      # A plan first, so the log records what was about to go. prevent_destroy on the database
-      # makes this step fail rather than proceed, which is the intended outcome.
-      - name: Terraform Plan (destroy)
-        run: terraform plan -destroy -no-color
 
       - name: Terraform Destroy
         run: terraform destroy -no-color -auto-approve

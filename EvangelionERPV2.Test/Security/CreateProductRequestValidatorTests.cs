@@ -83,7 +83,7 @@ namespace EvangelionERPV2.Test.Security
                 {
                     Name = "Legacy name",
                     Description = "Legacy description",
-                    DefaultValue = 12.5m,
+                    DefaultValue = 12.5,
                     StorageQuantity = 7,
                     UnitOfMeasure = "UN",
                     IsExternal = true,
@@ -95,7 +95,7 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.Equal("Root name", normalized.Name);
             Assert.Equal("Legacy description", normalized.Description);
-            Assert.Equal(12.5m, normalized.DefaultValue.GetValueOrDefault());
+            Assert.Equal(12.5, normalized.DefaultValue.GetValueOrDefault());
             Assert.Equal(7, normalized.StorageQuantity.GetValueOrDefault());
             Assert.Equal("UN", normalized.UnitOfMeasure);
             Assert.True(normalized.IsExternal.GetValueOrDefault());

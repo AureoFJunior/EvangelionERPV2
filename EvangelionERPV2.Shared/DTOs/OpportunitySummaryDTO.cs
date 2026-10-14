@@ -8,9 +8,9 @@ namespace EvangelionERPV2.Shared.DTOs
         public int AcceptedCount { get; set; }
         public int ExecutedCount { get; set; }
         public int ArchivedCount { get; set; }
-        public decimal EstimatedRevenueImpact { get; set; }
-        public decimal EstimatedMarginImpact { get; set; }
-        public decimal EstimatedCashImpact { get; set; }
+        public double EstimatedRevenueImpact { get; set; }
+        public double EstimatedMarginImpact { get; set; }
+        public double EstimatedCashImpact { get; set; }
         public double AcceptanceRate { get; set; }
         public double ImplementationRate { get; set; }
         public double RealVsEstimatedUplift { get; set; }

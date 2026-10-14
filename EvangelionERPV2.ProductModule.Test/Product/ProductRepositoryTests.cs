@@ -25,7 +25,7 @@ namespace EvangelionERPV2.ProductModule.Test
             };
             var cache = new Mock<IDistributedCache>(MockBehavior.Strict);
             cache
-                .Setup(c => c.GetAsync($"Product:v2:{productId}", It.IsAny<CancellationToken>()))
+                .Setup(c => c.GetAsync($"Product:{productId}", It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cachedProduct)));
 
             await using var context = CreateContext();
@@ -34,7 +34,7 @@ namespace EvangelionERPV2.ProductModule.Test
             var result = await repository.GetByIdAsync(productId);
 
             Assert.Equal("products/sample-image", result.PictureAdress);
-            cache.Verify(c => c.GetAsync($"Product:v2:{productId}", It.IsAny<CancellationToken>()), Times.Once);
+            cache.Verify(c => c.GetAsync($"Product:{productId}", It.IsAny<CancellationToken>()), Times.Once);
         }
 
         [Fact]
@@ -42,7 +42,7 @@ namespace EvangelionERPV2.ProductModule.Test
         {
             var productId = Guid.NewGuid();
             var cache = new Mock<IDistributedCache>(MockBehavior.Strict);
-            cache.Setup(c => c.Remove($"Product:v2:{productId}"));
+            cache.Setup(c => c.Remove($"Product:{productId}"));
 
             using var context = CreateContext();
             var repository = new ProductRepository(context, cache.Object);
@@ -56,15 +56,17 @@ namespace EvangelionERPV2.ProductModule.Test
                 IsActive = true
             });
 
-            cache.Verify(c => c.Remove($"Product:v2:{productId}"), Times.Once);
+            cache.Verify(c => c.Remove($"Product:{productId}"), Times.Once);
         }
 
         [Fact]
         public void RemoveCachedProduct_RemovesProductCacheEntry()
         {
+            // Callers that change product rows outside Update/UpdateRange (guarded raw SQL stock
+            // decrements) rely on this being publicly reachable through IProductRepository.
             var productId = Guid.NewGuid();
             var cache = new Mock<IDistributedCache>(MockBehavior.Strict);
-            cache.Setup(c => c.Remove($"Product:v2:{productId}"));
+            cache.Setup(c => c.Remove($"Product:{productId}"));
 
             using var context = CreateContext();
             EvangelionERPV2.ProductModule.Domain.Interface.IProductRepository<Product> repository =
@@ -72,7 +74,7 @@ namespace EvangelionERPV2.ProductModule.Test
 
             repository.RemoveCachedProduct(productId);
 
-            cache.Verify(c => c.Remove($"Product:v2:{productId}"), Times.Once);
+            cache.Verify(c => c.Remove($"Product:{productId}"), Times.Once);
         }
 
         private static AppDbContext CreateContext()

@@ -96,8 +96,7 @@ namespace EvangelionERPV2.Test.Security
             var controller = new BillsController(
                 _billsServiceMock.Object,
                 _orderServiceMock.Object,
-                Mock.Of<IReceivablesReportService>(),
-                Mock.Of<IAccountingExportService>(),
+                _userRepositoryMock.Object,
                 _mapperMock.Object);
 
             var identity = new ClaimsIdentity(claims, "TestAuthType");

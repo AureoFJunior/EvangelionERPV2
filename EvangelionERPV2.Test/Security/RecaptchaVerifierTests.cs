@@ -37,9 +37,7 @@ namespace EvangelionERPV2.Test.Security
                 kmsProvider,
                 tokenService,
                 new Mock<IEmailService<EmailStructure>>(MockBehavior.Strict).Object,
-                new RecaptchaVerifier(new HttpClient(), configuration, kmsProvider),
-                new PasswordLoginService(new Mock<IRepository<User>>(MockBehavior.Strict).Object),
-                null!, null!)
+                new RecaptchaVerifier(new HttpClient(), configuration, kmsProvider))
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
             };

@@ -1,44 +1,33 @@
 using System.Text.Json;
 using EvangelionERPV2.BillsModule.Application.Interface;
-using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
-using EvangelionERPV2.Shared.Utils;
-using Microsoft.EntityFrameworkCore;
 
 namespace EvangelionERPV2.BillsModule.Application.Services
 {
     public class CashFlowForecastService : ICashFlowForecastService
     {
         private const int MaxSimulationScenarioNameLength = 100;
-
-        private const decimal MaxPayableMultiplier = 1000m;
-
-        // Unbounded balances overflow the running-balance accumulation in BuildForecastAsync
-        // (decimal.MaxValue + anything throws). 1e15 is far above any real enterprise balance
-        // and leaves headroom for 90 days of projected movement. Public so the controller can
-        // reject the same range on the balance-override endpoint.
-        public const decimal MaxCurrentBalance = 1_000_000_000_000_000m;
+        private readonly IRepository<Order> _orderRepository;
         private readonly IRepository<PayableBill> _payableBillRepository;
         private readonly IRepository<Enterprise> _enterpriseRepository;
         private readonly IRepository<ForecastSimulationLog> _simulationLogRepository;
-        private readonly AppDbContext _context;
 
         public CashFlowForecastService(
+            IRepository<Order> orderRepository,
             IRepository<PayableBill> payableBillRepository,
             IRepository<Enterprise> enterpriseRepository,
-            IRepository<ForecastSimulationLog> simulationLogRepository,
-            AppDbContext context)
+            IRepository<ForecastSimulationLog> simulationLogRepository)
         {
+            _orderRepository = orderRepository;
             _payableBillRepository = payableBillRepository;
             _enterpriseRepository = enterpriseRepository;
             _simulationLogRepository = simulationLogRepository;
-            _context = context;
         }
 
-        public async Task<CashFlowForecastDTO> GetForecastAsync(Guid enterpriseId, int horizonInDays, decimal? currentBalanceOverride = null)
+        public async Task<CashFlowForecastDTO> GetForecastAsync(Guid enterpriseId, int horizonInDays, double? currentBalanceOverride = null)
         {
             return await BuildForecastAsync(enterpriseId, horizonInDays, currentBalanceOverride, 0, 1);
         }
@@ -51,7 +40,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             if (request.HorizonInDays is not (30 or 60 or 90))
                 throw new ArgumentException("Horizon must be 30, 60 or 90 days.");
 
-            if (request.CurrentBalance is < -MaxCurrentBalance or > MaxCurrentBalance)
+            if (request.CurrentBalance.HasValue && !double.IsFinite(request.CurrentBalance.Value))
                 throw new ArgumentException("Invalid simulation request.");
 
             var scenarios = request.Scenarios?.ToList() ?? [];
@@ -69,7 +58,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 if (scenario.ScenarioName.Length > MaxSimulationScenarioNameLength)
                     throw new ArgumentException("Invalid simulation request.");
 
-                if (scenario.PayableMultiplier is < 0 or > MaxPayableMultiplier)
+                if (!double.IsFinite(scenario.PayableMultiplier))
                     throw new ArgumentException("Invalid simulation request.");
             }
 
@@ -116,23 +105,25 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return results;
         }
 
-        private async Task<CashFlowForecastDTO> BuildForecastAsync(Guid enterpriseId, int horizonInDays, decimal? currentBalanceOverride, int receivableDelayInDays, decimal payableMultiplier)
+        private async Task<CashFlowForecastDTO> BuildForecastAsync(Guid enterpriseId, int horizonInDays, double? currentBalanceOverride, int receivableDelayInDays, double payableMultiplier)
         {
             var today = DateTime.UtcNow.Date;
             var endDate = today.AddDays(horizonInDays);
 
+            var orders = (await _orderRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId && x.IsActive == true)).ToList();
             var payables = (await _payableBillRepository.GetAllAsync(x => x.EnterpriseId == enterpriseId && x.IsActive == true)).ToList();
             var enterprise = await _enterpriseRepository.GetByIdAsync(enterpriseId);
             var currentBalance = currentBalanceOverride ?? enterprise?.CurrentBalance ?? 0;
 
-            var receivables = (await ReadReceivableCandidatesAsync(enterpriseId, today, endDate))
+            var forecastOrders = orders
+                .Where(x => !IsOrderRefunded(x) && x.TotalValue > 0)
+                .ToList();
+
+            var receivables = forecastOrders
                 .Select(x => new
                 {
-                    Date = ReceivableResolver.ResolveOrderReceivableDate(
-                        x.Payday, x.PaymentScheduledDate, x.BillStatus, x.BillPaidAt, x.BillDueDate, today)
-                        ?.AddDays(receivableDelayInDays),
-                    Amount = ReceivableResolver.ResolveReceivableAmount(
-                        x.TotalValue, x.BillStatus, x.BillPaidAmount, x.BillAmount)
+                    Date = ResolveOrderReceivableDate(x, today)?.AddDays(receivableDelayInDays),
+                    Amount = x.TotalValue
                 })
                 .Where(x => x.Date.HasValue)
                 .Select(x => new
@@ -193,65 +184,18 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             };
         }
 
-        /// <summary>
-        /// The orders whose receivable can land inside the forecast window, with the live bill that
-        /// decides it, read in one query.
-        /// </summary>
-        private async Task<List<ReceivableCandidate>> ReadReceivableCandidatesAsync(
-            Guid enterpriseId,
-            DateTime today,
-            DateTime endDate)
+        private static DateTime? ResolveOrderReceivableDate(Order order, DateTime today)
         {
-            var endDateExclusive = endDate.AddDays(1);
+            if (order.Payday.HasValue)
+            {
+                var paidDate = order.Payday.Value.Date;
+                return paidDate >= today ? paidDate : null;
+            }
 
-            var rows = await (
-                from order in _context.Set<Order>().AsNoTracking()
-                where order.IsActive == true
-                      && order.EnterpriseId == enterpriseId
-                      && order.RefundedAt == null
-                      && order.Status != (int)EnumOrderStatus.Refund
-                      && order.TotalValue > 0
-                let bill = _context.Set<Bill>().AsNoTracking()
-                    .Where(candidate => (candidate.IsActive == null || candidate.IsActive == true)
-                                        && candidate.OrderId == order.Id
-                                        && candidate.Status != BillStatus.Cancelled)
-                    .OrderByDescending(candidate => candidate.CreatedAt)
-                    .FirstOrDefault()
-                where bill == null
-                        ? (order.Payday != null
-                            ? order.Payday >= today && order.Payday < endDateExclusive
-                            : order.PaymentScheduledDate >= today && order.PaymentScheduledDate < endDateExclusive)
-                        : bill.Status == BillStatus.Paid
-                            ? bill.PaidAt >= today && bill.PaidAt < endDateExclusive
-                            : bill.Status != BillStatus.Rejected
-                              && bill.DueDate >= today && bill.DueDate < endDateExclusive
-                select new ReceivableCandidate(
-                    order.TotalValue,
-                    order.Payday,
-                    order.PaymentScheduledDate,
-                    bill == null ? null : bill.Status,
-                    bill == null ? null : bill.PaidAt,
-                    bill == null ? null : bill.DueDate,
-                    bill == null ? null : bill.PaidAmount,
-                    bill == null ? null : bill.Amount))
-                .ToListAsync();
-
-            return rows;
+            var scheduledDate = order.PaymentScheduledDate.Date;
+            // When using persisted current balance, realized receivables in the past must not be projected again.
+            return scheduledDate < today ? null : scheduledDate;
         }
-
-        /// <summary>
-        /// Only the columns <see cref="ReceivableResolver"/> reads. Projecting rather than
-        /// materialising Order and Bill entities keeps a wide horizon on a busy tenant affordable.
-        /// </summary>
-        private sealed record ReceivableCandidate(
-            decimal TotalValue,
-            DateTime? Payday,
-            DateTime PaymentScheduledDate,
-            BillStatus? BillStatus,
-            DateTime? BillPaidAt,
-            DateTime? BillDueDate,
-            decimal? BillPaidAmount,
-            decimal? BillAmount);
 
         private static DateTime? ResolvePayableDate(PayableBill payableBill, DateTime today)
         {
@@ -266,6 +210,11 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
             var dueDate = payableBill.DueDate.Date;
             return dueDate < today ? today : dueDate;
+        }
+
+        private static bool IsOrderRefunded(Order order)
+        {
+            return order.RefundedAt.HasValue || order.Status == (int)EnumOrderStatus.Refund;
         }
 
         private static bool IsPayableRefunded(PayableBill payableBill)

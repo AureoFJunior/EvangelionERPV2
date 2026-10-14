@@ -55,16 +55,13 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 services.AddTransient(typeof(IOrderRepository<Order>), typeof(OrderRepository));
                 services.AddTransient(typeof(IProductRepository<Product>), typeof(ProductRepository));
 
+
                 #endregion
 
                 #region Services
                 services.AddScoped(typeof(IOrderService<Order>), typeof(OrderService));
                 services.AddScoped(typeof(IOrderReportGeneratorService), typeof(OrderReportGeneratorService));
 
-                services.AddScoped<IQuoteRepository, QuoteRepository>();
-                services.AddScoped<IQuoteService, QuoteService>();
-
-                services.AddScoped<ISalesPerformanceService, SalesPerformanceService>();
 
                 #endregion
 
@@ -81,6 +78,14 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                 services.AddSignalR();
                 services.AddScoped(typeof(OrderHub), typeof(OrderHub));
                 #endregion
+
+                #region Redis
+                services.AddStackExchangeRedisCache(o =>
+                {
+                    o.InstanceName = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["InstanceName"] ?? string.Empty);
+                    o.Configuration = kmsProvider.GetKMSKey(configuration.GetSection("RedisSettings")["ConnectionString"] ?? string.Empty);
+                });
+                #endregion
             }
             catch (Exception ex)
             {
@@ -88,6 +93,7 @@ namespace EvangelionERPV2.OrderModule.Application.DI
                     "Error at DI IoC Order. ErrorType={ErrorType}",
                     ex.GetType().Name);
             }
+
         }
     }
 }

@@ -12,7 +12,6 @@ using Xunit;
 
 namespace EvangelionERPV2.UserModule.Test.User
 {
-    [Collection(SharedFunctionsKeyCollection.Name)]
     public class UserServicePasswordResetTests
     {
         [Fact]

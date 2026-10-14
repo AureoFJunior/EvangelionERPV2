@@ -13,17 +13,6 @@ namespace EvangelionERPV2.Web.Security
 
             RbacPermissions.Orders.Read,
             RbacPermissions.Orders.Create,
-
-            RbacPermissions.SalesPerformance.ReadSelf,
-
-            RbacPermissions.Pdv.Operate,
-            RbacPermissions.Pdv.OpenSession,
-            RbacPermissions.Pdv.CloseSession,
-            RbacPermissions.Pdv.ApplyDiscount,
-
-            RbacPermissions.Notifications.Read,
-
-            RbacPermissions.Storefront.CategoriesRead,
         ];
 
         private static readonly string[] SupervisorPermissions =
@@ -31,8 +20,6 @@ namespace EvangelionERPV2.Web.Security
             ..EmployeePermissions,
 
             RbacPermissions.Metrics.Read,
-
-            RbacPermissions.Ai.Chat,
 
             RbacPermissions.Audit.Read,
 
@@ -62,24 +49,8 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Products.UploadPicture,
             RbacPermissions.Products.DeletePicture,
 
-            RbacPermissions.Pdv.CashMovement,
-            RbacPermissions.Pdv.OverrideDiscount,
-            RbacPermissions.Pdv.CancelSale,
-            RbacPermissions.Pdv.VoidItem,
-            RbacPermissions.Pdv.ReadReports,
-
-            RbacPermissions.Quotes.Read,
-            RbacPermissions.Quotes.Create,
-            RbacPermissions.Quotes.Update,
-            RbacPermissions.Quotes.Convert,
-            RbacPermissions.Quotes.Delete,
-
             RbacPermissions.Reports.Read,
-            RbacPermissions.Reports.Generate,
-
-            RbacPermissions.Suppliers.Read,
-            RbacPermissions.Suppliers.Create,
-            RbacPermissions.Suppliers.Update
+            RbacPermissions.Reports.Generate
         ];
 
         private static readonly string[] ManagerPermissions =
@@ -87,47 +58,6 @@ namespace EvangelionERPV2.Web.Security
             ..SupervisorPermissions,
 
             RbacPermissions.Customers.Delete,
-
-            RbacPermissions.Customers.CreditOverride,
-
-            RbacPermissions.Accounting.Export,
-
-            RbacPermissions.Suppliers.Delete,
-
-            RbacPermissions.Products.ReadCost,
-
-            RbacPermissions.SalesPerformance.Read,
-            RbacPermissions.SalesPerformance.ManageGoals,
-
-            RbacPermissions.BankReconciliation.Read,
-            RbacPermissions.BankReconciliation.Import,
-            RbacPermissions.BankReconciliation.Resolve,
-
-            RbacPermissions.Dashboard.Read,
-
-            RbacPermissions.Ai.Act,
-
-            RbacPermissions.Bills.Settle,
-            RbacPermissions.Bills.Reissue,
-
-            RbacPermissions.Enterprise.ReadSelf,
-
-            RbacPermissions.Employees.Read,
-            RbacPermissions.Employees.Create,
-            RbacPermissions.Employees.Update,
-            RbacPermissions.Employees.Delete,
-            RbacPermissions.Employees.UploadPicture,
-
-            // RbacPermissions.EmployeeAbsences is deliberately NOT here. Absences sit a tier above
-            // the employee record: an atestado carries a CID (LGPD art. 11 health data), and
-            // IsJustified decides whether a day is paid — so they follow Payroll and stay
-            // admin-only, reachable only through RbacPermissions.All.
-
-            // RbacPermissions.EmployeeVacations is deliberately NOT here either, and for a
-            // stronger reason: scheduling férias writes an absence row, and an accrual that
-            // outruns its concessivo deadline is a debt the company owes twice over.
-
-            RbacPermissions.NFe.CertificateRead,
 
             RbacPermissions.PayableBills.Read,
             RbacPermissions.PayableBills.Create,
@@ -140,8 +70,6 @@ namespace EvangelionERPV2.Web.Security
             RbacPermissions.Opportunities.Recompute,
 
             RbacPermissions.Orders.Delete,
-
-            RbacPermissions.Storefront.Manage,
         ];
 
         private static readonly IReadOnlyDictionary<EnumAccessLevel, IReadOnlySet<string>> PermissionsByRole =

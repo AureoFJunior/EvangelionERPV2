@@ -139,7 +139,7 @@ namespace EvangelionERPV2.Test.Security
             var controller = new NFeController(
                 _nfeServiceMock.Object,
                 _orderServiceMock.Object,
-                Mock.Of<ISupplierNFeImportService>(),
+                _userRepositoryMock.Object,
                 _mapperMock.Object);
 
             var identity = new ClaimsIdentity(claims, "TestAuthType");

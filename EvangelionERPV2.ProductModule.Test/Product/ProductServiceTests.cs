@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
 using Amazon.S3;
@@ -16,15 +15,8 @@ using Xunit;
 
 namespace EvangelionERPV2.ProductModule.Test
 {
-    public class ProductServiceTests : IDisposable
+    public class ProductServiceTests
     {
-        private readonly StockLedgerTestContext _database = new();
-
-        public void Dispose()
-        {
-            _database.Dispose();
-        }
-
         [Fact]
         public async Task UpdateAsync_WhenProductMissing_ThrowsNotFoundDatabaseException()
         {
@@ -94,6 +86,52 @@ namespace EvangelionERPV2.ProductModule.Test
         }
 
         [Fact]
+        public async Task UpdateForOrder_WhenQuantityExceedsStorage_ThrowsAndLeavesStockUnchanged()
+        {
+            var (service, productRepository, _) = CreateService();
+            var productId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+            var order = new Order(
+                DateTime.UtcNow,
+                DateTime.UtcNow.AddDays(2),
+                100,
+                enterpriseId,
+                Guid.NewGuid(),
+                new List<OrderedProduct>
+                {
+                    new OrderedProduct
+                    {
+                        ProductId = productId,
+                        Quantity = 5,
+                        Value = 10,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow,
+                        IsActive = true
+                    }
+                },
+                Guid.NewGuid());
+            var existingProduct = new Product("Product", "Desc", 10, 2, false, false, "pic", enterpriseId)
+            {
+                Id = productId,
+                IsActive = true
+            };
+            Product? updatedProduct = null;
+
+            productRepository.Setup(r => r.GetByIdAsync(productId)).ReturnsAsync(existingProduct);
+            productRepository.Setup(r => r.Update(It.IsAny<Product>()))
+                .Callback<Product>(product => updatedProduct = product)
+                .Returns((Product p) => p);
+            productRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(() => service.UpdateForOrder(order));
+
+            Assert.Null(updatedProduct);
+            Assert.Equal(2, existingProduct.StorageQuantity);
+            productRepository.Verify(r => r.Update(It.IsAny<Product>()), Times.Never);
+            productRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
         public async Task GetProductsBodyAsync_WhenEnterpriseNull_Throws()
         {
             var (service, _, _) = CreateService();
@@ -111,7 +149,7 @@ namespace EvangelionERPV2.ProductModule.Test
                 Id = Guid.NewGuid()
             };
 
-            productRepository.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>>()))
+            productRepository.Setup(r => r.GetAllAsync(It.IsAny<Func<Product, bool>>()))
                 .ReturnsAsync(new List<Product>());
 
             var result = await service.GetProductsBodyAsync(enterprise);
@@ -136,7 +174,7 @@ namespace EvangelionERPV2.ProductModule.Test
                 }
             };
 
-            productRepository.Setup(r => r.GetAllAsync(It.IsAny<Expression<Func<Product, bool>>>()))
+            productRepository.Setup(r => r.GetAllAsync(It.IsAny<Func<Product, bool>>()))
                 .ReturnsAsync(products);
             reportGenerator.Setup(r => r.GenerateStockReportAsync(enterprise)).ReturnsAsync("report");
 
@@ -220,7 +258,7 @@ namespace EvangelionERPV2.ProductModule.Test
 
             var request = new ProductPicture
             {
-                Product = new Product("Product", "Desc", 10, 0, false, false, string.Empty, enterpriseId),
+                Product = new Product("Product", "Desc", 10, 5, false, false, string.Empty, enterpriseId),
                 File = string.Empty
             };
 
@@ -262,7 +300,7 @@ namespace EvangelionERPV2.ProductModule.Test
 
             var request = new ProductPicture
             {
-                Product = new Product("Product", "Desc", 10, 0, false, false, string.Empty, enterpriseId),
+                Product = new Product("Product", "Desc", 10, 5, false, false, string.Empty, enterpriseId),
                 File = "not-a-valid-base64"
             };
 
@@ -274,7 +312,7 @@ namespace EvangelionERPV2.ProductModule.Test
                 Times.Never);
         }
 
-        private (ProductService service,
+        private static (ProductService service,
             Mock<IRepository<Product>> productRepository,
             Mock<IProductReportGeneratorService> reportGenerator) CreateService()
         {
@@ -292,92 +330,14 @@ namespace EvangelionERPV2.ProductModule.Test
                 });
             var kmsProvider = new AWSKMSKeyProvider(secretsManager.Object, configuration);
             var productRepository = new Mock<IRepository<Product>>();
-            productRepository
-                .Setup(r => r.ExecuteInTransactionAsync(
-                    It.IsAny<Func<Task<Product>>>(),
-                    It.IsAny<CancellationToken>()))
-                .Returns((Func<Task<Product>> operation, CancellationToken _) => operation());
             var reportGenerator = new Mock<IProductReportGeneratorService>();
 
-            var service = new ProductService(productRepository.Object, configuration, kmsProvider, reportGenerator.Object, _database.CreateContext());
+            var service = new ProductService(productRepository.Object, configuration, kmsProvider, reportGenerator.Object);
 
             return (service, productRepository, reportGenerator);
         }
 
-        [Fact]
-        public async Task GetThumbnailBase64Async_UsesTheDecryptedObjectKey()
-        {
-            EnsureEncryptionKeyInitialized();
-            var (service, _, _, s3Client) = CreateServiceWithS3Mock();
-            const string objectKey = "products/photo.jpg";
-            var encryptedAddress = SharedFunctions.EnsureEncryptedAddress(objectKey);
-
-            s3Client.Setup(client => client.GetObjectAsync(
-                    It.Is<GetObjectRequest>(request => request.Key == $"thumb/{objectKey}"),
-                    It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new GetObjectResponse
-                {
-                    ResponseStream = new MemoryStream([1, 2, 3])
-                });
-
-            var (base64, hash) = await service.GetThumbnailBase64Async(encryptedAddress);
-
-            Assert.Equal(Convert.ToBase64String([1, 2, 3]), base64);
-            Assert.NotNull(hash);
-            s3Client.Verify(client => client.GetObjectAsync(
-                It.Is<GetObjectRequest>(request => request.Key == $"thumb/{objectKey}"),
-                It.IsAny<CancellationToken>()), Times.Once);
-        }
-
-        /// <summary>Review spec, family photo: a variant family owns one photo besides each variant's.</summary>
-        [Fact]
-        public async Task FamilyPicture_IsStoredForTheFamily_ReplacesTheOldOne_AndStaysInsideTheEnterprise()
-        {
-            EnsureEncryptionKeyInitialized();
-            var (service, _, _, s3ClientMock) = CreateServiceWithS3Mock();
-            var enterpriseId = Guid.NewGuid();
-            var group = Guid.NewGuid();
-            using (var seed = _database.CreateContext())
-            {
-                seed.Product.Add(new Product("Caneca", "", 79, 5, false, false, "", enterpriseId) { Id = Guid.NewGuid(), VariantGroupId = group, IsActive = true });
-                await seed.SaveChangesAsync();
-            }
-            var puts = new List<string>();
-            s3ClientMock.Setup(s => s.PutObjectAsync(It.IsAny<PutObjectRequest>(), It.IsAny<CancellationToken>()))
-                .Callback<PutObjectRequest, CancellationToken>((request, _) => puts.Add(request.Key))
-                .ReturnsAsync(new PutObjectResponse());
-            s3ClientMock.Setup(s => s.DeleteObjectAsync(It.IsAny<DeleteObjectRequest>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new DeleteObjectResponse());
-            var png = Convert.ToBase64String(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D });
-
-            Assert.True(await service.SetFamilyPictureAsync(enterpriseId, group, png));
-            var first = await service.GetFamilyPictureAddressAsync(enterpriseId, group);
-            Assert.True(await service.SetFamilyPictureAsync(enterpriseId, group, png));
-            var second = await service.GetFamilyPictureAddressAsync(enterpriseId, group);
-
-            Assert.Equal(2, puts.Count);
-            Assert.All(puts, key => Assert.StartsWith("product-families/", key));
-            Assert.NotNull(first);
-            Assert.NotEqual(first, second);
-            s3ClientMock.Verify(s => s.DeleteObjectAsync(It.Is<DeleteObjectRequest>(r => r.Key == puts[0]), It.IsAny<CancellationToken>()), Times.Once);
-
-            Assert.Equal([group], await service.FamiliesWithPictureAsync(enterpriseId, [group, Guid.NewGuid()]));
-            Assert.Empty(await service.FamiliesWithPictureAsync(Guid.NewGuid(), [group]));
-            Assert.Null(await service.GetFamilyPictureAddressAsync(Guid.NewGuid(), group));
-        }
-
-        [Fact]
-        public async Task FamilyPicture_ForAGroupTheEnterpriseDoesNotHave_IsRefusedWithoutUploading()
-        {
-            EnsureEncryptionKeyInitialized();
-            var (service, _, _, s3ClientMock) = CreateServiceWithS3Mock();
-
-            Assert.False(await service.SetFamilyPictureAsync(Guid.NewGuid(), Guid.NewGuid(), Convert.ToBase64String(new byte[] { 0x89, 0x50 })));
-
-            s3ClientMock.Verify(s => s.PutObjectAsync(It.IsAny<PutObjectRequest>(), It.IsAny<CancellationToken>()), Times.Never);
-        }
-
-        private (ProductService service,
+        private static (ProductService service,
             Mock<IRepository<Product>> productRepository,
             Mock<IProductReportGeneratorService> reportGenerator,
             Mock<IAmazonS3> s3ClientMock) CreateServiceWithS3Mock()
@@ -399,15 +359,10 @@ namespace EvangelionERPV2.ProductModule.Test
 
             var kmsProvider = new AWSKMSKeyProvider(secretsManager.Object, configuration);
             var productRepository = new Mock<IRepository<Product>>();
-            productRepository
-                .Setup(r => r.ExecuteInTransactionAsync(
-                    It.IsAny<Func<Task<Product>>>(),
-                    It.IsAny<CancellationToken>()))
-                .Returns((Func<Task<Product>> operation, CancellationToken _) => operation());
             var reportGenerator = new Mock<IProductReportGeneratorService>();
             var s3ClientMock = new Mock<IAmazonS3>();
 
-            var service = new ProductService(productRepository.Object, configuration, kmsProvider, reportGenerator.Object, _database.CreateContext());
+            var service = new ProductService(productRepository.Object, configuration, kmsProvider, reportGenerator.Object);
 
             typeof(ProductService)
                 .GetField("_s3Client", BindingFlags.NonPublic | BindingFlags.Instance)!

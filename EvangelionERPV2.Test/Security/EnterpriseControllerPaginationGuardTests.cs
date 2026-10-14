@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using AutoMapper;
 using EvangelionERPV2.EnterpriseModule.Application.Interface;
 using EvangelionERPV2.EnterpriseModule.Domain.Interface;
@@ -34,8 +33,8 @@ namespace EvangelionERPV2.Test.Security
                 .ReturnsAsync(CreateUser(userId, enterpriseId, EnumAccessLevel.Admin));
 
             enterpriseRepository
-                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Expression<Func<Enterprise, bool>>>()))
-                .Callback<int?, int?, Expression<Func<Enterprise, bool>>?>((pageNumber, pageSize, _) =>
+                .Setup(r => r.GetAllAsync(It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<Func<Enterprise, bool>>()))
+                .Callback<int?, int?, Func<Enterprise, bool>?>((pageNumber, pageSize, _) =>
                 {
                     capturedPageNumber = pageNumber;
                     capturedPageSize = pageSize;
@@ -46,8 +45,8 @@ namespace EvangelionERPV2.Test.Security
                 enterpriseService.Object,
                 enterpriseRepository.Object,
                 customEnterpriseRepository.Object,
-                mapper.Object,
-                new Mock<Microsoft.AspNetCore.Authorization.IAuthorizationService>().Object);
+                userRepository.Object,
+                mapper.Object);
             ConfigureController(controller, enterpriseId, userId);
 
             var result = await controller.GetEnterprises();
@@ -87,12 +86,12 @@ namespace EvangelionERPV2.Test.Security
                 enterpriseService.Object,
                 enterpriseRepository.Object,
                 customEnterpriseRepository.Object,
-                mapper.Object,
-                new Mock<Microsoft.AspNetCore.Authorization.IAuthorizationService>().Object);
+                userRepository.Object,
+                mapper.Object);
             ConfigureController(controller, enterpriseId, userId);
 
             var result = await controller.GetEnterprisesByFilter(
-                filter: new EnterpriseFilterRequestDTO(),
+                enterprise: new Enterprise(),
                 descending: true,
                 pageNumber: 2,
                 pageSize: 5000);

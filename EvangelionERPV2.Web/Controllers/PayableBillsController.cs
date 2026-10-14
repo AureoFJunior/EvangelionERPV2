@@ -1,4 +1,3 @@
-using Asp.Versioning;
 using System.Security.Claims;
 using AutoMapper;
 using EvangelionERPV2.BillsModule.Application.Interface;
@@ -7,7 +6,6 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
-using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,22 +19,21 @@ namespace EvangelionERPV2.Web.Controllers
     [ApiVersion("1.0")]
     public class PayableBillsController : Controller
     {
-        private const int MaxPageSize = 200;
         private const int MaxPayableBillWriteRequestBodySizeInBytes = 1 * 1024 * 1024;
         private const int MaxRefundReasonLength = 500;
 
         private readonly IPayableBillService _payableBillService;
+        private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
-        private readonly IAuthorizationService _authorizationService;
 
         public PayableBillsController(
             IPayableBillService payableBillService,
-            IMapper mapper,
-            IAuthorizationService authorizationService)
+            IRepository<User> userRepository,
+            IMapper mapper)
         {
             _payableBillService = payableBillService;
+            _userRepository = userRepository;
             _mapper = mapper;
-            _authorizationService = authorizationService;
         }
 
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Read)]
@@ -45,21 +42,12 @@ namespace EvangelionERPV2.Web.Controllers
             int? pageNumber = null,
             int? pageSize = null,
             [FromQuery] string? isActive = null,
-            [FromQuery] int? billType = null,
-            [FromQuery] int? year = null,
-            [FromQuery] int? month = null)
+            [FromQuery] int? billType = null)
         {
             try
             {
                 if (!ModelState.IsValid)
                     return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
-
-                if (year.HasValue != month.HasValue)
-                    return BadRequest("year and month must be provided together.");
-                if (month is < 1 or > 12)
-                    return BadRequest("month must be between 1 and 12.");
-                if (year is < 2000 or > 2100)
-                    return BadRequest("year must be between 2000 and 2100.");
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
@@ -81,21 +69,7 @@ namespace EvangelionERPV2.Web.Controllers
                     }
                 }
 
-                var canAccessPayroll = await CanAccessPayrollAsync();
-                if (!canAccessPayroll && billType == (int)EnumPayableBillType.Payroll)
-                    return Forbid();
-
-                var (normalizedPageNumber, normalizedPageSize) = PaginationExtensions.NormalizePagination(pageNumber, pageSize, MaxPageSize);
-                var bills = await _payableBillService.GetByEnterpriseIdAsync(
-                    enterpriseId,
-                    normalizedPageNumber,
-                    normalizedPageSize,
-                    parsedIsActive,
-                    billType,
-                    year,
-                    month,
-                    canAccessPayroll);
-
+                var bills = await _payableBillService.GetByEnterpriseIdAsync(enterpriseId, pageNumber, pageSize, parsedIsActive, billType);
                 return Ok(_mapper.Map<IEnumerable<PayableBillDTO>>(bills));
             }
             catch (Exception)
@@ -114,9 +88,6 @@ namespace EvangelionERPV2.Web.Controllers
                     return Unauthorized();
                 var bill = await _payableBillService.GetByIdAsync(id, enterpriseId);
                 if (bill == null)
-                    return NoContent();
-
-                if (IsPayrollBill(bill.BillType) && !await CanAccessPayrollAsync())
                     return NoContent();
 
                 return Ok(_mapper.Map<PayableBillDTO>(bill));
@@ -139,10 +110,6 @@ namespace EvangelionERPV2.Web.Controllers
 
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
-                if (IsPayrollBill(request.BillType) && !await CanAccessPayrollAsync())
-                    return Forbid();
-
                 var payableBill = MapRequestToPayableBill(request, enterpriseId);
                 payableBill.EnterpriseId = enterpriseId;
                 var created = await _payableBillService.CreateAsync(payableBill);
@@ -174,16 +141,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!request.Id.HasValue || request.Id.Value == Guid.Empty)
                     return BadRequest("Payable bill id is required.");
 
-                if (!await CanAccessPayrollAsync())
-                {
-                    if (IsPayrollBill(request.BillType))
-                        return Forbid();
-
-                    var existing = await _payableBillService.GetByIdAsync(request.Id.Value, enterpriseId);
-                    if (existing != null && IsPayrollBill(existing.BillType))
-                        return NoContent();
-                }
-
                 var payableBill = MapRequestToPayableBill(request, enterpriseId);
                 var updated = await _payableBillService.UpdateAsync(payableBill, enterpriseId);
                 return Ok(_mapper.Map<PayableBillDTO>(updated));
@@ -195,7 +152,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Debug("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
+                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -212,10 +169,6 @@ namespace EvangelionERPV2.Web.Controllers
             {
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-
-                if (await IsHiddenPayrollBillAsync(id, enterpriseId))
-                    return NoContent();
-
                 var updated = await _payableBillService.MarkProductsReceivedAsync(id, enterpriseId);
                 return Ok(_mapper.Map<PayableBillDTO>(updated));
             }
@@ -226,7 +179,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Debug("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
+                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -248,9 +201,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (reason.Length > MaxRefundReasonLength)
                     return BadRequest($"Reason must be {MaxRefundReasonLength} characters or fewer.");
 
-                if (await IsHiddenPayrollBillAsync(id, enterpriseId))
-                    return NoContent();
-
                 var updated = await _payableBillService.RefundAsync(id, enterpriseId, reason);
                 return Ok(_mapper.Map<PayableBillDTO>(updated));
             }
@@ -261,7 +211,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Debug("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
+                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -306,9 +256,6 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
 
-                if (await IsHiddenPayrollBillAsync(id, enterpriseId))
-                    return NoContent();
-
                 var deleted = await _payableBillService.DeleteAsync(id, enterpriseId);
                 return Ok(_mapper.Map<PayableBillDTO>(deleted));
             }
@@ -319,7 +266,7 @@ namespace EvangelionERPV2.Web.Controllers
             }
             catch (NotFoundDatabaseException ex)
             {
-                Log.Logger.Debug("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
+                Log.Logger.Error("Payable bill not found. ErrorType={ErrorType}", ex.GetType().Name);
                 return NoContent();
             }
             catch (Exception)
@@ -346,8 +293,6 @@ namespace EvangelionERPV2.Web.Controllers
                 IsPaid = request.IsPaid,
                 PaidAt = request.PaidAt,
                 Amount = request.Amount ?? 0,
-                RecurrenceMonths = request.RecurrenceMonths,
-                RecurrenceUntilUtc = request.RecurrenceUntilUtc?.Date,
                 EnterpriseId = enterpriseId,
                 Items = items
             };
@@ -359,24 +304,19 @@ namespace EvangelionERPV2.Web.Controllers
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
         }
 
-        private static bool IsPayrollBill(int billType)
+        private Guid? TryGetUserId()
         {
-            return billType == (int)EnumPayableBillType.Payroll;
+            var claimValue = User.FindFirst(ClaimTypes.Sid)?.Value
+                             ?? User.FindFirst("uid")?.Value;
+
+            if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
+                return userId;
+
+            return null;
         }
 
-        private async Task<bool> CanAccessPayrollAsync()
-        {
-            var result = await _authorizationService.AuthorizeAsync(User, RbacPolicies.Payroll.Read);
-            return result.Succeeded;
-        }
 
-        private async Task<bool> IsHiddenPayrollBillAsync(Guid id, Guid enterpriseId)
-        {
-            var existing = await _payableBillService.GetByIdAsync(id, enterpriseId);
-            return existing != null
-                   && IsPayrollBill(existing.BillType)
-                   && !await CanAccessPayrollAsync();
-        }
+
 
         private static string GetSafeInsertErrorMessage(InsertDatabaseException ex)
         {

@@ -147,14 +147,19 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
             EnsureRadarEnabled();
             filter ??= new OpportunityFilterDTO();
 
+            var opportunities = await SafeGetAllAsync(
+                _opportunityRepository,
+                BuildOpportunityPredicate(enterpriseId, filter));
+
+            var filtered = ApplySort(opportunities, filter).ToList();
+            var total = filtered.Count;
             var page = Math.Max(1, filter.Page);
             var pageSize = Math.Clamp(filter.PageSize <= 0 ? 25 : filter.PageSize, 1, 200);
 
-            var (paged, total) = await _opportunityRepository.GetPagedAsync(
-                BuildOpportunityPredicate(enterpriseId, filter),
-                query => ApplySort(query, filter),
-                page,
-                pageSize);
+            var paged = filtered
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
 
             var dtoItems = await MapOpportunitiesAsync(paged);
 
@@ -406,7 +411,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                 EstimatedCashImpact = opportunities.Sum(x => x.EstimatedCashImpact),
                 AcceptanceRate = Math.Round(acceptanceRate, 4),
                 ImplementationRate = Math.Round(implementationRate, 4),
-                RealVsEstimatedUplift = (double)Math.Round(uplift, 4),
+                RealVsEstimatedUplift = Math.Round(uplift, 4),
                 AverageProcessingTimeMs = runLogs.Count == 0 ? 0 : Math.Round(runLogs.Average(x => x.DurationMs), 2),
                 LastRunId = lastRun?.RunId,
                 LastRunAt = lastRun?.StartedAt,
@@ -451,7 +456,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                         && (!endDate.HasValue || x.DetectedAt <= endDate.Value);
         }
 
-        private static IOrderedQueryable<Opportunity> ApplySort(IQueryable<Opportunity> source, OpportunityFilterDTO filter)
+        private IEnumerable<Opportunity> ApplySort(IEnumerable<Opportunity> source, OpportunityFilterDTO filter)
         {
             var query = source;
             var sortBy = (filter.SortBy ?? "priority").Trim().ToLowerInvariant();
@@ -460,20 +465,20 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
             return sortBy switch
             {
                 "score" => descending
-                    ? query.OrderByDescending(x => x.ConfidenceScore).ThenByDescending(x => x.PriorityScore).ThenBy(x => x.Id)
-                    : query.OrderBy(x => x.ConfidenceScore).ThenBy(x => x.PriorityScore).ThenBy(x => x.Id),
+                    ? query.OrderByDescending(x => x.ConfidenceScore).ThenByDescending(x => x.PriorityScore)
+                    : query.OrderBy(x => x.ConfidenceScore).ThenBy(x => x.PriorityScore),
                 "impact" => descending
-                    ? query.OrderByDescending(x => x.EstimatedMarginImpact).ThenByDescending(x => x.PriorityScore).ThenBy(x => x.Id)
-                    : query.OrderBy(x => x.EstimatedMarginImpact).ThenBy(x => x.PriorityScore).ThenBy(x => x.Id),
+                    ? query.OrderByDescending(x => x.EstimatedMarginImpact).ThenByDescending(x => x.PriorityScore)
+                    : query.OrderBy(x => x.EstimatedMarginImpact).ThenBy(x => x.PriorityScore),
                 "detected" => descending
-                    ? query.OrderByDescending(x => x.DetectedAt).ThenBy(x => x.Id)
-                    : query.OrderBy(x => x.DetectedAt).ThenBy(x => x.Id),
+                    ? query.OrderByDescending(x => x.DetectedAt)
+                    : query.OrderBy(x => x.DetectedAt),
                 "status" => descending
-                    ? query.OrderByDescending(x => x.Status).ThenByDescending(x => x.PriorityScore).ThenBy(x => x.Id)
-                    : query.OrderBy(x => x.Status).ThenBy(x => x.PriorityScore).ThenBy(x => x.Id),
+                    ? query.OrderByDescending(x => x.Status).ThenByDescending(x => x.PriorityScore)
+                    : query.OrderBy(x => x.Status).ThenBy(x => x.PriorityScore),
                 _ => descending
-                    ? query.OrderByDescending(x => x.PriorityScore).ThenByDescending(x => x.ConfidenceScore).ThenBy(x => x.Id)
-                    : query.OrderBy(x => x.PriorityScore).ThenBy(x => x.ConfidenceScore).ThenBy(x => x.Id)
+                    ? query.OrderByDescending(x => x.PriorityScore).ThenByDescending(x => x.ConfidenceScore)
+                    : query.OrderBy(x => x.PriorityScore).ThenBy(x => x.ConfidenceScore)
             };
         }
 
@@ -753,9 +758,9 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                         : 0;
 
                     var targetPrice = Math.Max(productB.DefaultValue, 0);
-                    var estimatedRevenue = Math.Max(0m, (decimal)(segmentOrderIds.Count * (pair.Confidence - 0.2) * 0.2) * targetPrice);
-                    var estimatedMargin = estimatedRevenue * 0.22m;
-                    var estimatedCash = estimatedMargin * 0.5m;
+                    var estimatedRevenue = Math.Max(0, segmentOrderIds.Count * (pair.Confidence - 0.2) * 0.2 * targetPrice);
+                    var estimatedMargin = estimatedRevenue * 0.22;
+                    var estimatedCash = estimatedMargin * 0.5;
                     var confidence = Clamp(45 + (pair.Confidence * 35) + (pair.Support * 20) + trioBonus, 0, 100);
 
                     var fingerprint = $"crosssell:{segmentValue}:{pair.ProductA:N}:{pair.ProductB:N}";
@@ -826,8 +831,8 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     continue;
                 }
 
-                var productACost = averageCostByProduct.TryGetValue(productA.Id, out var aCost) ? aCost : productA.DefaultValue * 0.78m;
-                var productBCost = averageCostByProduct.TryGetValue(productB.Id, out var bCost) ? bCost : productB.DefaultValue * 0.78m;
+                var productACost = averageCostByProduct.TryGetValue(productA.Id, out var aCost) ? aCost : productA.DefaultValue * 0.78;
+                var productBCost = averageCostByProduct.TryGetValue(productB.Id, out var bCost) ? bCost : productB.DefaultValue * 0.78;
 
                 var priceA = Math.Max(0, productA.DefaultValue);
                 var priceB = Math.Max(0, productB.DefaultValue);
@@ -844,7 +849,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                 var baselineMargin = (marginA + marginB) / 2;
                 var marginLift = bundleMargin - baselineMargin;
 
-                if (marginLift <= 0.02m)
+                if (marginLift <= 0.02)
                     continue;
 
                 var coverageA = ResolveCoverageDays(productA, dailyConsumption);
@@ -854,12 +859,12 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     continue;
 
                 var expectedOrders = Math.Max(1, pair.SupportCount * 0.4);
-                var bundlePrice = grossPrice * 0.95m;
-                var estimatedRevenue = (decimal)expectedOrders * bundlePrice;
-                var estimatedMargin = estimatedRevenue * Math.Max(bundleMargin, 0.05m);
-                var estimatedCash = estimatedMargin * 0.45m;
+                var bundlePrice = grossPrice * 0.95;
+                var estimatedRevenue = expectedOrders * bundlePrice;
+                var estimatedMargin = estimatedRevenue * Math.Max(bundleMargin, 0.05);
+                var estimatedCash = estimatedMargin * 0.45;
 
-                var confidence = Clamp(40 + (pair.Support * 25) + (pair.Confidence * 25) + (double)(marginLift * 100), 0, 100);
+                var confidence = Clamp(40 + (pair.Support * 25) + (pair.Confidence * 25) + (marginLift * 100), 0, 100);
                 var fingerprint = $"bundle:{pair.ProductA:N}:{pair.ProductB:N}";
 
                 opportunities.Add(new OpportunityCandidate
@@ -895,8 +900,8 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     }),
                     Signals =
                     [
-                        new OpportunityCandidateSignal("bundle_margin", fingerprint, (double)bundleMargin, "ratio", "Product", pair.ProductA.ToString()),
-                        new OpportunityCandidateSignal("bundle_margin_lift", fingerprint, (double)marginLift, "ratio", "Product", pair.ProductB.ToString()),
+                        new OpportunityCandidateSignal("bundle_margin", fingerprint, bundleMargin, "ratio", "Product", pair.ProductA.ToString()),
+                        new OpportunityCandidateSignal("bundle_margin_lift", fingerprint, marginLift, "ratio", "Product", pair.ProductB.ToString()),
                         new OpportunityCandidateSignal("bundle_support_count", fingerprint, pair.SupportCount, "orders", "Order", pair.ProductA.ToString())
                     ]
                 });
@@ -962,9 +967,9 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
 
                 var unitPrice = Math.Max(product.DefaultValue, 0);
                 var estimatedRevenue = lostUnits * unitPrice;
-                var estimatedMargin = estimatedRevenue * 0.2m;
-                var estimatedCash = estimatedMargin * 0.65m;
-                var confidence = Clamp(38 + Math.Min(35, (double)pendingUnits * 2) + (coverageDays <= 1 ? 22 : 12), 0, 100);
+                var estimatedMargin = estimatedRevenue * 0.2;
+                var estimatedCash = estimatedMargin * 0.65;
+                var confidence = Clamp(38 + Math.Min(35, pendingUnits * 2) + (coverageDays <= 1 ? 22 : 12), 0, 100);
 
                 var fingerprint = $"suppressed-demand:{product.Id:N}";
 
@@ -1000,9 +1005,9 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     }),
                     Signals =
                     [
-                        new OpportunityCandidateSignal("coverage_days", product.Id.ToString(), (double)coverageDays, "days", "Product", product.Id.ToString()),
-                        new OpportunityCandidateSignal("open_demand_units", product.Id.ToString(), (double)pendingUnits, "units", "Order", product.Id.ToString()),
-                        new OpportunityCandidateSignal("lost_units_estimate", product.Id.ToString(), (double)lostUnits, "units", "Order", product.Id.ToString())
+                        new OpportunityCandidateSignal("coverage_days", product.Id.ToString(), coverageDays, "days", "Product", product.Id.ToString()),
+                        new OpportunityCandidateSignal("open_demand_units", product.Id.ToString(), pendingUnits, "units", "Order", product.Id.ToString()),
+                        new OpportunityCandidateSignal("lost_units_estimate", product.Id.ToString(), lostUnits, "units", "Order", product.Id.ToString())
                     ]
                 });
             }
@@ -1079,11 +1084,11 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                 var unitPrice = Math.Max(0, product.DefaultValue);
 
                 var estimatedRevenue = unitsAtRisk * unitPrice;
-                var estimatedMargin = estimatedRevenue * 0.2m;
-                var estimatedCash = estimatedMargin * 0.5m;
+                var estimatedMargin = estimatedRevenue * 0.2;
+                var estimatedCash = estimatedMargin * 0.5;
 
                 var sampleFactor = Math.Min(1d, salesDates.Count / (double)(minSampleOrders + 2));
-                var confidence = Clamp(45 + (sampleFactor * 20) + Math.Min(25, (double)coverageGapDays * 5), 0, 100);
+                var confidence = Clamp(45 + (sampleFactor * 20) + Math.Min(25, coverageGapDays * 5), 0, 100);
                 var fingerprint = $"low-stock:{product.Id:N}";
 
                 opportunities.Add(new OpportunityCandidate
@@ -1120,8 +1125,8 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     }),
                     Signals =
                     [
-                        new OpportunityCandidateSignal("avg_daily_sales", product.Id.ToString(), (double)averageDailySales, "units_per_day", "Order", product.Id.ToString()),
-                        new OpportunityCandidateSignal("stock_coverage_days", product.Id.ToString(), (double)coverageDays, "days", "Product", product.Id.ToString()),
+                        new OpportunityCandidateSignal("avg_daily_sales", product.Id.ToString(), averageDailySales, "units_per_day", "Order", product.Id.ToString()),
+                        new OpportunityCandidateSignal("stock_coverage_days", product.Id.ToString(), coverageDays, "days", "Product", product.Id.ToString()),
                         new OpportunityCandidateSignal("low_stock_threshold_days", product.Id.ToString(), lowStockThresholdDays, "days", "Order", product.Id.ToString())
                     ]
                 });
@@ -1167,8 +1172,8 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     });
 
                     var reworkRate = ComputeReworkRate(bills, group.ToList());
-                    var delayPenalty = baseUnitCost * (decimal)(avgDelay * 0.01);
-                    var reworkPenalty = baseUnitCost * (decimal)(reworkRate * 0.06);
+                    var delayPenalty = baseUnitCost * (avgDelay * 0.01);
+                    var reworkPenalty = baseUnitCost * (reworkRate * 0.06);
                     var extraFreightPerUnit = quantity <= 0 ? 0 : extraFreight / quantity;
                     var tco = baseUnitCost + delayPenalty + reworkPenalty + extraFreightPerUnit;
 
@@ -1196,11 +1201,11 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
             foreach (var supplier in grouped.Where(x => x.SupplierKey != best.SupplierKey))
             {
                 var delta = supplier.TcoPerUnit - best.TcoPerUnit;
-                if (delta <= 0.01m)
+                if (delta <= 0.01)
                     continue;
 
                 var potentialSavings = delta * supplier.Quantity;
-                var confidence = Clamp(35 + (supplier.BillCount * 6) + Math.Min(30, (double)(delta * 120)), 0, 100);
+                var confidence = Clamp(35 + (supplier.BillCount * 6) + Math.Min(30, delta * 120), 0, 100);
                 var fingerprint = $"supplier-tco:{supplier.SupplierKey}:{best.SupplierKey}";
 
                 opportunities.Add(new OpportunityCandidate
@@ -1222,7 +1227,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                         reworkRate = Math.Round(supplier.ReworkRate, 4)
                     }),
                     ConfidenceScore = confidence,
-                    EstimatedRevenueImpact = potentialSavings * 1.2m,
+                    EstimatedRevenueImpact = potentialSavings * 1.2,
                     EstimatedMarginImpact = potentialSavings,
                     EstimatedCashImpact = potentialSavings,
                     RecommendationActionTitle = "Prioritize lower-TCO supplier",
@@ -1236,8 +1241,8 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     }),
                     Signals =
                     [
-                        new OpportunityCandidateSignal("supplier_tco", supplier.SupplierKey, (double)supplier.TcoPerUnit, "currency_per_unit", "PayableBill", supplier.SupplierKey),
-                        new OpportunityCandidateSignal("best_supplier_tco", best.SupplierKey, (double)best.TcoPerUnit, "currency_per_unit", "PayableBill", best.SupplierKey),
+                        new OpportunityCandidateSignal("supplier_tco", supplier.SupplierKey, supplier.TcoPerUnit, "currency_per_unit", "PayableBill", supplier.SupplierKey),
+                        new OpportunityCandidateSignal("best_supplier_tco", best.SupplierKey, best.TcoPerUnit, "currency_per_unit", "PayableBill", best.SupplierKey),
                         new OpportunityCandidateSignal("supplier_avg_delay_days", supplier.SupplierKey, supplier.AverageDelayDays, "days", "PayableBill", supplier.SupplierKey)
                     ]
                 });
@@ -1283,7 +1288,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                         var unitCost = averageCostByProduct.TryGetValue(line.ProductId, out var value)
                             ? value
                             : context.ProductsById.TryGetValue(line.ProductId, out var product)
-                                ? product.DefaultValue * 0.78m
+                                ? product.DefaultValue * 0.78
                                 : 0;
                         return Math.Max(0, line.Quantity * unitCost);
                     });
@@ -1332,8 +1337,8 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
             var shiftOrders = Math.Max(1, (int)Math.Floor(worst.Orders * 0.15));
             var estimatedMargin = shiftOrders * marginGap;
             var estimatedRevenue = shiftOrders * Math.Max(0, best.RevenuePerOrder - worst.RevenuePerOrder);
-            var estimatedCash = estimatedMargin * 0.7m;
-            var confidence = Clamp(35 + Math.Min(35, (double)(marginGap * 3)) + Math.Min(30, best.ConversionRate * 40), 0, 100);
+            var estimatedCash = estimatedMargin * 0.7;
+            var confidence = Clamp(35 + Math.Min(35, marginGap * 3) + Math.Min(30, best.ConversionRate * 40), 0, 100);
 
             var fingerprint = $"reallocation:{worst.GroupKey}:{best.GroupKey}";
             var hypothesis = "Reallocating sales effort to groups with better margin-per-order can increase profitability.";
@@ -1375,8 +1380,8 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     }),
                     Signals =
                     [
-                        new OpportunityCandidateSignal("from_group_margin_per_order", worst.GroupKey, (double)worst.MarginPerOrder, "currency_per_order", "Order", worst.GroupKey),
-                        new OpportunityCandidateSignal("to_group_margin_per_order", best.GroupKey, (double)best.MarginPerOrder, "currency_per_order", "Order", best.GroupKey),
+                        new OpportunityCandidateSignal("from_group_margin_per_order", worst.GroupKey, worst.MarginPerOrder, "currency_per_order", "Order", worst.GroupKey),
+                        new OpportunityCandidateSignal("to_group_margin_per_order", best.GroupKey, best.MarginPerOrder, "currency_per_order", "Order", best.GroupKey),
                         new OpportunityCandidateSignal("shifted_orders", fingerprint, shiftOrders, "orders", "Order", fingerprint)
                     ]
                 }
@@ -1394,17 +1399,17 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                 return [];
 
             var maxImpact = candidates
-                .Select(candidate => Math.Abs(candidate.EstimatedMarginImpact) + Math.Abs(candidate.EstimatedRevenueImpact * 0.2m) + Math.Abs(candidate.EstimatedCashImpact * 0.1m))
+                .Select(candidate => Math.Abs(candidate.EstimatedMarginImpact) + Math.Abs(candidate.EstimatedRevenueImpact * 0.2) + Math.Abs(candidate.EstimatedCashImpact * 0.1))
                 .DefaultIfEmpty(1)
                 .Max();
 
             foreach (var candidate in candidates)
             {
                 var impact = Math.Abs(candidate.EstimatedMarginImpact)
-                             + Math.Abs(candidate.EstimatedRevenueImpact * 0.2m)
-                             + Math.Abs(candidate.EstimatedCashImpact * 0.1m);
+                             + Math.Abs(candidate.EstimatedRevenueImpact * 0.2)
+                             + Math.Abs(candidate.EstimatedCashImpact * 0.1);
 
-                var impactScore = maxImpact <= 0 ? 0 : (double)(impact / maxImpact) * 100;
+                var impactScore = maxImpact <= 0 ? 0 : (impact / maxImpact) * 100;
                 var priority = (candidate.ConfidenceScore * 0.6) + (impactScore * 0.4);
                 candidate.PriorityScore = Clamp(priority, 0, 100);
                 candidate.PriorityLabel = ResolvePriorityLabel(candidate.PriorityScore);
@@ -1767,7 +1772,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
             return counts;
         }
 
-        private static Dictionary<Guid, decimal> BuildDailyConsumptionByProduct(RadarDataContext context)
+        private static Dictionary<Guid, double> BuildDailyConsumptionByProduct(RadarDataContext context)
         {
             if (context.OrderedProducts.Count == 0)
                 return [];
@@ -1788,7 +1793,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     group => group.Sum(line => line.Quantity) / Math.Max(1, context.HistoryWindowDays));
         }
 
-        private static Dictionary<Guid, decimal> BuildAverageCostByProduct(RadarDataContext context)
+        private static Dictionary<Guid, double> BuildAverageCostByProduct(RadarDataContext context)
         {
             if (context.PayableItems.Count == 0)
                 return [];
@@ -1813,19 +1818,19 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     {
                         var totalQuantity = group.Sum(item => item.Quantity);
                         if (totalQuantity <= 0)
-                            return 0m;
+                            return 0d;
 
                         var totalAmount = group.Sum(item => item.Quantity * item.UnitValue);
                         return totalAmount / totalQuantity;
                     });
         }
 
-        private static decimal ResolveCoverageDays(Product product, IReadOnlyDictionary<Guid, decimal> dailyConsumption)
+        private static double ResolveCoverageDays(Product product, IReadOnlyDictionary<Guid, double> dailyConsumption)
         {
             if (!dailyConsumption.TryGetValue(product.Id, out var consumption) || consumption <= 0)
-                return decimal.MaxValue;
+                return double.PositiveInfinity;
 
-            return Math.Max(0m, product.StorageQuantity) / consumption;
+            return Math.Max(0, product.StorageQuantity) / consumption;
         }
 
         private static double ComputeReworkRate(IReadOnlyList<PayableBill> bills, IReadOnlyList<PayableBillProduct> lines)
@@ -2033,12 +2038,12 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
         {
             public string SupplierKey { get; set; } = string.Empty;
             public int BillCount { get; set; }
-            public decimal Quantity { get; set; }
-            public decimal BaseUnitCost { get; set; }
+            public double Quantity { get; set; }
+            public double BaseUnitCost { get; set; }
             public double AverageDelayDays { get; set; }
             public double ReworkRate { get; set; }
-            public decimal ExtraFreightPerUnit { get; set; }
-            public decimal TcoPerUnit { get; set; }
+            public double ExtraFreightPerUnit { get; set; }
+            public double TcoPerUnit { get; set; }
         }
 
         private sealed class CommercialGroupSnapshot
@@ -2046,11 +2051,11 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
             public string GroupKey { get; set; } = string.Empty;
             public int Orders { get; set; }
             public int FinalizedOrders { get; set; }
-            public decimal Revenue { get; set; }
-            public decimal Margin { get; set; }
+            public double Revenue { get; set; }
+            public double Margin { get; set; }
             public double ConversionRate { get; set; }
-            public decimal MarginPerOrder { get; set; }
-            public decimal RevenuePerOrder { get; set; }
+            public double MarginPerOrder { get; set; }
+            public double RevenuePerOrder { get; set; }
         }
 
         private sealed class OpportunityCandidate
@@ -2064,9 +2069,9 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
             public string Hypothesis { get; set; } = string.Empty;
             public string ExplainabilityJson { get; set; } = "{}";
             public double ConfidenceScore { get; set; }
-            public decimal EstimatedRevenueImpact { get; set; }
-            public decimal EstimatedMarginImpact { get; set; }
-            public decimal EstimatedCashImpact { get; set; }
+            public double EstimatedRevenueImpact { get; set; }
+            public double EstimatedMarginImpact { get; set; }
+            public double EstimatedCashImpact { get; set; }
             public double PriorityScore { get; set; }
             public string PriorityLabel { get; set; } = "medium";
             public string RecommendationActionTitle { get; set; } = string.Empty;
@@ -2114,3 +2119,4 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
         }
     }
 }
+

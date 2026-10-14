@@ -11,7 +11,7 @@ namespace EvangelionERPV2.Shared.Repositories
         TResult ExecuteInTransaction<TResult>(Func<TResult> operation, CancellationToken cancellation = default);
         TEntity GetById(Guid id);
         IEnumerable<TEntity> GetAll();
-        IEnumerable<TEntity> GetByCondition(Expression<Func<TEntity, bool>> condition);
+        IEnumerable<TEntity> GetByCondition(Func<TEntity, bool> condition);
         TEntity Create(TEntity entity);
         IEnumerable<TEntity> CreateRange(IEnumerable<TEntity> entitys);
         TEntity Update(TEntity entity);
@@ -28,33 +28,13 @@ namespace EvangelionERPV2.Shared.Repositories
         Task<TResult> ExecuteInTransactionAsync<TResult>(Func<Task<TResult>> operation, CancellationToken cancellation = default);
         Task<Guid> GetLastId();
         Task<TEntity> GetByIdAsync(Guid id);
-        Task<IEnumerable<TEntity>> GetAllAsync(Expression<Func<TEntity, bool>>? predicate = null);
-        Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Expression<Func<TEntity, bool>>? predicate = null);
-        /// <summary>
-        /// Paged read straight off <c>DbSet&lt;TEntity&gt;</c>.
-        /// WARNING: unlike <see cref="GetAllAsync(int?, int?, Expression{Func{TEntity, bool}})"/>,
-        /// this is NOT overridden by CustomerRepository / EmployeeRepository / EnterpriseRepository /
-        /// OrderRepository / OrderedProductRepository / ProductRepository, so it returns rows
-        /// with no <c>Include</c>, no <c>AsSplitQuery</c> and no implicit <c>IsActive</c> filter.
-        /// Only use it for entities whose repository does not override <c>GetAllAsync</c>
-        /// (currently Opportunity), or override it alongside <c>GetAllAsync</c> first.
-        /// </summary>
-        Task<(IReadOnlyList<TEntity> Items, int TotalItems)> GetPagedAsync(
-            Expression<Func<TEntity, bool>>? predicate = null,
-            Func<IQueryable<TEntity>, IOrderedQueryable<TEntity>>? orderBy = null,
-            int? pageNumber = null,
-            int? pageSize = null);
+        Task<IEnumerable<TEntity>> GetAllAsync(Func<TEntity, bool>? predicate = null);
+        Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Func<TEntity, bool>? predicate = null);
         Task<IEnumerable<TEntity>> GetAllAsyncByFilter(bool descending,
             int? pageNumber,
             int? pageSize,
             Expression<Func<TEntity, bool>>? predicate = null,
             Expression<Func<TEntity, object>>? orderBy = null);
-        /// <summary>
-        /// Locks one row for the rest of the caller's transaction, so a read-then-write around
-        /// that row cannot interleave with another transaction doing the same. Only that row is
-        /// held — rows with any other id are untouched. No-op off SQL Server.
-        /// </summary>
-        Task LockForUpdateAsync(Guid id, CancellationToken cancellation = default);
         Task<TEntity> CreateAsync(TEntity entity);
         Task<IEnumerable<TEntity>> CreateRangeAsync(IEnumerable<TEntity> entitys);
         #endregion

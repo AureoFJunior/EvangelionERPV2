@@ -20,37 +20,18 @@ namespace EvangelionERPV2.AuditModule.Application.Services
             "CancelProtocol",
             "Series",
             "Number",
-            "QrCode",
-            "UrlChave",
-            "DigestValue",
-            "XMotivo",
-            "CancelXMotivo",
-            "Cnpj",
-            "InscricaoEstadual",
-            "InscricaoMunicipal",
-            "CertThumbprint",
-            "CertSubjectCn",
             "Email",
             "PhoneNumber",
             "Document",
             "Adress",
             "Address",
-            "Logradouro",
-            "Numero",
-            "Complemento",
-            "Bairro",
-            "CodigoMunicipioIbge",
-            "Municipio",
-            "Uf",
-            "Cep",
             "FirstName",
             "LastName",
             "UserName",
             "BirthDate",
             "ProfilePicture",
             "RefundReason",
-            "HtmlContent",
-            "Cid"
+            "HtmlContent"
         };
 
         public IReadOnlyCollection<AuditTrail> Create(
@@ -197,12 +178,6 @@ namespace EvangelionERPV2.AuditModule.Application.Services
                     || propertyName.Equals(nameof(Bill.DigitableLine), StringComparison.OrdinalIgnoreCase)
                     || propertyName.Equals(nameof(Bill.BarCode), StringComparison.OrdinalIgnoreCase)
                     || propertyName.Equals(nameof(Bill.OurNumber), StringComparison.OrdinalIgnoreCase);
-            }
-
-            if (entityType == typeof(EmployeeAbsence))
-            {
-                return propertyName.Equals(nameof(EmployeeAbsence.Cid), StringComparison.OrdinalIgnoreCase)
-                    || propertyName.Equals(nameof(EmployeeAbsence.Reason), StringComparison.OrdinalIgnoreCase);
             }
 
             if (entityType == typeof(PayableBill))

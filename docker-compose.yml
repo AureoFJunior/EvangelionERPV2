@@ -38,10 +38,6 @@ services:
       RedisSettings__InstanceName: ${EVA_REDIS_INSTANCE:-evangelion/prd/redis-name:instancename}
       RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
       Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
-      EmailSettings__HostName: ${EMAIL_SMTP_HOST:-}
-      EmailSettings__Port: ${EMAIL_SMTP_PORT:-587}
-      EmailSettings__Username: ${EMAIL_SMTP_USER:-}
-      EmailSettings__Password: ${EMAIL_SMTP_PASSWORD:-}
       Encryption__TokenKey: ${EVA_TOKEN_KEY:-evangelion/prd/encryptiontokenkey:key}
       AWSSettings__SecretName: "${EVA_AWS_SECRET_NAME:-AWSCredentials}"
       AWSSettings__BucketProducttName: "${EVA_AWS_PRODUCT_BUCKET:-evangelionerpv2images}"
@@ -55,17 +51,6 @@ services:
       RabbitMQSettings__VirtualHost: ${EVA_RABBITMQ_VHOST:-evangelion/prd/rabbitmq-vhost:vhost}
       RabbitMQSettings__Port: ${EVA_RABBITMQ_PORT:-evangelion/prd/rabbitmq-port:port}
       RabbitMQSettings__Uri: ${EVA_RABBITMQ_URI:-evangelion/prd/rabbitmq:uri}
-      AiSettings__Enabled: ${EVA_AI_ENABLED:-false}
-      AiSettings__Endpoint: ${EVA_AI_ENDPOINT:-http://host.docker.internal:11434}
-      AiSettings__Model: ${EVA_AI_MODEL:-qwen3:14b}
-      AiSettings__SpeechEnabled: ${EVA_AI_SPEECH_ENABLED:-false}
-      AiSettings__SpeechEndpoint: ${EVA_AI_SPEECH_ENDPOINT:-http://whisper:8000}
-      # One variable drives both, and it has to: the API sends `model` with every clip, so a value
-      # here that disagrees with WHISPER__MODEL silently overrides the server's own default.
-      AiSettings__SpeechModel: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-medium}
-      AiSettings__VoiceEnabled: ${EVA_AI_VOICE_ENABLED:-false}
-      AiSettings__VoiceEndpoint: ${EVA_AI_VOICE_ENDPOINT:-http://piper:8000}
-      AiSettings__VoiceName: ${EVA_AI_VOICE_NAME:-pt_BR-faber-medium}
       AWS_PROFILE: ${AWS_PROFILE:-}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
@@ -74,14 +59,6 @@ services:
       HOME: ${CONTAINER_HOME:-/home/app}
       AWS_SHARED_CREDENTIALS_FILE: ${AWS_SHARED_CREDENTIALS_FILE:-/home/app/.aws/credentials}
       AWS_CONFIG_FILE: ${AWS_CONFIG_FILE:-/home/app/.aws/config}
-    # .NET sizes its GC heaps against the memory it can see. With no limit the container sees the
-    # whole host - 30 GiB here - and under load on 2026-09-15 the working set grew to 13 GiB and did
-    # not come back at idle. That is the GC behaving correctly against a wrong number.
-    #
-    # A limit also makes the local container behave like the ECS task, where memory is capped and
-    # exceeding it is an OOM kill rather than a slow machine. Better to meet that ceiling here.
-    mem_limit: ${WEB_MEM_LIMIT:-2g}
-    memswap_limit: ${WEB_MEM_LIMIT:-2g}
     ports:
       - "${WEB_HOST_PORT:-5000}:8080"
     volumes:
@@ -89,84 +66,6 @@ services:
         source: ${AWS_CREDENTIALS_DIR:-./.docker/aws}
         target: /home/app/.aws
         read_only: true
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - custom_network
-
-  # Speech-to-text for the agent's voice mode. Profile-gated like the workers: off unless asked
-  # for. No volume for audio on purpose — a clip is transcribed in flight and never stored. The
-  # model cache is a named volume so a restart does not re-download the weights.
-  whisper:
-    profiles:
-      - voice
-    image: ${WHISPER_IMAGE:-fedirz/faster-whisper-server:latest-cpu}
-    container_name: evangelionerpv2_whisper
-    # Same reasoning as piper, and the stakes are higher: when synthesis dies the client can fall
-    # back to the device's voice, but there is no fallback for hearing. A dead transcription server
-    # means voice mode simply stops accepting speech.
-    restart: unless-stopped
-    environment:
-      WHISPER__MODEL: ${EVA_AI_SPEECH_MODEL:-Systran/faster-whisper-medium}
-      WHISPER__INFERENCE_DEVICE: ${EVA_AI_SPEECH_DEVICE:-cpu}
-      # int8 on CPU. Measured 2026-09-14 on noisy speech: medium at int8 keeps medium's accuracy at
-      # roughly small's speed, which is the only reason medium is affordable here at all — the GPU is
-      # holding qwen3 and Docker has no access to it anyway.
-      WHISPER__COMPUTE_TYPE: ${EVA_AI_SPEECH_COMPUTE_TYPE:-int8}
-      # Transcription is the step the user sits and waits through. Measured 2026-09-14 on this
-      # 8-core 7800X3D: 4 threads 2.33 s, 8 threads 1.86 s, 16 threads 2.28 s — physical cores help,
-      # hyperthreads fight each other. Accuracy is identical at all three, so this is free latency.
-      WHISPER__CPU_THREADS: ${EVA_AI_SPEECH_CPU_THREADS:-8}
-      # Never unload. The default is 300 seconds, so the first question after any pause paid a model
-      # load on top of the transcription — the same trap as Ollama's five-minute keep-alive. Measured
-      # 2026-09-14: 1.8 s to load medium, on every question that followed a quiet spell.
-      WHISPER__TTL: ${EVA_AI_SPEECH_TTL:--1}
-    ports:
-      - "${WHISPER_HOST_PORT:-9000}:8000"
-    # Without this a crash loop reads as "running": the process dies, the restart policy brings it
-    # back, and the only symptom is a transcription that takes a very long time. Unhealthy says it
-    # out loud in `docker ps`.
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/models', timeout=5)"]
-      interval: 30s
-      timeout: 10s
-      start_period: 90s
-      retries: 3
-    volumes:
-      - whisper_models:/root/.cache/huggingface
-    networks:
-      - custom_network
-
-  # Text-to-speech, so the assistant sounds the same on every machine instead of using whatever
-  # voice the OS happens to have — on a Linux desktop without speech-dispatcher, that is none at
-  # all. Piper runs on CPU: the GPU is already holding the model the agent thinks with. The volume
-  # holds voices only; a rendered sentence is streamed to the browser and never written down.
-  piper:
-    profiles:
-      - voice
-    image: ${PIPER_IMAGE:-ghcr.io/matatonic/openedai-speech-min:latest}
-    container_name: evangelionerpv2_piper
-    # Observed 2026-09-14: the container served four requests and exited 255 with an empty log, and
-    # the default `restart: no` left it down. Every later sentence answered 503 and the assistant
-    # simply went quiet — on a machine whose device voice is nothing at all, that is silence full
-    # stop. A synthesis process that dies is a transient fault, not a reason to take voice out of
-    # the product until somebody runs `docker start` by hand.
-    restart: unless-stopped
-    environment:
-      TTS_HOME: /app/voices
-    ports:
-      - "${PIPER_HOST_PORT:-9100}:8000"
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/models', timeout=5)"]
-      interval: 30s
-      timeout: 10s
-      start_period: 60s
-      retries: 3
-    volumes:
-      - piper_voices:/app/voices
-      # The pt-BR mapping: the image ships English voices only, and a mapping edited inside a
-      # running container dies with it.
-      - ./docker/piper/voice_to_speaker.yaml:/app/config/voice_to_speaker.yaml:ro
     networks:
       - custom_network
 
@@ -200,10 +99,6 @@ services:
       DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       HttpConfig__DefaultApiUrl: http://evangelionerpv2:8080/api/v1
       Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
-      EmailSettings__HostName: ${EMAIL_SMTP_HOST:-}
-      EmailSettings__Port: ${EMAIL_SMTP_PORT:-587}
-      EmailSettings__Username: ${EMAIL_SMTP_USER:-}
-      EmailSettings__Password: ${EMAIL_SMTP_PASSWORD:-}
       SelfAPIAuth: ${EVA_WORKER_SELF_API_AUTH:-evangelion/prd/selfapilogin:log}
       RabbitMQSettings__HostName: ${EVA_RABBITMQ_HOSTNAME:-evangelion/prd/rabbitmq-host:hostname}
       RabbitMQSettings__UserName: ${EVA_RABBITMQ_USERNAME:-evangelion/prd/rabbitmq-user:username}
@@ -246,13 +141,7 @@ services:
       DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       HttpConfig__DefaultApiUrl: http://evangelionerpv2:8080/api/v1
       Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
-      EmailSettings__HostName: ${EMAIL_SMTP_HOST:-}
-      EmailSettings__Port: ${EMAIL_SMTP_PORT:-587}
-      EmailSettings__Username: ${EMAIL_SMTP_USER:-}
-      EmailSettings__Password: ${EMAIL_SMTP_PASSWORD:-}
       SelfAPIAuth: ${EVA_WORKER_SELF_API_AUTH:-evangelion/prd/selfapilogin:log}
-      # Same Redis as the API: the broadcast workers lease it so only one replica sends a slot.
-      RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
       RabbitMQSettings__HostName: ${EVA_RABBITMQ_HOSTNAME:-evangelion/prd/rabbitmq-host:hostname}
       RabbitMQSettings__UserName: ${EVA_RABBITMQ_USERNAME:-evangelion/prd/rabbitmq-user:username}
       RabbitMQSettings__Password: ${EVA_RABBITMQ_PASSWORD:-evangelion/prd/rabbitmq-pass:password}
@@ -278,53 +167,9 @@ services:
       evangelionerpv2:
         condition: service_started
 
-  worker_notification:
-    profiles:
-      - workers
-    image: ${WORKER_NOTIFICATION_IMAGE:-aureofjunior/evangelionerpv2-worker-notification:latest}
-    user: "${CONTAINER_USER:-1654:1654}"
-    build:
-      context: .
-      dockerfile: EvangelionERPV2.Worker.Notification/Dockerfile
-      args:
-        APP_UID: "${APP_UID:-1654}"
-    container_name: evangelionerpv2_worker_notification
-    environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      HttpConfig__DefaultApiUrl: http://evangelionerpv2:8080/api/v1
-      Encryption__Key: ${EVA_ENCRYPTION_KEY:-evangelion/prd/encryptionkey:key}
-      EmailSettings__HostName: ${EMAIL_SMTP_HOST:-}
-      EmailSettings__Port: ${EMAIL_SMTP_PORT:-587}
-      EmailSettings__Username: ${EMAIL_SMTP_USER:-}
-      EmailSettings__Password: ${EMAIL_SMTP_PASSWORD:-}
-      SelfAPIAuth: ${EVA_WORKER_SELF_API_AUTH:-evangelion/prd/selfapilogin:log}
-      # Same Redis as the API: the sweep leases it so only one replica runs a pass.
-      RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
-      AWS_PROFILE: ${AWS_PROFILE:-}
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
-      AWS_EC2_METADATA_DISABLED: ${AWS_EC2_METADATA_DISABLED:-false}
-      AWS_SDK_LOAD_CONFIG: ${AWS_SDK_LOAD_CONFIG:-1}
-      HOME: ${CONTAINER_HOME:-/home/app}
-      AWS_SHARED_CREDENTIALS_FILE: ${AWS_SHARED_CREDENTIALS_FILE:-/home/app/.aws/credentials}
-      AWS_CONFIG_FILE: ${AWS_CONFIG_FILE:-/home/app/.aws/config}
-    volumes:
-      - type: bind
-        source: ${AWS_CREDENTIALS_DIR:-./.docker/aws}
-        target: /home/app/.aws
-        read_only: true
-    networks:
-      - custom_network
-    depends_on:
-      evangelionerpv2:
-        condition: service_started
-
 networks:
   custom_network:
     driver: bridge
 
 volumes:
-  whisper_models:
-  piper_voices:
   sqlserver_data:

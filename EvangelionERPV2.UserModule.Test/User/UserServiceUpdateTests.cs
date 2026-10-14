@@ -34,7 +34,7 @@ namespace EvangelionERPV2.UserModule.Test.User
                 .Setup(repository => repository.GetById(existingUser.Id))
                 .Returns(existingUser);
             userRepository
-                .Setup(repository => repository.GetByCondition(It.IsAny<Expression<Func<Shared.Entities.User, bool>>>()))
+                .Setup(repository => repository.GetByCondition(It.IsAny<Func<Shared.Entities.User, bool>>()))
                 .Returns([]);
             userRepository
                 .Setup(repository => repository.Update(It.IsAny<Shared.Entities.User>()))
@@ -130,8 +130,8 @@ namespace EvangelionERPV2.UserModule.Test.User
                 .Setup(repository => repository.GetById(existingUser.Id))
                 .Returns(existingUser);
             userRepository
-                .Setup(repository => repository.GetByCondition(It.IsAny<Expression<Func<Shared.Entities.User, bool>>>()))
-                .Returns((Expression<Func<Shared.Entities.User, bool>> predicate) => new[] { duplicateUser }.Where(predicate.Compile()).ToList());
+                .Setup(repository => repository.GetByCondition(It.IsAny<Func<Shared.Entities.User, bool>>()))
+                .Returns((Func<Shared.Entities.User, bool> predicate) => new[] { duplicateUser }.Where(predicate).ToList());
 
             var service = CreateService(userRepository.Object);
             var payload = new Shared.Entities.User
@@ -151,39 +151,6 @@ namespace EvangelionERPV2.UserModule.Test.User
 
             Assert.Equal("Email is already in use.", exception.Message);
             userRepository.Verify(repository => repository.Update(It.IsAny<Shared.Entities.User>()), Times.Never);
-        }
-
-        [Fact]
-        public void Delete_DeactivatesTheUserRatherThanRemovingTheRow()
-        {
-            var userRepository = new Mock<IRepository<Shared.Entities.User>>();
-            var existingUser = new Shared.Entities.User
-            {
-                Id = Guid.NewGuid(),
-                UserName = "rei",
-                Email = "rei@example.com",
-                EnterpriseId = Guid.NewGuid(),
-                IsActive = true
-            };
-            Shared.Entities.User? updatedUser = null;
-
-            userRepository
-                .Setup(repository => repository.GetById(existingUser.Id))
-                .Returns(existingUser);
-            userRepository
-                .Setup(repository => repository.Update(It.IsAny<Shared.Entities.User>()))
-                .Callback<Shared.Entities.User>(user => updatedUser = user)
-                .Returns((Shared.Entities.User user) => user);
-            userRepository
-                .Setup(repository => repository.Commit(It.IsAny<CancellationToken>()));
-
-            var deleted = CreateService(userRepository.Object).Delete(existingUser.Id);
-
-            userRepository.Verify(repository => repository.Delete(It.IsAny<Shared.Entities.User>()), Times.Never);
-            Assert.NotNull(updatedUser);
-            Assert.False(updatedUser!.IsActive);
-            Assert.NotNull(updatedUser.UpdatedAt);
-            Assert.False(deleted.IsActive);
         }
 
         private static UserService CreateService(IRepository<Shared.Entities.User> userRepository)

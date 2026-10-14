@@ -1,4 +1,4 @@
-using EvangelionERPV2.Shared.DTOs;
+﻿using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Worker.EmailModule.EmailWorker.RabbitMQ;
 using Microsoft.Extensions.Configuration;
@@ -21,85 +21,51 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
             _configuration = configuration;
         }
 
-        /// <summary>
-        /// One consumer for the worker's lifetime. This was a loop that served a single message and
-        /// then slept five seconds, capping the email queue near 0.2 messages a second regardless of
-        /// depth. The delay that remains is a reconnect backoff, not a poll interval.
-        /// </summary>
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                try
-                {
-                    using var scope = _serviceScopeFactory.CreateScope();
-                    var rabbitMQManager = scope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
-
-                    Log.Logger.Information("Email Consumer Worker consuming from {Time}", DateTime.UtcNow);
-
-                    await rabbitMQManager.ConsumeAsync<string>(async (rawMessage, messageId) =>
-                    {
-                        if (string.IsNullOrWhiteSpace(rawMessage))
-                            throw new InvalidOperationException("Email Consumer Worker received an empty message payload.");
-
-                        var token = await GetCachedApiTokenAsync(scope, stoppingToken);
-                        if (string.IsNullOrWhiteSpace(token))
-                            throw new InvalidOperationException("Email Consumer Worker could not obtain an API token.");
-
-                        var sentEmail = await SharedFunctions.PostAsync<object>("Email/SendQueuedEmail", rawMessage, token, cancellationToken: stoppingToken);
-                        if (sentEmail == null)
-                            throw new InvalidOperationException("Email Consumer Worker failed to send email through API.");
-                    }, stoppingToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    Log.Logger.Error("Email Consumer Worker error. ErrorType={ErrorType}", ex.GetType().Name);
-
-                    try { await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken); }
-                    catch (OperationCanceledException) { break; }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Caches the self-API token rather than logging in per message. User/LogInto is rate
-        /// limited to 100 a minute, which becomes the ceiling the moment the consumer is able to
-        /// drain faster than that.
-        /// </summary>
-        private static readonly SemaphoreSlim TokenLock = new(1, 1);
-        private static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(5);
-        private string? _cachedToken;
-
-        private long _cachedTokenExpiresAtTicks;
-
-        private async Task<string?> GetCachedApiTokenAsync(IServiceScope scope, CancellationToken cancellationToken)
-        {
-            var cached = Volatile.Read(ref _cachedToken);
-            if (cached is not null && DateTime.UtcNow.Ticks < Interlocked.Read(ref _cachedTokenExpiresAtTicks))
-                return cached;
-
-            await TokenLock.WaitAsync(cancellationToken);
             try
             {
-                cached = Volatile.Read(ref _cachedToken);
-                if (cached is not null && DateTime.UtcNow.Ticks < Interlocked.Read(ref _cachedTokenExpiresAtTicks))
-                    return cached;
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    using (var scope = _serviceScopeFactory.CreateScope())
+                    {
+                        try
+                        {
+                            var rabbitMQManager = scope.ServiceProvider.GetRequiredService<IRabbitMQManager>();
+                            await rabbitMQManager.DequeueAndProcessAsync<string>(async rawMessage =>
+                            {
+                                if (string.IsNullOrWhiteSpace(rawMessage))
+                                    throw new InvalidOperationException("Email Consumer Worker received an empty message payload.");
 
-                var user = await GetAPIToken(scope, cancellationToken);
-                if (user is null || string.IsNullOrWhiteSpace(user.Token))
-                    return null;
+                                var user = await GetAPIToken(scope, stoppingToken);
 
-                Volatile.Write(ref _cachedToken, user.Token);
-                Interlocked.Exchange(ref _cachedTokenExpiresAtTicks, DateTime.UtcNow.Add(TokenLifetime).Ticks);
-                return user.Token;
+                                Log.Logger.Information($"Sending Email at: {DateTime.UtcNow}");
+
+                                if (user == null || string.IsNullOrWhiteSpace(user.Token))
+                                    throw new InvalidOperationException("Email Consumer Worker could not obtain an API token.");
+
+                                var sentEmail = await SharedFunctions.PostAsync<object>("Email/SendQueuedEmail", rawMessage, user.Token, cancellationToken: stoppingToken);
+                                if (sentEmail == null)
+                                    throw new InvalidOperationException("Email Consumer Worker failed to send email through API.");
+                            }, stoppingToken);
+
+                            Log.Logger.Information($"Email Consumer Worker running at: {DateTime.UtcNow}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Logger.Error("Email Consumer Worker error. ErrorType={ErrorType}", ex.GetType().Name);
+                        }
+                        finally
+                        {
+                            // Delay before the next loop iteration
+                            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                        }
+                    }
+                }
             }
-            finally
+            catch (Exception ex)
             {
-                TokenLock.Release();
+                Log.Logger.Error("Email Consumer scope error. ErrorType={ErrorType}", ex.GetType().Name);
             }
         }
 
@@ -108,8 +74,7 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
             string key = string.Empty;
 
             var kmsProvider = scope.ServiceProvider.GetRequiredService<AWSKMSKeyProvider>();
-            key = await kmsProvider.GetKMSKeyAsync(
-                _configuration.GetSection("SelfAPIAuth").Value ?? string.Empty, cancellationToken);
+            key = kmsProvider.GetKMSKey(_configuration.GetSection("SelfAPIAuth").Value ?? string.Empty);
 
             var loginRequest = BuildLoginRequest(key);
             if (loginRequest == null)
@@ -144,13 +109,6 @@ namespace EvangelionERPV2.Worker.EmailModule.EmailWorker
                     Password = password
                 };
             }
-
-            // A secret that opens with a brace was meant to be JSON. Falling through to the
-            // separator split would find the colon inside `{"username":"worker"}` and log in as
-            // `{"username"` - a nonsense attempt instead of the "missing or invalid" the caller
-            // logs, which is the only signal an operator gets that the secret is malformed.
-            if (trimmed.StartsWith("{", StringComparison.Ordinal))
-                return null;
 
             var separators = new[] { "|", ";", ":", "/" };
             foreach (var separator in separators)

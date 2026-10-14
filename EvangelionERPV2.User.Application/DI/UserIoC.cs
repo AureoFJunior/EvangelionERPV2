@@ -11,9 +11,6 @@ using EvangelionERPV2.UserModule.Application.Interface;
 using EvangelionERPV2.UserModule.Application.Services;
 using Amazon.SecretsManager;
 using EvangelionERPV2.Shared.Context;
-using EvangelionERPV2.Shared.Auditing;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace EvangelionERPV2.UserModule.Application.DI
 {
@@ -65,15 +62,6 @@ namespace EvangelionERPV2.UserModule.Application.DI
 
                 #region Services
                 services.AddTransient(typeof(TokenService));
-                services.AddTransient<IAuditTrailWriter, AuditTrailWriter>();
-                services.AddTransient<MfaService>();
-                services.AddTransient<AppleSignInService>();
-                services.AddSingleton(_ => new AppleIdTokenValidator(
-                    new ConfigurationManager<OpenIdConnectConfiguration>(
-                        AppleIdTokenValidator.MetadataAddress,
-                        new OpenIdConnectConfigurationRetriever(),
-                        new HttpDocumentRetriever { RequireHttps = true }),
-                    configuration.GetSection("AppleSettings:Audiences").Get<string[]>() ?? Array.Empty<string>()));
                 services.AddTransient(typeof(IUserService<User>), typeof(UserService));
                 #endregion
 

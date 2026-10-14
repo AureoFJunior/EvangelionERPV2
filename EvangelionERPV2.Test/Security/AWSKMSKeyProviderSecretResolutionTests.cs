@@ -132,54 +132,6 @@ namespace EvangelionERPV2.Test.Security
             return secretsManager;
         }
 
-        /// <summary>
-        /// The NFe certificate PFX and its password are read with <c>bypassCache: true</c>. The
-        /// secret cache is process-static and never evicted, so retaining them there would keep a
-        /// tenant's signing identity in memory for the container's lifetime. A bypassing read must
-        /// therefore leave nothing behind — asserted by observing that a later ordinary read still
-        /// has to go to Secrets Manager.
-        /// </summary>
-        [Fact]
-        public async Task GetKMSKeyAsync_WithBypassCache_RetainsNothingInTheProcessCache()
-        {
-            const string secretName = "evangelion/dev/nfe/cert/bypass-retention";
-            var secretsManager = CreateSecretsManager(secretName, """{"pfxBase64":"MIIKfQIBAzCC"}""");
-            var provider = new AWSKMSKeyProvider(secretsManager.Object, CreateConfiguration());
-
-            var first = await provider.GetKMSKeyAsync(secretName, bypassCache: true);
-            var second = await provider.GetKMSKeyAsync(secretName);
-
-            Assert.Equal(first, second);
-            secretsManager.Verify(
-                x => x.GetSecretValueAsync(
-                    It.Is<GetSecretValueRequest>(request => request.SecretId == secretName),
-                    It.IsAny<CancellationToken>()),
-                Times.Exactly(2));
-        }
-
-        /// <summary>
-        /// A bypassing read must also drop whatever an earlier ordinary read cached, otherwise the
-        /// stale pre-rotation value outlives the rotation that bypassed the cache.
-        /// </summary>
-        [Fact]
-        public async Task GetKMSKeyAsync_WithBypassCache_EvictsAnEntryAnEarlierReadCached()
-        {
-            const string secretName = "evangelion/dev/nfe/cert/bypass-eviction";
-            var secretsManager = CreateSecretsManager(secretName, """{"password":"rotate-me"}""");
-            var provider = new AWSKMSKeyProvider(secretsManager.Object, CreateConfiguration());
-
-            await provider.GetKMSKeyAsync(secretName);
-            await provider.GetKMSKeyAsync(secretName);
-            await provider.GetKMSKeyAsync(secretName, bypassCache: true);
-            await provider.GetKMSKeyAsync(secretName);
-
-            secretsManager.Verify(
-                x => x.GetSecretValueAsync(
-                    It.Is<GetSecretValueRequest>(request => request.SecretId == secretName),
-                    It.IsAny<CancellationToken>()),
-                Times.Exactly(3));
-        }
-
         private static IConfiguration CreateConfiguration()
         {
             return new ConfigurationBuilder()

@@ -31,7 +31,7 @@ namespace EvangelionERPV2.AuditModule.Domain.Repositories
                 .AsNoTracking()
                 .Include(x => x.User)
                 .Where(x => x.EnterpriseId == enterpriseId
-                            && AuditedEntities.Names.Contains(x.EntityName));
+                            && AuditedEntities.Contains(x.EntityName));
 
             query = ApplyFilter(query, filter);
             query = descending ? query.OrderByDescending(x => x.ChangedAt) : query.OrderBy(x => x.ChangedAt);
@@ -57,7 +57,7 @@ namespace EvangelionERPV2.AuditModule.Domain.Repositories
                 .Include(x => x.User)
                 .FirstOrDefaultAsync(x => x.Id == id
                                           && x.EnterpriseId == enterpriseId
-                                          && AuditedEntities.Names.Contains(x.EntityName));
+                                          && AuditedEntities.Contains(x.EntityName));
         }
 
         public Task<int> DeleteOlderThanAsync(

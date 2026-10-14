@@ -73,9 +73,7 @@ namespace EvangelionERPV2.Test.Security
                 kmsProvider,
                 tokenService,
                 emailService,
-                new RecaptchaVerifier(new HttpClient(), configuration, kmsProvider),
-                new PasswordLoginService(userRepository.Object),
-                null!, null!)
+                new RecaptchaVerifier(new HttpClient(), configuration, kmsProvider))
             {
                 ControllerContext = new ControllerContext
                 {

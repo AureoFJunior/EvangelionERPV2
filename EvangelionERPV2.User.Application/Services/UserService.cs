@@ -19,11 +19,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
     {
         private const int MaxTokenPersistAttempts = 2;
         private const int PasswordResetCleanupBatchSize = 200;
-        // S2068: a prefix written into the stored reset-token hash so a verifier can tell the
-        // format apart. It is the algorithm's name, not a credential.
-#pragma warning disable S2068
         private const string PasswordResetTokenHashPrefix = "HMAC256:";
-#pragma warning restore S2068
         private static readonly TimeSpan PasswordResetRetentionWindow = TimeSpan.FromDays(7);
         private static readonly TimeSpan PasswordResetCleanupInterval = TimeSpan.FromMinutes(10);
         private static long _lastPasswordResetCleanupTicks;
@@ -94,6 +90,9 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
         public User Update(User user)
         {
+            // Generic update path: an empty ProfilePicture means "not provided", so the stored
+            // value is preserved. Profile-picture removal goes through the overload below with
+            // an explicit clear signal.
             return Update(user, clearProfilePicture: false);
         }
 
@@ -136,20 +135,16 @@ namespace EvangelionERPV2.UserModule.Application.Services
             return updatedUser;
         }
 
-        /// <summary>
-        /// Deactivates a user. Soft, like every other delete in the system.
-        /// </summary>
         public User Delete(Guid id)
         {
+
             User user = _userRepository.GetById(id);
+            User deletedUser = new User();
 
             if (user == null)
                 throw new NotFoundDatabaseException($"{nameof(User)} was not found in database.");
 
-            user.IsActive = false;
-            user.UpdatedAt = DateTime.UtcNow;
-
-            var deletedUser = _userRepository.Update(user);
+            deletedUser = _userRepository.Delete(user);
             _userRepository.Commit();
             return deletedUser;
         }
@@ -159,8 +154,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
             if (string.IsNullOrWhiteSpace(idToken))
                 throw new ArgumentException("idToken is required", nameof(idToken));
 
-            var clientId = await _kmsProvider.GetKMSKeyAsync(
-                _configuration.GetSection("GoogleSettings")["ClientId"] ?? string.Empty);
+            var clientId = _kmsProvider.GetKMSKey(_configuration.GetSection("GoogleSettings")["ClientId"] ?? string.Empty);
             if (string.IsNullOrWhiteSpace(clientId))
             {
                 Log.Logger.Error("Google client id is not configured.");
@@ -259,6 +253,9 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
             if (string.IsNullOrWhiteSpace(profilePicturePayload))
             {
+                // Explicit clear signal: without it Update would treat the empty value as
+                // "not provided" and keep the old key, leaving the database pointing at the
+                // S3 object deleted below.
                 user.UpdatedAt = DateTime.UtcNow;
                 var updatedUser = Update(user, clearProfilePicture: true);
                 await TryDeleteOldProfilePictureAsync(s3Client, bucketName, oldProfilePictureAddress);
@@ -537,7 +534,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
                     x.IsActive == true &&
                     x.Id != userId &&
                     x.Email != null &&
-                    x.Email.Trim().ToLower() == normalizedEmail)
+                    x.Email.Trim().ToLowerInvariant() == normalizedEmail)
                 .FirstOrDefault();
 
             if (matchingUser != null)

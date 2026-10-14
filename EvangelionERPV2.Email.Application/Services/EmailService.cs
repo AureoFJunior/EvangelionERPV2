@@ -17,8 +17,6 @@ using System.Text;
 using System.Text.Json;
 using System.Net;
 using System.Net.Sockets;
-using System.Text.RegularExpressions;
-using MimeKit.Utils;
 
 namespace EvangelionERPV2.EmailModule.Application.Services
 {
@@ -31,6 +29,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         public readonly IProductService<Product> _productService;
         private readonly AWSKMSKeyProvider _kmsProvider;
         private readonly IConfiguration _configuration;
+        private bool disposed;
         private const string AllowPrivateSmtpDestinationsConfigKey = "Security:AllowPrivateSmtpDestinations";
         private const string EnableInteractiveGoogleOAuthFallbackConfigKey = "EmailSettings:EnableInteractiveGoogleOAuthFallback";
 
@@ -68,6 +67,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 includedEmail = await _emailRepository.CreateAsync(email);
                 await _emailRepository.CommitAsync();
                 return includedEmail;
+
             }
             catch (Exception ex)
             {
@@ -79,6 +79,8 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         {
             try
             {
+                // Create the Email object
+
                 var message = new MimeMessage();
                 var emailSettings = (await ResolveEmailSettingsCandidatesAsync(enterpriseId)).FirstOrDefault();
                 if (emailSettings == null)
@@ -92,67 +94,19 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 }
 
                 message.Subject = email.Subject;
-
-                var bodyBuilder = new BodyBuilder();
-                bodyBuilder.HtmlBody = InlineDataUriImages(email.Body, bodyBuilder);
-
-                foreach (var attachment in email.Attachments ?? [])
+                message.Body = new TextPart(TextFormat.Html)
                 {
-                    if (attachment?.Content == null || attachment.Content.Length == 0)
-                        continue;
-
-                    bodyBuilder.Attachments.Add(
-                        attachment.FileName,
-                        attachment.Content,
-                        ContentType.Parse(attachment.ContentType));
-                }
-
-                message.Body = bodyBuilder.ToMessageBody();
+                    Text = email.Body
+                };
 
                 return message;
+
             }
             catch (Exception ex)
             {
                 Log.Logger.Error("Error while creating email. ErrorType={ErrorType}", GetSafeExceptionType(ex));
                 throw new EmailSenderException();
             }
-        }
-
-        /// <summary>
-        /// Mail clients (Gmail and Outlook among them) drop <c>data:</c> image URIs, which would
-        /// blank out the bill barcode. Move each one into a linked resource and point the markup at
-        /// its <c>cid:</c> instead, which every client renders.
-        /// </summary>
-        private static string InlineDataUriImages(string html, BodyBuilder bodyBuilder)
-        {
-            if (string.IsNullOrEmpty(html) || !html.Contains("data:image", StringComparison.OrdinalIgnoreCase))
-                return html;
-
-            var imageIndex = 0;
-
-            return Regex.Replace(
-                html,
-                @"data:(?<mime>image/[a-zA-Z0-9.+-]+);base64,(?<payload>[A-Za-z0-9+/=]+)",
-                match =>
-                {
-                    try
-                    {
-                        var content = Convert.FromBase64String(match.Groups["payload"].Value);
-                        var mimeType = ContentType.Parse(match.Groups["mime"].Value);
-                        var fileName = $"image-{++imageIndex}.{mimeType.MediaSubtype}";
-
-                        var resource = bodyBuilder.LinkedResources.Add(fileName, content, mimeType);
-                        resource.ContentId = MimeUtils.GenerateMessageId();
-
-                        return $"cid:{resource.ContentId}";
-                    }
-                    catch (Exception ex) when (ex is FormatException or ParseException)
-                    {
-                        return match.Value;
-                    }
-                },
-                RegexOptions.None,
-                TimeSpan.FromSeconds(5));
         }
 
         public async Task SendEmail(MimeMessage message, Guid? enterpriseId = null)
@@ -217,6 +171,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                             }
                         }
 
+                        // Ensure visible sender is consistent with the authenticated account.
                         message.From.Clear();
                         message.From.Add(new MailboxAddress(userEmail, userEmail));
 
@@ -279,7 +234,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                 .ThenByDescending(x => x.CreatedAt)
                 .ToList() ?? [];
 
-            var candidates = new List<Email>();
+            var candidates = new List<Email>(storedSettings);
 
             var configuredSettings = _configuration.GetSection("EmailSettings");
             var hostName = ResolveConfigValue(configuredSettings["HostName"]);
@@ -299,17 +254,12 @@ namespace EvangelionERPV2.EmailModule.Application.Services
                     IsActive = true
                 };
 
-                candidates.Add(configuredCandidate);
-            }
+                var hasSameStoredSetting = candidates.Any(x =>
+                    string.Equals(x.HostName?.Trim(), configuredCandidate.HostName?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(x.UserName?.Trim(), configuredCandidate.UserName?.Trim(), StringComparison.OrdinalIgnoreCase));
 
-            foreach (var stored in storedSettings)
-            {
-                var duplicate = candidates.Any(x =>
-                    string.Equals(x.HostName?.Trim(), stored.HostName?.Trim(), StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(x.UserName?.Trim(), stored.UserName?.Trim(), StringComparison.OrdinalIgnoreCase));
-
-                if (!duplicate)
-                    candidates.Add(stored);
+                if (!hasSameStoredSetting)
+                    candidates.Add(configuredCandidate);
             }
 
             return candidates;
@@ -669,6 +619,7 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                 var enterpriseId = enterprise.Id;
 
+                // Validate email
                 if (email.RecipientEmails == null || email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
                 {
                     Log.Logger.Warning($"Shouldn't send email.");
@@ -677,6 +628,17 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                 var message = await CreateEmail(email, enterpriseId);
 
+                var messageSummary = new
+                {
+                    Subject = message.Subject,
+                    From = message.From.ToString(),
+                    To = message.To.ToString(),
+                    TextBody = message.TextBody,
+                    HtmlBody = message.HtmlBody,
+                    Date = message.Date
+                };
+
+                // Put in the Email Queue
                 Log.Logger.Information("Sending email to the Queue");
                 using (var stream = new MemoryStream())
                 {
@@ -693,37 +655,21 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             }
         }
 
-        /// <summary>
-        /// Scheduled broadcasts run against every enterprise, and "no enterprise matches" is a
-        /// normal outcome. The repository signals an empty result by throwing, so translate it back
-        /// into an empty list instead of failing the whole dispatch.
-        /// </summary>
-        private async Task<IEnumerable<Enterprise>> GetBroadcastEnterprisesAsync(
-            System.Linq.Expressions.Expression<Func<Enterprise, bool>> predicate)
-        {
-            try
-            {
-                return await _enterpriseRepository.GetAllAsync(predicate) ?? [];
-            }
-            catch (NotFoundDatabaseException)
-            {
-                return [];
-            }
-        }
-
         #region Monthly Order Email
         public async Task SendMonthEmail(Guid? enterpriseId = null)
         {
             try
             {
-                var enterprises = await GetBroadcastEnterprisesAsync(x =>
-                    !string.IsNullOrEmpty(x.Email) &&
-                    (enterpriseId.HasValue
-                        ? x.Id == enterpriseId.Value
-                        : x.ShouldSendMonthlyBilling));
+                var enterprises = await _enterpriseRepository
+                    .GetAllAsync(x =>
+                        !string.IsNullOrEmpty(x.Email) &&
+                        (enterpriseId.HasValue
+                            ? x.Id == enterpriseId.Value
+                            : x.ShouldSendMonthlyBilling)) ?? new List<Enterprise>();
 
                 foreach (Enterprise enterprise in enterprises)
                 {
+
                     var body = await _orderService.GetOrdersBodyAsync(enterprise);
 
                     if (!string.IsNullOrEmpty(body))
@@ -732,10 +678,11 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
                         var email = new EmailStructure(body.ToString(), "Monthly Email", recipientEmails);
 
+                        // Validate email
                         if (email.RecipientEmails == null || email.RecipientEmails?.Any() == false || await ShouldSendEmail(email, enterprise) == false)
                         {
                             Log.Logger.Warning($"Shouldn't send email.");
-                            continue;
+                            return;
                         }
 
                         await SendManualEmail(email, enterprise);
@@ -763,9 +710,10 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         {
             try
             {
-                var enterprises = await GetBroadcastEnterprisesAsync(x =>
-                    !string.IsNullOrEmpty(x.Email) &&
-                    (!enterpriseId.HasValue || x.Id == enterpriseId.Value));
+                var enterprises = await _enterpriseRepository
+                    .GetAllAsync(x =>
+                        !string.IsNullOrEmpty(x.Email) &&
+                        (!enterpriseId.HasValue || x.Id == enterpriseId.Value)) ?? new List<Enterprise>();
 
                 foreach (Enterprise enterprise in enterprises)
                 {
@@ -794,12 +742,15 @@ namespace EvangelionERPV2.EmailModule.Application.Services
 
         private async Task<bool> ShouldSendEmail(EmailStructure email, Enterprise enterprise)
         {
+            // Validate the Email
+
             if (string.IsNullOrEmpty(email.Body))
             {
                 Log.Logger.Error($"Invalid Email Body.");
                 return false;
             }
 
+            // Validate recipients's email
             var validRecipients = new List<string>();
 
             foreach (var recipientEmail in email.RecipientEmails ?? Enumerable.Empty<string>())
@@ -825,12 +776,13 @@ namespace EvangelionERPV2.EmailModule.Application.Services
         {
             var secrets = new ClientSecrets
             {
-                ClientId = clientId,
+                ClientId = clientId,       // OAuth Desktop App
                 ClientSecret = clientSecret
             };
 
             var scopes = new[] { "https://mail.google.com/" };
 
+            // Porta fixa + Edge InPrivate
             var receiver = new FixedPortEdgeReceiver(54373);
 
                 var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
@@ -845,5 +797,41 @@ namespace EvangelionERPV2.EmailModule.Application.Services
             return await credential.GetAccessTokenForRequestAsync();
         }
 
+
+        #region Dispose Pattern
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposed)
+            {
+                if (disposing)
+                {
+                    // Dispose managed resources here.
+                    (_emailRepository as IDisposable)?.Dispose();
+                    (_enterpriseRepository as IDisposable)?.Dispose();
+                    (_orderService as IDisposable)?.Dispose();
+                    (_rabbitMQManager as IDisposable)?.Dispose();
+                }
+
+                // Dispose unmanaged resources here.
+                // For example:
+                // Close file handles, release COM objects.
+
+                disposed = true;
+            }
+        }
+
+        // Destructor for finalization code
+        ~EmailService()
+        {
+            Dispose(false);
+        }
+
+        #endregion
     }
 }

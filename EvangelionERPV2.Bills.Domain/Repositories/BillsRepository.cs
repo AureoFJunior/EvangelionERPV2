@@ -2,76 +2,22 @@ using EvangelionERPV2.BillsModule.Domain.Interface;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace EvangelionERPV2.BillsModule.Domain.Repositories
 {
     public class BillsRepository : Repository<Bill>, IBillsRepository<Bill>
     {
-        /// <summary>
-        /// The NossoNumero allocation statement. One statement, one round trip:
-        /// <c>UPDATE ... OUTPUT deleted</c> is atomic at any isolation level, so two API instances
-        /// generating a boleto at the same moment cannot receive the same number. <c>ROWLOCK</c>
-        /// keeps the engine from escalating to a page lock and serialising unrelated wallets.
-        /// </summary>
-        public const string AllocateNextNumberSql = """
-            UPDATE dbo.BillNumberSequence WITH (ROWLOCK)
-               SET NextNumber = NextNumber + 1
-            OUTPUT deleted.NextNumber AS Value
-             WHERE EnterpriseId = @enterpriseId
-               AND BankCode = @bankCode
-               AND Wallet = @wallet
-               AND NextNumber <= Ceiling;
-            """;
-
         public BillsRepository(AppDbContext context) : base(context)
         {
         }
 
         public async Task<Bill?> GetByOrderIdAsync(Guid orderId)
         {
-            return await ActiveBills()
-                .Where(x => x.OrderId == orderId && x.Status != BillStatus.Cancelled)
-                .OrderByDescending(x => x.CreatedAt)
-                .FirstOrDefaultAsync();
-        }
-
-        public async Task<IReadOnlyList<Bill>> GetAllByOrderIdAsync(Guid orderId)
-        {
-            if (orderId == Guid.Empty)
-                return [];
-
-            return await ActiveBills()
-                .Where(x => x.OrderId == orderId)
-                .OrderByDescending(x => x.CreatedAt)
-                .ToListAsync();
-        }
-
-        public async Task<long?> AllocateNextNumberAsync(
-            Guid enterpriseId,
-            int bankCode,
-            string wallet,
-            CancellationToken cancellationToken = default)
-        {
-            if (enterpriseId == Guid.Empty || bankCode <= 0)
-                return null;
-
-            var allocated = await _context.Database
-                .SqlQueryRaw<long>(
-                    AllocateNextNumberSql,
-                    new SqlParameter("@enterpriseId", enterpriseId),
-                    new SqlParameter("@bankCode", bankCode),
-                    new SqlParameter("@wallet", wallet ?? string.Empty))
-                .ToListAsync(cancellationToken);
-
-            return allocated.Count == 0 ? null : allocated[0];
-        }
-
-        /// <summary>Soft-delete filter plus AsNoTracking, applied by every read here.</summary>
-        private IQueryable<Bill> ActiveBills() =>
-            _context.Set<Bill>()
+            return await _context.Set<Bill>()
                 .AsNoTracking()
-                .Where(x => x.IsActive == null || x.IsActive == true);
+                .FirstOrDefaultAsync(x => x.OrderId == orderId && (x.IsActive == null || x.IsActive == true));
+        }
     }
 }
+

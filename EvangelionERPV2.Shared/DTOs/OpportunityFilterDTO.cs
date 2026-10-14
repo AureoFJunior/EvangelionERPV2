@@ -6,8 +6,8 @@ namespace EvangelionERPV2.Shared.DTOs
         public string? Status { get; set; }
         public double? MinScore { get; set; }
         public double? MaxScore { get; set; }
-        public decimal? MinImpact { get; set; }
-        public decimal? MaxImpact { get; set; }
+        public double? MinImpact { get; set; }
+        public double? MaxImpact { get; set; }
         public DateTime? StartDate { get; set; }
         public DateTime? EndDate { get; set; }
         public string SortBy { get; set; } = "priority";

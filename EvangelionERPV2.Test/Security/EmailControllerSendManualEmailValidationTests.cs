@@ -79,7 +79,7 @@ namespace EvangelionERPV2.Test.Security
             Guid enterpriseId)
         {
             var mapper = new Mock<IMapper>(MockBehavior.Strict).Object;
-            var controller = new EmailController(emailService.Object);
+            var controller = new EmailController(emailService.Object, userRepository.Object, mapper);
             var claims = new[]
             {
                 new Claim(ClaimTypes.Sid, userId.ToString()),

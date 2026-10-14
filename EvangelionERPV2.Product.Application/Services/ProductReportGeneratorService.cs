@@ -231,7 +231,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             return body.ToString();
         }
 
-        private string GetStockStatus(decimal storageQuantity)
+        private string GetStockStatus(double storageQuantity)
         {
             return storageQuantity > 0 ? "ok" : "out";
         }

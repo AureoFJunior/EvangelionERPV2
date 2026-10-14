@@ -8,13 +8,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public DateTime DueDate { get; set; }
         public bool IsPaid { get; set; }
         public DateTime? PaidAt { get; set; }
-        public decimal? Amount { get; set; }
-        /// <summary>Months between repeats. Null — the default — means the bill does not repeat.</summary>
-        public int? RecurrenceMonths { get; set; }
-
-        /// <summary>The last due date the chain may reach. Required when RecurrenceMonths is set.</summary>
-        public DateTime? RecurrenceUntilUtc { get; set; }
-
+        public double? Amount { get; set; }
         public IEnumerable<PayableBillItemRequestDTO>? Items { get; set; }
     }
 }

@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using Amazon.SecretsManager;
 using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.EmailModule.Application.Services;
@@ -29,8 +28,8 @@ namespace EvangelionERPV2.Test.Security
 
             var emailRepository = new Mock<IRepository<Email>>(MockBehavior.Strict);
             emailRepository
-                .Setup(repository => repository.GetAllAsync(It.IsAny<Expression<Func<Email, bool>>?>()))
-                .ReturnsAsync((Expression<Func<Email, bool>>? predicate) =>
+                .Setup(repository => repository.GetAllAsync(It.IsAny<Func<Email, bool>?>()))
+                .ReturnsAsync((Func<Email, bool>? predicate) =>
                 {
                     var settings = new List<Email>
                     {
@@ -47,7 +46,7 @@ namespace EvangelionERPV2.Test.Security
                         }
                     };
 
-                    return predicate == null ? settings : settings.Where(predicate.Compile()).ToList();
+                    return predicate == null ? settings : settings.Where(predicate).ToList();
                 });
 
             var service = CreateService(rabbitMqManager.Object, emailRepository.Object);

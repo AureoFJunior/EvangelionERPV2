@@ -1,10 +1,8 @@
 using EvangelionERPV2.NFeModule.Application.Configs;
-using EvangelionERPV2.NFeModule.Application.Interface;
+using EvangelionERPV2.NFeModule.Application.Models;
 using EvangelionERPV2.NFeModule.Application.Providers;
-using EvangelionERPV2.NFeModule.Infra.Providers;
 using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Domain.Interface;
-using EvangelionERPV2.NFeModule.Infra.Xml;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -16,47 +14,6 @@ namespace EvangelionERPV2.Test.Resilience
 {
     public class NFeServiceIdempotencyTests
     {
-        private const short NFeModel = 55;
-        private const byte HomologationEnvironment = 2;
-        private const int AllocatedNumber = 42;
-
-        /// <summary>
-        /// A tenant complete enough for the chave to build. Issuance now allocates a number and
-        /// composes the access key before transmitting, so every test that reaches the provider
-        /// needs both this and an allocation setup.
-        /// </summary>
-        private static Mock<INFeFiscalSettingsService> FiscalSettingsFor(Guid enterpriseId)
-        {
-            var mock = new Mock<INFeFiscalSettingsService>();
-            mock.Setup(x => x.GetSettingsAsync(enterpriseId))
-                .ReturnsAsync(new EnterpriseFiscalSettings
-                {
-                    EnterpriseId = enterpriseId,
-                    Cnpj = "11222333000181",
-                    CodigoUfIbge = 43,
-                    Environment = HomologationEnvironment,
-                    NFeSeries = "1",
-                    NFCeSeries = "1",
-
-                    Enabled = true,
-                    NFCeEnabled = true
-                });
-
-            return mock;
-        }
-
-        private static void SetupNumberAllocation(Mock<INFeRepository<NFeDocument>> repository, Guid enterpriseId)
-        {
-            repository
-                .Setup(x => x.AllocateNextNumberAsync(
-                    enterpriseId,
-                    NFeModel,
-                    "1",
-                    HomologationEnvironment,
-                    It.IsAny<CancellationToken>()))
-                .ReturnsAsync(AllocatedNumber);
-        }
-
         [Fact]
         public async Task IssueAsync_DuplicateCommit_ReturnsExistingDocument()
         {
@@ -111,18 +68,24 @@ namespace EvangelionERPV2.Test.Resilience
                 .ThrowsAsync(new DbUpdateException("duplicate key", new Exception("unique index")));
 
             providerMock
-                .Setup(x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()))
+                .Setup(x => x.IssueAsync(
+                    It.IsAny<Order>(),
+                    It.IsAny<Enterprise>(),
+                    It.IsAny<Customer>(),
+                    NFeDocumentType.NFe,
+                    It.IsAny<NFeSettings>()))
                 .ReturnsAsync(new NFeProviderResult
                 {
                     AccessKey = "new-key",
                     Protocol = "PROT-1",
                     XmlContent = "<xml></xml>",
+                    Number = "1",
+                    Series = "1",
+                    Environment = "Homologation",
                     IssuedAt = DateTime.UtcNow,
                     TotalValue = 100,
                     Status = NFeStatus.Authorized
                 });
-
-            SetupNumberAllocation(nfeRepositoryCustomMock, enterpriseId);
 
             var service = new NFeService(
                 nfeRepositoryMock.Object,
@@ -131,26 +94,20 @@ namespace EvangelionERPV2.Test.Resilience
                 customerRepositoryMock.Object,
                 enterpriseRepositoryMock.Object,
                 providerMock.Object,
-                FiscalSettingsFor(enterpriseId).Object,
-                Options.Create(new NFeSettings { Enabled = true }),
-                new Mock<IRepository<PdvSale>>().Object,
-                new Mock<IRepository<PdvSalePayment>>().Object);
+                Options.Create(new NFeSettings { Enabled = true }));
 
             var result = await service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
 
             Assert.NotNull(result);
             Assert.Equal(existingDocument.Id, result!.Id);
             Assert.Equal(existingDocument.AccessKey, result.AccessKey);
-            nfeRepositoryCustomMock.Verify(
-                x => x.AllocateNextNumberAsync(
-                    It.IsAny<Guid>(),
-                    It.IsAny<short>(),
-                    It.IsAny<string>(),
-                    It.IsAny<byte>(),
-                    It.IsAny<CancellationToken>()),
-                Times.Never);
             providerMock.Verify(
-                x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()),
+                x => x.IssueAsync(
+                    It.IsAny<Order>(),
+                    It.IsAny<Enterprise>(),
+                    It.IsAny<Customer>(),
+                    NFeDocumentType.NFe,
+                    It.IsAny<NFeSettings>()),
                 Times.Never);
         }
 
@@ -222,7 +179,12 @@ namespace EvangelionERPV2.Test.Resilience
                 .Returns(Task.CompletedTask);
 
             providerMock
-                .Setup(x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()))
+                .Setup(x => x.IssueAsync(
+                    It.IsAny<Order>(),
+                    It.IsAny<Enterprise>(),
+                    It.IsAny<Customer>(),
+                    NFeDocumentType.NFe,
+                    It.IsAny<NFeSettings>()))
                 .Callback(() => Interlocked.Increment(ref providerCalls))
                 .Returns(async () =>
                 {
@@ -232,13 +194,14 @@ namespace EvangelionERPV2.Test.Resilience
                         AccessKey = "12345678901234567890123456789012345678901234",
                         Protocol = "PROT-1",
                         XmlContent = "<xml></xml>",
+                        Number = "1",
+                        Series = "1",
+                        Environment = "Homologation",
                         IssuedAt = DateTime.UtcNow,
                         TotalValue = 100,
                         Status = NFeStatus.Authorized
                     };
                 });
-
-            SetupNumberAllocation(nfeRepositoryCustomMock, enterpriseId);
 
             var service = new NFeService(
                 nfeRepositoryMock.Object,
@@ -247,10 +210,7 @@ namespace EvangelionERPV2.Test.Resilience
                 customerRepositoryMock.Object,
                 enterpriseRepositoryMock.Object,
                 providerMock.Object,
-                FiscalSettingsFor(enterpriseId).Object,
-                Options.Create(new NFeSettings { Enabled = true }),
-                new Mock<IRepository<PdvSale>>().Object,
-                new Mock<IRepository<PdvSalePayment>>().Object);
+                Options.Create(new NFeSettings { Enabled = true }));
 
             var issuanceTask1 = service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
             var issuanceTask2 = service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
@@ -263,17 +223,7 @@ namespace EvangelionERPV2.Test.Resilience
             Assert.NotNull(issuedDocument2);
             Assert.Equal(issuedDocument1!.Id, issuedDocument2!.Id);
             Assert.Equal(1, providerCalls);
-
-            Assert.Equal(4, commitCalls);
-
-            nfeRepositoryCustomMock.Verify(
-                x => x.AllocateNextNumberAsync(
-                    It.IsAny<Guid>(),
-                    It.IsAny<short>(),
-                    It.IsAny<string>(),
-                    It.IsAny<byte>(),
-                    It.IsAny<CancellationToken>()),
-                Times.Once);
+            Assert.Equal(2, commitCalls);
         }
 
         [Fact]
@@ -331,18 +281,24 @@ namespace EvangelionERPV2.Test.Resilience
                 .Returns(Task.CompletedTask);
 
             providerMock
-                .Setup(x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()))
+                .Setup(x => x.IssueAsync(
+                    It.IsAny<Order>(),
+                    It.IsAny<Enterprise>(),
+                    It.IsAny<Customer>(),
+                    NFeDocumentType.NFe,
+                    It.IsAny<NFeSettings>()))
                 .ReturnsAsync(new NFeProviderResult
                 {
                     AccessKey = "authorized-key",
                     Protocol = "PROT-RETRY",
                     XmlContent = "<authorized />",
+                    Number = "2",
+                    Series = "1",
+                    Environment = "Homologation",
                     IssuedAt = DateTime.UtcNow,
                     TotalValue = 100,
                     Status = NFeStatus.Authorized
                 });
-
-            SetupNumberAllocation(nfeRepositoryCustomMock, enterpriseId);
 
             var service = new NFeService(
                 nfeRepositoryMock.Object,
@@ -351,25 +307,23 @@ namespace EvangelionERPV2.Test.Resilience
                 customerRepositoryMock.Object,
                 enterpriseRepositoryMock.Object,
                 providerMock.Object,
-                FiscalSettingsFor(enterpriseId).Object,
-                Options.Create(new NFeSettings { Enabled = true }),
-                new Mock<IRepository<PdvSale>>().Object,
-                new Mock<IRepository<PdvSalePayment>>().Object);
+                Options.Create(new NFeSettings { Enabled = true }));
 
             var result = await service.IssueAsync(orderId, enterpriseId, NFeDocumentType.NFe);
 
             Assert.NotNull(result);
             Assert.Equal(erroredDocument.Id, result!.Id);
             Assert.Equal(NFeStatus.Authorized, result.Status);
-
-            Assert.Equal(AllocatedNumber.ToString(), result.Number);
-            Assert.True(NFeAccessKeyBuilder.IsValid(result.AccessKey));
-            Assert.NotNull(result.TransmittedAtUtc);
-
+            Assert.Equal("authorized-key", result.AccessKey);
             providerMock.Verify(
-                x => x.IssueAsync(It.IsAny<NFeIssueContext>(), It.IsAny<CancellationToken>()),
+                x => x.IssueAsync(
+                    It.IsAny<Order>(),
+                    It.IsAny<Enterprise>(),
+                    It.IsAny<Customer>(),
+                    NFeDocumentType.NFe,
+                    It.IsAny<NFeSettings>()),
                 Times.Once);
-            nfeRepositoryMock.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Exactly(4));
+            nfeRepositoryMock.Verify(x => x.CommitAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
         }
     }
 }

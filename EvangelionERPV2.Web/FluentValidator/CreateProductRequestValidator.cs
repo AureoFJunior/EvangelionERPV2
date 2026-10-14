@@ -42,8 +42,6 @@ namespace EvangelionERPV2.Web.FluentValidator
             RuleFor(x => x)
                 .Must(x => x.VariantGroupId.HasValue == !string.IsNullOrWhiteSpace(x.VariantLabel))
                 .WithMessage("VariantGroupId and VariantLabel must be provided together.");
-
-            ProductFiscalRules.AddTo(this);
         }
 
         private static string ResolveName(CreateProductRequestDTO request)
@@ -54,12 +52,12 @@ namespace EvangelionERPV2.Web.FluentValidator
             return request.Product?.Name ?? string.Empty;
         }
 
-        private static decimal ResolveDefaultValue(CreateProductRequestDTO request)
+        private static double ResolveDefaultValue(CreateProductRequestDTO request)
         {
             return request.DefaultValue ?? request.Product?.DefaultValue ?? 0;
         }
 
-        private static decimal ResolveStorageQuantity(CreateProductRequestDTO request)
+        private static double ResolveStorageQuantity(CreateProductRequestDTO request)
         {
             return request.StorageQuantity ?? request.Product?.StorageQuantity ?? 0;
         }

@@ -29,8 +29,6 @@ namespace EvangelionERPV2.Shared.Repositories
             var strategy = _context.Database.CreateExecutionStrategy();
             strategy.Execute(() =>
             {
-                _context.ChangeTracker.Clear();
-
                 using var transaction = _context.Database.BeginTransaction();
                 operation();
                 transaction.Commit();
@@ -46,8 +44,6 @@ namespace EvangelionERPV2.Shared.Repositories
 
             strategy.Execute(() =>
             {
-                _context.ChangeTracker.Clear();
-
                 using var transaction = _context.Database.BeginTransaction();
                 result = operation();
                 transaction.Commit();
@@ -72,7 +68,7 @@ namespace EvangelionERPV2.Shared.Repositories
             return result.Count > 0 ? result : new List<TEntity>();
         }
 
-        public virtual IEnumerable<TEntity> GetByCondition(Expression<Func<TEntity, bool>> condition)
+        public virtual IEnumerable<TEntity> GetByCondition(Func<TEntity, bool> condition)
         {
             var query = _context.Set<TEntity>().AsNoTracking().Where(condition);
 
@@ -171,7 +167,7 @@ namespace EvangelionERPV2.Shared.Repositories
 
         public virtual Task CommitAsync(CancellationToken cancellation = default)
         {
-            return _context.SaveChangesAsync(cancellation);
+            return _context.SaveChangesAsync();
         }
 
         public virtual Task ExecuteInTransactionAsync(Func<Task> operation, CancellationToken cancellation = default)
@@ -179,14 +175,12 @@ namespace EvangelionERPV2.Shared.Repositories
             ArgumentNullException.ThrowIfNull(operation);
 
             var strategy = _context.Database.CreateExecutionStrategy();
-            return strategy.ExecuteAsync(async (CancellationToken token) =>
+            return strategy.ExecuteAsync(async () =>
             {
-                _context.ChangeTracker.Clear();
-
-                await using var transaction = await _context.Database.BeginTransactionAsync(token);
+                await using var transaction = await _context.Database.BeginTransactionAsync(cancellation);
                 await operation();
-                await transaction.CommitAsync(token);
-            }, cancellation);
+                await transaction.CommitAsync(cancellation);
+            });
         }
 
         public virtual Task<TResult> ExecuteInTransactionAsync<TResult>(Func<Task<TResult>> operation, CancellationToken cancellation = default)
@@ -194,15 +188,13 @@ namespace EvangelionERPV2.Shared.Repositories
             ArgumentNullException.ThrowIfNull(operation);
 
             var strategy = _context.Database.CreateExecutionStrategy();
-            return strategy.ExecuteAsync(async (CancellationToken token) =>
+            return strategy.ExecuteAsync(async () =>
             {
-                _context.ChangeTracker.Clear();
-
-                await using var transaction = await _context.Database.BeginTransactionAsync(token);
+                await using var transaction = await _context.Database.BeginTransactionAsync(cancellation);
                 var result = await operation();
-                await transaction.CommitAsync(token);
+                await transaction.CommitAsync(cancellation);
                 return result;
-            }, cancellation);
+            });
         }
 
         public virtual async Task<Guid> GetLastId()
@@ -220,25 +212,29 @@ namespace EvangelionERPV2.Shared.Repositories
             return entity ?? null!;
         }
 
-        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(Expression<Func<TEntity, bool>>? predicate = null)
+        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(Func<TEntity, bool>? predicate = null)
         {
             IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
 
             if (predicate != null)
-                query = query.Where(predicate);
+                return query.AsEnumerable().Where(predicate).ToList();
 
             return await query.ToListAsync();
         }
 
-        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Expression<Func<TEntity, bool>>? predicate = null)
+        public virtual async Task<IEnumerable<TEntity>> GetAllAsync(int? pageNumber, int? pageSize, Func<TEntity, bool>? predicate = null)
         {
             IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
 
-            if (predicate != null)
-                query = query.Where(predicate);
-
             if (pageNumber == null || pageSize == null)
-                return await query.ToListAsync();
+                return await GetAllAsync(predicate);
+
+            if (predicate != null)
+                return query.AsEnumerable()
+                    .Where(predicate)
+                    .Skip((pageNumber.Value - 1) * pageSize.Value)
+                    .Take(pageSize.Value)
+                    .ToList();
 
             int skip = (pageNumber.Value - 1) * pageSize.Value;
             return await query
@@ -246,30 +242,6 @@ namespace EvangelionERPV2.Shared.Repositories
                 .Skip(skip)
                 .Take(pageSize.Value)
                 .ToListAsync();
-        }
-
-        public virtual async Task<(IReadOnlyList<TEntity> Items, int TotalItems)> GetPagedAsync(
-            Expression<Func<TEntity, bool>>? predicate = null,
-            Func<IQueryable<TEntity>, IOrderedQueryable<TEntity>>? orderBy = null,
-            int? pageNumber = null,
-            int? pageSize = null)
-        {
-            IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking();
-
-            if (predicate != null)
-                query = query.Where(predicate);
-
-            var totalItems = await query.CountAsync();
-
-            query = orderBy != null ? orderBy(query).ThenBy(entity => entity.Id) : query.OrderBy(entity => entity.Id);
-
-            if (pageNumber == null || pageSize == null)
-                return (await query.ToListAsync(), totalItems);
-
-            int skip = (pageNumber.Value - 1) * pageSize.Value;
-            var items = await query.Skip(skip).Take(pageSize.Value).ToListAsync();
-
-            return (items, totalItems);
         }
 
         protected virtual async Task<IEnumerable<TEntity>> GetAllAsyncByFilterInternal(bool descending,
@@ -287,7 +259,7 @@ namespace EvangelionERPV2.Shared.Repositories
                     query = query.Where(predicate);
 
                 if (orderBy != null)
-                    query = (descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy)).ThenBy(entity => entity.Id);
+                    query = descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy);
             }
 
             if (pageNumber == null || pageSize == null)
@@ -315,7 +287,7 @@ namespace EvangelionERPV2.Shared.Repositories
                     query = query.Where(predicate);
 
                 if (orderBy != null)
-                    query = (descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy)).ThenBy(entity => entity.Id);
+                    query = descending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy);
             }
 
             int totalItems = await query.CountAsync();
@@ -329,32 +301,6 @@ namespace EvangelionERPV2.Shared.Repositories
             var result = await query.Skip(skip).Take(pageSize.Value).ToListAsync();
 
             return (result, totalItems);
-        }
-
-        /// <summary>
-        /// Takes SQL Server's update lock on one row and holds it to the end of the caller's
-        /// transaction, so two transactions that read-then-write around that row queue behind
-        /// each other instead of both reading the state before either wrote. It is that one row:
-        /// any other id contends with nothing.
-        /// </summary>
-        public virtual async Task LockForUpdateAsync(Guid id, CancellationToken cancellation = default)
-        {
-            if (_context.Database.ProviderName?.Contains("SqlServer", StringComparison.Ordinal) != true)
-                return;
-
-            var table = _context.Model.FindEntityType(typeof(TEntity))?.GetTableName();
-            if (string.IsNullOrEmpty(table))
-                return;
-
-            // S2077: the interpolated value is a table name EF's own model metadata just returned,
-            // and the id - the part a caller could influence - is the parameter below. An identifier
-            // cannot be a parameter in any SQL dialect.
-#pragma warning disable EF1002, S2077
-            await _context.Database.ExecuteSqlRawAsync(
-                $"SELECT TOP 1 1 FROM [{table}] WITH (UPDLOCK, HOLDLOCK) WHERE Id = {{0}}",
-                [id],
-                cancellation);
-#pragma warning restore EF1002, S2077
         }
 
         public virtual async Task<TEntity> CreateAsync(TEntity entity)

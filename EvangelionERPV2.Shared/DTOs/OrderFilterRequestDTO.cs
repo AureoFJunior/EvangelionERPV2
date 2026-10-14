@@ -7,8 +7,5 @@ namespace EvangelionERPV2.Shared.DTOs
         public DateTime? StartDate { get; set; }
         public DateTime? EndDate { get; set; }
         public bool? IsActive { get; set; } = true;
-
-        /// <summary><see cref="Enums.EnumOrderChannel"/>; null for every channel.</summary>
-        public int? Channel { get; set; }
     }
 }

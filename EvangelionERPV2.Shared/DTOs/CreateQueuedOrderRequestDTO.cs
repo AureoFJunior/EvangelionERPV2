@@ -14,11 +14,5 @@ namespace EvangelionERPV2.Shared.DTOs
         public DateTime PaymentScheduledDate { get; set; }
         public int Status { get; set; }
         public IEnumerable<OrderLineItemRequestDTO> Items { get; set; } = [];
-
-        /// <summary>
-        /// The broker's message id, carried so the API can refuse to create the same order twice.
-        /// Empty when the order did not come from the queue.
-        /// </summary>
-        public string MessageId { get; set; } = string.Empty;
     }
 }

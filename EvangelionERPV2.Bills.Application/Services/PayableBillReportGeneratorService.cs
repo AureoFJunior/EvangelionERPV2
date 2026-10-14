@@ -25,15 +25,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var monthEnd = monthStart.AddMonths(1).AddTicks(-1);
             var today = now.Date;
 
-            var payrollBillType = (int)EnumPayableBillType.Payroll;
-
             var bills = (await _payableBillRepository.GetAllAsyncByFilter(
                     false,
                     null,
                     null,
                     x => x.IsActive == true
                          && x.EnterpriseId == enterprise.Id
-                         && x.BillType != payrollBillType
                          && x.DueDate >= monthStart
                          && x.DueDate <= monthEnd))
                 .ToList();
@@ -261,12 +258,12 @@ namespace EvangelionERPV2.BillsModule.Application.Services
 
         private readonly record struct PayablesOverviewRow(
             string BillTypeLabel,
-            decimal PaidAmount,
-            decimal OverdueAmount,
-            decimal UpcomingAmount,
-            decimal RefundedAmount)
+            double PaidAmount,
+            double OverdueAmount,
+            double UpcomingAmount,
+            double RefundedAmount)
         {
-            public decimal Total => PaidAmount + OverdueAmount + UpcomingAmount + RefundedAmount;
+            public double Total => PaidAmount + OverdueAmount + UpcomingAmount + RefundedAmount;
         }
     }
 }

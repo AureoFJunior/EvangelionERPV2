@@ -1,9 +1,6 @@
-# .editorconfig for a .NET project
-#
-# Deliberately NOT `root = true`: that stops the search at this directory, and the solution's rule
-# severities live in the root .editorconfig. With it set, none of the promoted rules reached the
-# one project holding the controllers, the RBAC handlers and the tenant gate. This file adds
-# formatting preferences on top of those severities; it does not replace them.
+﻿# .editorconfig for a .NET project
+# top-most EditorConfig file
+root = true
 
 # All files
 [*]

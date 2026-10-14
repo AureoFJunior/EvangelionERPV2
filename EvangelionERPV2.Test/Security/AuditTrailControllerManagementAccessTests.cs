@@ -87,6 +87,7 @@ namespace EvangelionERPV2.Test.Security
         {
             var controller = new AuditTrailController(
                 _auditTrailServiceMock.Object,
+                _userRepositoryMock.Object,
                 _mapperMock.Object);
 
             var identity = new ClaimsIdentity(claims, "TestAuthType");

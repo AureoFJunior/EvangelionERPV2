@@ -7,7 +7,6 @@ using System.Reflection;
 
 namespace EvangelionERPV2.Test.Security
 {
-    [Collection(SharedFunctionsKeyCollection.Name)]
     public class StorageObjectKeyValidationTests
     {
         [Fact]

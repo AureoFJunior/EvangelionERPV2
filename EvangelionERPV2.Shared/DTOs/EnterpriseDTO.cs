@@ -7,12 +7,6 @@ namespace EvangelionERPV2.Shared.DTOs
         public string Email { get; set; } = string.Empty;
         public string Adress { get; set; } = string.Empty;
         public string Currency { get; set; } = string.Empty;
-        public decimal CurrentBalance { get; set; }
-
-        public bool ShouldSendMonthlyBilling { get; set; }
-        public bool ShouldSendDunning { get; set; }
-
-        /// <summary>The last day the books are closed through; null when nothing is closed.</summary>
-        public DateTime? ClosedThroughUtc { get; set; }
+        public double CurrentBalance { get; set; }
     }
 }

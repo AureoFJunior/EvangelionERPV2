@@ -1,7 +1,6 @@
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
-using EvangelionERPV2.Shared.Utils;
 using System.Net;
 using System.Text;
 
@@ -62,9 +61,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     var quantity = group.Sum(x => x.Quantity);
                     var revenue = group.Sum(x => Math.Max(0, x.Value) * Math.Max(0, x.Quantity));
                     var unit = group.Select(x => x.UnitOfMeasure).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? string.Empty;
-                    var cost = group.All(x => x.UnitCost.HasValue)
-                        ? group.Sum(x => x.UnitCost!.Value * Math.Max(0, x.Quantity))
-                        : (decimal?)null;
                     var productName = productNames.TryGetValue(group.Key, out var resolvedName) && !string.IsNullOrWhiteSpace(resolvedName)
                         ? resolvedName
                         : "Unknown Product";
@@ -73,8 +69,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                         productName,
                         quantity,
                         revenue,
-                        unit,
-                        cost);
+                        unit);
                 })
                 .OrderByDescending(x => x.Revenue)
                 .ThenBy(x => x.ProductName)
@@ -84,8 +79,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 return string.Empty;
 
             var topRows = rankedProducts.Take(10).ToList();
-            var totalRevenueShown = topRows.Sum(x => x.Revenue);
-            var totalCost = topRows.All(x => x.Cost.HasValue) ? topRows.Sum(x => x.Cost!.Value) : (decimal?)null;
             var totalQuantity = rankedProducts.Sum(x => x.Quantity);
             var totalRevenue = rankedProducts.Sum(x => x.Revenue);
 
@@ -124,9 +117,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                         <th>Product</th>
                         <th>Quantity</th>
                         <th style='text-align:right'>Revenue</th>
-                        <th style='text-align:right'>Cost</th>
-                        <th style='text-align:right'>Margin</th>
-                        <th style='text-align:right'>Margin %</th>
                     </tr>
                 </thead>
                 <tbody>");
@@ -140,9 +130,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                         <td>{WebUtility.HtmlEncode(row.ProductName)}</td>
                         <td>{row.Quantity:N2} {WebUtility.HtmlEncode(row.UnitOfMeasure)}</td>
                         <td class='value-cell'>{row.Revenue:C}</td>
-                        <td class='value-cell'>{FormatMoneyOrDash(row.Cost)}</td>
-                        <td class='value-cell'>{FormatMoneyOrDash(row.Margin)}</td>
-                        <td class='value-cell'>{FormatPercentOrDash(row.MarginPercent)}</td>
                     </tr>");
             }
 
@@ -151,9 +138,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                         <td colspan='2'>TOTAL</td>
                         <td>{topRows.Sum(x => x.Quantity):N2}</td>
                         <td class='value-cell'>{topRows.Sum(x => x.Revenue):C}</td>
-                        <td class='value-cell'>{FormatMoneyOrDash(totalCost)}</td>
-                        <td class='value-cell'>{FormatMoneyOrDash(OrderMargin.Amount(totalRevenueShown, totalCost))}</td>
-                        <td class='value-cell'>{FormatPercentOrDash(OrderMargin.Percent(totalRevenueShown, totalCost))}</td>
                     </tr>
                 </tbody>
             </table>
@@ -389,11 +373,11 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             return body.ToString();
         }
 
-        private async Task<(string rows, decimal totalQuantity, decimal totalValue)> GenerateTableRowsAsync(IEnumerable<Order> orders)
+        private async Task<(string rows, double totalQuantity, double totalValue)> GenerateTableRowsAsync(IEnumerable<Order> orders)
         {
             var rows = new StringBuilder();
-            decimal totalQuantity = 0;
-            decimal totalValue = 0;
+            double totalQuantity = 0;
+            double totalValue = 0;
 
             foreach (var order in orders)
             {
@@ -425,7 +409,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             return (rows.ToString(), totalQuantity, totalValue);
         }
 
-        private string GetProductRow(string productName, decimal quantity, decimal value, string unitOfMeasure)
+        private string GetProductRow(string productName, double quantity, double value, string unitOfMeasure)
         {
             var encodedProductName = WebUtility.HtmlEncode(productName ?? "Unknown Product");
             var encodedUnitOfMeasure = WebUtility.HtmlEncode(unitOfMeasure ?? string.Empty);
@@ -438,7 +422,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     </tr>";
         }
 
-        private string GetTotalRow(decimal totalQuantity, decimal totalValue)
+        private string GetTotalRow(double totalQuantity, double totalValue)
         {
             return $@"
                     <tr class='total-row'>
@@ -496,15 +480,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 : $"Unknown ({status})";
         }
 
-        private static string FormatMoneyOrDash(decimal? value) => value.HasValue ? value.Value.ToString("C") : "&mdash;";
-
-        private static string FormatPercentOrDash(decimal? value) => value.HasValue ? $"{value.Value:N1}%" : "&mdash;";
-
-        private readonly record struct TopProductsByRevenueRow(string ProductName, decimal Quantity, decimal Revenue, string UnitOfMeasure, decimal? Cost)
-        {
-            public decimal? Margin => Cost.HasValue ? Revenue - Cost.Value : null;
-            public decimal? MarginPercent => OrderMargin.Percent(Revenue, Cost);
-        }
-        private readonly record struct SalesByStatusRow(string StatusLabel, int Orders, decimal TotalValue);
+        private readonly record struct TopProductsByRevenueRow(string ProductName, double Quantity, double Revenue, string UnitOfMeasure);
+        private readonly record struct SalesByStatusRow(string StatusLabel, int Orders, double TotalValue);
     }
 }

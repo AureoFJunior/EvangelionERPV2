@@ -1,4 +1,3 @@
-using Asp.Versioning;
 using AutoMapper;
 using EvangelionERPV2.AuditModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
@@ -23,13 +22,16 @@ namespace EvangelionERPV2.Web.Controllers
         private const int MinRetentionDays = 30;
         private const int MaxRetentionDays = 3650;
         private readonly IAuditTrailService _auditTrailService;
+        private readonly IRepository<User> _userRepository;
         private readonly IMapper _mapper;
 
         public AuditTrailController(
             IAuditTrailService auditTrailService,
+            IRepository<User> userRepository,
             IMapper mapper)
         {
             _auditTrailService = auditTrailService;
+            _userRepository = userRepository;
             _mapper = mapper;
         }
 
@@ -177,6 +179,17 @@ namespace EvangelionERPV2.Web.Controllers
         {
             var claimValue = User.FindFirst(ClaimTypes.GroupSid)?.Value;
             return Guid.TryParse(claimValue, out enterpriseId) && enterpriseId != Guid.Empty;
+        }
+
+        private Guid? TryGetUserId()
+        {
+            var claimValue = User.FindFirst(ClaimTypes.Sid)?.Value
+                             ?? User.FindFirst("uid")?.Value;
+
+            if (Guid.TryParse(claimValue, out var userId) && userId != Guid.Empty)
+                return userId;
+
+            return null;
         }
 
 

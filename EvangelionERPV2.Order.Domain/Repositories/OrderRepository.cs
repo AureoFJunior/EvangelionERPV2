@@ -8,14 +8,11 @@ using System.Linq.Expressions;
 using EvangelionERPV2.Shared.Context;
 using EvangelionERPV2.Shared.Repositories;
 using System.Text.Json;
-using Serilog;
 
 namespace EvangelionERPV2.OrderModule.Domain.Repositories
 {
     public class OrderRepository : Repository<Order>, IOrderRepository<Order>
     {
-        private const string CacheKeyPrefix = "Order:v2:";
-
         private readonly IDistributedCache _cache;
         public OrderRepository(AppDbContext context, IDistributedCache cache) : base(context)
         {
@@ -29,20 +26,9 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
 
             if (!string.IsNullOrEmpty(cachedItem))
             {
-                try
-                {
-                    var orderFromCache = JsonSerializer.Deserialize<Order>(cachedItem);
-                    if (orderFromCache != null)
-                        return orderFromCache;
-                }
-                catch (Exception ex)
-                {
-                    Log.Logger.Warning(
-                        ex,
-                        "Order cache payload is invalid and will be ignored. CacheKey={CacheKey} ErrorType={ErrorType}",
-                        cacheKey,
-                        ex.GetType().Name);
-                }
+                var orderFromCache = JsonSerializer.Deserialize<Order>(cachedItem);
+                if (orderFromCache != null)
+                    return orderFromCache;
             }
 
             IQueryable<Order> query = _context.Set<Order>()
@@ -62,7 +48,7 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             return order;
         }
 
-        public async override Task<IEnumerable<Order>> GetAllAsync(Expression<Func<Order, bool>>? predicate)
+        public async override Task<IEnumerable<Order>> GetAllAsync(Func<Order, bool>? predicate)
         {
             IQueryable<Order> query = _context.Set<Order>()
                 .Include(o => o.Customer)
@@ -71,11 +57,9 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
                 .Where(o => o.IsActive ?? false)
                 .AsSplitQuery()
                 .AsNoTracking();
-
-            if (predicate != null)
-                query = query.Where(predicate);
-
-            IEnumerable<Order> result = await query.ToListAsync();
+            IEnumerable<Order> result = predicate != null
+                ? query.AsEnumerable().Where(predicate).ToList()
+                : await query.ToListAsync();
 
             if (result?.Any() == true)
                 return result;
@@ -83,7 +67,7 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             throw new NotFoundDatabaseException();
         }
 
-        public async override Task<IEnumerable<Order>> GetAllAsync(int? pageNumber, int? pageSize, Expression<Func<Order, bool>>? predicate = null)
+        public async override Task<IEnumerable<Order>> GetAllAsync(int? pageNumber, int? pageSize, Func<Order, bool>? predicate = null)
         {
             if (pageNumber == null || pageSize == null)
                 return await GetAllAsync(predicate);
@@ -95,60 +79,26 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
                 .Where(o => o.IsActive ?? false)
                 .AsSplitQuery()
                 .AsNoTracking();
-
-            if (predicate != null)
-                query = query.Where(predicate);
-
+            IEnumerable<Order> result;
             int skip = (pageNumber.Value - 1) * pageSize.Value;
 
-            IEnumerable<Order> result = await query
-                .OrderBy(entity => entity.Id)
-                .Skip(skip)
-                .Take(pageSize.Value)
-                .ToListAsync();
+            if (predicate != null)
+            {
+                result = query.AsEnumerable()
+                    .Where(predicate)
+                    .Skip(skip)
+                    .Take(pageSize.Value)
+                    .ToList();
+            }
+            else
+            {
+                result = await query.Skip(skip).Take(pageSize.Value).ToListAsync();
+            }
 
             if (result?.Any() == true)
                 return result;
 
             throw new NotFoundDatabaseException();
-        }
-
-        /// <summary>
-        /// Filters, orders and pages in SQL, keeping the same eager loads and the same implicit
-        /// <c>IsActive</c> filter as the <c>GetAllAsync</c> overrides above.
-        /// </summary>
-        public async override Task<IEnumerable<Order>> GetAllAsyncByFilter(bool descending,
-            int? pageNumber,
-            int? pageSize,
-            Expression<Func<Order, bool>>? predicate = null,
-            Expression<Func<Order, object>>? orderBy = null)
-        {
-            IQueryable<Order> query = _context.Set<Order>()
-                .Include(o => o.Customer)
-                .Include(o => o.OrderedProduct!)
-                    .ThenInclude(op => op.Product)
-                .Where(o => o.IsActive ?? false)
-                .AsSplitQuery()
-                .AsNoTracking();
-
-            if (predicate != null)
-                query = query.Where(predicate);
-
-            Expression<Func<Order, object>> sortKey = orderBy ?? (o => o.CreatedAt!);
-
-            IOrderedQueryable<Order> ordered = descending
-                ? query.OrderByDescending(sortKey).ThenByDescending(o => o.Id)
-                : query.OrderBy(sortKey).ThenBy(o => o.Id);
-
-            if (pageNumber == null || pageSize == null)
-                return await ordered.ToListAsync();
-
-            int skip = (pageNumber.Value - 1) * pageSize.Value;
-
-            return await ordered
-                .Skip(skip)
-                .Take(pageSize.Value)
-                .ToListAsync();
         }
 
         public async Task<IEnumerable<Order>> GetAllAsyncWithOrderedProductsByEnterprise(Enterprise? enterprise)
@@ -253,57 +203,6 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
             throw new NotFoundDatabaseException("Empty filter with no data found.");
         }
 
-        /// <summary>
-        /// Every write drops the cached copy first.
-        /// </summary>
-        public override Order Update(Order entity)
-        {
-            ArgumentNullException.ThrowIfNull(entity);
-
-            InvalidateCachedOrder(entity.Id);
-            return base.Update(entity);
-        }
-
-        public override IEnumerable<Order> UpdateRange(IEnumerable<Order> entities)
-        {
-            var materialised = entities?.ToList() ?? [];
-            foreach (var entity in materialised)
-                InvalidateCachedOrder(entity?.Id);
-
-            return base.UpdateRange(materialised);
-        }
-
-        public override Order Delete(Order entity)
-        {
-            ArgumentNullException.ThrowIfNull(entity);
-
-            InvalidateCachedOrder(entity.Id);
-            return base.Delete(entity);
-        }
-
-        /// <summary>
-        /// Drops the key, and never fails the write for it: a cache that is down must not stop an
-        /// order being saved. The cost of a missed removal is a stale read until the hour is up,
-        /// which is exactly the state this method exists to end — so it is logged loudly.
-        /// </summary>
-        private void InvalidateCachedOrder(Guid? id)
-        {
-            if (id == null || id == Guid.Empty)
-                return;
-
-            try
-            {
-                _cache.Remove($"{CacheKeyPrefix}{id}");
-            }
-            catch (Exception ex)
-            {
-                Log.Logger.Error(
-                    "Could not drop the cached order after a write; reads may be stale for up to an hour. OrderId={OrderId} ErrorType={ErrorType}",
-                    id,
-                    ex.GetType().Name);
-            }
-        }
-
         private async Task SetCachedOrder(string cacheKey, Order order)
         {
             var orderToCache = JsonSerializer.Serialize(order);
@@ -316,7 +215,7 @@ namespace EvangelionERPV2.OrderModule.Domain.Repositories
 
         private async Task<Tuple<string, string?>> GetCachedOrderById(Guid id)
         {
-            string cacheKey = $"{CacheKeyPrefix}{id}";
+            string cacheKey = $"Order:{id}";
 
             string? cachedItem = await _cache.GetStringAsync(cacheKey);
 

@@ -10,13 +10,5 @@ namespace EvangelionERPV2.Shared.Security
     {
         public const string ClientType = "client_type";
         public const string SelfApiValue = "self_api";
-
-        public const string TokenScope = "token_scope";
-
-        /// <summary>
-        /// Limen's service account. Its endpoints read across tenants and filter on the
-        /// listed/published flags instead, so the tenant query filter is off for it.
-        /// </summary>
-        public const string StorefrontScopeValue = "storefront";
     }
 }

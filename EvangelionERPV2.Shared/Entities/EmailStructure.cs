@@ -16,13 +16,5 @@ namespace EvangelionERPV2.Shared.Entities
         public string Body { get; set; } = string.Empty;
         public string Subject { get; set; } = string.Empty;
         public IEnumerable<string> RecipientEmails { get; set; } = Array.Empty<string>();
-        public IEnumerable<EmailAttachment> Attachments { get; set; } = Array.Empty<EmailAttachment>();
-    }
-
-    public class EmailAttachment
-    {
-        public string FileName { get; set; } = string.Empty;
-        public string ContentType { get; set; } = "application/octet-stream";
-        public byte[] Content { get; set; } = Array.Empty<byte>();
     }
 }
