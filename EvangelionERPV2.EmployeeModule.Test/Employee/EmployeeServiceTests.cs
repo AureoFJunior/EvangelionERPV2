@@ -39,6 +39,11 @@ namespace EvangelionERPV2.EmployeeModule.Test
 
             var kmsProvider = new AWSKMSKeyProvider(secretsManager.Object, configuration);
             _employeeRepository = new Mock<IRepository<Employee>>();
+            _employeeRepository
+                .Setup(r => r.ExecuteInTransactionAsync(
+                    It.IsAny<Func<Task<Employee>>>(),
+                    It.IsAny<CancellationToken>()))
+                .Returns((Func<Task<Employee>> operation, CancellationToken _) => operation());
             _service = new EmployeeService(_employeeRepository.Object, configuration, kmsProvider);
         }
 
@@ -94,6 +99,33 @@ namespace EvangelionERPV2.EmployeeModule.Test
                 .ThrowsAsync(new InvalidOperationException("boom"));
 
             await Assert.ThrowsAsync<InsertDatabaseException>(() => _service.CreateAsync(employee));
+        }
+
+        [Fact]
+        public async Task CreateAsync_WhenPictureUploadFails_RollsBackTheEmployeeTransaction()
+        {
+            var employee = BuildEmployee();
+            var s3Client = AttachS3Mock();
+
+            _employeeRepository
+                .Setup(r => r.CreateAsync(It.IsAny<Employee>()))
+                .ReturnsAsync((Employee entity) => entity);
+            _employeeRepository
+                .Setup(r => r.CommitAsync(It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+            _employeeRepository
+                .Setup(r => r.GetById(It.IsAny<Guid>()))
+                .Returns((Employee entity) => entity);
+            s3Client
+                .Setup(s => s.PutObjectAsync(It.IsAny<PutObjectRequest>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new AmazonS3Exception("unavailable"));
+
+            await Assert.ThrowsAsync<InsertDatabaseException>(() =>
+                _service.CreateAsync(employee, Convert.ToBase64String([1, 2, 3])));
+
+            _employeeRepository.Verify(r => r.ExecuteInTransactionAsync(
+                It.IsAny<Func<Task<Employee>>>(),
+                It.IsAny<CancellationToken>()), Times.Once);
         }
 
         [Fact]

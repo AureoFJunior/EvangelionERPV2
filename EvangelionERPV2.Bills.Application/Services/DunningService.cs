@@ -91,6 +91,8 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                          && x.RefundedAt == null
                          && x.Status != (int)EnumOrderStatus.Refund
                          && x.Status != (int)EnumOrderStatus.Paid
+                         && x.Status != (int)EnumOrderStatus.Shipped
+                         && x.Status != (int)EnumOrderStatus.Delivered
                          && x.Status != (int)EnumOrderStatus.Finished))
                 .Items;
 

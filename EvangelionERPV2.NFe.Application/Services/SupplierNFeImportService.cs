@@ -20,17 +20,20 @@ namespace EvangelionERPV2.NFeModule.Application.Services
         private readonly IRepository<Supplier> _supplierRepository;
         private readonly IRepository<Product> _productRepository;
         private readonly IPayableBillService _payableBillService;
+        private readonly INFeFiscalSettingsService _fiscalSettingsService;
 
         public SupplierNFeImportService(
             IRepository<PayableBill> payableBillRepository,
             IRepository<Supplier> supplierRepository,
             IRepository<Product> productRepository,
-            IPayableBillService payableBillService)
+            IPayableBillService payableBillService,
+            INFeFiscalSettingsService fiscalSettingsService)
         {
             _payableBillRepository = payableBillRepository;
             _supplierRepository = supplierRepository;
             _productRepository = productRepository;
             _payableBillService = payableBillService;
+            _fiscalSettingsService = fiscalSettingsService;
         }
 
         public async Task<SupplierNFeImportResultDTO> ImportAsync(
@@ -42,6 +45,16 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 throw new ArgumentException("Enterprise is required.", nameof(enterpriseId));
 
             var nota = SupplierNFeXmlReader.Read(xml);
+            var fiscalSettings = await _fiscalSettingsService.GetSettingsAsync(enterpriseId);
+            var tenantDocument = OnlyDigits(fiscalSettings.Cnpj);
+
+            if (tenantDocument.Length == 0 || !string.Equals(
+                    tenantDocument,
+                    nota.RecipientDocument,
+                    StringComparison.Ordinal))
+            {
+                throw new ArgumentException("The NF-e recipient does not match the enterprise fiscal identity.", nameof(xml));
+            }
 
             var existing = (await _payableBillRepository.GetAllAsync(
                     x => x.EnterpriseId == enterpriseId && x.SupplierNFeAccessKey == nota.AccessKey))
@@ -148,6 +161,9 @@ namespace EvangelionERPV2.NFeModule.Application.Services
                 UnmatchedItems = unmatched
             };
         }
+
+        private static string OnlyDigits(string? value) =>
+            value == null ? string.Empty : new string(value.Where(char.IsDigit).ToArray());
 
         /// <summary>
         /// The emitter, matched on its document. Unknown emitters become suppliers — unlike a

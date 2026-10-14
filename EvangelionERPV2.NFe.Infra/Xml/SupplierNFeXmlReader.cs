@@ -26,6 +26,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
         string EmitterDocument,
         string EmitterName,
         string EmitterAddress,
+        string RecipientDocument,
         IReadOnlyList<SupplierNFeDuplicata> Duplicatas,
         IReadOnlyList<SupplierNFeItem> Items);
 
@@ -67,6 +68,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
 
             var ide = Required(infNFe, "ide");
             var emit = Required(infNFe, "emit");
+            var dest = Required(infNFe, "dest");
             var icmsTotal = document.Descendants(Nfe + "ICMSTot").FirstOrDefault()
                 ?? throw new FormatException("The NF-e has no totals.");
 
@@ -74,6 +76,10 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
             var emitterDocument = OnlyDigits(Text(emit, "CNPJ") ?? Text(emit, "CPF"));
             if (emitterDocument.Length == 0)
                 throw new FormatException("The NF-e has no emitter document.");
+
+            var recipientDocument = OnlyDigits(Text(dest, "CNPJ") ?? Text(dest, "CPF"));
+            if (recipientDocument.Length == 0)
+                throw new FormatException("The NF-e has no recipient document.");
 
             return new SupplierNFeDocument(
                 AccessKey: accessKey,
@@ -85,6 +91,7 @@ namespace EvangelionERPV2.NFeModule.Infra.Xml
                 EmitterDocument: emitterDocument,
                 EmitterName: Text(emit, "xNome") ?? Text(emit, "xFant") ?? "Supplier",
                 EmitterAddress: ReadAddress(emit),
+                RecipientDocument: recipientDocument,
                 Duplicatas: ReadDuplicatas(infNFe),
                 Items: ReadItems(infNFe));
         }

@@ -167,6 +167,23 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(2, panel.Bank.UnclearedCount);
         }
 
+        [Fact]
+        public async Task GetToday_ShouldCountEveryCriticalProduct_ButReturnOnlyTheFiveNames()
+        {
+            var suggestions = Enumerable.Range(1, 7)
+                .Select(index => new ReplenishmentSuggestionDTO
+                {
+                    ProductName = $"Product {index}",
+                    Criticality = "high"
+                })
+                .ToList();
+
+            var panel = await BuildSut(replenishmentSuggestions: suggestions).GetTodayAsync(EnterpriseId);
+
+            Assert.Equal(7, panel.Stock.CriticalCount);
+            Assert.Equal(5, panel.Stock.CriticalProducts.Count);
+        }
+
         private static (Order order, Bill bill) BuildOrderWithBill(decimal amount, DateTime dueDate)
         {
             var order = new Order
@@ -214,12 +231,13 @@ namespace EvangelionERPV2.BillsModule.Test
             List<PayableBill>? payables = null,
             List<NFeDocument>? nfeDocuments = null,
             List<EnterpriseFiscalSettings>? fiscalSettings = null,
-            List<BankStatementLine>? bankLines = null)
+            List<BankStatementLine>? bankLines = null,
+            List<ReplenishmentSuggestionDTO>? replenishmentSuggestions = null)
         {
             var payableBillService = new Mock<IPayableBillService>();
             payableBillService
                 .Setup(x => x.GetReplenishmentSuggestionsAsync(It.IsAny<Guid>(), It.IsAny<ReplenishmentSuggestionRequestDTO>()))
-                .ReturnsAsync([]);
+                .ReturnsAsync(replenishmentSuggestions ?? []);
 
             var options = new DbContextOptionsBuilder<AppDbContext>()
                 .UseInMemoryDatabase($"daily-panel-tests-{Guid.NewGuid():N}")

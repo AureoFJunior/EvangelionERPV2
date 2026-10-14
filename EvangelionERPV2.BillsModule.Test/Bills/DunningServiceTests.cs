@@ -89,6 +89,21 @@ namespace EvangelionERPV2.BillsModule.Test
             Assert.Equal(0, await refundedWorld.Service.SweepAsync());
         }
 
+        [Theory]
+        [InlineData(EnumOrderStatus.Paid)]
+        [InlineData(EnumOrderStatus.Shipped)]
+        [InlineData(EnumOrderStatus.Delivered)]
+        [InlineData(EnumOrderStatus.Finished)]
+        public async Task Sweep_ShouldNotChaseAnySettledOrderStatus(EnumOrderStatus status)
+        {
+            var world = new World();
+            var order = world.AddOverdueOrder(daysOverdue: 7, amount: 100);
+            order.Status = (int)status;
+
+            Assert.Equal(0, await world.Service.SweepAsync());
+            Assert.Empty(world.SentEmails);
+        }
+
         [Fact]
         public async Task Sweep_ShouldSkipACustomerWithNoEmail_WithoutBurningTheLadderRung()
         {

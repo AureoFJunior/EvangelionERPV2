@@ -189,7 +189,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 new ReplenishmentSuggestionRequestDTO
                 {
                     PageNumber = 1,
-                    PageSize = StockSampleSize,
+                    PageSize = int.MaxValue,
                     SortByCriticality = true
                 });
 
@@ -200,7 +200,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             var panel = new DailyPanelStockDTO
             {
                 CriticalCount = critical.Count,
-                CriticalProducts = critical.Select(x => x.ProductName).ToList()
+                CriticalProducts = critical
+                    .Take(StockSampleSize)
+                    .Select(x => x.ProductName)
+                    .ToList()
             };
 
             await SetCachedStockAsync(cacheKey, panel);

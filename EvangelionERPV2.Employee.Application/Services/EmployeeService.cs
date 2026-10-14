@@ -29,28 +29,18 @@ namespace EvangelionERPV2.EmployeeModule.Application.Services
         {
             try
             {
-                employee.Id = Guid.NewGuid();
-                employee.Picture = string.Empty;
-                Employee includedEmployee = await _employeeRepository.CreateAsync(employee);
-                await _employeeRepository.CommitAsync();
-
-                if (string.IsNullOrWhiteSpace(picturePayload))
-                    return includedEmployee;
-
-                try
+                return await _employeeRepository.ExecuteInTransactionAsync(async () =>
                 {
+                    employee.Id = Guid.NewGuid();
+                    employee.Picture = string.Empty;
+                    Employee includedEmployee = await _employeeRepository.CreateAsync(employee);
+                    await _employeeRepository.CommitAsync();
+
+                    if (string.IsNullOrWhiteSpace(picturePayload))
+                        return includedEmployee;
+
                     return await UpdatePictureAsync(includedEmployee, picturePayload);
-                }
-                catch (Exception ex)
-                {
-                    Log.Logger.Warning(
-                        ex,
-                        "Employee picture upload failed after employee creation. EmployeeId={EmployeeId} ErrorType={ErrorType}",
-                        includedEmployee.Id,
-                        ex.GetType().Name);
-
-                    throw new InsertDatabaseException("Employee picture upload failed during creation.", ex);
-                }
+                });
             }
             catch (InsertDatabaseException)
             {

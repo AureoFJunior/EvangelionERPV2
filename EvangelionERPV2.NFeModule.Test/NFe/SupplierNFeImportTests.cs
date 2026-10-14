@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using System.Text;
 using EvangelionERPV2.BillsModule.Application.Interface;
+using EvangelionERPV2.NFeModule.Application.Interface;
 using EvangelionERPV2.NFeModule.Application.Services;
 using EvangelionERPV2.NFeModule.Infra.Xml;
 using EvangelionERPV2.Shared.Entities;
@@ -19,6 +20,7 @@ namespace EvangelionERPV2.NFeModule.Test
         private static readonly Guid EnterpriseId = Guid.NewGuid();
         private const string AccessKey = "35260812345678000199550010000000421000000428";
         private const string EmitterCnpj = "12345678000199";
+        private const string RecipientCnpj = "99999999000191";
 
         #region Reader
 
@@ -36,6 +38,7 @@ namespace EvangelionERPV2.NFeModule.Test
             Assert.Equal(EmitterCnpj, nota.EmitterDocument);
             Assert.Equal("Nerv Supplies LTDA", nota.EmitterName);
             Assert.Contains("Tokyo-3", nota.EmitterAddress);
+            Assert.Equal(RecipientCnpj, nota.RecipientDocument);
 
             Assert.Equal(2, nota.Items.Count);
             Assert.Equal("7891234567895", nota.Items[0].Ean);
@@ -95,6 +98,22 @@ namespace EvangelionERPV2.NFeModule.Test
             Assert.True(result.SupplierCreated);
             Assert.Equal(1, result.MatchedItemCount);
             Assert.False(result.AlreadyImported);
+        }
+
+        [Fact]
+        public async Task Import_RefusesANotaIssuedToAnotherEnterprise_BeforeChangingAnything()
+        {
+            var product = BuildProduct("Plugsuit", ean: "7891234567895");
+            var foreignNota = Encoding.UTF8.GetString(BuildNota())
+                .Replace($"<CNPJ>{RecipientCnpj}</CNPJ>", "<CNPJ>11222333000181</CNPJ>");
+            var (service, bills, suppliers, _) = BuildSut(products: [product]);
+
+            await Assert.ThrowsAsync<ArgumentException>(() =>
+                service.ImportAsync(EnterpriseId, Encoding.UTF8.GetBytes(foreignNota)));
+
+            Assert.Empty(bills);
+            Assert.Empty(suppliers);
+            Assert.Null(product.CostPrice);
         }
 
         [Fact]
@@ -498,11 +517,22 @@ namespace EvangelionERPV2.NFeModule.Test
                     return bill;
                 });
 
+            var fiscalSettingsService = new Mock<INFeFiscalSettingsService>();
+            fiscalSettingsService
+                .Setup(x => x.GetSettingsAsync(EnterpriseId))
+                .ReturnsAsync(new EnterpriseFiscalSettings
+                {
+                    EnterpriseId = EnterpriseId,
+                    Cnpj = RecipientCnpj,
+                    IsActive = true
+                });
+
             var service = new SupplierNFeImportService(
                 Repo(billStore).Object,
                 Repo(supplierStore, throwsWhenEmpty: true).Object,
                 Repo(productStore).Object,
-                payableBillService.Object);
+                payableBillService.Object,
+                fiscalSettingsService.Object);
 
             return (service, billStore, supplierStore, payableBillService);
         }
@@ -618,7 +648,7 @@ namespace EvangelionERPV2.NFeModule.Test
                     <CRT>3</CRT>
                   </emit>
                   <dest>
-                    <CNPJ>99999999000191</CNPJ>
+                    <CNPJ>{RecipientCnpj}</CNPJ>
                     <xNome>Cliente</xNome>
                     <indIEDest>9</indIEDest>
                   </dest>
