@@ -37,6 +37,7 @@ namespace EvangelionERPV2.Test.Security
         [InlineData("/api/v1/Order/UpdateOrder")]
         [InlineData("/api/v1/Order/RefundOrder")]
         [InlineData("/api/v1/PayableBills/AddPayableBill")]
+        [InlineData("/api/v1/Product/AddProductImage")]
         [InlineData("/api/v1/PayableBills/UpdatePayableBill")]
         [InlineData("/api/v1/PayableBills/RefundPayableBill")]
         [InlineData("/api/v1/User/RequestPasswordReset")]

@@ -420,7 +420,7 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
-        public async Task AddProduct_PassesTheOpeningCountToTheAtomicCreate()
+        public async Task AddProduct_LeavesTheOpeningStockMovementToTheService()
         {
             var enterpriseId = Guid.NewGuid();
             var callerId = Guid.NewGuid();
@@ -469,7 +469,7 @@ namespace EvangelionERPV2.Test.Security
             Assert.Equal(12, quantityAtPersist);
             productService.Verify(s => s.ApplyStockMovementAsync(
                 It.IsAny<Guid>(), enterpriseId, 12,
-                EnumStockMovementType.Adjustment, null, false), Times.Once);
+                EnumStockMovementType.Adjustment, null, false), Times.Never);
         }
     }
 }

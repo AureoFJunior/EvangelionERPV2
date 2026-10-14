@@ -334,6 +334,8 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedOrder == null)
                     return NoContent();
 
+                await QueueShipmentEmailAsync(before, updatedOrder, enterpriseId);
+
                 return Ok(await ToOrderDtoAsync(updatedOrder));
             }
             catch (InsertDatabaseException ex)

@@ -1,7 +1,9 @@
 using AutoMapper;
+using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
@@ -24,6 +26,7 @@ namespace EvangelionERPV2.Test.Security
         private readonly Mock<IOrderService<Order>> _service = new();
         private readonly Mock<IRepository<User>> _userRepository = new();
         private readonly Mock<IRepository<Enterprise>> _enterpriseRepository = new();
+        private readonly Mock<IRepository<Customer>> _customerRepository = new();
 
         private OrderController Controller(bool canReadCost = false, bool withUser = true)
         {
@@ -333,6 +336,59 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.Equal("BR123456789BR", sent!.TrackingCode);
             Assert.Equal("https://example.com/track/BR123456789BR", sent.TrackingUrl);
+        }
+
+        [Fact]
+        public async Task UpdateOrder_WhenNonStorefrontOrderShips_SendsShipmentEmail()
+        {
+            var customerId = Guid.NewGuid();
+            var before = NewOrder();
+            before.CustomerId = customerId;
+            before.Channel = (int)EnumOrderChannel.Erp;
+            before.Status = (int)EnumOrderStatus.Processing;
+            var after = new Order
+            {
+                Id = before.Id,
+                EnterpriseId = _enterpriseId,
+                CustomerId = customerId,
+                Channel = before.Channel,
+                Status = (int)EnumOrderStatus.Shipped,
+                TrackingCode = "BR123456789BR"
+            };
+            _service.Setup(s => s.GetByIdAsync(before.Id, _enterpriseId)).ReturnsAsync(before);
+            _service.Setup(s => s.Update(It.IsAny<Order>(), _enterpriseId)).Returns(after);
+            _customerRepository.Setup(r => r.GetByIdAsync(customerId)).ReturnsAsync(new Customer
+            {
+                Id = customerId,
+                EnterpriseId = _enterpriseId,
+                Name = "Shinji Ikari",
+                Email = "customer@example.test"
+            });
+            _enterpriseRepository.Setup(r => r.GetByIdAsync(_enterpriseId)).ReturnsAsync(new Enterprise
+            {
+                Id = _enterpriseId,
+                Name = "NERV"
+            });
+            var email = new Mock<IEmailService<EmailStructure>>();
+            email.Setup(s => s.SendManualEmail(It.IsAny<EmailStructure>(), It.IsAny<Enterprise>()))
+                .Returns(Task.CompletedTask);
+
+            var controller = Controller();
+            var services = new ServiceCollection();
+            services.AddSingleton(_enterpriseRepository.Object);
+            services.AddSingleton(_customerRepository.Object);
+            services.AddSingleton(email.Object);
+            controller.HttpContext.RequestServices = services.BuildServiceProvider();
+
+            var result = await controller.UpdateOrder(new UpdateOrderRequestDTO
+            {
+                Id = before.Id,
+                Status = (int)EnumOrderStatus.Shipped,
+                TrackingCode = after.TrackingCode
+            });
+
+            Assert.IsType<OkObjectResult>(result);
+            email.Verify(s => s.SendManualEmail(It.IsAny<EmailStructure>(), It.Is<Enterprise>(e => e.Id == _enterpriseId)), Times.Once);
         }
 
         [Fact]

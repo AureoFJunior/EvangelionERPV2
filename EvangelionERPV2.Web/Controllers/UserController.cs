@@ -635,7 +635,19 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!Enum.IsDefined(typeof(EnumAccessLevel), (int)request.AccessLevel))
                     return BadRequest("Invalid access level.");
 
+                var caller = await GetCallerAsync();
+                if (caller == null || caller.IsActive != true || caller.EnterpriseId != enterpriseId)
+                    return Unauthorized();
+
+                var accessGuard = await GuardAccessChangeAsync(caller, existentUser, request);
+                if (accessGuard != null)
+                    return accessGuard;
+
+                if (request.AccessLevel != existentUser.AccessLevel && !CanAssignLevel(caller, request.AccessLevel))
+                    return RoleAboveCaller();
+
                 var user = existentUser;
+                var previousAccessLevel = user.AccessLevel;
                 user.FirstName = request.FirstName.Trim();
                 user.LastName = request.LastName.Trim();
                 user.UserName = request.UserName.Trim();
@@ -649,6 +661,9 @@ namespace EvangelionERPV2.Web.Controllers
                 user.IsActive = request.IsActive;
                 user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
                 user.ProfilePicture = string.IsNullOrWhiteSpace(request.ProfilePicture) ? existentUser.ProfilePicture : request.ProfilePicture;
+
+                if (previousAccessLevel != request.AccessLevel)
+                    RecordRoleChange(user, previousAccessLevel);
 
                 Shared.Entities.User updatedUser = _userService.Update(user);
 

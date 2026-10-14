@@ -6,6 +6,7 @@ using AutoMapper;
 
 using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Auditing;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
@@ -64,6 +65,32 @@ namespace EvangelionERPV2.Test.Security
             Assert.Equal("Invalid access level.", badRequest.Value);
         }
 
+        [Fact]
+        public async Task UpdateUser_ManagerCannotPromoteUserToAdmin()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(target, EnumAccessLevel.Manager);
+
+            var result = await context.Controller.UpdateUser(BuildRequest(target.Id, (short)EnumAccessLevel.Admin));
+
+            Assert.IsType<ObjectResult>(result);
+            Assert.Equal(StatusCodes.Status403Forbidden, ((ObjectResult)result).StatusCode);
+            context.UserService.Verify(x => x.Update(It.IsAny<User>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task UpdateUser_CallerCannotChangeTheirOwnRole()
+        {
+            var caller = BuildUser();
+            var context = new ControllerContextBuilder(caller, EnumAccessLevel.Manager, callerIsTarget: true);
+
+            var result = await context.Controller.UpdateUser(BuildRequest(caller.Id, (short)EnumAccessLevel.Employee));
+
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Contains("self_role", badRequest.Value!.ToString());
+            context.UserService.Verify(x => x.Update(It.IsAny<User>()), Times.Never);
+        }
+
         private static User BuildUser() => new()
         {
             Id = Guid.NewGuid(),
@@ -96,14 +123,25 @@ namespace EvangelionERPV2.Test.Security
         private sealed class ControllerContextBuilder
         {
             public UserController Controller { get; }
+            public Mock<IUserService<User>> UserService { get; } = new();
 
-            public ControllerContextBuilder(User stored)
+            public ControllerContextBuilder(User stored, EnumAccessLevel callerLevel = EnumAccessLevel.Admin, bool callerIsTarget = false)
             {
+                var caller = callerIsTarget ? stored : BuildUser();
+                caller.AccessLevel = (short)callerLevel;
                 var userRepository = new Mock<IRepository<User>>();
                 userRepository.Setup(x => x.GetByIdAsync(stored.Id)).ReturnsAsync(stored);
+                userRepository.Setup(x => x.GetByIdAsync(caller.Id)).ReturnsAsync(caller);
 
-                var userService = new Mock<IUserService<User>>();
-                userService.Setup(x => x.Update(It.IsAny<User>())).Returns((User user) => user);
+                UserService.Setup(x => x.Update(It.IsAny<User>())).Returns((User user) => user);
+
+                var permissions = new Mock<IPermissionEvaluator>();
+                permissions.Setup(x => x.DecideAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<User>(), It.IsAny<string>()))
+                    .ReturnsAsync(PermissionDecision.Allowed);
+                permissions.Setup(x => x.GrantedAsync(It.IsAny<IReadOnlyCollection<User>>()))
+                    .ReturnsAsync((IReadOnlyCollection<User> users) => (IReadOnlyDictionary<Guid, IReadOnlySet<string>>)users
+                        .ToDictionary(user => user.Id, _ => (IReadOnlySet<string>)new HashSet<string>()));
+                var audit = new Mock<IAuditTrailWriter>();
 
                 var mapper = new Mock<IMapper>();
                 mapper.Setup(x => x.Map<UserDTO>(It.IsAny<User>())).Returns(new UserDTO());
@@ -112,17 +150,21 @@ namespace EvangelionERPV2.Test.Security
                 var kmsProvider = new AWSKMSKeyProvider(new Mock<IAmazonSecretsManager>().Object, configuration);
                 var tokenService = new TokenService(new Mock<IRepository<RefreshToken>>().Object, configuration);
 
+                var services = new ServiceCollection();
+                services.AddSingleton(permissions.Object);
+                services.AddSingleton(audit.Object);
                 var httpContext = new DefaultHttpContext
                 {
-                    RequestServices = new ServiceCollection().BuildServiceProvider(),
+                    RequestServices = services.BuildServiceProvider(),
                     User = new ClaimsPrincipal(new ClaimsIdentity(
                     [
-                        new Claim(ClaimTypes.GroupSid, EnterpriseId.ToString())
+                        new Claim(ClaimTypes.GroupSid, EnterpriseId.ToString()),
+                        new Claim(ClaimTypes.Sid, caller.Id.ToString())
                     ], "test"))
                 };
 
                 Controller = new UserController(
-                    userService.Object,
+                    UserService.Object,
                     userRepository.Object,
                     mapper.Object,
                     configuration,

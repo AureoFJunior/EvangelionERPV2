@@ -143,6 +143,10 @@ namespace EvangelionERPV2.Web.Controllers
                 if (IsPayrollBill(request.BillType) && !await CanAccessPayrollAsync())
                     return Forbid();
 
+                if (request.ReceiveProducts &&
+                    !(await _authorizationService.AuthorizeAsync(User, RbacPolicies.PayableBills.MarkProductsReceived)).Succeeded)
+                    return Forbid();
+
                 var payableBill = MapRequestToPayableBill(request, enterpriseId);
                 payableBill.EnterpriseId = enterpriseId;
                 var created = request.ReceiveProducts

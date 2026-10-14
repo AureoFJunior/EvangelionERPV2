@@ -199,6 +199,7 @@ namespace EvangelionERPV2.Web.Logging
                    endpoint.Contains("/Order/RefundOrder", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Product/AddProduct", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Product/UploadPicture", StringComparison.OrdinalIgnoreCase) ||
+                   endpoint.Contains("/Product/AddProductImage", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/Storefront/UploadListingImage", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/opportunities/", StringComparison.OrdinalIgnoreCase) && endpoint.Contains("/feedback", StringComparison.OrdinalIgnoreCase) ||
                    endpoint.Contains("/PayableBills/AddPayableBill", StringComparison.OrdinalIgnoreCase) ||
