@@ -588,7 +588,8 @@ namespace EvangelionERPV2.Web.Controllers
                     EnterpriseId = enterpriseId,
                     AccessLevel = (short)EnumAccessLevel.Employee,
                     IsLogged = 0,
-                    IsActive = true
+                    IsActive = true,
+                    MustChangePassword = true
                 };
 
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
@@ -1579,10 +1580,20 @@ namespace EvangelionERPV2.Web.Controllers
                 if (userToDelete == null || userToDelete.IsActive != true || userToDelete.EnterpriseId != enterpriseId)
                     return NoContent();
 
-                if (userToDelete.Id != TryGetUserId() && await IsAccessManagerAsync(userToDelete) && await RequireIamManageAsync() is { } refused)
+                var isAccessManager = await IsAccessManagerAsync(userToDelete);
+                if (isAccessManager && await RequireIamManageAsync() is { } refused)
                     return refused;
 
-                Shared.Entities.User user = _userService.Delete(id);
+                Shared.Entities.User user;
+                if (isAccessManager)
+                {
+                    user = await HttpContext.RequestServices.GetRequiredService<Security.Iam.IamService>()
+                        .DeactivateUserAsync(enterpriseId, id);
+                }
+                else
+                {
+                    user = _userService.Delete(id);
+                }
                 if (user == null || user.EnterpriseId != enterpriseId)
                     return NoContent();
 

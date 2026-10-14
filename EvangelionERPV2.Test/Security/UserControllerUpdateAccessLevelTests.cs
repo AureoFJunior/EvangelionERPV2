@@ -91,6 +91,20 @@ namespace EvangelionERPV2.Test.Security
             context.UserService.Verify(x => x.Update(It.IsAny<User>()), Times.Never);
         }
 
+        [Fact]
+        public async Task UpdateUser_AdminChangingRole_RecordsAnIamAuditAndInvalidatesPermissions()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(target);
+
+            var result = await context.Controller.UpdateUser(BuildRequest(target.Id, (short)EnumAccessLevel.Manager));
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.Equal(1, target.IamVersion);
+            context.Audit.Verify(writer => writer.Add(It.Is<AuditTrail>(entry =>
+                entry.EntityName == AuditedEntities.Iam && entry.EntityId == target.Id && entry.Action == "EDIT")), Times.Once);
+        }
+
         private static User BuildUser() => new()
         {
             Id = Guid.NewGuid(),
@@ -124,6 +138,7 @@ namespace EvangelionERPV2.Test.Security
         {
             public UserController Controller { get; }
             public Mock<IUserService<User>> UserService { get; } = new();
+            public Mock<IAuditTrailWriter> Audit { get; } = new();
 
             public ControllerContextBuilder(User stored, EnumAccessLevel callerLevel = EnumAccessLevel.Admin, bool callerIsTarget = false)
             {
@@ -141,8 +156,6 @@ namespace EvangelionERPV2.Test.Security
                 permissions.Setup(x => x.GrantedAsync(It.IsAny<IReadOnlyCollection<User>>()))
                     .ReturnsAsync((IReadOnlyCollection<User> users) => (IReadOnlyDictionary<Guid, IReadOnlySet<string>>)users
                         .ToDictionary(user => user.Id, _ => (IReadOnlySet<string>)new HashSet<string>()));
-                var audit = new Mock<IAuditTrailWriter>();
-
                 var mapper = new Mock<IMapper>();
                 mapper.Setup(x => x.Map<UserDTO>(It.IsAny<User>())).Returns(new UserDTO());
 
@@ -152,7 +165,7 @@ namespace EvangelionERPV2.Test.Security
 
                 var services = new ServiceCollection();
                 services.AddSingleton(permissions.Object);
-                services.AddSingleton(audit.Object);
+                services.AddSingleton(Audit.Object);
                 var httpContext = new DefaultHttpContext
                 {
                     RequestServices = services.BuildServiceProvider(),

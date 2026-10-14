@@ -103,6 +103,22 @@ namespace EvangelionERPV2.Web.Security.Iam
             return await GetAccessAsync(enterpriseId, targetId);
         }
 
+        /// <summary>Deactivates an access manager atomically with the last-manager invariant.</summary>
+        public Task<User> DeactivateUserAsync(Guid enterpriseId, Guid userId) =>
+            _enterprises.ExecuteInTransactionAsync(async () =>
+            {
+                await _enterprises.LockForUpdateAsync(enterpriseId);
+                var user = await _db.User.FirstOrDefaultAsync(u => u.Id == userId && u.EnterpriseId == enterpriseId && u.IsActive == true)
+                    ?? throw NotFound();
+
+                user.IsActive = false;
+                user.UpdatedAt = Now;
+                user.IamVersion++;
+                await _db.SaveChangesAsync();
+                await EnsureManagerRemainsAsync(enterpriseId, await ModeAsync(enterpriseId));
+                return user;
+            });
+
         public Task<UserAccessDTO> ApplyTemplateAsync(User caller, Guid targetId, EnumAccessLevel template, bool replace, string? reason)
         {
             var permissions = RbacRolePermissionMap.GetPermissions((short)template)

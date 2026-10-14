@@ -150,6 +150,15 @@ namespace EvangelionERPV2.Test.Security.Iam
         }
 
         [Fact]
+        public async Task DeactivatingTheLastAccessManager_IsRefusedAndRolledBack()
+        {
+            var error = await Refused(() => Service().DeactivateUserAsync(_enterprise.Id, _admin.Id));
+
+            Assert.Equal("last_iam_manager", error.Code);
+            Assert.True(Fresh(_admin).IsActive);
+        }
+
+        [Fact]
         public async Task SwitchingToZeroTrust_IgnoresDenies_AndKeepsOnlyAllows()
         {
             await Set(_clerk, RbacPermissions.Orders.Read, GrantState.Deny);

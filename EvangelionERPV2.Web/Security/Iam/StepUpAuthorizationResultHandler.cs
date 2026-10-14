@@ -42,7 +42,7 @@ namespace EvangelionERPV2.Web.Security.Iam
                         : "Confirme com o código do seu aplicativo autenticador para continuar.",
                     permission,
                     windowMinutes = (int)StepUp.Window(IamCatalog.TierOf(permission)).TotalMinutes
-                });
+                }, cancellationToken: context.RequestAborted);
                 return;
             }
 

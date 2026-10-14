@@ -230,6 +230,30 @@ namespace EvangelionERPV2.Test.Security.Iam
         }
 
         [Fact]
+        public async Task IamController_ReadEndpointsAndStepUpLifecycleReturnTenantScopedResults()
+        {
+            var clerk = new User
+            {
+                Id = Guid.NewGuid(), FirstName = "Caio", LastName = "Reis", UserName = "caio", Email = "caio@loja.com", Password = "x",
+                AccessLevel = (short)EnumAccessLevel.Employee, EnterpriseId = _enterprise.Id, IsActive = true
+            };
+            await _database.SeedAsync(clerk);
+            var controller = Controller(Token(_admin));
+
+            Assert.IsType<OkObjectResult>(controller.Catalog());
+            Assert.IsType<OkObjectResult>(await controller.Access(clerk.Id));
+            Assert.IsType<OkObjectResult>(await controller.Holders(RbacPermissions.Iam.Manage));
+            Assert.IsType<OkObjectResult>(await controller.Reviews());
+            Assert.IsType<OkObjectResult>(await controller.Me());
+
+            await SteppedUp();
+            Assert.IsType<NoContentResult>(await controller.EndStepUp());
+            Assert.Null(await StepUp.VerifiedAtAsync(_cache, Token(_admin)));
+            var missing = Assert.IsType<ObjectResult>(await controller.Access(Guid.NewGuid()));
+            Assert.Equal(StatusCodes.Status404NotFound, missing.StatusCode);
+        }
+
+        [Fact]
         public async Task Me_ShowsWhatIsHeldAndWhatWorksUntilWhen()
         {
             await SteppedUp(ago: TimeSpan.FromMinutes(1));
