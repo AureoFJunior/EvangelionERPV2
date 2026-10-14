@@ -7,9 +7,11 @@
 # touching a table answers 500 with "Invalid column name". It looks like a broken deploy rather
 # than a missing step, which is why this exists as a script instead of a line in a runbook.
 #
-# Differences from the local one, all of them consequences of there being no container:
+# Differences from the local one:
 #   * sqlcmd runs here, in a container of its own, against a remote host - there is nothing to
 #     `docker exec` into.
+#   * The EF CLI also runs in a pinned SDK container, so the production host needs Docker but does
+#     not need a separately installed .NET SDK.
 #   * No BACKUP DATABASE. RDS does not let you write a .bak to local disk; the equivalent is a
 #     snapshot, taken below through the AWS CLI.
 #   * Credentials come from Secrets Manager rather than .env.local, because `manage_master_user_password`
@@ -45,6 +47,7 @@ DATABASE="${DATABASE:-EvangelionERPV2}"
 # flags that matter.
 SQLCMD_IMAGE="${SQLCMD_IMAGE:-mcr.microsoft.com/mssql-tools}"
 SQLCMD_BIN="${SQLCMD_BIN:-/opt/mssql-tools/bin/sqlcmd}"
+DOTNET_SDK_IMAGE="${DOTNET_SDK_IMAGE:-mcr.microsoft.com/dotnet/sdk:10.0.300}"
 
 # -N encrypts; -C trusts the presented certificate. RDS serves a certificate signed by the Amazon
 # RDS CA, which is not in this image's trust store, and the alternative to -C is baking that CA
@@ -113,10 +116,16 @@ SCRIPT_PATH="$(mktemp -t evangelion-migrations-XXXXXX.sql)"
 trap 'rm -f "$SCRIPT_PATH"' EXIT
 
 echo "==> Generating the idempotent migration script"
-dotnet ef migrations script --idempotent \
-  --project "$ROOT/EvangelionERPV2.Shared/EvangelionERPV2.Shared.csproj" \
-  --startup-project "$ROOT/EvangelionERPV2.Web/EvangelionERPV2.Web.csproj" \
-  -o "$SCRIPT_PATH"
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp/dotnet-home \
+  -e DOTNET_CLI_HOME=/tmp/dotnet-home \
+  -e NUGET_PACKAGES=/tmp/nuget-packages \
+  -v "$ROOT:/src" \
+  -v "$SCRIPT_PATH:/tmp/migrations.sql" \
+  -w /src \
+  "$DOTNET_SDK_IMAGE" \
+  bash -lc 'dotnet tool restore && dotnet tool run dotnet-ef migrations script --idempotent --project EvangelionERPV2.Shared/EvangelionERPV2.Shared.csproj --startup-project EvangelionERPV2.Web/EvangelionERPV2.Web.csproj -o /tmp/migrations.sql'
 
 # --- Apply ------------------------------------------------------------------------------------
 

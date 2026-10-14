@@ -162,25 +162,28 @@ jobs:
             --instance-ids "${INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
             --comment "deploy ${GITHUB_SHA::7}" \
-            --parameters commands="[\"set -euo pipefail\",\"cd ${APP_DIR}\",\"git fetch --prune origin release\",\"git checkout --detach ${GITHUB_SHA}\",\"docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml --profile workers --profile voice pull\",\"docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml --profile workers --profile voice up -d\",\"docker image prune -f\"]" \
+            --timeout-seconds 3600 \
+            --parameters commands="[\"set -euo pipefail\",\"cd ${APP_DIR}\",\"git fetch --prune origin release\",\"git checkout --detach ${GITHUB_SHA}\",\"./scripts/rds-db-update.sh\",\"docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml --profile workers --profile voice pull\",\"docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml --profile workers --profile voice up -d\",\"docker image prune -f\"]" \
             --query 'Command.CommandId' --output text)"
 
           echo "SSM command ${COMMAND_ID}"
 
-          # send-command returns as soon as it is queued. Without waiting, a deploy that fails on
-          # the box is a green build.
-          if ! aws ssm wait command-executed \
+          # A pre-migration RDS snapshot can take longer than the AWS CLI waiter's short default
+          # window, so poll the invocation for up to the command's one-hour timeout.
+          STATUS="Pending"
+          for attempt in $(seq 1 360); do
+            STATUS="$(aws ssm get-command-invocation \
               --region "${AWS_REGION}" \
               --command-id "${COMMAND_ID}" \
-              --instance-id "${INSTANCE_ID}"; then
-            echo "::error::Deploy command did not succeed."
-          fi
+              --instance-id "${INSTANCE_ID}" \
+              --query 'Status' --output text 2>/dev/null || echo Pending)"
 
-          STATUS="$(aws ssm get-command-invocation \
-            --region "${AWS_REGION}" \
-            --command-id "${COMMAND_ID}" \
-            --instance-id "${INSTANCE_ID}" \
-            --query 'Status' --output text)"
+            case "${STATUS}" in
+              Success|Cancelled|TimedOut|Failed|Cancelling) break ;;
+            esac
+
+            sleep 10
+          done
 
           echo "--- stdout"
           aws ssm get-command-invocation --region "${AWS_REGION}" \
