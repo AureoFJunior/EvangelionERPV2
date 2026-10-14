@@ -1010,7 +1010,16 @@ namespace EvangelionERPV2.Web.Controllers
             if (!IsWellFormedAppleRequest(request))
                 return BadRequest("identityToken and nonce are required.");
 
-            var result = await _appleSignInService.SignInAsync(request.IdentityToken, request.Nonce);
+            AppleSignInResult result;
+            try
+            {
+                result = await _appleSignInService.SignInAsync(request.IdentityToken, request.Nonce);
+            }
+            catch (AppleKeysUnavailableException)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
+
             if (result.Outcome == AppleSignInOutcome.InvalidToken)
                 return Unauthorized();
 
@@ -1048,6 +1057,7 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> LinkApple([FromBody] AppleTokenRequest request)
         {
             if (!IsWellFormedAppleRequest(request))
@@ -1057,7 +1067,17 @@ namespace EvangelionERPV2.Web.Controllers
             if (user == null)
                 return error!;
 
-            switch (await _appleSignInService.LinkAsync(user, request.IdentityToken, request.Nonce))
+            AppleLinkOutcome outcome;
+            try
+            {
+                outcome = await _appleSignInService.LinkAsync(user, request.IdentityToken, request.Nonce);
+            }
+            catch (AppleKeysUnavailableException)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
+
+            switch (outcome)
             {
                 case AppleLinkOutcome.InvalidToken:
                     return BadRequest("Invalid Apple identity token.");

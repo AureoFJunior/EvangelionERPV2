@@ -156,6 +156,25 @@ namespace EvangelionERPV2.UserModule.Test.User
         }
 
         [Fact]
+        public async Task LoginWithApple_WhenAppleKeysAreUnreachable_Answers503()
+        {
+            _apple.Keys.Fail = true;
+
+            Assert.Equal(503, Assert.IsType<StatusCodeResult>(await Login(_apple.Token())).StatusCode);
+        }
+
+        [Fact]
+        public async Task LinkApple_WhenAppleKeysAreUnreachable_Answers503AndLinksNothing()
+        {
+            _apple.Keys.Fail = true;
+
+            var result = await _controller.LinkApple(new UserController.AppleTokenRequest { IdentityToken = _apple.Token(), Nonce = Nonce });
+
+            Assert.Equal(503, Assert.IsType<StatusCodeResult>(result).StatusCode);
+            Assert.Null(_ana.AppleSubject);
+        }
+
+        [Fact]
         public async Task LinkApple_StoresTheAppleIdOnTheCaller()
         {
             var result = await _controller.LinkApple(new UserController.AppleTokenRequest { IdentityToken = _apple.Token(), Nonce = Nonce });

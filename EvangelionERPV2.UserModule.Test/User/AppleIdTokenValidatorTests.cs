@@ -106,11 +106,11 @@ namespace EvangelionERPV2.UserModule.Test.User
         }
 
         [Fact]
-        public async Task Validate_WhenAppleKeysCannotBeFetched_RejectsInsteadOfThrowing()
+        public async Task Validate_WhenAppleKeysCannotBeFetched_SaysSoInsteadOfCallingTheTokenInvalid()
         {
             _apple.Keys.Fail = true;
 
-            Assert.Null(await _validator.ValidateAsync(_apple.Token(), RawNonce));
+            await Assert.ThrowsAsync<AppleKeysUnavailableException>(() => _validator.ValidateAsync(_apple.Token(), RawNonce));
         }
 
         [Fact]

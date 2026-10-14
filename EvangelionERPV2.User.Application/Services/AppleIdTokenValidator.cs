@@ -10,6 +10,10 @@ namespace EvangelionERPV2.UserModule.Application.Services
 {
     public sealed record AppleIdentity(string Subject, string? Email, bool EmailVerified, bool IsPrivateRelay);
 
+    /// <summary>Apple's signing keys could not be fetched and none are cached: no token can be checked.</summary>
+    public sealed class AppleKeysUnavailableException(Exception inner)
+        : Exception("Apple's signing keys are unavailable.", inner);
+
     /// <summary>
     /// Checks a Sign in with Apple identity token: Apple's signature (keys from its published JWKS),
     /// issuer, one of our client ids as audience, lifetime, and that the nonce claim is the SHA-256 of
@@ -67,6 +71,11 @@ namespace EvangelionERPV2.UserModule.Application.Services
                     IsTrue(claims, "email_verified"),
                     IsTrue(claims, "is_private_email"));
             }
+            catch (AppleKeysUnavailableException ex)
+            {
+                Log.Logger.Error("Apple signing keys unavailable. ErrorType={ErrorType}", ex.InnerException?.GetType().Name);
+                throw;
+            }
             catch (Exception ex)
             {
                 Log.Logger.Warning("Apple identity token could not be checked. ErrorType={ErrorType}", ex.GetType().Name);
@@ -76,7 +85,16 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
         private async Task<TokenValidationResult> ValidateSignedAsync(string identityToken)
         {
-            var configuration = await _keys.GetConfigurationAsync(CancellationToken.None);
+            OpenIdConnectConfiguration configuration;
+            try
+            {
+                configuration = await _keys.GetConfigurationAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                throw new AppleKeysUnavailableException(ex);
+            }
+
             return await _handler.ValidateTokenAsync(identityToken, new TokenValidationParameters
             {
                 ValidIssuer = Issuer,
