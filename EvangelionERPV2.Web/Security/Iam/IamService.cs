@@ -138,6 +138,8 @@ namespace EvangelionERPV2.Web.Security.Iam
         public async Task<EnumIamMode> SwitchAsync(User caller, EnumIamMode mode)
         {
             var enterpriseId = caller.EnterpriseId ?? throw NotFound();
+            if (!Enum.IsDefined(mode))
+                throw new IamException("invalid_iam_mode", "O modo de acesso informado é inválido.");
             if (!caller.MfaEnabled)
                 throw new IamException("mfa_required", "Ative a verificação em duas etapas antes de trocar o modo de acesso.", StatusCodes.Status409Conflict);
 

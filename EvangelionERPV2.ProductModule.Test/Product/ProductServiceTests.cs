@@ -258,7 +258,7 @@ namespace EvangelionERPV2.ProductModule.Test
         {
             EnsureEncryptionKeyInitialized();
             var (service, productRepository, _, s3ClientMock) = CreateServiceWithS3Mock();
-            var product = new Product("Product", "Desc", 10, 5, false, false, "products/photo-key", Guid.NewGuid()) { Id = Guid.NewGuid(), PictureWidth = 900, PictureHeight = 900 };
+            var product = new Product("Product", "Desc", 10, 5, false, false, SharedFunctions.EnsureEncryptedAddress("products/photo-key"), Guid.NewGuid()) { Id = Guid.NewGuid(), PictureWidth = 900, PictureHeight = 900 };
             productRepository.Setup(r => r.Update(It.IsAny<Product>())).Returns((Product p) => p);
             var deleted = new List<string>();
             s3ClientMock.Setup(s => s.DeleteObjectAsync(It.IsAny<DeleteObjectRequest>(), It.IsAny<CancellationToken>()))

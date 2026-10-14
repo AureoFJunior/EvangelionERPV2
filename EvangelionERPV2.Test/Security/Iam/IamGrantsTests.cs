@@ -299,6 +299,15 @@ namespace EvangelionERPV2.Test.Security.Iam
         }
 
         [Fact]
+        public async Task TheSwitch_RejectsUndefinedModesWithoutChangingTheTenant()
+        {
+            var error = await Refused(() => Service().SwitchAsync(Fresh(_admin), (EnumIamMode)2));
+
+            Assert.Equal("invalid_iam_mode", error.Code);
+            Assert.Equal(EnumIamMode.Role, await Service().ModeAsync(_enterprise.Id));
+        }
+
+        [Fact]
         public async Task TheSwitch_StartsFromNone_KeepsPreparedGrants_AndLeavesAdminsAbleToManage()
         {
             var prepared = NewUser("Duda", EnumAccessLevel.Employee);

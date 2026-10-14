@@ -536,7 +536,7 @@ namespace EvangelionERPV2.Web.Controllers
                 : Ok(images.Select(ToProductImageDto));
         }
 
-        [Authorize(Policy = "rbac:" + RbacPermissions.Products.UploadPicture)]
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.DeletePicture)]
         [HttpDelete("{imageId:guid}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         public async Task<IActionResult> RemoveProductImage(Guid imageId)

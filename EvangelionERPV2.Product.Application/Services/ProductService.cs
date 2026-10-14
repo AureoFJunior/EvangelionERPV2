@@ -887,7 +887,8 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
         /// <summary>Where the thumbnail for an original lives. Same bucket, <c>thumb/</c> prefix.</summary>
         private static string ThumbnailKeyFor(string pictureAddress) => ThumbnailKeyFor(pictureAddress, ThumbnailLongEdge);
-        private static string ThumbnailKeyFor(string pictureAddress, int longEdge) => $"thumb{longEdge}/{pictureAddress}";
+        private static string ThumbnailKeyFor(string pictureAddress, int longEdge) =>
+            $"thumb{longEdge}/{SharedFunctions.EnsureDecryptedAddress(pictureAddress)}";
 
         /// <summary>
         /// Identifies the bytes a till already holds, so an unchanged image is never sent twice.
