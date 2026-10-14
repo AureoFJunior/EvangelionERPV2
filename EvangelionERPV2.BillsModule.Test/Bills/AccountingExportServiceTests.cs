@@ -45,6 +45,23 @@ namespace EvangelionERPV2.BillsModule.Test
         }
 
         [Theory]
+        [InlineData("=HYPERLINK(\"https://example.test\")")]
+        [InlineData("+SUM(1,1)")]
+        [InlineData("-cmd")]
+        [InlineData("@SUM(1,1)")]
+        public async Task BuildMonthly_ShouldNeutralizeSpreadsheetFormulasInCustomerNames(string customerName)
+        {
+            var customer = BuildCustomer(customerName);
+            var order = BuildOrder(100, customer, InsidePeriod);
+
+            var csv = await ReadEntryAsync(
+                await BuildSut(orders: [order], customers: [customer]).BuildMonthlyAsync(EnterpriseId, Year, Month),
+                "receivables.csv");
+
+            Assert.Equal($"'{customerName}", ParseField(csv, row: 1, column: 2));
+        }
+
+        [Theory]
         [InlineData(2026, 2, 28, false)]
         [InlineData(2026, 3, 1, true)]
         [InlineData(2026, 3, 31, true)]

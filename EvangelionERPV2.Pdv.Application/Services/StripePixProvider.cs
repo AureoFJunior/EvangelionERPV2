@@ -28,7 +28,8 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         /// Raises a charge on <paramref name="connectedAccountId"/>'s behalf.
         /// </summary>
         public virtual async Task<PixIntent> CreateAsync(
-            decimal amount, Guid clientSaleId, string connectedAccountId, CancellationToken cancellation = default)
+            decimal amount, Guid clientSaleId, Guid chargeAttemptId, string connectedAccountId,
+            CancellationToken cancellation = default)
         {
             var options = new PaymentIntentCreateOptions
             {
@@ -43,14 +44,11 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                         ExpiresAfterSeconds = ExpiresAfterSeconds
                     }
                 },
-                OnBehalfOf = connectedAccountId,
-
                 Confirm = true,
                 Metadata = new Dictionary<string, string> { ["client_sale_id"] = clientSaleId.ToString() }
             };
 
-            var requestOptions = await RequestOptionsAsync(cancellation);
-            requestOptions.IdempotencyKey = clientSaleId.ToString();
+            var requestOptions = await RequestOptionsAsync(connectedAccountId, chargeAttemptId, cancellation);
 
             var intent = await new PaymentIntentService().CreateAsync(options, requestOptions, cancellation);
             var qr = intent.NextAction?.PixDisplayQrCode;
@@ -63,11 +61,12 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         }
 
         /// <summary>Cancels an intent nobody paid. Stripe refuses one that already succeeded.</summary>
-        public virtual async Task CancelAsync(string intentId, CancellationToken cancellation = default)
+        public virtual async Task CancelAsync(
+            string intentId, string connectedAccountId, CancellationToken cancellation = default)
         {
             await new PaymentIntentService().CancelAsync(
                 intentId, new PaymentIntentCancelOptions { CancellationReason = "abandoned" },
-                await RequestOptionsAsync(cancellation), cancellation);
+                await RequestOptionsAsync(connectedAccountId, null, cancellation), cancellation);
         }
 
         /// <summary>
@@ -76,14 +75,20 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         internal static long ToCentavos(decimal amount) =>
             (long)decimal.Round(amount * 100m, 0, MidpointRounding.AwayFromZero);
 
-        private async Task<RequestOptions> RequestOptionsAsync(CancellationToken cancellation)
+        internal static RequestOptions BuildRequestOptions(
+            string apiKey, string connectedAccountId, Guid? chargeAttemptId) => new()
+        {
+            ApiKey = apiKey,
+            StripeAccount = connectedAccountId,
+            IdempotencyKey = chargeAttemptId.HasValue ? $"pdv-pix:{chargeAttemptId:N}" : null
+        };
+
+        private async Task<RequestOptions> RequestOptionsAsync(
+            string connectedAccountId, Guid? chargeAttemptId, CancellationToken cancellation)
         {
             var secretName = _configuration["Stripe:SecretKeyName"] ?? string.Empty;
-
-            return new RequestOptions
-            {
-                ApiKey = await _kmsProvider.GetKMSKeyAsync(secretName, cancellation)
-            };
+            var apiKey = await _kmsProvider.GetKMSKeyAsync(secretName, cancellation);
+            return BuildRequestOptions(apiKey, connectedAccountId, chargeAttemptId);
         }
     }
 }

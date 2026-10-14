@@ -38,6 +38,7 @@ namespace EvangelionERPV2.OrderModule.Application.Interface
             int pageNumber,
             int pageSize);
         Task<Order?> GetByIdAsync(Guid id, Guid enterpriseId);
+        Task<Order?> GetByExternalReferenceAsync(Guid enterpriseId, string externalReference);
         Task<string> GetOrdersBodyAsync(Enterprise? enterprise);
         Task InsertOrderInQueue(Order order);
         #endregion

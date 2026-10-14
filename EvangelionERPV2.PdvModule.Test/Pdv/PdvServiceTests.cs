@@ -32,6 +32,12 @@ namespace EvangelionERPV2.PdvModule.Test
         {
             var mock = new Mock<IOrderService<Order>>();
 
+            mock.Setup(service => service.GetByExternalReferenceAsync(It.IsAny<Guid>(), It.IsAny<string>()))
+                .ReturnsAsync((Guid enterpriseId, string externalReference) => context.Order
+                    .AsNoTracking()
+                    .FirstOrDefault(order => order.EnterpriseId == enterpriseId
+                                             && order.ExternalReference == externalReference));
+
             mock.Setup(service => service.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
                 .Returns<Order, bool, bool, string?>(async (order, _, _, _) =>
                 {
@@ -159,7 +165,8 @@ namespace EvangelionERPV2.PdvModule.Test
                 Status = (int)EnumPdvSaleStatus.Processing,
                 SoldAtLocal = request.SoldAtLocal,
                 IsActive = true,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             });
             await context.SaveChangesAsync();
 
@@ -290,6 +297,72 @@ namespace EvangelionERPV2.PdvModule.Test
 
             Assert.Equal(1, await retryContext.CashMovement
                 .CountAsync(movement => movement.Type == (int)EnumCashMovementType.Sale));
+        }
+
+        [Fact]
+        public async Task AnOrderCommitWhoseResponseWasLost_IsRecoveredByItsSaleReference()
+        {
+            var context = _database.CreateContext();
+            var orderService = OrderServiceStub(context);
+            var createCalls = 0;
+
+            orderService.Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
+                .Returns<Order, bool, bool, string?>(async (order, _, _, _) =>
+                {
+                    createCalls++;
+                    order.Id = Guid.NewGuid();
+                    var lines = (order.OrderedProduct ?? []).ToList();
+                    order.OrderedProduct = null;
+                    context.Order.Add(order);
+                    await context.SaveChangesAsync();
+                    order.OrderedProduct = lines;
+                    throw new TimeoutException("The committed response was lost.");
+                });
+
+            var service = CreateService(context, orderService);
+            var sessionId = Guid.NewGuid();
+            await OpenSessionAsync(service, sessionId);
+            var request = SaleFor(Guid.NewGuid(), sessionId);
+
+            var result = await service.SyncSaleAsync(request, _enterpriseId, _userId);
+
+            Assert.Equal((int)EnumPdvSaleStatus.Synced, result.Status);
+            Assert.Equal(1, createCalls);
+            var order = Assert.Single(await context.Order.AsNoTracking().ToListAsync());
+            Assert.Equal($"pdv:{request.ClientSaleId:N}", order.ExternalReference);
+            Assert.Equal(order.Id, result.OrderId);
+        }
+
+        [Fact]
+        public async Task AStaleProcessingClaim_CanBeResumed()
+        {
+            var context = _database.CreateContext();
+            var orderService = OrderServiceStub(context);
+            var service = CreateService(context, orderService);
+            var sessionId = Guid.NewGuid();
+            var session = await OpenSessionAsync(service, sessionId);
+            var request = SaleFor(Guid.NewGuid(), sessionId);
+
+            context.PdvSale.Add(new PdvSale
+            {
+                Id = Guid.NewGuid(),
+                EnterpriseId = _enterpriseId,
+                ClientSaleId = request.ClientSaleId,
+                CashSessionId = session.Id,
+                TerminalId = session.TerminalId,
+                UserId = _userId,
+                Status = (int)EnumPdvSaleStatus.Processing,
+                SoldAtLocal = request.SoldAtLocal,
+                CreatedAt = DateTime.UtcNow.AddMinutes(-10),
+                UpdatedAt = DateTime.UtcNow.AddMinutes(-10),
+                IsActive = true
+            });
+            await context.SaveChangesAsync();
+
+            var result = await service.SyncSaleAsync(request, _enterpriseId, _userId);
+
+            Assert.Equal((int)EnumPdvSaleStatus.Synced, result.Status);
+            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Once);
         }
 
         [Fact]

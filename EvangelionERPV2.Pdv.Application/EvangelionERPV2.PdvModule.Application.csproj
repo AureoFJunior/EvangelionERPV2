@@ -25,4 +25,8 @@
     <ProjectReference Include="..\EvangelionERPV2.Product.Application\EvangelionERPV2.ProductModule.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="EvangelionERPV2.PdvModule.Test" />
+  </ItemGroup>
+
 </Project>

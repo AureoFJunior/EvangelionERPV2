@@ -205,6 +205,33 @@ namespace EvangelionERPV2.OrderModule.Test
         }
 
         [Fact]
+        public async Task Convert_RecoversAnOrderWhoseCommittedResponseWasLost()
+        {
+            var product = BuildProduct("Plugsuit", defaultValue: 100m);
+            var quote = BuildStoredQuote(EnumQuoteStatus.Accepted, product);
+            var orders = new List<Order>();
+            var (service, _, _, orderService) = BuildSut(products: [product], stored: quote, orders: orders);
+
+            orderService
+                .Setup(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()))
+                .Returns<Order, bool, bool, string?>(async (order, _, _, _) =>
+                {
+                    order.Id = Guid.NewGuid();
+                    orders.Add(order);
+                    await Task.Yield();
+                    throw new TimeoutException("The committed response was lost.");
+                });
+
+            var converted = await service.ConvertAsync(quote.Id, EnterpriseId, new ConvertQuoteRequestDTO());
+
+            var durableOrder = Assert.Single(orders);
+            Assert.Equal($"quote:{quote.Id:N}", durableOrder.ExternalReference);
+            Assert.Equal(durableOrder.Id, converted.ConvertedOrderId);
+            Assert.Equal((int)EnumQuoteStatus.Converted, converted.Status);
+            orderService.Verify(x => x.CreateAsync(It.IsAny<Order>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Once);
+        }
+
+        [Fact]
         public async Task Delete_OfAConvertedQuote_IsRefused()
         {
             var product = BuildProduct("Plugsuit", defaultValue: 100m);
@@ -295,7 +322,7 @@ namespace EvangelionERPV2.OrderModule.Test
 
         private static (QuoteService Service, List<Quote> Quotes, List<QuoteItem> Items, Mock<IOrderService<Order>> OrderService)
             BuildSut(List<Product>? products = null, Quote? stored = null, long nextNumber = 1,
-                List<Customer>? customers = null)
+                List<Customer>? customers = null, List<Order>? orders = null)
         {
             var quoteStore = stored == null ? [] : new List<Quote> { stored };
             var itemStore = stored?.Items?.ToList() ?? [];
@@ -353,6 +380,10 @@ namespace EvangelionERPV2.OrderModule.Test
                 });
 
             var orderService = new Mock<IOrderService<Order>>();
+            var orderStore = orders ?? [];
+            orderService.Setup(x => x.GetByExternalReferenceAsync(It.IsAny<Guid>(), It.IsAny<string>()))
+                .ReturnsAsync((Guid enterpriseId, string externalReference) => orderStore.FirstOrDefault(order =>
+                    order.EnterpriseId == enterpriseId && order.ExternalReference == externalReference));
             var customerStore = customers ?? [];
             var customerRepository = new Mock<IRepository<Customer>>();
             customerRepository.Setup(x => x.GetPagedAsync(

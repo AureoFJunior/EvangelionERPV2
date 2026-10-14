@@ -56,7 +56,7 @@ namespace EvangelionERPV2.PdvModule.Test
 
             Assert.Equal(first.ChargeId, second.ChargeId);
             Assert.Equal(1, await context.PdvCharge.CountAsync());
-            provider.Verify(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<string>(),
+            provider.Verify(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()), Times.Once);
         }
 
@@ -66,7 +66,7 @@ namespace EvangelionERPV2.PdvModule.Test
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
             var provider = ProviderReturning("pi_1", "qr");
-            provider.Setup(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<string>(),
+            provider.Setup(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(),
                     It.IsAny<CancellationToken>()))
                 .ReturnsAsync(() => new PixIntent($"pi_{Guid.NewGuid():N}", "qr", DateTime.UtcNow.AddMinutes(30), "requires_action"));
 
@@ -84,12 +84,54 @@ namespace EvangelionERPV2.PdvModule.Test
         }
 
         [Fact]
+        public async Task ReplacementCharges_UseDifferentProviderIdempotencyKeys()
+        {
+            using var context = _database.CreateContext();
+            await GiveShopAPixAccountAsync(context);
+            var attempts = new List<Guid>();
+            var provider = NewProvider(MockBehavior.Loose);
+            provider.Setup(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
+                    It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((decimal _, Guid _, Guid attemptId, string _, CancellationToken _) =>
+                {
+                    attempts.Add(attemptId);
+                    return new PixIntent($"pi_{attemptId:N}", "qr", DateTime.UtcNow.AddMinutes(30), "requires_action");
+                });
+            provider.Setup(p => p.CancelAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var service = CreateService(context, provider);
+            var request = new StartPixChargeRequestDTO { ClientSaleId = Guid.NewGuid(), Amount = 60m };
+
+            var first = await service.StartPixChargeAsync(request, _enterpriseId);
+            await service.CancelPixChargeAsync(first.ChargeId, _enterpriseId);
+            var second = await service.StartPixChargeAsync(request, _enterpriseId);
+
+            Assert.Equal(2, attempts.Count);
+            Assert.NotEqual(attempts[0], attempts[1]);
+            Assert.Equal(first.ChargeId, attempts[0]);
+            Assert.Equal(second.ChargeId, attempts[1]);
+        }
+
+        [Fact]
+        public void StripeRequests_AreScopedToTheConnectedAccountAndAttempt()
+        {
+            var attemptId = Guid.NewGuid();
+
+            var options = StripePixProvider.BuildRequestOptions("sk_test", "acct_123", attemptId);
+
+            Assert.Equal("sk_test", options.ApiKey);
+            Assert.Equal("acct_123", options.StripeAccount);
+            Assert.Equal($"pdv-pix:{attemptId:N}", options.IdempotencyKey);
+        }
+
+        [Fact]
         public async Task AWindowThatClosed_IsWrittenDownAndTheBasketCanTryAgain()
         {
             using var context = _database.CreateContext();
             await GiveShopAPixAccountAsync(context);
             var provider = ProviderReturning("pi_1", "qr");
-            provider.Setup(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<string>(),
+            provider.Setup(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(),
                     It.IsAny<CancellationToken>()))
                 .ReturnsAsync(() => new PixIntent($"pi_{Guid.NewGuid():N}", "qr", DateTime.UtcNow.AddMinutes(30), "requires_action"));
 
@@ -291,7 +333,7 @@ namespace EvangelionERPV2.PdvModule.Test
             var cancelled = await service.CancelPixChargeAsync(started.ChargeId, _enterpriseId);
 
             Assert.Equal((int)EnumPdvChargeStatus.Cancelled, cancelled.Status);
-            provider.Verify(p => p.CancelAsync("pi_1", It.IsAny<CancellationToken>()), Times.Once);
+            provider.Verify(p => p.CancelAsync("pi_1", "acct_123", It.IsAny<CancellationToken>()), Times.Once);
         }
 
         [Fact]
@@ -311,7 +353,7 @@ namespace EvangelionERPV2.PdvModule.Test
             var result = await service.CancelPixChargeAsync(started.ChargeId, _enterpriseId);
 
             Assert.Equal((int)EnumPdvChargeStatus.Paid, result.Status);
-            provider.Verify(p => p.CancelAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            provider.Verify(p => p.CancelAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
         private async Task GiveShopAPixAccountAsync(AppDbContext context,
@@ -334,10 +376,10 @@ namespace EvangelionERPV2.PdvModule.Test
         private static Mock<StripePixProvider> ProviderReturning(string intentId, string qr)
         {
             var mock = NewProvider(MockBehavior.Loose);
-            mock.Setup(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<string>(),
+            mock.Setup(p => p.CreateAsync(It.IsAny<decimal>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(),
                     It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new PixIntent(intentId, qr, DateTime.UtcNow.AddMinutes(30), "requires_action"));
-            mock.Setup(p => p.CancelAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            mock.Setup(p => p.CancelAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
             return mock;
         }

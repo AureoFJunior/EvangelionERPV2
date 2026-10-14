@@ -28,10 +28,19 @@ namespace EvangelionERPV2.Shared.Utils
         {
             var value = field ?? string.Empty;
 
+            if (StartsWithFormula(value) && !decimal.TryParse(value, NumberStyles.Number,
+                    CultureInfo.InvariantCulture, out _))
+            {
+                value = $"'{value}";
+            }
+
             if (value.IndexOf(Separator) < 0 && value.IndexOf('"') < 0 && value.IndexOf('\n') < 0 && value.IndexOf('\r') < 0)
                 return value;
 
             return $"\"{value.Replace("\"", "\"\"")}\"";
         }
+
+        private static bool StartsWithFormula(string value) =>
+            value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r';
     }
 }

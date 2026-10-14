@@ -204,6 +204,21 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             return order;
         }
 
+        public async Task<Order?> GetByExternalReferenceAsync(Guid enterpriseId, string externalReference)
+        {
+            if (enterpriseId == Guid.Empty || string.IsNullOrWhiteSpace(externalReference))
+                return null;
+
+            var (orders, _) = await _orderRepository.GetPagedAsync(
+                order => order.EnterpriseId == enterpriseId
+                         && order.ExternalReference == externalReference
+                         && (order.IsActive == null || order.IsActive == true),
+                pageNumber: 1,
+                pageSize: 1);
+
+            return orders.FirstOrDefault();
+        }
+
         private async Task SendOrderUpdate(string orderId, string status, Guid enterpriseId)
         {
             try

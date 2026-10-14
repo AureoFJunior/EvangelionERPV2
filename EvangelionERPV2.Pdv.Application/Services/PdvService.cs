@@ -26,6 +26,7 @@ namespace EvangelionERPV2.PdvModule.Application.Services
 
         /// <summary>A backoffice list, not an export. Enough to see a run of refusals, not the year.</summary>
         private const int MaxOverrideAuditPageSize = 200;
+        private static readonly TimeSpan ProcessingLease = TimeSpan.FromMinutes(5);
 
         public PdvService(
             AppDbContext appDbContext,
@@ -379,10 +380,10 @@ namespace EvangelionERPV2.PdvModule.Application.Services
         /// before it. The same shape the NFe module uses for the same reason.
         ///
         /// So the claim is committed first, then the order id it produced, then the payments and the
-        /// drawer movement together. A crash at any point leaves a Pending row that says exactly how
-        /// far it got, and the retry — which carries the same ClientSaleId — resumes from there
-        /// rather than selling the basket twice. The unique index is what makes the claim a claim:
-        /// two terminals racing the same id, one of them loses at the database.
+        /// drawer movement together. A failure releases the row to Pending; a process crash leaves a
+        /// short Processing lease. The retry carries the same ClientSaleId and the order carries a
+        /// stable external reference, so either path resumes rather than selling the basket twice.
+        /// The unique indexes are what make both claims durable across processes.
         /// </remarks>
         public async Task<PdvSaleSyncResultDTO> SyncSaleAsync(PdvSaleSyncRequestDTO request, Guid enterpriseId, Guid userId)
         {
@@ -440,10 +441,25 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             {
                 if (claimed.Sale.OrderId == null)
                 {
-                    var order = await _orderService.CreateAsync(
-                        BuildOrder(request, items, payments, enterpriseId, userId),
-                        allowCreditOverride: false,
-                        allowNegativeStock: true);
+                    var externalReference = SaleExternalReference(request.ClientSaleId);
+                    var order = await _orderService.GetByExternalReferenceAsync(enterpriseId, externalReference);
+
+                    if (order == null)
+                    {
+                        try
+                        {
+                            order = await _orderService.CreateAsync(
+                                BuildOrder(request, items, payments, enterpriseId, userId),
+                                allowCreditOverride: false,
+                                allowNegativeStock: true);
+                        }
+                        catch
+                        {
+                            order = await _orderService.GetByExternalReferenceAsync(enterpriseId, externalReference);
+                            if (order == null)
+                                throw;
+                        }
+                    }
 
                     claimed.Sale.OrderId = order.Id;
                     claimed.Sale.UpdatedAt = DateTime.UtcNow;
@@ -481,7 +497,10 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 await _saleRepository.LockForUpdateAsync(saleId);
                 var current = await _appDbContext.PdvSale.FirstAsync(item => item.Id == saleId);
 
-                if (current.Status == (int)EnumPdvSaleStatus.Pending)
+                var claimExpired = current.Status == (int)EnumPdvSaleStatus.Processing
+                    && (current.UpdatedAt ?? current.CreatedAt) <= DateTime.UtcNow.Subtract(ProcessingLease);
+
+                if (current.Status == (int)EnumPdvSaleStatus.Pending || claimExpired)
                 {
                     current.Status = (int)EnumPdvSaleStatus.Processing;
                     current.UpdatedAt = DateTime.UtcNow;
@@ -574,6 +593,9 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 CustomerId = request.CustomerId,
                 UserId = userId,
 
+                Channel = (int)EnumOrderChannel.Pdv,
+                ExternalReference = SaleExternalReference(request.ClientSaleId),
+
                 Status = (int)EnumOrderStatus.Finished,
                 PaymentMethod = ResolvePaymentMethod(payments),
                 Payday = soldAt,
@@ -589,6 +611,8 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 }).ToList()
             };
         }
+
+        private static string SaleExternalReference(Guid clientSaleId) => $"pdv:{clientSaleId:N}";
 
         /// <summary>
         /// The one method that settled the sale, or <see cref="EnumPaymentMethod.Mixed"/> when
@@ -1021,12 +1045,13 @@ namespace EvangelionERPV2.PdvModule.Application.Services
                 throw new ArgumentException("This shop is not set up to take PIX.");
             }
 
+            var chargeAttemptId = Guid.NewGuid();
             var intent = await _pixProvider.CreateAsync(
-                request.Amount, request.ClientSaleId, enterprise.StripeConnectedAccountId);
+                request.Amount, request.ClientSaleId, chargeAttemptId, enterprise.StripeConnectedAccountId);
 
             var created = new PdvCharge
             {
-                Id = Guid.NewGuid(),
+                Id = chargeAttemptId,
                 EnterpriseId = enterpriseId,
                 ClientSaleId = request.ClientSaleId,
                 Provider = "stripe",
@@ -1093,7 +1118,15 @@ namespace EvangelionERPV2.PdvModule.Application.Services
             if (charge.Status != (int)EnumPdvChargeStatus.Pending)
                 return ToDto(charge);
 
-            await _pixProvider.CancelAsync(charge.ProviderIntentId);
+            var connectedAccountId = await _appDbContext.Enterprise
+                .Where(enterprise => enterprise.Id == enterpriseId)
+                .Select(enterprise => enterprise.StripeConnectedAccountId)
+                .FirstOrDefaultAsync();
+
+            if (string.IsNullOrWhiteSpace(connectedAccountId))
+                throw new ArgumentException("This shop is not set up to take PIX.");
+
+            await _pixProvider.CancelAsync(charge.ProviderIntentId, connectedAccountId);
 
             charge.Status = (int)EnumPdvChargeStatus.Cancelled;
             charge.UpdatedAt = DateTime.UtcNow;

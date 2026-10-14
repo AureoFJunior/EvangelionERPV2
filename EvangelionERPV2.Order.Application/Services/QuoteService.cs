@@ -17,6 +17,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
     {
         private const int DefaultValidityInDays = 15;
         private const int DefaultPaymentTermInDays = 30;
+        private static readonly TimeSpan ConversionLease = TimeSpan.FromMinutes(5);
 
         private readonly IQuoteRepository _quoteRepository;
         private readonly IRepository<QuoteItem> _quoteItemRepository;
@@ -173,11 +174,17 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             bool allowCreditOverride = false,
             CancellationToken cancellation = default)
         {
+            var externalReference = QuoteExternalReference(id);
+            var recovered = await TryRecoverConversionAsync(id, enterpriseId, externalReference);
+            if (recovered != null)
+                return recovered;
+
             var (existing, previousStatus, items) = await ClaimConversionAsync(id, enterpriseId, cancellation);
             var order = new Order
             {
                 EnterpriseId = enterpriseId,
                 CustomerId = existing.CustomerId,
+                ExternalReference = externalReference,
                 PaymentScheduledDate = (request?.PaymentScheduledDate ?? DateTime.UtcNow.AddDays(DefaultPaymentTermInDays)).Date,
                 TotalValue = existing.TotalValue,
                 Status = (int)EnumOrderStatus.Pending,
@@ -199,6 +206,10 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             }
             catch
             {
+                var durableOrder = await _orderService.GetByExternalReferenceAsync(enterpriseId, externalReference);
+                if (durableOrder != null)
+                    return await CompleteConversionAsync(existing, durableOrder);
+
                 existing.Status = previousStatus;
                 existing.UpdatedAt = DateTime.UtcNow;
                 existing.Items = null;
@@ -207,19 +218,42 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 throw;
             }
 
-            existing.ConvertedOrderId = createdOrder.Id;
-            existing.Status = (int)EnumQuoteStatus.Converted;
-            existing.UpdatedAt = DateTime.UtcNow;
-            existing.Items = null;
+            return await CompleteConversionAsync(existing, createdOrder);
+        }
 
-            _quoteRepository.Update(existing);
-            await _quoteRepository.CommitAsync(cancellation);
+        private async Task<Quote?> TryRecoverConversionAsync(
+            Guid quoteId, Guid enterpriseId, string externalReference)
+        {
+            var durableOrder = await _orderService.GetByExternalReferenceAsync(enterpriseId, externalReference);
+            if (durableOrder == null)
+                return null;
+
+            var quote = await _quoteRepository.GetWithItemsAsync(quoteId, enterpriseId, CancellationToken.None)
+                ?? throw new NotFoundDatabaseException($"{nameof(Quote)} was not found in database.");
+
+            if (quote.ConvertedOrderId.HasValue || quote.Status != (int)EnumQuoteStatus.Converting)
+                return null;
+
+            return await CompleteConversionAsync(quote, durableOrder);
+        }
+
+        private async Task<Quote> CompleteConversionAsync(Quote quote, Order order)
+        {
+            quote.ConvertedOrderId = order.Id;
+            quote.Status = (int)EnumQuoteStatus.Converted;
+            quote.UpdatedAt = DateTime.UtcNow;
+            quote.Items = null;
+
+            _quoteRepository.Update(quote);
+            await _quoteRepository.CommitAsync(CancellationToken.None);
 
             Log.Logger.Information(
-                "Quote {Number} converted. QuoteId={QuoteId} OrderId={OrderId}", existing.Number, existing.Id, createdOrder.Id);
+                "Quote {Number} converted. QuoteId={QuoteId} OrderId={OrderId}", quote.Number, quote.Id, order.Id);
 
-            return existing;
+            return quote;
         }
+
+        private static string QuoteExternalReference(Guid quoteId) => $"quote:{quoteId:N}";
 
         private async Task<(Quote Quote, int PreviousStatus, List<QuoteItem> Items)> ClaimConversionAsync(
             Guid id, Guid enterpriseId, CancellationToken cancellation)
@@ -241,14 +275,18 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 if (effective == EnumQuoteStatus.Expired)
                     throw new InsertDatabaseException("This quote has expired and cannot be converted.");
 
-                if (effective is EnumQuoteStatus.Rejected or EnumQuoteStatus.Converted or EnumQuoteStatus.Converting)
+                var staleConversion = effective == EnumQuoteStatus.Converting
+                    && (claimed.UpdatedAt ?? claimed.CreatedAt) <= DateTime.UtcNow.Subtract(ConversionLease);
+
+                if (effective is EnumQuoteStatus.Rejected or EnumQuoteStatus.Converted
+                    || (effective == EnumQuoteStatus.Converting && !staleConversion))
                     throw new InsertDatabaseException("This quote is closed or already being converted.");
 
                 items = claimed.Items?.ToList() ?? [];
                 if (items.Count == 0)
                     throw new InsertDatabaseException("A quote with no items cannot be converted.");
 
-                previousStatus = claimed.Status;
+                previousStatus = staleConversion ? (int)EnumQuoteStatus.Converting : claimed.Status;
                 claimed.Status = (int)EnumQuoteStatus.Converting;
                 claimed.UpdatedAt = DateTime.UtcNow;
                 claimed.Items = null;
