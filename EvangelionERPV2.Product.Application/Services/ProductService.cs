@@ -132,7 +132,9 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 var productsToInvalidate = new HashSet<Guid> { product.Id };
                 var updatedProduct = await _productRepository.ExecuteInTransactionAsync(async () =>
                 {
-                    Product existentProduct = await _productRepository.GetByIdAsync(product.Id);
+                    Product existentProduct = _productRepository is IProductRepository<Product> products
+                        ? await products.GetFreshByIdAsync(product.Id)
+                        : await _productRepository.GetByIdAsync(product.Id);
 
                     if (existentProduct == null)
                         throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");

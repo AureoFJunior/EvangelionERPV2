@@ -5,6 +5,7 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.ProductModule.Application.Services;
+using EvangelionERPV2.ProductModule.Domain.Interface;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
@@ -48,7 +49,8 @@ namespace EvangelionERPV2.ProductModule.Test
                 Id = Guid.NewGuid()
             };
 
-            productRepository.Setup(r => r.GetByIdAsync(product.Id)).ReturnsAsync(product);
+            productRepository.As<IProductRepository<Product>>()
+                .Setup(r => r.GetFreshByIdAsync(product.Id)).ReturnsAsync(product);
             productRepository.Setup(r => r.Update(It.IsAny<Product>())).Returns((Product p) => p);
             productRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
@@ -57,6 +59,9 @@ namespace EvangelionERPV2.ProductModule.Test
 
             Assert.Same(product, result);
             Assert.NotEqual(DateTime.MinValue, updatedAt);
+            productRepository.As<IProductRepository<Product>>()
+                .Verify(r => r.GetFreshByIdAsync(product.Id), Times.Once);
+            productRepository.Verify(r => r.GetByIdAsync(product.Id), Times.Never);
             productRepository.Verify(r => r.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
         }
 
@@ -292,6 +297,7 @@ namespace EvangelionERPV2.ProductModule.Test
                 });
             var kmsProvider = new AWSKMSKeyProvider(secretsManager.Object, configuration);
             var productRepository = new Mock<IRepository<Product>>();
+            productRepository.As<IProductRepository<Product>>();
             productRepository
                 .Setup(r => r.ExecuteInTransactionAsync(
                     It.IsAny<Func<Task<Product>>>(),
