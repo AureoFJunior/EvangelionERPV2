@@ -4,7 +4,7 @@ using EvangelionERPV2.Shared.Entities;
 
 namespace EvangelionERPV2.OrderModule.Application.Interface
 {
-    public sealed record OrderUpdateResult(Order Order, bool ShipmentTransitionClaimed);
+    public sealed record OrderUpdateResult(Order Order, bool ShipmentTransitionClaimed, bool TrackingCorrectionClaimed = false);
 
     public interface IOrderService<TEntity> where TEntity : class
     {

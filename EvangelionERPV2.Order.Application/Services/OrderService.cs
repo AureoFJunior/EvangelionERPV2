@@ -435,9 +435,19 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
                     var oldContribution = EnterpriseBalanceContributionHelper.GetOrderRealizedContribution(existentOrder, DateTime.UtcNow.Date);
                     var now = DateTime.UtcNow;
+                    var trackingAfter = order.TrackingCode is null
+                        ? existentOrder.TrackingCode
+                        : string.IsNullOrWhiteSpace(order.TrackingCode) ? null : order.TrackingCode.Trim();
+                    var trackingUrlAfter = order.TrackingUrl is null
+                        ? existentOrder.TrackingUrl
+                        : string.IsNullOrWhiteSpace(order.TrackingUrl) ? null : order.TrackingUrl.Trim();
 
                     var claimsShipmentTransition = existentOrder.Status != (int)EnumOrderStatus.Shipped
                         && order.Status == (int)EnumOrderStatus.Shipped;
+                    var claimsTrackingCorrection = existentOrder.Status == (int)EnumOrderStatus.Shipped
+                        && order.Status == (int)EnumOrderStatus.Shipped
+                        && ((!string.Equals(existentOrder.TrackingCode, trackingAfter, StringComparison.Ordinal) && order.TrackingCode is not null)
+                            || (!string.Equals(existentOrder.TrackingUrl, trackingUrlAfter, StringComparison.Ordinal) && order.TrackingUrl is not null));
 
                     if (_appDbContext != null && claimsShipmentTransition)
                     {
@@ -451,6 +461,22 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                                 return new OrderUpdateResult(existentOrder, false);
 
                             throw new InsertDatabaseException("Order was concurrently finalized or already refunded.");
+                        }
+                    }
+                    else if (_appDbContext != null && claimsTrackingCorrection)
+                    {
+                        var claimedRows = _appDbContext.Database.ExecuteSqlInterpolated(
+                            $"UPDATE [Order] SET UpdatedAt = {now}, TrackingCode = {trackingAfter}, TrackingUrl = {trackingUrlAfter} WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status = {(int)EnumOrderStatus.Shipped} AND ((TrackingCode = {existentOrder.TrackingCode}) OR (TrackingCode IS NULL AND {existentOrder.TrackingCode} IS NULL)) AND ((TrackingUrl = {existentOrder.TrackingUrl}) OR (TrackingUrl IS NULL AND {existentOrder.TrackingUrl} IS NULL))");
+
+                        if (claimedRows <= 0)
+                        {
+                            _appDbContext.Entry(existentOrder).Reload();
+                            if (existentOrder.Status == (int)EnumOrderStatus.Shipped
+                                && string.Equals(existentOrder.TrackingCode, trackingAfter, StringComparison.Ordinal)
+                                && string.Equals(existentOrder.TrackingUrl, trackingUrlAfter, StringComparison.Ordinal))
+                                return new OrderUpdateResult(existentOrder, false, false);
+
+                            throw new InsertDatabaseException("Order tracking was concurrently updated.");
                         }
                     }
                     else if (_appDbContext != null)
@@ -477,9 +503,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (order.PaymentScheduledDate != default)
                         existentOrder.PaymentScheduledDate = order.PaymentScheduledDate;
 
-                    var trackingAfter = order.TrackingCode is null
-                        ? existentOrder.TrackingCode
-                        : string.IsNullOrWhiteSpace(order.TrackingCode) ? null : order.TrackingCode.Trim();
                     if (StorefrontEvents.ForUpdate(existentOrder, order.Status, trackingAfter) is { } shopperEvent)
                         _appDbContext?.StorefrontEvent.Add(StorefrontEvents.Create(shopperEvent, existentOrder, now));
 
@@ -501,7 +524,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     _orderRepository.Commit();
                     ApplyEnterpriseBalanceDelta(updatedOrder.EnterpriseId ?? Guid.Empty, newContribution - oldContribution);
 
-                    return new OrderUpdateResult(updatedOrder, claimsShipmentTransition);
+                    return new OrderUpdateResult(updatedOrder, claimsShipmentTransition, claimsTrackingCorrection);
                 });
             }
             catch (NotFoundDatabaseException)

@@ -661,6 +661,7 @@ namespace EvangelionERPV2.Web.Controllers
 
                 var user = existentUser;
                 var wasServiceAccount = existentUser.IsServiceAccount == true;
+                var remainsServiceAccount = wasServiceAccount && (request.IsServiceAccount ?? true);
                 var previousAccessLevel = user.AccessLevel;
                 user.FirstName = request.FirstName.Trim();
                 user.LastName = request.LastName.Trim();
@@ -674,7 +675,7 @@ namespace EvangelionERPV2.Web.Controllers
                 user.IsServiceAccount = request.IsServiceAccount ?? existentUser.IsServiceAccount;
                 user.IsActive = request.IsActive;
                 user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
-                if (caller.Id != user.Id && !string.IsNullOrWhiteSpace(request.Password) && !wasServiceAccount)
+                if (caller.Id != user.Id && !string.IsNullOrWhiteSpace(request.Password) && !remainsServiceAccount)
                     user.MustChangePassword = true;
                 user.ProfilePicture = string.IsNullOrWhiteSpace(request.ProfilePicture) ? existentUser.ProfilePicture : request.ProfilePicture;
 

@@ -411,7 +411,7 @@ namespace EvangelionERPV2.Test.Security
             };
             _service.Setup(s => s.GetByIdAsync(before.Id, _enterpriseId)).ReturnsAsync(before);
             _service.Setup(s => s.UpdateWithShipmentClaim(It.IsAny<Order>(), _enterpriseId))
-                .Returns(new OrderUpdateResult(after, false));
+                .Returns(new OrderUpdateResult(after, false, true));
             _customerRepository.Setup(r => r.GetByIdAsync(customerId)).ReturnsAsync(new Customer
             {
                 Id = customerId,
@@ -479,6 +479,46 @@ namespace EvangelionERPV2.Test.Security
                 Id = staleBefore.Id,
                 Status = (int)EnumOrderStatus.Shipped,
                 TrackingCode = alreadyShipped.TrackingCode
+            }));
+
+            email.Verify(s => s.SendManualEmail(It.IsAny<EmailStructure>(), It.IsAny<Enterprise>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task UpdateOrder_WhenAnotherRequestClaimedTrackingCorrection_DoesNotSendDuplicateEmail()
+        {
+            var customerId = Guid.NewGuid();
+            var staleBefore = NewOrder();
+            staleBefore.CustomerId = customerId;
+            staleBefore.Channel = (int)EnumOrderChannel.Erp;
+            staleBefore.Status = (int)EnumOrderStatus.Shipped;
+            staleBefore.TrackingCode = "BR-OLD";
+            var alreadyCorrected = new Order
+            {
+                Id = staleBefore.Id,
+                EnterpriseId = _enterpriseId,
+                CustomerId = customerId,
+                Channel = staleBefore.Channel,
+                Status = (int)EnumOrderStatus.Shipped,
+                TrackingCode = "BR-NEW"
+            };
+            _service.Setup(s => s.GetByIdAsync(staleBefore.Id, _enterpriseId)).ReturnsAsync(staleBefore);
+            _service.Setup(s => s.UpdateWithShipmentClaim(It.IsAny<Order>(), _enterpriseId))
+                .Returns(new OrderUpdateResult(alreadyCorrected, false, false));
+
+            var email = new Mock<IEmailService<EmailStructure>>();
+            var controller = Controller();
+            var services = new ServiceCollection();
+            services.AddSingleton(_enterpriseRepository.Object);
+            services.AddSingleton(_customerRepository.Object);
+            services.AddSingleton(email.Object);
+            controller.HttpContext.RequestServices = services.BuildServiceProvider();
+
+            Assert.IsType<OkObjectResult>(await controller.UpdateOrder(new UpdateOrderRequestDTO
+            {
+                Id = staleBefore.Id,
+                Status = (int)EnumOrderStatus.Shipped,
+                TrackingCode = alreadyCorrected.TrackingCode
             }));
 
             email.Verify(s => s.SendManualEmail(It.IsAny<EmailStructure>(), It.IsAny<Enterprise>()), Times.Never);

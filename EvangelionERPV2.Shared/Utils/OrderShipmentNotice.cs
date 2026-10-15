@@ -8,13 +8,14 @@ namespace EvangelionERPV2.Shared.Utils
     public static class OrderShipmentNotice
     {
         /// <summary>Shipping an order, or correcting the tracking of one already shipped: once per change.</summary>
-        public static bool ShouldNotify(Order before, int statusAfter, string? trackingAfter)
+        public static bool ShouldNotify(Order before, int statusAfter, string? trackingAfter, string? trackingUrlAfter)
         {
             if (statusAfter != (int)EnumOrderStatus.Shipped)
                 return false;
 
             return before.Status != (int)EnumOrderStatus.Shipped
-                || !string.Equals(before.TrackingCode, trackingAfter, StringComparison.Ordinal);
+                || !string.Equals(before.TrackingCode, trackingAfter, StringComparison.Ordinal)
+                || !string.Equals(before.TrackingUrl, trackingUrlAfter, StringComparison.Ordinal);
         }
 
         /// <summary>The order number a store and its customer share outside Limen: "#" + the id's first 8 hex digits.</summary>
