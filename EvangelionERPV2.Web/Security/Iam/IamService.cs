@@ -234,9 +234,7 @@ namespace EvangelionERPV2.Web.Security.Iam
                             && (permission == RbacPermissions.Iam.Read || permission == RbacPermissions.Iam.Manage))))
                 .Where(x => x.Held)
                 .Select(x => new HolderDTO(x.User.Id, $"{x.User.FirstName} {x.User.LastName}".Trim(),
-                    x.Own?.Effect == EnumGrantEffect.Allow ? "grant" : bootstrap && x.User.AccessLevel == (short)EnumAccessLevel.Admin
-                        && (permission == RbacPermissions.Iam.Read || permission == RbacPermissions.Iam.Manage)
-                        ? "bootstrap" : IamCatalog.Baseline.Contains(permission) ? "baseline" : "role",
+                    HolderSource(x.User, x.Own, permission, bootstrap),
                     x.Own?.Effect == EnumGrantEffect.Allow ? x.Own.ExpiresAt : null))
                 .OrderBy(h => h.Name, StringComparer.Ordinal)
                 .ToList();
@@ -307,6 +305,16 @@ namespace EvangelionERPV2.Web.Security.Iam
             _db.UserPermissionGrant.IgnoreQueryFilters().AsNoTracking().AnyAsync(g => g.EnterpriseId == enterpriseId
                 && g.Permission == RbacPermissions.Iam.Manage && g.Effect == EnumGrantEffect.Allow
                 && g.RevokedAt == null && (g.ExpiresAt == null || g.ExpiresAt > now));
+
+        private static string HolderSource(User user, UserPermissionGrant? grant, string permission, bool bootstrap)
+        {
+            if (grant?.Effect == EnumGrantEffect.Allow)
+                return "grant";
+            if (bootstrap && user.AccessLevel == (short)EnumAccessLevel.Admin
+                && (permission == RbacPermissions.Iam.Read || permission == RbacPermissions.Iam.Manage))
+                return "bootstrap";
+            return IamCatalog.Baseline.Contains(permission) ? "baseline" : "role";
+        }
 
         private sealed record Wanted(string Permission, GrantState State, DateTime? ExpiresAt, string? Reason);
 
