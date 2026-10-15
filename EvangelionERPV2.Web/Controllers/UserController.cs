@@ -696,9 +696,8 @@ namespace EvangelionERPV2.Web.Controllers
         }
 
         /// <summary>
-        /// <c>users.update</c> edits profiles; who holds what belongs to IAM. A role change, or any edit of someone
-        /// who can manage access (an Admin, or an <c>iam.manage</c> holder: their password, active flag or role),
-        /// needs <c>iam.manage</c> as well, so an allowed <c>users.update</c> can never be turned into admin access.
+        /// <c>users.update</c> edits profiles; who holds what belongs to IAM. A caller may edit only users below
+        /// their current role. Editing a peer, a higher role, or anyone who can manage access needs <c>iam.manage</c>.
         /// Nobody changes their own role.
         /// </summary>
         private async Task<IActionResult?> GuardAccessChangeAsync(Shared.Entities.User caller, Shared.Entities.User target, UpdateUserRequestDTO request)
@@ -707,13 +706,21 @@ namespace EvangelionERPV2.Web.Controllers
             if (roleChanges && caller.Id == target.Id)
                 return BadRequest(new { code = "self_role", message = "Você não pode alterar a própria função." });
 
-            if (!roleChanges && (caller.Id == target.Id || !await IsAccessManagerAsync(target)))
+            if (!roleChanges && caller.Id == target.Id)
                 return null;
 
-            if (roleChanges && caller.AccessLevel != (short)EnumAccessLevel.Admin && !await IsAccessManagerAsync(target))
-                return null;
+            return await GuardTargetMutationAsync(caller, target);
+        }
 
-            return await RequireIamManageAsync();
+        private async Task<IActionResult?> GuardTargetMutationAsync(Shared.Entities.User caller, Shared.Entities.User target)
+        {
+            var targetIsPeerOrAbove = caller.Id != target.Id
+                && caller.AccessLevel != (short)EnumAccessLevel.Admin
+                && target.AccessLevel <= caller.AccessLevel;
+            if (targetIsPeerOrAbove || await IsAccessManagerAsync(target))
+                return await RequireIamManageAsync();
+
+            return null;
         }
 
         /// <summary>An Admin assigns any role; anyone else only the roles below their own.</summary>
@@ -1559,7 +1566,11 @@ namespace EvangelionERPV2.Web.Controllers
             if (target == null || target.IsActive != true || target.EnterpriseId != enterpriseId)
                 return NotFound();
 
-            if (await IsAccessManagerAsync(target) && await RequireIamManageAsync() is { } refused)
+            var caller = await GetCallerAsync();
+            if (caller == null || caller.IsActive != true || caller.EnterpriseId != enterpriseId)
+                return Unauthorized();
+
+            if (await GuardTargetMutationAsync(caller, target) is { } refused)
                 return refused;
 
             try
@@ -1622,8 +1633,14 @@ namespace EvangelionERPV2.Web.Controllers
                 if (userToDelete == null || userToDelete.IsActive != true || userToDelete.EnterpriseId != enterpriseId)
                     return NoContent();
 
+                var caller = await GetCallerAsync();
+                if (caller == null || caller.IsActive != true || caller.EnterpriseId != enterpriseId)
+                    return Unauthorized();
+
                 var isAccessManager = await IsAccessManagerAsync(userToDelete);
-                if (isAccessManager && await RequireIamManageAsync() is { } refused)
+                var targetIsPeerOrAbove = caller.AccessLevel != (short)EnumAccessLevel.Admin
+                    && userToDelete.AccessLevel <= caller.AccessLevel;
+                if ((isAccessManager || targetIsPeerOrAbove) && await RequireIamManageAsync() is { } refused)
                     return refused;
 
                 Shared.Entities.User user;

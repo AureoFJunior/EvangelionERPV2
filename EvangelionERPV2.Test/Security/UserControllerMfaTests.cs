@@ -339,6 +339,25 @@ namespace EvangelionERPV2.Test.Security
             _permissions.Verify(x => x.DecideAsync(It.IsAny<ClaimsPrincipal>(), manager, RbacPermissions.Iam.Manage), Times.Once);
         }
 
+        [Fact]
+        public async Task ResetMfa_ManagerCannotResetAPeerManagersMfaWithoutIamManage()
+        {
+            await EnableMfaAsync();
+            _user.AccessLevel = (short)EnumAccessLevel.Manager;
+            var manager = new User
+            {
+                Id = Guid.NewGuid(), UserName = "peer-manager", AccessLevel = (short)EnumAccessLevel.Manager,
+                EnterpriseId = _enterpriseId, IsActive = true
+            };
+            var controller = BuildController(_mfa, callerUser: manager);
+
+            var result = await controller.ResetMfa(_user.Id);
+
+            Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+            Assert.True(_user.MfaEnabled);
+            _permissions.Verify(x => x.DecideAsync(It.IsAny<ClaimsPrincipal>(), manager, RbacPermissions.Iam.Manage), Times.Once);
+        }
+
         [Theory]
         [InlineData("VerifyMfa", 10)]
         [InlineData("ConfirmMfaSetup", 5)]

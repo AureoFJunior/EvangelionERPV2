@@ -79,6 +79,36 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task UpdateUser_ManagerCannotChangePeerProfileOrPasswordWithoutIamManage()
+        {
+            var target = BuildUser();
+            target.AccessLevel = (short)EnumAccessLevel.Manager;
+            target.Password = "existing-password";
+            var context = new ControllerContextBuilder(target, EnumAccessLevel.Manager, iamDecision: PermissionDecision.Denied);
+            var request = BuildRequest(target.Id, (short)EnumAccessLevel.Manager);
+            request.Password = "take-over-password";
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+            Assert.Equal("existing-password", target.Password);
+            context.UserService.Verify(x => x.Update(It.IsAny<User>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task DeleteUser_ManagerCannotDeleteAPeerWithoutIamManage()
+        {
+            var target = BuildUser();
+            target.AccessLevel = (short)EnumAccessLevel.Manager;
+            var context = new ControllerContextBuilder(target, EnumAccessLevel.Manager, iamDecision: PermissionDecision.Denied);
+
+            var result = await context.Controller.DeleteUser(target.Id);
+
+            Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+            context.UserService.Verify(x => x.Delete(It.IsAny<Guid>()), Times.Never);
+        }
+
+        [Fact]
         public async Task UpdateUser_CallerCannotChangeTheirOwnRole()
         {
             var caller = BuildUser();
@@ -140,7 +170,8 @@ namespace EvangelionERPV2.Test.Security
             public Mock<IUserService<User>> UserService { get; } = new();
             public Mock<IAuditTrailWriter> Audit { get; } = new();
 
-            public ControllerContextBuilder(User stored, EnumAccessLevel callerLevel = EnumAccessLevel.Admin, bool callerIsTarget = false)
+            public ControllerContextBuilder(User stored, EnumAccessLevel callerLevel = EnumAccessLevel.Admin, bool callerIsTarget = false,
+                PermissionDecision iamDecision = PermissionDecision.Allowed)
             {
                 var caller = callerIsTarget ? stored : BuildUser();
                 caller.AccessLevel = (short)callerLevel;
@@ -152,7 +183,7 @@ namespace EvangelionERPV2.Test.Security
 
                 var permissions = new Mock<IPermissionEvaluator>();
                 permissions.Setup(x => x.DecideAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<User>(), It.IsAny<string>()))
-                    .ReturnsAsync(PermissionDecision.Allowed);
+                    .ReturnsAsync(iamDecision);
                 permissions.Setup(x => x.GrantedAsync(It.IsAny<IReadOnlyCollection<User>>()))
                     .ReturnsAsync((IReadOnlyCollection<User> users) => (IReadOnlyDictionary<Guid, IReadOnlySet<string>>)users
                         .ToDictionary(user => user.Id, _ => (IReadOnlySet<string>)new HashSet<string>()));
