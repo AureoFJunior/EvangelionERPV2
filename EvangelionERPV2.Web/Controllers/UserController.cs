@@ -660,6 +660,7 @@ namespace EvangelionERPV2.Web.Controllers
                     return RoleAboveCaller();
 
                 var user = existentUser;
+                var wasServiceAccount = existentUser.IsServiceAccount == true;
                 var previousAccessLevel = user.AccessLevel;
                 user.FirstName = request.FirstName.Trim();
                 user.LastName = request.LastName.Trim();
@@ -673,7 +674,7 @@ namespace EvangelionERPV2.Web.Controllers
                 user.IsServiceAccount = request.IsServiceAccount ?? existentUser.IsServiceAccount;
                 user.IsActive = request.IsActive;
                 user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
-                if (caller.Id != user.Id && !string.IsNullOrWhiteSpace(request.Password) && existentUser.IsServiceAccount != true)
+                if (caller.Id != user.Id && !string.IsNullOrWhiteSpace(request.Password) && !wasServiceAccount)
                     user.MustChangePassword = true;
                 user.ProfilePicture = string.IsNullOrWhiteSpace(request.ProfilePicture) ? existentUser.ProfilePicture : request.ProfilePicture;
 
