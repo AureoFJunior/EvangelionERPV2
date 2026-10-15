@@ -5,6 +5,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -57,7 +58,8 @@ namespace EvangelionERPV2.Test.Security
                 _conversations.Object,
                 _messages.Object,
                 _users.Object,
-                Options.Create(settings ?? new AiSettings { Enabled = true, VoiceEnabled = true }));
+                Options.Create(settings ?? new AiSettings { Enabled = true, VoiceEnabled = true }),
+                ControllerPolicyTestHelper.RolePermissionEvaluator());
 
         private static AiSettings Off() => new() { Enabled = false };
 
