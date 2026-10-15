@@ -103,6 +103,27 @@ namespace EvangelionERPV2.Test.Security.Iam
             };
         }
 
+        [Fact]
+        public async Task Grants_WithNullBody_ReturnsBadRequest()
+        {
+            var result = await ControllerFor(_admin).Grants(_clerk.Id, null!);
+            Assert.IsType<BadRequestObjectResult>(result);
+        }
+
+        [Fact]
+        public async Task ApplyTemplate_WithNullBody_ReturnsBadRequest()
+        {
+            var result = await ControllerFor(_admin).ApplyTemplate(_clerk.Id, null!);
+            Assert.IsType<BadRequestObjectResult>(result);
+        }
+
+        [Fact]
+        public async Task Switch_WithNullBody_ReturnsBadRequest()
+        {
+            var result = await ControllerFor(_admin).Switch(null!);
+            Assert.IsType<BadRequestObjectResult>(result);
+        }
+
         private async Task SwitchToGrants() => await Service().SwitchAsync(Fresh(_admin), EnumIamMode.Grants);
 
         private static async Task<IamException> Refused(Func<Task> act) => await Assert.ThrowsAsync<IamException>(act);

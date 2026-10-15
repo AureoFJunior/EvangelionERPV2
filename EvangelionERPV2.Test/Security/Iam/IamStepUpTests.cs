@@ -220,6 +220,13 @@ namespace EvangelionERPV2.Test.Security.Iam
         }
 
         [Fact]
+        public async Task StepUpEndpoint_WithNullBody_ReturnsBadRequest()
+        {
+            var result = await Controller(Token(_admin)).StepUp(null!);
+            Assert.IsType<BadRequestObjectResult>(result);
+        }
+
+        [Fact]
         public async Task StepUpEndpoint_RefusesAMalformedOrWrongCode()
         {
             var controller = Controller(Token(_admin));

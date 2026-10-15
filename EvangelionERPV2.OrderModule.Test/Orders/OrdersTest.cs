@@ -1343,6 +1343,10 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             repositoryMock
                 .Setup(r => r.ExecuteInTransaction(It.IsAny<Func<Order>>(), It.IsAny<CancellationToken>()))
                 .Returns((Func<Order> operation, CancellationToken _) => operation());
+
+            repositoryMock
+                .Setup(r => r.ExecuteInTransaction(It.IsAny<Func<EvangelionERPV2.OrderModule.Application.Interface.OrderUpdateResult>>(), It.IsAny<CancellationToken>()))
+                .Returns((Func<EvangelionERPV2.OrderModule.Application.Interface.OrderUpdateResult> operation, CancellationToken _) => operation());
         }
 
         [Fact]

@@ -68,6 +68,9 @@ namespace EvangelionERPV2.Web.Controllers
         public Task<IActionResult> Grants(Guid userId, [FromBody] UpdateGrantsRequest request) =>
             Run(async caller =>
             {
+                if (request == null || !ModelState.IsValid)
+                    return BadRequest(new { code = "invalid_request", message = "A valid request body is required." });
+
                 if (request.Changes.Count is 0 or > MaxChangesPerRequest)
                     return BadRequest(new { code = "invalid_changes", message = $"Envie de 1 a {MaxChangesPerRequest} alterações." });
 
@@ -90,15 +93,26 @@ namespace EvangelionERPV2.Web.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         public Task<IActionResult> ApplyTemplate(Guid userId, [FromBody] ApplyTemplateRequest request) =>
-            Run(async caller => Ok(await _iam.ApplyTemplateAsync(caller, userId, request.Template, request.Replace, request.Reason)));
+            Run(async caller =>
+            {
+                if (request == null || !ModelState.IsValid)
+                    return BadRequest(new { code = "invalid_request", message = "A valid request body is required." });
+                return Ok(await _iam.ApplyTemplateAsync(caller, userId, request.Template, request.Replace, request.Reason));
+            });
 
         /// <summary>Moves the enterprise between role-based access and zero trust; needs MFA on the caller.</summary>
         [Authorize(Policy = RbacPolicies.Iam.Manage)]
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public Task<IActionResult> Switch([FromBody] SwitchIamModeRequest request) =>
-            Run(async caller => Ok(new { mode = await _iam.SwitchAsync(caller, request.Mode) }));
+            Run(async caller =>
+            {
+                if (request == null || !ModelState.IsValid)
+                    return BadRequest(new { code = "invalid_request", message = "A valid request body is required." });
+                return Ok(new { mode = await _iam.SwitchAsync(caller, request.Mode) });
+            });
 
         /// <summary>Who holds a permission, and until when.</summary>
         [Authorize(Policy = RbacPolicies.Iam.Read)]
@@ -149,6 +163,9 @@ namespace EvangelionERPV2.Web.Controllers
         public Task<IActionResult> StepUp([FromBody] StepUpRequest request) =>
             Run(async caller =>
             {
+                if (request == null || !ModelState.IsValid)
+                    return BadRequest(new { code = "invalid_request", message = "A valid request body is required." });
+
                 if (Security.Iam.StepUp.TokenId(User) is not { Length: > 0 } tokenId)
                 {
                     IamMetrics.StepUps.WithLabels("no_token").Inc();

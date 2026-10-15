@@ -335,7 +335,9 @@ namespace EvangelionERPV2.Web.Controllers
                 if (updatedOrder == null)
                     return NoContent();
 
-                if (updateResult.ShipmentTransitionClaimed)
+                var alreadyShippedTrackingChanged = before?.Status == (int)EnumOrderStatus.Shipped
+                    && OrderShipmentNotice.ShouldNotify(before, updatedOrder.Status, updatedOrder.TrackingCode);
+                if (updateResult.ShipmentTransitionClaimed || alreadyShippedTrackingChanged)
                     await QueueShipmentEmailAsync(before, updatedOrder, enterpriseId);
 
                 return Ok(await ToOrderDtoAsync(updatedOrder));
