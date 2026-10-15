@@ -217,6 +217,9 @@ namespace EvangelionERPV2.Web.Controllers
                     return Unauthorized();
                 }
 
+                if (user.MustChangePassword)
+                    return PasswordChangeRequired();
+
                 if (user.MfaEnabled)
                     return await ChallengeMfaAsync(user);
 
@@ -310,6 +313,9 @@ namespace EvangelionERPV2.Web.Controllers
                     return Unauthorized();
                 }
 
+                if (user.MustChangePassword)
+                    return PasswordChangeRequired();
+
                 if (user.MfaEnabled)
                     return await ChallengeMfaAsync(user);
 
@@ -376,6 +382,12 @@ namespace EvangelionERPV2.Web.Controllers
             await _tokenService.SaveRefreshTokenAsync(user.Id, refreshToken, isMachineClient ? RefreshTokenKind.Machine : RefreshTokenKind.Session);
             return (token, refreshToken);
         }
+
+        private IActionResult PasswordChangeRequired() => StatusCode(StatusCodes.Status403Forbidden, new
+        {
+            code = PasswordChangeRequiredCode,
+            message = "Escolha uma nova senha para continuar."
+        });
 
         private static string NormalizeUserName(string? userName)
         {
@@ -1228,6 +1240,9 @@ namespace EvangelionERPV2.Web.Controllers
                 return Unauthorized();
             }
 
+            if (user.MustChangePassword)
+                return PasswordChangeRequired();
+
             if (user.MfaEnabled)
                 return await ChallengeMfaAsync(user);
 
@@ -1343,6 +1358,12 @@ namespace EvangelionERPV2.Web.Controllers
                 return Unauthorized();
             }
 
+            if (user.MustChangePassword)
+            {
+                await _tokenService.RevokeRefreshTokenAsync(rotation.UserId, rotation.RefreshToken);
+                return PasswordChangeRequired();
+            }
+
             var token = _tokenService.GenerateToken(user);
             Log.Logger.Information(
                 "Refresh token rotated. EmailId={EmailId}",
@@ -1409,6 +1430,9 @@ namespace EvangelionERPV2.Web.Controllers
             var user = result.User;
             if (!await CanIssueTokensToUserAsync(user))
                 return Unauthorized();
+
+            if (user.MustChangePassword)
+                return PasswordChangeRequired();
 
             user.IsLogged = 1;
             _userService.Update(user);

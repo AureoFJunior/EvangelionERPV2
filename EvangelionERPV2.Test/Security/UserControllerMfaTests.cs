@@ -237,6 +237,31 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task LoginWithGoogle_WhenInitialPasswordChangeIsRequired_DoesNotIssueAChallengeOrTokens()
+        {
+            _user.MustChangePassword = true;
+            _userService.Setup(x => x.LoginToSSOAsync("google-id-token")).ReturnsAsync(_user);
+            var result = await _controller.LoginWithGoogle(JsonSerializer.SerializeToElement(new { idToken = "google-id-token" }));
+            var response = Assert.IsType<ObjectResult>(result);
+            Assert.Equal(StatusCodes.Status403Forbidden, response.StatusCode);
+            Assert.Equal("password_change_required", JsonSerializer.SerializeToElement(response.Value).GetProperty("code").GetString());
+            _refreshTokens.Verify(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task VerifyMfa_WhenInitialPasswordChangeBecomesRequired_DoesNotIssueTokens()
+        {
+            var secret = await EnableMfaAsync();
+            var mfaToken = await LoginForChallengeAsync();
+            _user.MustChangePassword = true;
+            var result = await _controller.VerifyMfa(new UserController.VerifyMfaRequest { MfaToken = mfaToken, Code = CurrentCode(secret) });
+            var response = Assert.IsType<ObjectResult>(result);
+            Assert.Equal(StatusCodes.Status403Forbidden, response.StatusCode);
+            Assert.Equal("password_change_required", JsonSerializer.SerializeToElement(response.Value).GetProperty("code").GetString());
+            _refreshTokens.Verify(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
         public async Task LogInto_WhenTheChallengeCannotBeStored_Answers503WithoutTokens()
         {
             await EnableMfaAsync();
