@@ -244,7 +244,8 @@ namespace EvangelionERPV2.Test.Security
                 new Mock<INFeService<NFeDocument>>().Object,
                 FiscalSettings(),
                 new PasswordLoginService(userRepository.Object),
-                new TokenService(refreshTokenRepository.Object, configuration))
+                new TokenService(refreshTokenRepository.Object, configuration),
+                ControllerPolicyTestHelper.RolePermissionEvaluator())
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
             };

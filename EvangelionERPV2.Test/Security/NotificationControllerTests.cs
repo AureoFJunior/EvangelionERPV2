@@ -5,6 +5,7 @@ using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Hubs;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
@@ -34,12 +35,14 @@ namespace EvangelionERPV2.Test.Security
             _hub.SetupGet(h => h.Clients).Returns(clients.Object);
         }
 
-        private NotificationController Controller() =>
-            new NotificationController(_service.Object, _users.Object, _enterprises.Object, _hub.Object, _cache.Object)
+        private NotificationController Controller(IPermissionEvaluator? evaluator = null) =>
+            new NotificationController(_service.Object, _users.Object, _enterprises.Object, _hub.Object, _cache.Object,
+                evaluator ?? ControllerPolicyTestHelper.RolePermissionEvaluator())
                 .WithTenant(_enterpriseId, _userId);
 
         private NotificationController Anonymous() =>
-            new NotificationController(_service.Object, _users.Object, _enterprises.Object, _hub.Object, _cache.Object)
+            new NotificationController(_service.Object, _users.Object, _enterprises.Object, _hub.Object, _cache.Object,
+                ControllerPolicyTestHelper.RolePermissionEvaluator())
                 .WithoutTenant();
 
         private void CallerIs(EnumAccessLevel level, Guid? enterpriseId = null, bool isActive = true) =>
@@ -112,6 +115,26 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.Single(feed.Items);
             Assert.Equal(NotificationSources.Broadcast, feed.Items[0].Source);
+        }
+
+        [Fact]
+        public async Task Feed_UsesIamPermissionsInsteadOfTheUsersRole()
+        {
+            CallerIs(EnumAccessLevel.Manager);
+            _service.Setup(s => s.GetFeedAsync(_enterpriseId, _userId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new NotificationFeedDTO
+                {
+                    Items = [Item(NotificationSources.Broadcast), Item(NotificationSources.Alert, RbacPermissions.BankReconciliation.Read)]
+                });
+            var evaluator = new Mock<IPermissionEvaluator>();
+            evaluator.Setup(x => x.EffectiveAsync(It.IsAny<System.Security.Claims.ClaimsPrincipal>(), It.IsAny<User>()))
+                .ReturnsAsync((IReadOnlySet<string>)new HashSet<string>());
+
+            var result = Assert.IsType<OkObjectResult>(await Controller(evaluator.Object).Feed());
+            var feed = Assert.IsType<NotificationFeedDTO>(result.Value);
+
+            Assert.Single(feed.Items);
+            Assert.Null(feed.Items[0].RequiredPermission);
         }
 
         /// <summary>An item with no required permission reaches everyone — that is a broadcast.</summary>

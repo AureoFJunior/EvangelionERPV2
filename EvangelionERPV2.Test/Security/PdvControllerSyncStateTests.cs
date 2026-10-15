@@ -125,6 +125,22 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task GetSyncState_UsesGrantedPermissionsAndWithholdsUnheldSupervisorPin()
+        {
+            var supervisor = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
+            var evaluator = new Mock<IPermissionEvaluator>();
+            evaluator.Setup(x => x.GrantedAsync(It.IsAny<IReadOnlyCollection<User>>()))
+                .ReturnsAsync((IReadOnlyCollection<User> users) => (IReadOnlyDictionary<Guid, IReadOnlySet<string>>)users
+                    .ToDictionary(user => user.Id, _ => (IReadOnlySet<string>)new HashSet<string> { RbacPermissions.Pdv.Operate }));
+
+            var dto = await Read(CreateController(evaluator.Object, supervisor));
+
+            var operatorDto = Assert.Single(dto.Operators);
+            Assert.Equal([RbacPermissions.Pdv.Operate], operatorDto.Permissions);
+            Assert.Null(operatorDto.PinVerifier);
+        }
+
+        [Fact]
         public async Task GetSyncState_ShipsRefusedOverridesFromEveryTerminal()
         {
             var supervisor = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
@@ -205,7 +221,10 @@ namespace EvangelionERPV2.Test.Security
             Assert.False(dto.NFCeEnabled);
         }
 
-        private PdvController CreateController(params User[] users)
+        private PdvController CreateController(params User[] users) =>
+            CreateController(ControllerPolicyTestHelper.RolePermissionEvaluator(), users);
+
+        private PdvController CreateController(IPermissionEvaluator evaluator, params User[] users)
         {
             var userRepository = new Mock<IRepository<User>>();
             userRepository
@@ -235,7 +254,8 @@ namespace EvangelionERPV2.Test.Security
                 new Mock<INFeService<NFeDocument>>().Object,
                 FiscalSettings(),
                 new PasswordLoginService(userRepository.Object),
-                new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration))
+                new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration),
+                evaluator)
             {
                 ControllerContext = new ControllerContext
                 {
