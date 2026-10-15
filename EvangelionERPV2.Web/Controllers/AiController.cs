@@ -359,7 +359,7 @@ namespace EvangelionERPV2.Web.Controllers
             if (user is null)
                 return Unauthorized();
 
-            var granted = GrantedPermissions(user);
+            var granted = await GrantedPermissionsAsync(user);
 
             var outcome = await _pendingActions.ConfirmAsync(
                 actionId, granted, new AiToolContext(enterpriseId, userId.Value), cancellation);
