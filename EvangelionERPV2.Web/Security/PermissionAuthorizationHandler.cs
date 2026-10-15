@@ -29,7 +29,7 @@ namespace EvangelionERPV2.Web.Security
                 return;
 
             var user = await _userRepository.GetByIdAsync(userId.Value);
-            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId.Value)
+            if (user == null || user.IsActive != true || user.MustChangePassword || user.EnterpriseId != enterpriseId.Value)
                 return;
 
             var decision = await _permissions.DecideAsync(context.User, user, requirement.Permission);

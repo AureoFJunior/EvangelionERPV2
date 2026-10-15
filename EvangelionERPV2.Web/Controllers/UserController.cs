@@ -433,12 +433,12 @@ namespace EvangelionERPV2.Web.Controllers
             };
         }
 
-        private async Task<IActionResult> ChallengeMfaAsync(Shared.Entities.User user)
+        private async Task<IActionResult> ChallengeMfaAsync(Shared.Entities.User user, string? pendingInitialPasswordHash = null)
         {
             string mfaToken;
             try
             {
-                mfaToken = await _mfaService.CreateChallengeAsync(user.Id);
+                mfaToken = await _mfaService.CreateChallengeAsync(user.Id, pendingInitialPasswordHash);
             }
             catch (Exception ex)
             {
@@ -859,14 +859,11 @@ namespace EvangelionERPV2.Web.Controllers
             if (user == null || !user.MustChangePassword || !await CanIssueTokensToUserAsync(user))
                 return Unauthorized();
 
+            if (user.MfaEnabled)
+                return await ChallengeMfaAsync(user, SharedFunctions.HashPassword(request.NewPassword));
+
             user.Password = SharedFunctions.HashPassword(request.NewPassword);
             user.MustChangePassword = false;
-
-            if (user.MfaEnabled)
-            {
-                _userService.Update(user);
-                return await ChallengeMfaAsync(user);
-            }
 
             user.IsLogged = 1;
             _userService.Update(user);
@@ -1440,7 +1437,15 @@ namespace EvangelionERPV2.Web.Controllers
             if (!await CanIssueTokensToUserAsync(user))
                 return Unauthorized();
 
-            if (user.MustChangePassword)
+            if (!string.IsNullOrWhiteSpace(result.PendingInitialPasswordHash))
+            {
+                if (!user.MustChangePassword)
+                    return Unauthorized();
+
+                user.Password = result.PendingInitialPasswordHash;
+                user.MustChangePassword = false;
+            }
+            else if (user.MustChangePassword)
                 return PasswordChangeRequired();
 
             user.IsLogged = 1;

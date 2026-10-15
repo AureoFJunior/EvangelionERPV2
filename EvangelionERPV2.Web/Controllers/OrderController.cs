@@ -329,12 +329,14 @@ namespace EvangelionERPV2.Web.Controllers
                 var order = MapUpdateRequestToOrder(request);
                 var before = await _orderService.GetByIdAsync(request.Id, enterpriseId);
 
-                Order updatedOrder = _orderService.Update(order, enterpriseId);
+                var updateResult = _orderService.UpdateWithShipmentClaim(order, enterpriseId);
+                Order updatedOrder = updateResult.Order;
 
                 if (updatedOrder == null)
                     return NoContent();
 
-                await QueueShipmentEmailAsync(before, updatedOrder, enterpriseId);
+                if (updateResult.ShipmentTransitionClaimed)
+                    await QueueShipmentEmailAsync(before, updatedOrder, enterpriseId);
 
                 return Ok(await ToOrderDtoAsync(updatedOrder));
             }

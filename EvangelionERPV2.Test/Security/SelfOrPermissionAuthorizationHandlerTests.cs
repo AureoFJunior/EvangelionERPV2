@@ -112,6 +112,36 @@ namespace EvangelionERPV2.Test.Security
             Assert.False(context.HasSucceeded);
         }
 
+        [Fact]
+        public async Task HandleRequirementAsync_DeniesUserWhoMustChangePassword()
+        {
+            var userId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
+            userRepository.Setup(x => x.GetByIdAsync(userId)).ReturnsAsync(new User
+            {
+                Id = userId,
+                EnterpriseId = enterpriseId,
+                IsActive = true,
+                MustChangePassword = true,
+                AccessLevel = (short)EnumAccessLevel.Admin
+            });
+
+            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object, new RolePermissionEvaluator());
+            var requirement = new SelfOrPermissionRequirement(
+                RbacPermissions.Users.ReadSelf,
+                RbacPermissions.Users.Read,
+                "id");
+            var context = new AuthorizationHandlerContext(
+                [requirement],
+                BuildPrincipal(userId, enterpriseId),
+                new DefaultHttpContext());
+
+            await handler.HandleAsync(context);
+
+            Assert.False(context.HasSucceeded);
+        }
+
         private static ClaimsPrincipal BuildPrincipal(Guid userId, Guid enterpriseId)
         {
             return new ClaimsPrincipal(new ClaimsIdentity(

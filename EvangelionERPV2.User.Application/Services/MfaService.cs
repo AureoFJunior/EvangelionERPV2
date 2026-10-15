@@ -14,7 +14,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
 {
     public sealed record MfaSetup(string Secret, string OtpauthUri);
 
-    public sealed record MfaChallengeResult(User User, int? RecoveryCodesRemaining);
+    public sealed record MfaChallengeResult(User User, int? RecoveryCodesRemaining, string? PendingInitialPasswordHash = null);
 
     /// <summary>
     /// Opt-in TOTP second factor: setup, the login challenge that stands between a proven password
@@ -161,11 +161,11 @@ namespace EvangelionERPV2.UserModule.Application.Services
             }
         }
 
-        public async Task<string> CreateChallengeAsync(Guid userId)
+        public async Task<string> CreateChallengeAsync(Guid userId, string? pendingInitialPasswordHash = null)
         {
             var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
                 .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-            await SaveChallengeAsync(token, new Challenge(userId, 0, _time.GetUtcNow() + ChallengeLifetime));
+            await SaveChallengeAsync(token, new Challenge(userId, 0, _time.GetUtcNow() + ChallengeLifetime, pendingInitialPasswordHash));
             return token;
         }
 
@@ -232,7 +232,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
                 await _cache.RemoveAsync(key);
                 await _users.CommitAsync();
-                return new MfaChallengeResult(user, proof.RecoveryCodesRemaining);
+                return new MfaChallengeResult(user, proof.RecoveryCodesRemaining, current.PendingInitialPasswordHash);
             });
         }
 
@@ -394,7 +394,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
             _cache.SetStringAsync(ChallengeKey(mfaToken), JsonSerializer.Serialize(challenge),
                 new DistributedCacheEntryOptions { AbsoluteExpiration = challenge.ExpiresAt });
 
-        private sealed record Challenge(Guid UserId, int Failures, DateTimeOffset ExpiresAt);
+        private sealed record Challenge(Guid UserId, int Failures, DateTimeOffset ExpiresAt, string? PendingInitialPasswordHash = null);
 
         /// <summary>Recovery codes carry 50 random bits, so a fast unsalted hash is enough.</summary>
         private static string HashRecoveryCode(string normalized) =>

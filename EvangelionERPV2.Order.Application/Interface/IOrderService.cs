@@ -4,6 +4,8 @@ using EvangelionERPV2.Shared.Entities;
 
 namespace EvangelionERPV2.OrderModule.Application.Interface
 {
+    public sealed record OrderUpdateResult(Order Order, bool ShipmentTransitionClaimed);
+
     public interface IOrderService<TEntity> where TEntity : class
     {
         #region Sync
@@ -12,6 +14,7 @@ namespace EvangelionERPV2.OrderModule.Application.Interface
         void VerifyValidValues(ref Order order);
         Order Update(Order order);
         Order Update(Order order, Guid enterpriseId);
+        OrderUpdateResult UpdateWithShipmentClaim(Order order, Guid enterpriseId);
         #endregion
 
         #region Async

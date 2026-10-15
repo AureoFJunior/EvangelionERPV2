@@ -392,6 +392,11 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
         public Order Update(Order order, Guid enterpriseId)
         {
+            return UpdateWithShipmentClaim(order, enterpriseId).Order;
+        }
+
+        public OrderUpdateResult UpdateWithShipmentClaim(Order order, Guid enterpriseId)
+        {
             try
             {
                 if (order == null)
@@ -431,7 +436,24 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     var oldContribution = EnterpriseBalanceContributionHelper.GetOrderRealizedContribution(existentOrder, DateTime.UtcNow.Date);
                     var now = DateTime.UtcNow;
 
-                    if (_appDbContext != null)
+                    var claimsShipmentTransition = existentOrder.Status != (int)EnumOrderStatus.Shipped
+                        && order.Status == (int)EnumOrderStatus.Shipped;
+
+                    if (_appDbContext != null && claimsShipmentTransition)
+                    {
+                        var claimedRows = _appDbContext.Database.ExecuteSqlInterpolated(
+                            $"UPDATE [Order] SET UpdatedAt = {now}, Status = {(int)EnumOrderStatus.Shipped}, ShippedAt = COALESCE(ShippedAt, {now}) WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished} AND Status <> {(int)EnumOrderStatus.Shipped}");
+
+                        if (claimedRows <= 0)
+                        {
+                            _appDbContext.Entry(existentOrder).Reload();
+                            if (existentOrder.Status == (int)EnumOrderStatus.Shipped)
+                                return new OrderUpdateResult(existentOrder, false);
+
+                            throw new InsertDatabaseException("Order was concurrently finalized or already refunded.");
+                        }
+                    }
+                    else if (_appDbContext != null)
                     {
                         var guardedRows = _appDbContext.Database.ExecuteSqlInterpolated(
                             $"UPDATE [Order] SET UpdatedAt = {now} WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished}");
@@ -479,7 +501,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     _orderRepository.Commit();
                     ApplyEnterpriseBalanceDelta(updatedOrder.EnterpriseId ?? Guid.Empty, newContribution - oldContribution);
 
-                    return updatedOrder;
+                    return new OrderUpdateResult(updatedOrder, claimsShipmentTransition);
                 });
             }
             catch (NotFoundDatabaseException)

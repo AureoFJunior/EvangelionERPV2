@@ -310,7 +310,7 @@ namespace EvangelionERPV2.Test.Security
         public async Task UpdateOrder_ScopesTheWriteToTheCallersTenant()
         {
             var order = NewOrder();
-            _service.Setup(s => s.Update(It.IsAny<Order>(), _enterpriseId)).Returns(order);
+            _service.Setup(s => s.UpdateWithShipmentClaim(It.IsAny<Order>(), _enterpriseId)).Returns(new OrderUpdateResult(order, false));
 
             Assert.IsType<OkObjectResult>(await Controller().UpdateOrder(
                 new UpdateOrderRequestDTO { Id = order.Id, Status = 1 }));
@@ -322,9 +322,9 @@ namespace EvangelionERPV2.Test.Security
         public async Task UpdateOrder_PassesTheTrackingTheStoreTyped()
         {
             Order? sent = null;
-            _service.Setup(s => s.Update(It.IsAny<Order>(), _enterpriseId))
+            _service.Setup(s => s.UpdateWithShipmentClaim(It.IsAny<Order>(), _enterpriseId))
                 .Callback<Order, Guid>((order, _) => sent = order)
-                .Returns(NewOrder());
+                .Returns(new OrderUpdateResult(NewOrder(), false));
 
             await Controller().UpdateOrder(new UpdateOrderRequestDTO
             {
@@ -356,7 +356,7 @@ namespace EvangelionERPV2.Test.Security
                 TrackingCode = "BR123456789BR"
             };
             _service.Setup(s => s.GetByIdAsync(before.Id, _enterpriseId)).ReturnsAsync(before);
-            _service.Setup(s => s.Update(It.IsAny<Order>(), _enterpriseId)).Returns(after);
+            _service.Setup(s => s.UpdateWithShipmentClaim(It.IsAny<Order>(), _enterpriseId)).Returns(new OrderUpdateResult(after, true));
             _customerRepository.Setup(r => r.GetByIdAsync(customerId)).ReturnsAsync(new Customer
             {
                 Id = customerId,
@@ -392,9 +392,48 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task UpdateOrder_WhenAnotherRequestAlreadyClaimedShipment_DoesNotSendDuplicateEmail()
+        {
+            var customerId = Guid.NewGuid();
+            var staleBefore = NewOrder();
+            staleBefore.CustomerId = customerId;
+            staleBefore.Channel = (int)EnumOrderChannel.Erp;
+            staleBefore.Status = (int)EnumOrderStatus.Processing;
+            var alreadyShipped = new Order
+            {
+                Id = staleBefore.Id,
+                EnterpriseId = _enterpriseId,
+                CustomerId = customerId,
+                Channel = staleBefore.Channel,
+                Status = (int)EnumOrderStatus.Shipped,
+                TrackingCode = "BR123456789BR"
+            };
+            _service.Setup(s => s.GetByIdAsync(staleBefore.Id, _enterpriseId)).ReturnsAsync(staleBefore);
+            _service.Setup(s => s.UpdateWithShipmentClaim(It.IsAny<Order>(), _enterpriseId))
+                .Returns(new OrderUpdateResult(alreadyShipped, false));
+
+            var email = new Mock<IEmailService<EmailStructure>>();
+            var controller = Controller();
+            var services = new ServiceCollection();
+            services.AddSingleton(_enterpriseRepository.Object);
+            services.AddSingleton(_customerRepository.Object);
+            services.AddSingleton(email.Object);
+            controller.HttpContext.RequestServices = services.BuildServiceProvider();
+
+            Assert.IsType<OkObjectResult>(await controller.UpdateOrder(new UpdateOrderRequestDTO
+            {
+                Id = staleBefore.Id,
+                Status = (int)EnumOrderStatus.Shipped,
+                TrackingCode = alreadyShipped.TrackingCode
+            }));
+
+            email.Verify(s => s.SendManualEmail(It.IsAny<EmailStructure>(), It.IsAny<Enterprise>()), Times.Never);
+        }
+
+        [Fact]
         public async Task UpdateOrder_OnAnOrderThatIsNotThisTenants_AnswersNoContent()
         {
-            _service.Setup(s => s.Update(It.IsAny<Order>(), _enterpriseId)).Returns((Order)null!);
+            _service.Setup(s => s.UpdateWithShipmentClaim(It.IsAny<Order>(), _enterpriseId)).Returns(new OrderUpdateResult(null!, false));
 
             Assert.IsType<NoContentResult>(await Controller().UpdateOrder(
                 new UpdateOrderRequestDTO { Id = Guid.NewGuid(), Status = 1 }));
