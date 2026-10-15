@@ -673,7 +673,7 @@ namespace EvangelionERPV2.Web.Controllers
                 user.IsServiceAccount = request.IsServiceAccount ?? existentUser.IsServiceAccount;
                 user.IsActive = request.IsActive;
                 user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
-                if (caller.Id != user.Id && !string.IsNullOrWhiteSpace(request.Password) && user.IsServiceAccount != true)
+                if (caller.Id != user.Id && !string.IsNullOrWhiteSpace(request.Password) && existentUser.IsServiceAccount != true)
                     user.MustChangePassword = true;
                 user.ProfilePicture = string.IsNullOrWhiteSpace(request.ProfilePicture) ? existentUser.ProfilePicture : request.ProfilePicture;
 

@@ -125,6 +125,22 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task UpdateUser_CannotBypassPasswordRotationByConvertingHumanAccountToServiceAccount()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(target);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.Password = "OperatorSelected9!";
+            request.IsServiceAccount = true;
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.True(target.IsServiceAccount);
+            Assert.True(target.MustChangePassword);
+        }
+
+        [Fact]
         public async Task UpdateUser_SelfSelectedPasswordDoesNotSetOperatorChangeRequirement()
         {
             var target = BuildUser();

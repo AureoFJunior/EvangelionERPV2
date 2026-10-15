@@ -501,7 +501,7 @@ namespace EvangelionERPV2.Test.Security
         public async Task UpdateOrder_WithoutTheCostPermission_StripsCostAndMarginFromTheResponse()
         {
             var order = NewOrder();
-            _service.Setup(s => s.Update(It.IsAny<Order>(), _enterpriseId)).Returns(order);
+            _service.Setup(s => s.UpdateWithShipmentClaim(It.IsAny<Order>(), _enterpriseId)).Returns(new OrderUpdateResult(order, false));
 
             var result = Assert.IsType<OkObjectResult>(await Controller(canReadCost: false).UpdateOrder(
                 new UpdateOrderRequestDTO { Id = order.Id, Status = 1 }));
@@ -516,7 +516,7 @@ namespace EvangelionERPV2.Test.Security
         public async Task UpdateOrder_WithTheCostPermission_KeepsCostAndMargin()
         {
             var order = NewOrder();
-            _service.Setup(s => s.Update(It.IsAny<Order>(), _enterpriseId)).Returns(order);
+            _service.Setup(s => s.UpdateWithShipmentClaim(It.IsAny<Order>(), _enterpriseId)).Returns(new OrderUpdateResult(order, false));
 
             var result = Assert.IsType<OkObjectResult>(await Controller(canReadCost: true).UpdateOrder(
                 new UpdateOrderRequestDTO { Id = order.Id, Status = 1 }));
