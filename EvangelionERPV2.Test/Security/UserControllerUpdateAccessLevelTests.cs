@@ -96,6 +96,49 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task UpdateUser_OperatorPasswordResetRequiresHumanTargetToChooseANewPassword()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(target);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.Password = "OperatorSelected9!";
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.True(target.MustChangePassword);
+        }
+
+        [Fact]
+        public async Task UpdateUser_OperatorPasswordResetDoesNotForceServiceAccountPasswordChanges()
+        {
+            var target = BuildUser();
+            target.IsServiceAccount = true;
+            var context = new ControllerContextBuilder(target);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.Password = "OperatorSelected9!";
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.False(target.MustChangePassword);
+        }
+
+        [Fact]
+        public async Task UpdateUser_SelfSelectedPasswordDoesNotSetOperatorChangeRequirement()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(target, EnumAccessLevel.Employee, callerIsTarget: true);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.Password = "SelfSelected9!";
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.False(target.MustChangePassword);
+        }
+
+        [Fact]
         public async Task DeleteUser_ManagerCannotDeleteAPeerWithoutIamManage()
         {
             var target = BuildUser();
