@@ -232,6 +232,66 @@ namespace EvangelionERPV2.Test.Security.Iam
             Assert.Equal(IamCatalog.ExpandModule("products").OrderBy(p => p), stored.OrderBy(p => p));
         }
 
+        [Fact]
+        public async Task AGrantChange_CannotNameBothAPermissionAndAModule()
+        {
+            var error = await Refused(() => Service().ApplyAsync(Fresh(_admin), _clerk.Id,
+                [new GrantChange(RbacPermissions.Orders.Read, "orders", GrantState.Deny, null, null)]));
+            Assert.Equal("invalid_grant_target", error.Code);
+            using var db = _database.CreateContext();
+            Assert.Empty(db.UserPermissionGrant.Where(g => g.UserId == _clerk.Id));
+        }
+
+        [Fact]
+        public async Task RenewingAnExpiredGrant_PreservesTheOldRowAndStartsFreshUsageHistory()
+        {
+            var permission = RbacPermissions.Orders.Read;
+            await Service().ApplyAsync(Fresh(_admin), _clerk.Id,
+                [new GrantChange(permission, null, GrantState.Allow, _time.GetUtcNow().UtcDateTime.AddHours(1), "temporary")]);
+            using (var db = _database.CreateContext())
+                await db.UserPermissionGrant.Where(g => g.UserId == _clerk.Id && g.Permission == permission)
+                    .ExecuteUpdateAsync(set => set.SetProperty(g => g.LastUsedAt, _time.GetUtcNow().UtcDateTime.AddMinutes(20)));
+            var oldCreatedAt = DateTime.UtcNow.AddDays(-10);
+            using (var db = _database.CreateContext())
+                await db.UserPermissionGrant.Where(g => g.UserId == _clerk.Id && g.Permission == permission)
+                    .ExecuteUpdateAsync(set => set.SetProperty(g => g.CreatedAt, oldCreatedAt));
+            _time.Advance(TimeSpan.FromHours(2));
+            var renewedAt = _time.GetUtcNow().UtcDateTime;
+            await Service().ApplyAsync(Fresh(_admin), _clerk.Id,
+                [new GrantChange(permission, null, GrantState.Allow, null, "renewed")]);
+            using var verify = _database.CreateContext();
+            var rows = verify.UserPermissionGrant.AsNoTracking().Where(g => g.UserId == _clerk.Id && g.Permission == permission).OrderBy(g => g.CreatedAt).ToList();
+            Assert.Equal(2, rows.Count);
+            Assert.NotNull(rows[0].RevokedAt);
+            Assert.Equal(oldCreatedAt, rows[0].CreatedAt);
+            Assert.NotNull(rows[0].LastUsedAt);
+            Assert.Null(rows[1].RevokedAt);
+            Assert.Equal(renewedAt, rows[1].CreatedAt);
+            Assert.Null(rows[1].LastUsedAt);
+            Assert.Equal("renewed", rows[1].Reason);
+        }
+
+        [Fact]
+        public async Task BootstrapAdmins_AppearEffectiveAsHoldersAndInAccessReviews()
+        {
+            using (var db = _database.CreateContext())
+            {
+                await db.Enterprise.Where(e => e.Id == _enterprise.Id).ExecuteUpdateAsync(set => set.SetProperty(e => e.IamMode, EnumIamMode.Grants));
+                await db.User.Where(u => u.Id == _admin.Id).ExecuteUpdateAsync(set => set.SetProperty(u => u.MfaEnabled, false));
+            }
+            var iam = Service();
+            var access = await iam.GetAccessAsync(_enterprise.Id, _admin.Id);
+            var permissions = access.Modules.SelectMany(module => module.Permissions).ToDictionary(p => p.Permission);
+            Assert.True(permissions[RbacPermissions.Iam.Read].Effective);
+            Assert.True(permissions[RbacPermissions.Iam.Manage].Effective);
+            var holder = Assert.Single(await iam.HoldersAsync(_enterprise.Id, RbacPermissions.Iam.Manage));
+            Assert.Equal(_admin.Id, holder.UserId);
+            Assert.Equal("bootstrap", holder.Source);
+            var gap = Assert.Single((await iam.ReviewAsync(_enterprise.Id)).WithoutMfa);
+            Assert.Equal(_admin.Id, gap.UserId);
+            Assert.Contains(RbacPermissions.Iam.Manage, gap.Permissions);
+        }
+
         [Theory]
         [InlineData("storefront.catalog.read")]
         [InlineData("users.self.read")]

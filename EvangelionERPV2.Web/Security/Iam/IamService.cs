@@ -61,6 +61,8 @@ namespace EvangelionERPV2.Web.Security.Iam
             var byPermission = grants.ToDictionary(g => g.Permission, StringComparer.OrdinalIgnoreCase);
             var role = RbacRolePermissionMap.GetPermissions(user.AccessLevel).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var effective = PermissionEvaluator.Compose(mode, user.AccessLevel, grants.Select(g => (g.Permission, g.Effect)));
+            if (await IsBootstrapAdminAsync(enterpriseId, mode, user.AccessLevel, now))
+                effective.UnionWith([RbacPermissions.Iam.Read, RbacPermissions.Iam.Manage]);
 
             return new UserAccessDTO(
                 user.Id,
@@ -224,12 +226,17 @@ namespace EvangelionERPV2.Web.Security.Iam
 
             var (users, grants, mode) = await StateAsync(enterpriseId);
             var byUser = grants.ToLookup(g => g.UserId);
+            var bootstrap = mode == EnumIamMode.Grants && !await HasLiveIamManagerAsync(enterpriseId, Now);
             return users
                 .Select(u => (User: u, Own: byUser[u.Id].FirstOrDefault(g => string.Equals(g.Permission, permission, StringComparison.OrdinalIgnoreCase)),
-                    Held: PermissionEvaluator.Compose(mode, u.AccessLevel, byUser[u.Id].Select(g => (g.Permission, g.Effect))).Contains(permission)))
+                    Held: PermissionEvaluator.Compose(mode, u.AccessLevel, byUser[u.Id].Select(g => (g.Permission, g.Effect))).Contains(permission)
+                        || (bootstrap && u.AccessLevel == (short)EnumAccessLevel.Admin
+                            && (permission == RbacPermissions.Iam.Read || permission == RbacPermissions.Iam.Manage))))
                 .Where(x => x.Held)
                 .Select(x => new HolderDTO(x.User.Id, $"{x.User.FirstName} {x.User.LastName}".Trim(),
-                    x.Own?.Effect == EnumGrantEffect.Allow ? "grant" : IamCatalog.Baseline.Contains(permission) ? "baseline" : "role",
+                    x.Own?.Effect == EnumGrantEffect.Allow ? "grant" : bootstrap && x.User.AccessLevel == (short)EnumAccessLevel.Admin
+                        && (permission == RbacPermissions.Iam.Read || permission == RbacPermissions.Iam.Manage)
+                        ? "bootstrap" : IamCatalog.Baseline.Contains(permission) ? "baseline" : "role",
                     x.Own?.Effect == EnumGrantEffect.Allow ? x.Own.ExpiresAt : null))
                 .OrderBy(h => h.Name, StringComparer.Ordinal)
                 .ToList();
@@ -272,8 +279,14 @@ namespace EvangelionERPV2.Web.Security.Iam
 
             bool Sensitive(string p) => IamCatalog.TierOf(p) != PermissionTier.Standard && !p.StartsWith(PdvTokenScope.PermissionPrefix, StringComparison.Ordinal);
             var byUser = grants.ToLookup(g => g.UserId);
+            var bootstrap = mode == EnumIamMode.Grants && !await HasLiveIamManagerAsync(enterpriseId, now);
             var held = users.ToDictionary(u => u.Id, u =>
-                PermissionEvaluator.Compose(mode, u.AccessLevel, byUser[u.Id].Select(g => (g.Permission, g.Effect))).Where(Sensitive).ToList());
+            {
+                var permissions = PermissionEvaluator.Compose(mode, u.AccessLevel, byUser[u.Id].Select(g => (g.Permission, g.Effect)));
+                if (bootstrap && u.AccessLevel == (short)EnumAccessLevel.Admin)
+                    permissions.UnionWith([RbacPermissions.Iam.Read, RbacPermissions.Iam.Manage]);
+                return permissions.Where(Sensitive).ToList();
+            });
             var withoutMfa = held
                 .Where(kv => kv.Value.Count > 0 && byId.TryGetValue(kv.Key, out var u) && !u.MfaEnabled)
                 .Select(kv => new MfaGapDTO(kv.Key, NameOf(kv.Key), [.. kv.Value.OrderBy(p => p, StringComparer.Ordinal)]))
@@ -285,6 +298,15 @@ namespace EvangelionERPV2.Web.Security.Iam
 
         public async Task<EnumIamMode> ModeAsync(Guid enterpriseId) =>
             await _db.Enterprise.AsNoTracking().Where(e => e.Id == enterpriseId).Select(e => e.IamMode).FirstOrDefaultAsync();
+
+        private async Task<bool> IsBootstrapAdminAsync(Guid enterpriseId, EnumIamMode mode, short accessLevel, DateTime now) =>
+            mode == EnumIamMode.Grants && accessLevel == (short)EnumAccessLevel.Admin
+            && !await HasLiveIamManagerAsync(enterpriseId, now);
+
+        private Task<bool> HasLiveIamManagerAsync(Guid enterpriseId, DateTime now) =>
+            _db.UserPermissionGrant.IgnoreQueryFilters().AsNoTracking().AnyAsync(g => g.EnterpriseId == enterpriseId
+                && g.Permission == RbacPermissions.Iam.Manage && g.Effect == EnumGrantEffect.Allow
+                && g.RevokedAt == null && (g.ExpiresAt == null || g.ExpiresAt > now));
 
         private sealed record Wanted(string Permission, GrantState State, DateTime? ExpiresAt, string? Reason);
 
@@ -300,9 +322,14 @@ namespace EvangelionERPV2.Web.Security.Iam
             foreach (var change in changes)
             {
                 IReadOnlyList<string> targets;
-                if (!string.IsNullOrWhiteSpace(change.Module))
+                var hasModule = !string.IsNullOrWhiteSpace(change.Module);
+                var hasPermission = !string.IsNullOrWhiteSpace(change.Permission);
+                if (hasModule == hasPermission)
+                    throw new IamException("invalid_grant_target", "Informe exatamente uma permissão ou um módulo por alteração.");
+
+                if (hasModule)
                 {
-                    targets = IamCatalog.ExpandModule(change.Module);
+                    targets = IamCatalog.ExpandModule(change.Module!);
                     if (targets.Count == 0)
                         throw new IamException("not_grantable", $"O módulo {change.Module} não tem permissões concedíveis.");
                 }
@@ -358,6 +385,14 @@ namespace EvangelionERPV2.Web.Security.Iam
                         continue;
 
                     var before = grant == null || expired ? null : Describe(grant.Effect, grant.ExpiresAt);
+                    if (expired)
+                    {
+                        grant!.RevokedAt = now;
+                        grant.RevokedByUserId = caller.Id;
+                        grant.UpdatedAt = now;
+                        grant = null;
+                    }
+
                     if (grant == null)
                     {
                         _db.UserPermissionGrant.Add(new UserPermissionGrant
