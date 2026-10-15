@@ -10,6 +10,7 @@ using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.UserModule.Application.Token;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Web.Security;
+using EvangelionERPV2.Web.Security.Iam;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
@@ -81,6 +82,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly INFeFiscalSettingsService _fiscalSettingsService;
         private readonly PasswordLoginService _passwordLogin;
         private readonly TokenService _tokenService;
+        private readonly IPermissionEvaluator? _permissionEvaluator;
 
         public PdvController(
             IPdvService pdvService,
@@ -91,7 +93,8 @@ namespace EvangelionERPV2.Web.Controllers
             INFeService<NFeDocument> nfeService,
             INFeFiscalSettingsService fiscalSettingsService,
             PasswordLoginService passwordLogin,
-            TokenService tokenService)
+            TokenService tokenService,
+            IPermissionEvaluator? permissionEvaluator = null)
         {
             _pdvService = pdvService;
             _terminalRepository = terminalRepository;
@@ -102,6 +105,7 @@ namespace EvangelionERPV2.Web.Controllers
             _fiscalSettingsService = fiscalSettingsService;
             _passwordLogin = passwordLogin;
             _tokenService = tokenService;
+            _permissionEvaluator = permissionEvaluator;
         }
 
         /// <summary>
@@ -189,8 +193,9 @@ namespace EvangelionERPV2.Web.Controllers
             if (login.User.EnterpriseId != terminal.EnterpriseId)
                 return RegisterFailedLogin(terminalKey, operatorKey);
 
-            var permissions = PdvTokenScope.PermissionsFor(login.User.AccessLevel);
-            if (permissions.Count == 0)
+            var permissions = await GetPdvPermissionsAsync([login.User]);
+            var loginPermissions = permissions.GetValueOrDefault(login.User.Id, []);
+            if (loginPermissions.Count == 0)
                 return RegisterFailedLogin(terminalKey, operatorKey);
 
             _operatorLoginLimiter.Clear(operatorKey);
@@ -209,7 +214,7 @@ namespace EvangelionERPV2.Web.Controllers
                 RefreshToken = refreshToken,
                 UserId = login.User.Id,
                 EnterpriseId = terminal.EnterpriseId,
-                Permissions = permissions
+                Permissions = loginPermissions
             });
         }
 
@@ -341,14 +346,16 @@ namespace EvangelionERPV2.Web.Controllers
                      x.IsActive == true &&
                      x.PdvPinVerifier != null);
 
+            var permissionsByUser = await GetPdvPermissionsAsync(users);
             var verifiers = users
-                .Where(user => IsSupervisorTier(user.AccessLevel))
-                .Select(user => new SupervisorVerifierDTO
+                .Select(user => new { User = user, Permissions = permissionsByUser.GetValueOrDefault(user.Id, []) })
+                .Where(item => IsSupervisorTier(item.Permissions))
+                .Select(item => new SupervisorVerifierDTO
                 {
-                    UserId = user.Id,
-                    DisplayName = $"{user.FirstName} {user.LastName}".Trim(),
-                    PinVerifier = user.PdvPinVerifier!,
-                    Permissions = PdvTokenScope.PermissionsFor(user.AccessLevel)
+                    UserId = item.User.Id,
+                    DisplayName = $"{item.User.FirstName} {item.User.LastName}".Trim(),
+                    PinVerifier = item.User.PdvPinVerifier!,
+                    Permissions = item.Permissions
                 })
                 .ToList();
 
@@ -439,17 +446,19 @@ namespace EvangelionERPV2.Web.Controllers
             var users = await _userRepository.GetAllAsync(
                 1, MaxSyncStateUsers, x => x.EnterpriseId == enterpriseId);
 
+            var permissionsByUser = await GetPdvPermissionsAsync(users);
             var operators = users
-                .Where(user => user.IsActive == true && PdvTokenScope.PermissionsFor(user.AccessLevel).Count > 0)
-                .Select(user => new PdvOperatorDTO
+                .Select(user => new { User = user, Permissions = permissionsByUser.GetValueOrDefault(user.Id, []) })
+                .Where(item => item.User.IsActive == true && item.Permissions.Count > 0)
+                .Select(item => new PdvOperatorDTO
                 {
-                    UserId = user.Id,
+                    UserId = item.User.Id,
                     EnterpriseId = enterpriseId,
-                    UserName = user.UserName,
-                    DisplayName = $"{user.FirstName} {user.LastName}".Trim(),
-                    Permissions = PdvTokenScope.PermissionsFor(user.AccessLevel),
+                    UserName = item.User.UserName,
+                    DisplayName = $"{item.User.FirstName} {item.User.LastName}".Trim(),
+                    Permissions = item.Permissions,
 
-                    PinVerifier = IsSupervisorTier(user.AccessLevel) ? user.PdvPinVerifier : null
+                    PinVerifier = IsSupervisorTier(item.Permissions) ? item.User.PdvPinVerifier : null
                 })
                 .ToList();
 
@@ -490,8 +499,20 @@ namespace EvangelionERPV2.Web.Controllers
         /// Whether this role holds any till permission an ordinary operator does not — which is
         /// what "supervisor tier" means here, rather than one named role.
         /// </summary>
-        private static bool IsSupervisorTier(short accessLevel) =>
-            PdvTokenScope.PermissionsFor(accessLevel).Except(OperatorPdvPermissions).Any();
+        private async Task<IReadOnlyDictionary<Guid, IReadOnlyList<string>>> GetPdvPermissionsAsync(IEnumerable<Shared.Entities.User> users)
+        {
+            if (_permissionEvaluator == null)
+                return new Dictionary<Guid, IReadOnlyList<string>>();
+
+            var members = users.ToList();
+            var granted = await _permissionEvaluator.GrantedAsync(members);
+            return members.ToDictionary(
+                user => user.Id,
+                user => PdvTokenScope.PermissionsIn(granted.GetValueOrDefault(user.Id, new HashSet<string>())));
+        }
+
+        private static bool IsSupervisorTier(IEnumerable<string> permissions) =>
+            permissions.Except(OperatorPdvPermissions, StringComparer.OrdinalIgnoreCase).Any();
 
         private static readonly HashSet<string> OperatorPdvPermissions =
             [.. PdvTokenScope.PermissionsFor((short)EnumAccessLevel.Employee)];
