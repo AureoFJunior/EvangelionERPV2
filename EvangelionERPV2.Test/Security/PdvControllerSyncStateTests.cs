@@ -85,6 +85,18 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task GetSyncState_RevokesOperatorsWhoMustChangeTheirInitialPassword()
+        {
+            var passwordResetUser = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
+            passwordResetUser.MustChangePassword = true;
+
+            var dto = await Read(CreateController(passwordResetUser));
+
+            Assert.Contains(passwordResetUser.Id, dto.RevokedUserIds);
+            Assert.DoesNotContain(dto.Operators, op => op.UserId == passwordResetUser.Id);
+        }
+
+        [Fact]
         public async Task GetSyncState_IsScopedToTheCallersEnterprise()
         {
             var ours = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
@@ -186,7 +198,8 @@ namespace EvangelionERPV2.Test.Security
             EnumAccessLevel accessLevel,
             string? pin = null,
             bool isActive = true,
-            Guid? enterpriseId = null) =>
+            Guid? enterpriseId = null,
+            bool mustChangePassword = false) =>
             new()
             {
                 Id = Guid.NewGuid(),
@@ -198,6 +211,7 @@ namespace EvangelionERPV2.Test.Security
                 EnterpriseId = enterpriseId ?? _callerEnterpriseId,
                 AccessLevel = (short)accessLevel,
                 IsActive = isActive,
+                MustChangePassword = mustChangePassword,
                 PdvPinVerifier = pin == null ? null : Pbkdf2Verifier.Create(pin)
             };
 

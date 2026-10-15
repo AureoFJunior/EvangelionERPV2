@@ -126,6 +126,18 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task Login_RefusesAnOperatorWhoMustChangeTheirInitialPassword()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var controller = CreateController(enterpriseId, $"{TerminalId}:{Credential}", mustChangePassword: true);
+
+            var response = await controller.Login(new PdvLoginRequestDTO { UserName = UserName, Password = Password });
+
+            Assert.IsType<UnauthorizedResult>(response);
+            Assert.Empty(_savedRefreshTokens);
+        }
+
+        [Fact]
         public async Task Login_FindsTheTerminal_WhenAnotherTenantSharesTheTerminalId()
         {
             var enterpriseId = Guid.NewGuid();
@@ -190,7 +202,8 @@ namespace EvangelionERPV2.Test.Security
             bool revoked = false,
             Guid? operatorEnterpriseId = null,
             short accessLevel = (short)EnumAccessLevel.Employee,
-            PdvTerminal[]? extraTerminals = null)
+            PdvTerminal[]? extraTerminals = null,
+            bool mustChangePassword = false)
         {
             var terminal = PdvTerminal.Enroll(terminalEnterpriseId, TerminalId, Credential);
             terminal.IsRevoked = revoked;
@@ -212,7 +225,8 @@ namespace EvangelionERPV2.Test.Security
                 BirthDate = DateTime.UtcNow.AddYears(-25),
                 EnterpriseId = operatorEnterpriseId ?? terminalEnterpriseId,
                 AccessLevel = accessLevel,
-                IsActive = true
+                IsActive = true,
+                MustChangePassword = mustChangePassword
             };
 
             var userRepository = new Mock<IRepository<User>>();

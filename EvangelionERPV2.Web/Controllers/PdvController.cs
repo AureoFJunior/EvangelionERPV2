@@ -463,7 +463,7 @@ namespace EvangelionERPV2.Web.Controllers
                 .ToList();
 
             var revokedUserIds = users
-                .Where(user => user.IsActive != true)
+                .Where(user => user.IsActive != true || user.MustChangePassword)
                 .Select(user => user.Id)
                 .ToList();
 
@@ -508,7 +508,9 @@ namespace EvangelionERPV2.Web.Controllers
             var granted = await _permissionEvaluator.GrantedAsync(members);
             return members.ToDictionary(
                 user => user.Id,
-                user => PdvTokenScope.PermissionsIn(granted.GetValueOrDefault(user.Id, new HashSet<string>())));
+                user => user.MustChangePassword
+                    ? (IReadOnlyList<string>)Array.Empty<string>()
+                    : PdvTokenScope.PermissionsIn(granted.GetValueOrDefault(user.Id, new HashSet<string>())));
         }
 
         private static bool IsSupervisorTier(IEnumerable<string> permissions) =>
