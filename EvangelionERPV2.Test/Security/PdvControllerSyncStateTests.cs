@@ -153,6 +153,21 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task GetSyncState_RevokesAnActiveUserWhoseLastPdvGrantWasRemoved()
+        {
+            var user = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
+            var evaluator = new Mock<IPermissionEvaluator>();
+            evaluator.Setup(x => x.GrantedAsync(It.IsAny<IReadOnlyCollection<User>>()))
+                .ReturnsAsync((IReadOnlyCollection<User> users) => (IReadOnlyDictionary<Guid, IReadOnlySet<string>>)users
+                    .ToDictionary(candidate => candidate.Id, _ => (IReadOnlySet<string>)new HashSet<string>()));
+
+            var dto = await Read(CreateController(evaluator.Object, user));
+
+            Assert.Contains(user.Id, dto.RevokedUserIds);
+            Assert.DoesNotContain(dto.Operators, op => op.UserId == user.Id);
+        }
+
+        [Fact]
         public async Task GetSyncState_ShipsRefusedOverridesFromEveryTerminal()
         {
             var supervisor = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");

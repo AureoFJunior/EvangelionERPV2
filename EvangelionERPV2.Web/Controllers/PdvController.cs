@@ -463,7 +463,9 @@ namespace EvangelionERPV2.Web.Controllers
                 .ToList();
 
             var revokedUserIds = users
-                .Where(user => user.IsActive != true || user.MustChangePassword)
+                .Where(user => user.IsActive != true
+                    || user.MustChangePassword
+                    || permissionsByUser.GetValueOrDefault(user.Id, []).Count == 0)
                 .Select(user => user.Id)
                 .ToList();
 

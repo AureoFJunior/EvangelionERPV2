@@ -484,9 +484,8 @@ namespace EvangelionERPV2.Web.Security.Iam
         }
 
         /// <summary>
-        /// Refuses a state with nobody who can still manage access. Grants mode: an open-ended iam.manage allow
-        /// on an active user with MFA. Role mode: an active admin whose iam.manage is not denied, or an
-        /// open-ended allow (no MFA demanded there, as role mode never demanded it).
+        /// Refuses a state with nobody who can still manage access. Both modes require an active manager
+        /// with MFA; grants mode additionally requires an open-ended iam.manage allow.
         /// </summary>
         private async Task EnsureManagerRemainsAsync(Guid enterpriseId, EnumIamMode mode, Guid? excludedUserId = null)
         {
@@ -497,8 +496,9 @@ namespace EvangelionERPV2.Web.Security.Iam
 
             var any = mode == EnumIamMode.Grants
                 ? await openAllow.AnyAsync(g => g.UserId != excludedUserId && _db.User.Any(u => u.Id == g.UserId && u.IsActive == true && u.MfaEnabled))
-                : await openAllow.AnyAsync(g => g.UserId != excludedUserId && _db.User.Any(u => u.Id == g.UserId && u.IsActive == true))
+                : await openAllow.AnyAsync(g => g.UserId != excludedUserId && _db.User.Any(u => u.Id == g.UserId && u.IsActive == true && u.MfaEnabled))
                   || await _db.User.AnyAsync(u => u.Id != excludedUserId && u.EnterpriseId == enterpriseId && u.IsActive == true && u.AccessLevel == (short)EnumAccessLevel.Admin
+                                                  && u.MfaEnabled
                                                   && !manage.Any(g => g.UserId == u.Id && g.Effect == EnumGrantEffect.Deny));
             if (!any)
                 throw new IamException("last_iam_manager", "A empresa ficaria sem ninguém com verificação em duas etapas para gerenciar acessos.", StatusCodes.Status409Conflict);

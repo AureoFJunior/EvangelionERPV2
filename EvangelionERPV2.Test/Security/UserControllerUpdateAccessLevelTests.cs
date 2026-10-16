@@ -172,6 +172,22 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task UpdateUser_SelfDeactivationOfAnAccessManagerRequiresIamAndCannotBypassTheGuard()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(
+                target, EnumAccessLevel.Admin, callerIsTarget: true, iamDecision: PermissionDecision.Denied);
+            var request = BuildRequest(target.Id, (short)EnumAccessLevel.Admin);
+            request.IsActive = false;
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+            Assert.True(target.IsActive);
+            context.UserService.Verify(x => x.Update(It.IsAny<User>()), Times.Never);
+        }
+
+        [Fact]
         public async Task DeleteUser_ManagerCannotDeleteAPeerWithoutIamManage()
         {
             var target = BuildUser();
