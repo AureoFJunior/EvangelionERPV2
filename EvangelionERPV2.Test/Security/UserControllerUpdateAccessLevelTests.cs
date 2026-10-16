@@ -158,6 +158,23 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task UpdateUser_RequiresPasswordRotationWhenServiceAccountBecomesHumanWithoutReplacingPassword()
+        {
+            var target = BuildUser();
+            target.IsServiceAccount = true;
+            target.MustChangePassword = false;
+            var context = new ControllerContextBuilder(target);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.IsServiceAccount = false;
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.False(target.IsServiceAccount);
+            Assert.True(target.MustChangePassword);
+        }
+
+        [Fact]
         public async Task UpdateUser_SelfSelectedPasswordDoesNotSetOperatorChangeRequirement()
         {
             var target = BuildUser();
