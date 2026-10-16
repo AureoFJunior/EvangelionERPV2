@@ -134,9 +134,9 @@ namespace EvangelionERPV2.ProductModule.Test
             var staleActiveProduct = StoredProduct();
             using (var delete = _database.CreateContext())
             {
-                var product = await delete.Product.SingleAsync(p => p.Id == _product.Id);
+                var product = delete.Product.Single(p => p.Id == _product.Id);
                 product.IsActive = false;
-                await delete.SaveChangesAsync();
+                delete.SaveChanges();
             }
 
             await Assert.ThrowsAsync<InvalidOperationException>(() => Service().AddImageAsync(staleActiveProduct, Jpeg(600, 600)));
