@@ -876,11 +876,11 @@ namespace EvangelionERPV2.Web.Controllers
             if (user.MfaEnabled)
                 return await ChallengeMfaAsync(user, SharedFunctions.HashPassword(request.NewPassword));
 
-            user.Password = SharedFunctions.HashPassword(request.NewPassword);
-            user.MustChangePassword = false;
-
-            user.IsLogged = 1;
-            _userService.Update(user);
+            var updatedUser = await _userService.TryChangeInitialPasswordAsync(
+                user.Id, user.Password, SharedFunctions.HashPassword(request.NewPassword));
+            if (updatedUser == null)
+                return Unauthorized();
+            user = updatedUser;
 
             var (token, refreshToken) = await GenerateTokensAsync(user, false);
             if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))

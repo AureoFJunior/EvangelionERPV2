@@ -539,6 +539,8 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                                 .FirstOrDefaultAsync(product => product.Id == productPicture.Product.Id);
                         if (target == null)
                             throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
+                        if (target.IsActive != true)
+                            throw new NotFoundDatabaseException($"{nameof(Product)} is inactive.");
 
                         // Take the deletion snapshot only after locking and reloading, so a
                         // concurrent gallery move/replacement cannot make us delete its cover.

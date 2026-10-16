@@ -97,6 +97,26 @@ namespace EvangelionERPV2.UserModule.Application.Services
             return Update(user, clearProfilePicture: false);
         }
 
+        public async Task<User?> TryChangeInitialPasswordAsync(Guid userId, string expectedPasswordHash, string newPasswordHash)
+        {
+            if (_appDbContext == null)
+                return null;
+
+            var now = DateTime.UtcNow;
+            var updated = await _appDbContext.User.IgnoreQueryFilters()
+                .Where(user => user.Id == userId && user.IsActive == true && user.MustChangePassword
+                    && user.Password == expectedPasswordHash)
+                .ExecuteUpdateAsync(set => set
+                    .SetProperty(user => user.Password, newPasswordHash)
+                    .SetProperty(user => user.MustChangePassword, false)
+                    .SetProperty(user => user.IsLogged, (short?)1)
+                    .SetProperty(user => user.UpdatedAt, now));
+
+            return updated == 1
+                ? await _appDbContext.User.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(user => user.Id == userId)
+                : null;
+        }
+
         private User Update(User user, bool clearProfilePicture)
         {
             User existentUser = _userRepository.GetById(user.Id);

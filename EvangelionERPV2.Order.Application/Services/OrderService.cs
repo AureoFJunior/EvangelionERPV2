@@ -488,7 +488,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     else if (_appDbContext != null)
                     {
                         var guardedRows = _appDbContext.Database.ExecuteSqlInterpolated(
-                            $"UPDATE [Order] SET UpdatedAt = {now} WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished}");
+                            $"UPDATE [Order] SET UpdatedAt = {now} WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status = {existentOrder.Status} AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished}");
 
                         if (guardedRows <= 0)
                             throw new InsertDatabaseException("Order was concurrently finalized or already refunded.");

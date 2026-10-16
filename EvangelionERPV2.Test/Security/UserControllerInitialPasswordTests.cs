@@ -52,6 +52,14 @@ namespace EvangelionERPV2.Test.Security
             refreshTokens.Setup(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
             _userService.Setup(x => x.Update(It.IsAny<User>())).Returns((User u) => u);
+            _userService.Setup(x => x.TryChangeInitialPasswordAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>()))
+                .Returns<Guid, string, string>((_, _, newHash) =>
+                {
+                    _user.Password = newHash;
+                    _user.MustChangePassword = false;
+                    _user.IsLogged = 1;
+                    return Task.FromResult<User?>(_user);
+                });
 
             var enterprises = new Mock<IRepository<Enterprise>>();
             enterprises.Setup(x => x.GetByIdAsync(_enterpriseId)).ReturnsAsync(new Enterprise { Id = _enterpriseId, IsActive = true });
@@ -125,6 +133,18 @@ namespace EvangelionERPV2.Test.Security
         {
             Assert.IsType<UnauthorizedResult>(await Change(current: "Wr0ng-guess"));
             Assert.True(_user.MustChangePassword);
+        }
+
+        [Fact]
+        public async Task AConcurrentPasswordReset_PreventsTheStaleInitialPasswordChange()
+        {
+            _userService.Setup(x => x.TryChangeInitialPasswordAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>()))
+                .ReturnsAsync((User?)null);
+
+            Assert.IsType<UnauthorizedResult>(await Change());
+
+            Assert.True(_user.MustChangePassword);
+            Assert.True(SharedFunctions.VerifyPassword(Temporary, _user.Password, out _));
         }
 
         [Fact]
