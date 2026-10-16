@@ -450,6 +450,50 @@ namespace EvangelionERPV2.Test.Security.Iam
         }
 
         [Fact]
+        public async Task SwitchingToGrants_ReplacesTemporaryManagerAllowsAndArchivesDenies()
+        {
+            var temporaryExpiry = _time.GetUtcNow().UtcDateTime.AddHours(2);
+            using (var db = _database.CreateContext())
+            {
+                db.UserPermissionGrant.AddRange(
+                    new UserPermissionGrant
+                    {
+                        Id = Guid.NewGuid(), EnterpriseId = _enterprise.Id, UserId = _admin.Id,
+                        Permission = RbacPermissions.Iam.Manage, Effect = EnumGrantEffect.Allow,
+                        ExpiresAt = temporaryExpiry, Reason = "temporary", GrantedByUserId = _clerk.Id,
+                        CreatedAt = _time.GetUtcNow().UtcDateTime, IsActive = true
+                    },
+                    new UserPermissionGrant
+                    {
+                        Id = Guid.NewGuid(), EnterpriseId = _enterprise.Id, UserId = _admin.Id,
+                        Permission = RbacPermissions.Iam.Read, Effect = EnumGrantEffect.Deny,
+                        Reason = "prior deny", GrantedByUserId = _clerk.Id,
+                        CreatedAt = _time.GetUtcNow().UtcDateTime, IsActive = true
+                    });
+                await db.SaveChangesAsync();
+            }
+
+            await SwitchToGrants();
+
+            using var verify = _database.CreateContext();
+            var manageRows = await verify.UserPermissionGrant.Where(g => g.UserId == _admin.Id
+                && g.Permission == RbacPermissions.Iam.Manage).OrderBy(g => g.CreatedAt).ToListAsync();
+            var readRows = await verify.UserPermissionGrant.Where(g => g.UserId == _admin.Id
+                && g.Permission == RbacPermissions.Iam.Read).OrderBy(g => g.CreatedAt).ToListAsync();
+            Assert.Equal(2, manageRows.Count);
+            var archivedManage = Assert.Single(manageRows, g => g.RevokedAt != null);
+            var liveManage = Assert.Single(manageRows, g => g.RevokedAt == null);
+            Assert.Equal(temporaryExpiry, archivedManage.ExpiresAt);
+            Assert.Null(liveManage.ExpiresAt);
+            Assert.Equal(EnumGrantEffect.Allow, liveManage.Effect);
+            Assert.Equal(2, readRows.Count);
+            var archivedRead = Assert.Single(readRows, g => g.RevokedAt != null);
+            var liveRead = Assert.Single(readRows, g => g.RevokedAt == null);
+            Assert.Equal(EnumGrantEffect.Deny, archivedRead.Effect);
+            Assert.Equal(EnumGrantEffect.Allow, liveRead.Effect);
+        }
+
+        [Fact]
         public async Task TheSwitch_StartsFromNone_KeepsPreparedGrants_AndLeavesAdminsAbleToManage()
         {
             var prepared = NewUser("Duda", EnumAccessLevel.Employee);

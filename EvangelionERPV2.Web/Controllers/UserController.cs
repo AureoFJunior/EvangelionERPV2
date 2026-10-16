@@ -652,11 +652,10 @@ namespace EvangelionERPV2.Web.Controllers
                 if (caller == null || caller.IsActive != true || caller.EnterpriseId != enterpriseId)
                     return Unauthorized();
 
-                var selfDeactivatingAccessManager = caller.Id == existentUser.Id
-                    && !request.IsActive
+                var deactivatingAccessManager = !request.IsActive
                     && await IsAccessManagerAsync(existentUser);
-                if (selfDeactivatingAccessManager && await RequireIamManageAsync() is { } selfDeactivateRefusal)
-                    return selfDeactivateRefusal;
+                if (deactivatingAccessManager && await RequireIamManageAsync() is { } deactivateRefusal)
+                    return deactivateRefusal;
 
                 var accessGuard = await GuardAccessChangeAsync(caller, existentUser, request);
                 if (accessGuard != null)
@@ -665,7 +664,7 @@ namespace EvangelionERPV2.Web.Controllers
                 if (request.AccessLevel != existentUser.AccessLevel && !CanAssignLevel(caller, request.AccessLevel))
                     return RoleAboveCaller();
 
-                if (selfDeactivatingAccessManager)
+                if (deactivatingAccessManager)
                 {
                     var deactivated = await HttpContext.RequestServices.GetRequiredService<Security.Iam.IamService>()
                         .DeactivateUserAsync(enterpriseId, existentUser.Id);

@@ -440,7 +440,7 @@ namespace EvangelionERPV2.Web.Security.Iam
         private async Task EnsureIamGrantsAsync(Guid enterpriseId, Guid userId, Guid grantedBy, DateTime now)
         {
             var held = (await _db.UserPermissionGrant
-                    .Where(g => g.UserId == userId && g.RevokedAt == null && g.Effect == EnumGrantEffect.Allow && (g.ExpiresAt == null || g.ExpiresAt > now))
+                    .Where(g => g.UserId == userId && g.RevokedAt == null && g.Effect == EnumGrantEffect.Allow && g.ExpiresAt == null)
                     .Select(g => g.Permission)
                     .ToListAsync())
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -450,12 +450,9 @@ namespace EvangelionERPV2.Web.Security.Iam
                 var stale = await _db.UserPermissionGrant.FirstOrDefaultAsync(g => g.UserId == userId && g.Permission == permission && g.RevokedAt == null);
                 if (stale != null)
                 {
-                    stale.Effect = EnumGrantEffect.Allow;
-                    stale.ExpiresAt = null;
-                    stale.Reason = SwitchReason;
-                    stale.GrantedByUserId = grantedBy;
+                    stale.RevokedAt = now;
+                    stale.RevokedByUserId = grantedBy;
                     stale.UpdatedAt = now;
-                    continue;
                 }
 
                 _db.UserPermissionGrant.Add(new UserPermissionGrant
