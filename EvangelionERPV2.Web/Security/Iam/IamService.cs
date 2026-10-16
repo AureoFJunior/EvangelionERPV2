@@ -401,30 +401,19 @@ namespace EvangelionERPV2.Web.Security.Iam
                         grant = null;
                     }
 
-                    if (grant == null)
+                    _db.UserPermissionGrant.Add(new UserPermissionGrant
                     {
-                        _db.UserPermissionGrant.Add(new UserPermissionGrant
-                        {
-                            Id = Guid.NewGuid(),
-                            EnterpriseId = target.EnterpriseId!.Value,
-                            UserId = target.Id,
-                            Permission = item.Permission,
-                            Effect = effect,
-                            ExpiresAt = item.ExpiresAt,
-                            Reason = item.Reason,
-                            GrantedByUserId = caller.Id,
-                            CreatedAt = now,
-                            IsActive = true
-                        });
-                    }
-                    else
-                    {
-                        grant.Effect = effect;
-                        grant.ExpiresAt = item.ExpiresAt;
-                        grant.Reason = item.Reason;
-                        grant.GrantedByUserId = caller.Id;
-                        grant.UpdatedAt = now;
-                    }
+                        Id = Guid.NewGuid(),
+                        EnterpriseId = target.EnterpriseId!.Value,
+                        UserId = target.Id,
+                        Permission = item.Permission,
+                        Effect = effect,
+                        ExpiresAt = item.ExpiresAt,
+                        Reason = item.Reason,
+                        GrantedByUserId = caller.Id,
+                        CreatedAt = now,
+                        IsActive = true
+                    });
 
                     changes[item.Permission] = new AuditChange(before, Describe(effect, item.ExpiresAt), item.Reason);
                 }

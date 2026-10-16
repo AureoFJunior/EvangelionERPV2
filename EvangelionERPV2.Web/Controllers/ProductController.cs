@@ -178,7 +178,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// A product's photo as an image, so lists can load it lazily instead of carrying base64.
         /// <c>thumb</c> is the long-edge-200 JPEG kept in S3 beside the original. The ETag is derived
-        /// from the stored key: a new upload gets a new key, so it also gets a new ETag.
+        /// from the bytes served, so in-place image rewrites also invalidate cached responses.
         /// </summary>
         [Authorize(Policy = "rbac:" + RbacPermissions.Products.Read)]
         [HttpGet("{id:guid}")]
@@ -238,12 +238,7 @@ namespace EvangelionERPV2.Web.Controllers
             if (string.IsNullOrWhiteSpace(pictureAddress))
                 return NotFound();
 
-            var etag = $"\"{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(pictureAddress + "|" + size)))[..32]}\"";
             Response.Headers.CacheControl = "private, max-age=300";
-            Response.Headers.ETag = etag;
-            if (Request.Headers.IfNoneMatch.Contains(etag))
-                return StatusCode(StatusCodes.Status304NotModified);
-
             var base64 = size == "thumb"
                 ? (await _productService.GetThumbnailBase64Async(pictureAddress)).Base64
                 : await _productService.GetPictureBase64Async(pictureAddress);
@@ -251,6 +246,11 @@ namespace EvangelionERPV2.Web.Controllers
                 return NotFound();
 
             var bytes = Convert.FromBase64String(base64);
+            var etag = "\"" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))[..32] + "\"";
+            Response.Headers.ETag = etag;
+            if (Request.Headers.IfNoneMatch.Contains(etag))
+                return StatusCode(StatusCodes.Status304NotModified);
+
             return File(bytes, ImageContentType(bytes));
         }
 
