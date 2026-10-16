@@ -201,6 +201,27 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task VerifyMfa_DoesNotCommitAnInitialPasswordAfterAConcurrentReset()
+        {
+            var secret = await EnableMfaAsync();
+            _user.MustChangePassword = true;
+            var pendingHash = SharedFunctions.HashPassword("Pending9Password");
+            var challenge = await _mfa.CreateChallengeAsync(_user.Id, pendingHash, _user.Password);
+            _userService.Setup(x => x.TryChangeInitialPasswordAsync(_user.Id, _user.Password, pendingHash))
+                .ReturnsAsync((User?)null);
+
+            var result = await _controller.VerifyMfa(new UserController.VerifyMfaRequest
+            {
+                MfaToken = challenge,
+                Code = CurrentCode(secret)
+            });
+
+            Assert.IsType<UnauthorizedResult>(result);
+            Assert.True(_user.MustChangePassword);
+            _refreshTokens.Verify(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
         public async Task VerifyMfa_WithRecoveryCode_ReportsHowManyAreLeft()
         {
             await _mfa.BeginSetupAsync(_user);

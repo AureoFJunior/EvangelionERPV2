@@ -1456,14 +1456,19 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!user.MustChangePassword)
                     return Unauthorized();
 
-                user.Password = result.PendingInitialPasswordHash;
-                user.MustChangePassword = false;
+                var updatedUser = await _userService.TryChangeInitialPasswordAsync(
+                    user.Id, user.Password, result.PendingInitialPasswordHash);
+                if (updatedUser == null)
+                    return Unauthorized();
+                user = updatedUser;
             }
             else if (user.MustChangePassword)
                 return PasswordChangeRequired();
-
-            user.IsLogged = 1;
-            _userService.Update(user);
+            else
+            {
+                user.IsLogged = 1;
+                _userService.Update(user);
+            }
 
             var (token, refreshToken) = await GenerateTokensAsync(user);
             if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
