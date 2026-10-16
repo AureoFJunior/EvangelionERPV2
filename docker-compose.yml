@@ -39,7 +39,7 @@ services:
       GoogleSettings__AllowedRedirectUris__0: ${EVA_GOOGLE_REDIRECT_URI:-http://localhost:8080/auth/google/callback}
       RecaptchaSettings__AllowedHostnames__0: ${EVA_RECAPTCHA_ALLOWED_HOSTNAME:-localhost}
       Cors__AllowedOrigins__0: ${EVA_CORS_ORIGIN:-http://localhost:8080}
-      AllowedHosts: '${EVA_ALLOWED_HOSTS:-localhost;127.0.0.1}'
+      AllowedHosts: '${EVA_ALLOWED_HOSTS:-localhost;127.0.0.1};evangelionerpv2'
       ConnectionStrings__DefaultConnection: ${EVA_CONN_STR:-evangelion/prd/database:DefaultConnection}
       RedisSettings__InstanceName: ${EVA_REDIS_INSTANCE:-evangelion/prd/redis-name:instancename}
       RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}

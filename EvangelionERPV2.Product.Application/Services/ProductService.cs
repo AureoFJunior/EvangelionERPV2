@@ -516,9 +516,6 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 currentStage = "prepare-storage-key";
                 keyName = SharedFunctions.GenerateStorageObjectKey("products", productPicture.Product.Id);
                 encryptedKeyName = SharedFunctions.EnsureEncryptedAddress(keyName);
-                var target = productPicture.Product;
-                var oldPictureAddress = existentProduct.PictureAdress;
-                var (oldWidth, oldHeight, oldUpdatedAt) = (target.PictureWidth, target.PictureHeight, target.UpdatedAt);
 
                 currentStage = "get-s3-client";
                 var s3Client = await GetS3ClientAsync();
@@ -528,21 +525,34 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                     await s3Client.CreateItemAsync(bucketName, keyName, stored);
 
                 ProductImage? cover = null;
+                string? oldPictureAddress = null;
+                Product? updatedProduct = null;
                 try
                 {
                     currentStage = "persist-db-address";
-                    target.PictureAdress = encryptedKeyName;
-                    target.PictureWidth = picture.Width;
-                    target.PictureHeight = picture.Height;
-                    target.UpdatedAt = DateTime.UtcNow;
-                    _productRepository.Update(target);
-                    cover = await ReplaceCoverImageAsync(target, encryptedKeyName, picture);
-                    await _productRepository.CommitAsync();
+                    updatedProduct = await _productRepository.ExecuteInTransactionAsync(async () =>
+                    {
+                        await _productRepository.LockForUpdateAsync(productPicture.Product.Id);
+                        var target = await _productRepository.GetByIdAsync(productPicture.Product.Id);
+                        if (target == null)
+                            throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
+
+                        // Take the deletion snapshot only after locking and reloading, so a
+                        // concurrent gallery move/replacement cannot make us delete its cover.
+                        oldPictureAddress = target.PictureAdress;
+                        target.PictureAdress = encryptedKeyName;
+                        target.PictureWidth = picture.Width;
+                        target.PictureHeight = picture.Height;
+                        target.UpdatedAt = DateTime.UtcNow;
+                        _productRepository.Update(target);
+                        cover = await ReplaceCoverImageAsync(target, encryptedKeyName, picture);
+                        await _productRepository.CommitAsync();
+                        return target;
+                    });
                 }
                 catch
                 {
                     currentStage = "rollback-s3-after-db-failure";
-                    (target.PictureAdress, target.PictureWidth, target.PictureHeight, target.UpdatedAt) = (oldPictureAddress, oldWidth, oldHeight, oldUpdatedAt);
                     await ForgetCoverChangeAsync(cover);
                     await s3Client.DeleteItemIfExistsAsync(bucketName, keyName);
                     throw;
@@ -553,11 +563,11 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
                 Log.Logger.Information(
                     "Product image upload succeeded. ProductId={ProductId} Bucket={Bucket} Key={Key} PayloadLength={PayloadLength}",
-                    productPicture.Product.Id,
+                    updatedProduct!.Id,
                     bucketName,
                     keyName,
                     payloadLength);
-                return productPicture.Product;
+                return updatedProduct!;
             }
             catch (NotFoundDatabaseException)
             {

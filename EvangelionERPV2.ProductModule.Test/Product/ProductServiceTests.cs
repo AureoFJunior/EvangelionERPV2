@@ -205,6 +205,53 @@ namespace EvangelionERPV2.ProductModule.Test
                 Times.Once);
         }
 
+        [Fact]
+        public async Task UpdatePictureAsync_LocksAndReloadsBeforeTakingTheOldCoverSnapshot()
+        {
+            EnsureEncryptionKeyInitialized();
+
+            var (service, productRepository, _, s3ClientMock) = CreateServiceWithS3Mock();
+            var productId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+            var staleProduct = new Product("Product", "Desc", 10, 5, false, false,
+                SharedFunctions.EnsureEncryptedAddress("products/stale-cover"), enterpriseId) { Id = productId };
+            var currentProduct = new Product("Product", "Desc", 10, 5, false, false,
+                SharedFunctions.EnsureEncryptedAddress("products/current-cover"), enterpriseId) { Id = productId };
+            var calls = new List<string>();
+            var reads = 0;
+
+            productRepository.Setup(r => r.GetByIdAsync(productId))
+                .Returns(() =>
+                {
+                    calls.Add("read");
+                    return Task.FromResult(reads++ == 0 ? staleProduct : currentProduct);
+                });
+            productRepository.Setup(r => r.LockForUpdateAsync(productId, It.IsAny<CancellationToken>()))
+                .Callback(() => calls.Add("lock"))
+                .Returns(Task.CompletedTask);
+            productRepository.Setup(r => r.Update(It.IsAny<Product>())).Returns((Product product) => product);
+            productRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            s3ClientMock.Setup(s => s.PutObjectAsync(It.IsAny<PutObjectRequest>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new PutObjectResponse());
+            s3ClientMock.Setup(s => s.DeleteObjectAsync(It.IsAny<DeleteObjectRequest>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new DeleteObjectResponse());
+
+            var result = await service.UpdatePictureAsync(new ProductPicture
+            {
+                Product = new Product("Product", "Desc", 10, 5, false, false, null, enterpriseId) { Id = productId },
+                File = Jpeg(3000, 2000)
+            });
+
+            Assert.Same(currentProduct, result);
+            Assert.Equal(["read", "lock", "read"], calls);
+            s3ClientMock.Verify(s => s.DeleteObjectAsync(
+                It.Is<DeleteObjectRequest>(request => request.Key == "products/current-cover"),
+                It.IsAny<CancellationToken>()), Times.Once);
+            s3ClientMock.Verify(s => s.DeleteObjectAsync(
+                It.Is<DeleteObjectRequest>(request => request.Key == "products/stale-cover"),
+                It.IsAny<CancellationToken>()), Times.Never);
+        }
+
         private static string Jpeg(int width, int height)
         {
             using var bitmap = new SkiaSharp.SKBitmap(width, height);
@@ -484,6 +531,9 @@ namespace EvangelionERPV2.ProductModule.Test
                 .Returns((Func<Task<Product>> operation, CancellationToken _) => operation());
             var reportGenerator = new Mock<IProductReportGeneratorService>();
             var s3ClientMock = new Mock<IAmazonS3>();
+            productRepository
+                .Setup(r => r.LockForUpdateAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
 
             var service = new ProductService(productRepository.Object, configuration, kmsProvider, reportGenerator.Object, _database.CreateContext());
 
