@@ -40,6 +40,11 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 return await _productRepository.ExecuteInTransactionAsync(async () =>
                 {
                     await _productRepository.LockForUpdateAsync(product.Id);
+                    var currentProduct = await _appDbContext.Product.IgnoreQueryFilters().AsNoTracking()
+                        .FirstOrDefaultAsync(p => p.Id == product.Id && p.EnterpriseId == product.EnterpriseId);
+                    if (currentProduct?.IsActive != true)
+                        throw new InvalidOperationException("Cannot add an image to an inactive product.");
+
                     var images = await ActiveImages(product.Id).OrderBy(i => i.Position).ThenBy(i => i.CreatedAt).ToListAsync();
                     if (images.Count >= MaxImagesPerProduct)
                         throw new ProductGalleryFullException();

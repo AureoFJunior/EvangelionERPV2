@@ -129,6 +129,24 @@ namespace EvangelionERPV2.ProductModule.Test
         }
 
         [Fact]
+        public async Task Add_WhenProductWasDeletedAfterTheCallerReadIt_IsRejectedAndUploadedFileIsRemoved()
+        {
+            var staleActiveProduct = StoredProduct();
+            using (var delete = _database.CreateContext())
+            {
+                var product = await delete.Product.SingleAsync(p => p.Id == _product.Id);
+                product.IsActive = false;
+                await delete.SaveChangesAsync();
+            }
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => Service().AddImageAsync(staleActiveProduct, Jpeg(600, 600)));
+
+            Assert.Single(_puts);
+            Assert.Equal(_puts, _deletes);
+            Assert.Empty(await Service().GetImagesAsync(_enterprise, _product.Id));
+        }
+
+        [Fact]
         public async Task Move_ReordersAndRenumbers_AndTheNewFirstBecomesThePicture()
         {
             var added = await AddAsync(3);
