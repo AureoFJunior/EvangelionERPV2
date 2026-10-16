@@ -459,9 +459,9 @@ namespace EvangelionERPV2.OrderModule.Application.Services
         private async Task<Dictionary<Guid, string>> ResolveProductNamesAsync(IEnumerable<OrderedProduct> orderedProducts)
         {
             var namesByProductId = orderedProducts
-                .Where(x => x.ProductId != Guid.Empty && !string.IsNullOrWhiteSpace(x.Product?.Name))
+                .Where(x => x.ProductId != Guid.Empty && !string.IsNullOrWhiteSpace(x.Product?.DisplayName))
                 .GroupBy(x => x.ProductId)
-                .ToDictionary(x => x.Key, x => x.Select(y => y.Product?.Name).FirstOrDefault(y => !string.IsNullOrWhiteSpace(y)) ?? "Unknown Product");
+                .ToDictionary(x => x.Key, x => x.Select(y => y.Product?.DisplayName).FirstOrDefault(y => !string.IsNullOrWhiteSpace(y)) ?? "Unknown Product");
 
             var missingProductIds = orderedProducts
                 .Where(x => x.ProductId != Guid.Empty && !namesByProductId.ContainsKey(x.ProductId))
