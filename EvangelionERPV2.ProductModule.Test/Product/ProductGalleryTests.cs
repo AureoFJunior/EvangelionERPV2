@@ -142,7 +142,9 @@ namespace EvangelionERPV2.ProductModule.Test
             await Assert.ThrowsAsync<InvalidOperationException>(() => Service().AddImageAsync(staleActiveProduct, Jpeg(600, 600)));
 
             Assert.Single(_puts);
-            Assert.Equal(_puts, _deletes);
+            Assert.Contains(_puts[0], _deletes);
+            Assert.Contains("thumb200/" + _puts[0], _deletes);
+            Assert.Contains("thumb480/" + _puts[0], _deletes);
             Assert.Empty(await Service().GetImagesAsync(_enterprise, _product.Id));
         }
 
