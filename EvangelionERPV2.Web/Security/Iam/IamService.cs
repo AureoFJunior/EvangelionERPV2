@@ -122,6 +122,41 @@ namespace EvangelionERPV2.Web.Security.Iam
                 return user;
             });
 
+        /// <summary>Persists an operator-forced password rotation without stranding the enterprise's access managers.</summary>
+        public Task<User> UpdateUserWithPasswordRotationAsync(Guid enterpriseId, Guid userId, Func<User> update) =>
+            _enterprises.ExecuteInTransactionAsync(async () =>
+            {
+                await _enterprises.LockForUpdateAsync(enterpriseId);
+                var target = await _db.User.FirstOrDefaultAsync(u => u.Id == userId
+                    && u.EnterpriseId == enterpriseId && u.IsActive == true) ?? throw NotFound();
+                var wasManager = await IsAccessManagerAsync(enterpriseId, target);
+
+                var updated = update();
+                if (wasManager)
+                    await EnsureManagerRemainsAsync(enterpriseId, await ModeAsync(enterpriseId), userId);
+
+                return updated;
+            });
+
+        private async Task<bool> IsAccessManagerAsync(Guid enterpriseId, User target)
+        {
+            var mode = await ModeAsync(enterpriseId);
+            var now = Now;
+            var activeManageGrant = await _db.UserPermissionGrant.AnyAsync(g => g.EnterpriseId == enterpriseId
+                && g.Permission == RbacPermissions.Iam.Manage && g.Effect == EnumGrantEffect.Allow
+                && g.RevokedAt == null && (g.ExpiresAt == null || g.ExpiresAt > now));
+            var targetManageGrant = await _db.UserPermissionGrant.AnyAsync(g => g.EnterpriseId == enterpriseId && g.UserId == target.Id
+                && g.Permission == RbacPermissions.Iam.Manage && g.Effect == EnumGrantEffect.Allow
+                && g.RevokedAt == null && (g.ExpiresAt == null || g.ExpiresAt > now));
+
+            return mode == EnumIamMode.Grants
+                ? target.MfaEnabled && (targetManageGrant || (target.AccessLevel == (short)EnumAccessLevel.Admin && !activeManageGrant))
+                : targetManageGrant || (target.AccessLevel == (short)EnumAccessLevel.Admin
+                    && !await _db.UserPermissionGrant.AnyAsync(g => g.EnterpriseId == enterpriseId && g.UserId == target.Id
+                        && g.Permission == RbacPermissions.Iam.Manage && g.Effect == EnumGrantEffect.Deny
+                        && g.RevokedAt == null && (g.ExpiresAt == null || g.ExpiresAt > now)));
+        }
+
         /// <summary>Must be called inside the MFA transaction before locking the user row.</summary>
         public Task LockEnterpriseForMfaChangeAsync(Guid enterpriseId) => _enterprises.LockForUpdateAsync(enterpriseId);
 

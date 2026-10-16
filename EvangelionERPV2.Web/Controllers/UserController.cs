@@ -688,15 +688,20 @@ namespace EvangelionERPV2.Web.Controllers
                 user.IsServiceAccount = request.IsServiceAccount ?? existentUser.IsServiceAccount;
                 user.IsActive = request.IsActive;
                 user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
-                if (!remainsServiceAccount && (convertingServiceAccountToHuman
-                    || (caller.Id != user.Id && !string.IsNullOrWhiteSpace(request.Password))))
+                var requiresPasswordRotation = !remainsServiceAccount && (convertingServiceAccountToHuman
+                    || (caller.Id != user.Id && !string.IsNullOrWhiteSpace(request.Password)));
+                var protectsLastManager = requiresPasswordRotation && await IsAccessManagerAsync(existentUser);
+                if (requiresPasswordRotation)
                     user.MustChangePassword = true;
                 user.ProfilePicture = string.IsNullOrWhiteSpace(request.ProfilePicture) ? existentUser.ProfilePicture : request.ProfilePicture;
 
                 if (previousAccessLevel != request.AccessLevel)
                     RecordRoleChange(user, previousAccessLevel);
 
-                Shared.Entities.User updatedUser = _userService.Update(user);
+                Shared.Entities.User updatedUser = protectsLastManager
+                    ? await HttpContext.RequestServices.GetRequiredService<Security.Iam.IamService>()
+                        .UpdateUserWithPasswordRotationAsync(enterpriseId, user.Id, () => _userService.Update(user))
+                    : _userService.Update(user);
 
                 if (updatedUser == null)
                     return NoContent();

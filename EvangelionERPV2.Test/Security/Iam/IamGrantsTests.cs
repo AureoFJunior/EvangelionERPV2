@@ -206,6 +206,27 @@ namespace EvangelionERPV2.Test.Security.Iam
         }
 
         [Fact]
+        public async Task ForcingPasswordRotationForTheOnlyAccessManager_IsRefusedAndRolledBack()
+        {
+            var db = _database.CreateContext();
+            var service = new IamService(db, new AuditTrailWriter(db), _cache, new Repository<Enterprise>(db), _time);
+
+            var error = await Refused(() => service.UpdateUserWithPasswordRotationAsync(
+                _enterprise.Id,
+                _admin.Id,
+                () =>
+                {
+                    var target = db.User.Single(user => user.Id == _admin.Id);
+                    target.MustChangePassword = true;
+                    db.SaveChanges();
+                    return target;
+                }));
+
+            Assert.Equal("last_iam_manager", error.Code);
+            Assert.False(Fresh(_admin).MustChangePassword);
+        }
+
+        [Fact]
         public async Task SwitchingToZeroTrust_IgnoresDenies_AndKeepsOnlyAllows()
         {
             await Set(_clerk, RbacPermissions.Orders.Read, GrantState.Deny);
