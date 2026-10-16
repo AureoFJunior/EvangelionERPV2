@@ -438,7 +438,7 @@ namespace EvangelionERPV2.Web.Controllers
             string mfaToken;
             try
             {
-                mfaToken = await _mfaService.CreateChallengeAsync(user.Id, pendingInitialPasswordHash);
+                mfaToken = await _mfaService.CreateChallengeAsync(user.Id, pendingInitialPasswordHash, user.Password);
             }
             catch (Exception ex)
             {

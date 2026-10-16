@@ -187,6 +187,20 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task VerifyMfa_RejectsInitialPasswordChallengeAfterAnAdministratorReset()
+        {
+            var secret = await EnableMfaAsync();
+            var challenge = await _mfa.CreateChallengeAsync(
+                _user.Id,
+                SharedFunctions.HashPassword("Pending9Password"),
+                _user.Password);
+
+            _user.Password = SharedFunctions.HashPassword("AdminReset9Password");
+
+            Assert.Null(await _mfa.VerifyChallengeAsync(challenge, CurrentCode(secret)));
+        }
+
+        [Fact]
         public async Task VerifyMfa_WithRecoveryCode_ReportsHowManyAreLeft()
         {
             await _mfa.BeginSetupAsync(_user);

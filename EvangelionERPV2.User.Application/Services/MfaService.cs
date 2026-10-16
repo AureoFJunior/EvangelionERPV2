@@ -161,11 +161,15 @@ namespace EvangelionERPV2.UserModule.Application.Services
             }
         }
 
-        public async Task<string> CreateChallengeAsync(Guid userId, string? pendingInitialPasswordHash = null)
+        public async Task<string> CreateChallengeAsync(
+            Guid userId,
+            string? pendingInitialPasswordHash = null,
+            string? passwordHashAtIssue = null)
         {
             var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
                 .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-            await SaveChallengeAsync(token, new Challenge(userId, 0, _time.GetUtcNow() + ChallengeLifetime, pendingInitialPasswordHash));
+            await SaveChallengeAsync(token, new Challenge(
+                userId, 0, _time.GetUtcNow() + ChallengeLifetime, pendingInitialPasswordHash, passwordHashAtIssue));
             return token;
         }
 
@@ -196,6 +200,17 @@ namespace EvangelionERPV2.UserModule.Application.Services
                     return null;
 
                 if (user == null || !user.MfaEnabled)
+                {
+                    await _cache.RemoveAsync(key);
+                    return null;
+                }
+
+                // The initial-password challenge carries authority to replace a temporary
+                // credential. Invalidate it if an administrator reset that credential after
+                // the challenge was issued. Old serialized challenges without this snapshot fail
+                // closed and can be recreated by signing in again.
+                if (current.PendingInitialPasswordHash != null
+                    && !string.Equals(current.PasswordHashAtIssue, user.Password, StringComparison.Ordinal))
                 {
                     await _cache.RemoveAsync(key);
                     return null;
@@ -394,7 +409,12 @@ namespace EvangelionERPV2.UserModule.Application.Services
             _cache.SetStringAsync(ChallengeKey(mfaToken), JsonSerializer.Serialize(challenge),
                 new DistributedCacheEntryOptions { AbsoluteExpiration = challenge.ExpiresAt });
 
-        private sealed record Challenge(Guid UserId, int Failures, DateTimeOffset ExpiresAt, string? PendingInitialPasswordHash = null);
+        private sealed record Challenge(
+            Guid UserId,
+            int Failures,
+            DateTimeOffset ExpiresAt,
+            string? PendingInitialPasswordHash = null,
+            string? PasswordHashAtIssue = null);
 
         /// <summary>Recovery codes carry 50 random bits, so a fast unsalted hash is enough.</summary>
         private static string HashRecoveryCode(string normalized) =>
