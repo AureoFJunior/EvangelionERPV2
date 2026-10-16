@@ -452,7 +452,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (_appDbContext != null && claimsShipmentTransition)
                     {
                         var claimedRows = _appDbContext.Database.ExecuteSqlInterpolated(
-                            $"UPDATE [Order] SET UpdatedAt = {now}, Status = {(int)EnumOrderStatus.Shipped}, ShippedAt = COALESCE(ShippedAt, {now}) WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished} AND Status <> {(int)EnumOrderStatus.Shipped}");
+                            $"UPDATE [Order] SET UpdatedAt = {now}, Status = {(int)EnumOrderStatus.Shipped}, ShippedAt = COALESCE(ShippedAt, {now}) WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status = {existentOrder.Status} AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished} AND Status <> {(int)EnumOrderStatus.Shipped}");
 
                         if (claimedRows <= 0)
                         {
