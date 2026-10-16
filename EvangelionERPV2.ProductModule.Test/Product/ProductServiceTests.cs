@@ -218,17 +218,17 @@ namespace EvangelionERPV2.ProductModule.Test
             var currentProduct = new Product("Product", "Desc", 10, 5, false, false,
                 SharedFunctions.EnsureEncryptedAddress("products/current-cover"), enterpriseId) { Id = productId };
             var calls = new List<string>();
-            var reads = 0;
 
             productRepository.Setup(r => r.GetByIdAsync(productId))
-                .Returns(() =>
-                {
-                    calls.Add("read");
-                    return Task.FromResult(reads++ == 0 ? staleProduct : currentProduct);
-                });
+                .Callback(() => calls.Add("read"))
+                .ReturnsAsync(staleProduct);
             productRepository.Setup(r => r.LockForUpdateAsync(productId, It.IsAny<CancellationToken>()))
                 .Callback(() => calls.Add("lock"))
                 .Returns(Task.CompletedTask);
+            productRepository.As<IProductRepository<Product>>()
+                .Setup(r => r.GetFreshByIdAsync(productId))
+                .Callback(() => calls.Add("read-fresh"))
+                .ReturnsAsync(currentProduct);
             productRepository.Setup(r => r.Update(It.IsAny<Product>())).Returns((Product product) => product);
             productRepository.Setup(r => r.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
             s3ClientMock.Setup(s => s.PutObjectAsync(It.IsAny<PutObjectRequest>(), It.IsAny<CancellationToken>()))
@@ -243,7 +243,7 @@ namespace EvangelionERPV2.ProductModule.Test
             });
 
             Assert.Same(currentProduct, result);
-            Assert.Equal(["read", "lock", "read"], calls);
+            Assert.Equal(["read", "lock", "read-fresh"], calls);
             s3ClientMock.Verify(s => s.DeleteObjectAsync(
                 It.Is<DeleteObjectRequest>(request => request.Key == "products/current-cover"),
                 It.IsAny<CancellationToken>()), Times.Once);
@@ -524,6 +524,9 @@ namespace EvangelionERPV2.ProductModule.Test
 
             var kmsProvider = new AWSKMSKeyProvider(secretsManager.Object, configuration);
             var productRepository = new Mock<IRepository<Product>>();
+            productRepository.As<IProductRepository<Product>>()
+                .Setup(r => r.GetFreshByIdAsync(It.IsAny<Guid>()))
+                .Returns((Guid id) => productRepository.Object.GetByIdAsync(id));
             productRepository
                 .Setup(r => r.ExecuteInTransactionAsync(
                     It.IsAny<Func<Task<Product>>>(),

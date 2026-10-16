@@ -393,9 +393,9 @@ namespace EvangelionERPV2.Web.Security.Iam
                         continue;
 
                     var before = grant == null || expired ? null : Describe(grant.Effect, grant.ExpiresAt);
-                    if (expired)
+                    if (grant != null)
                     {
-                        grant!.RevokedAt = now;
+                        grant.RevokedAt = now;
                         grant.RevokedByUserId = caller.Id;
                         grant.UpdatedAt = now;
                         grant = null;

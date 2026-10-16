@@ -533,7 +533,10 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                     updatedProduct = await _productRepository.ExecuteInTransactionAsync(async () =>
                     {
                         await _productRepository.LockForUpdateAsync(productPicture.Product.Id);
-                        var target = await _productRepository.GetByIdAsync(productPicture.Product.Id);
+                        var target = _productRepository is IProductRepository<Product> freshProductRepository
+                            ? await freshProductRepository.GetFreshByIdAsync(productPicture.Product.Id)
+                            : await _appDbContext.Product.AsNoTracking()
+                                .FirstOrDefaultAsync(product => product.Id == productPicture.Product.Id);
                         if (target == null)
                             throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
 

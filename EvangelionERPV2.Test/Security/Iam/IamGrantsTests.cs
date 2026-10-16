@@ -293,6 +293,41 @@ namespace EvangelionERPV2.Test.Security.Iam
         }
 
         [Fact]
+        public async Task ChangingALiveGrantArchivesItsHistoryAndCreatesANewRow()
+        {
+            var permission = RbacPermissions.Orders.Read;
+            await Service().ApplyAsync(Fresh(_admin), _clerk.Id,
+                [new GrantChange(permission, null, GrantState.Allow, null, "original grant")]);
+            var oldCreatedAt = DateTime.UtcNow.AddDays(-10);
+            var lastUsedAt = DateTime.UtcNow.AddDays(-1);
+            using (var db = _database.CreateContext())
+                await db.UserPermissionGrant.Where(g => g.UserId == _clerk.Id && g.Permission == permission)
+                    .ExecuteUpdateAsync(set => set
+                        .SetProperty(g => g.CreatedAt, oldCreatedAt)
+                        .SetProperty(g => g.LastUsedAt, lastUsedAt));
+
+            await Service().ApplyAsync(Fresh(_admin), _clerk.Id,
+                [new GrantChange(permission, null, GrantState.Deny, null, "incident response")]);
+
+            using var verify = _database.CreateContext();
+            var rows = verify.UserPermissionGrant.AsNoTracking()
+                .Where(g => g.UserId == _clerk.Id && g.Permission == permission)
+                .OrderBy(g => g.CreatedAt)
+                .ToList();
+            Assert.Equal(2, rows.Count);
+            Assert.Equal(EnumGrantEffect.Allow, rows[0].Effect);
+            Assert.Equal(_admin.Id, rows[0].GrantedByUserId);
+            Assert.Equal("original grant", rows[0].Reason);
+            Assert.Equal(oldCreatedAt, rows[0].CreatedAt);
+            Assert.Equal(lastUsedAt, rows[0].LastUsedAt);
+            Assert.NotNull(rows[0].RevokedAt);
+            Assert.Equal(EnumGrantEffect.Deny, rows[1].Effect);
+            Assert.Equal("incident response", rows[1].Reason);
+            Assert.Null(rows[1].RevokedAt);
+            Assert.Null(rows[1].LastUsedAt);
+        }
+
+        [Fact]
         public async Task BootstrapAdmins_AppearEffectiveAsHoldersAndInAccessReviews()
         {
             using (var db = _database.CreateContext())
