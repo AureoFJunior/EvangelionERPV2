@@ -48,7 +48,8 @@ namespace EvangelionERPV2.UserModule.Application.Token
                 new Claim(ClaimTypes.NameIdentifier, userId),
                 new Claim(ClaimTypes.Sid, userId),
                 new Claim("uid", userId),
-                new Claim(ClaimTypes.GroupSid, user?.EnterpriseId?.ToString() ?? string.Empty)
+                new Claim(ClaimTypes.GroupSid, user?.EnterpriseId?.ToString() ?? string.Empty),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))
             };
 
             if (isMachineClient)
@@ -69,6 +70,8 @@ namespace EvangelionERPV2.UserModule.Application.Token
 
         public string GenerateToken(IEnumerable<Claim> claims)
         {
+            claims = claims.Where(c => c.Type != JwtRegisteredClaimNames.Jti)
+                .Append(new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")));
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.UTF8.GetBytes(SharedFunctions.GetEncryptionKey());
             var tokenDescriptor = new SecurityTokenDescriptor

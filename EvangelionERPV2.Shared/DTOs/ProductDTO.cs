@@ -14,6 +14,7 @@ namespace EvangelionERPV2.Shared.DTOs
         public bool IsExternal { get; set; }
         public bool IsService { get; set; }
         public string PictureAdress { get; set; } = string.Empty;
+        public string? PictureError { get; set; }
 
         public bool HasPicture { get; set; }
         public bool FamilyHasPicture { get; set; }

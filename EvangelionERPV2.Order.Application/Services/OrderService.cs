@@ -1,5 +1,6 @@
 using EvangelionERPV2.Shared.DTOs;
 using System.Linq;
+using System.Linq.Expressions;
 using EvangelionERPV2.OrderModule.Application.Interface;
 using EvangelionERPV2.OrderModule.Domain.Interface;
 using EvangelionERPV2.ProductModule.Application.Interface;
@@ -391,6 +392,11 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
         public Order Update(Order order, Guid enterpriseId)
         {
+            return UpdateWithShipmentClaim(order, enterpriseId).Order;
+        }
+
+        public OrderUpdateResult UpdateWithShipmentClaim(Order order, Guid enterpriseId)
+        {
             try
             {
                 if (order == null)
@@ -429,11 +435,60 @@ namespace EvangelionERPV2.OrderModule.Application.Services
 
                     var oldContribution = EnterpriseBalanceContributionHelper.GetOrderRealizedContribution(existentOrder, DateTime.UtcNow.Date);
                     var now = DateTime.UtcNow;
+                    var trackingAfter = order.TrackingCode is null
+                        ? existentOrder.TrackingCode
+                        : string.IsNullOrWhiteSpace(order.TrackingCode) ? null : order.TrackingCode.Trim();
+                    var trackingUrlAfter = order.TrackingUrl is null
+                        ? existentOrder.TrackingUrl
+                        : string.IsNullOrWhiteSpace(order.TrackingUrl) ? null : order.TrackingUrl.Trim();
 
-                    if (_appDbContext != null)
+                    var claimsShipmentTransition = existentOrder.Status != (int)EnumOrderStatus.Shipped
+                        && order.Status == (int)EnumOrderStatus.Shipped;
+                    var claimsTrackingCorrection = existentOrder.Status == (int)EnumOrderStatus.Shipped
+                        && order.Status == (int)EnumOrderStatus.Shipped
+                        && ((!string.Equals(existentOrder.TrackingCode, trackingAfter, StringComparison.Ordinal) && order.TrackingCode is not null)
+                            || (!string.Equals(existentOrder.TrackingUrl, trackingUrlAfter, StringComparison.Ordinal) && order.TrackingUrl is not null));
+
+                    if (_appDbContext != null && claimsShipmentTransition)
+                    {
+                        var claimedRows = _appDbContext.Database.ExecuteSqlInterpolated(
+                            $"UPDATE [Order] SET UpdatedAt = {now}, Status = {(int)EnumOrderStatus.Shipped}, ShippedAt = COALESCE(ShippedAt, {now}) WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status = {existentOrder.Status} AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished} AND Status <> {(int)EnumOrderStatus.Shipped}");
+
+                        if (claimedRows <= 0)
+                        {
+                            _appDbContext.Entry(existentOrder).Reload();
+                            if (existentOrder.Status == (int)EnumOrderStatus.Shipped)
+                            {
+                                claimsShipmentTransition = false;
+                                trackingAfter = order.TrackingCode is null
+                                    ? existentOrder.TrackingCode
+                                    : string.IsNullOrWhiteSpace(order.TrackingCode) ? null : order.TrackingCode.Trim();
+                                trackingUrlAfter = order.TrackingUrl is null
+                                    ? existentOrder.TrackingUrl
+                                    : string.IsNullOrWhiteSpace(order.TrackingUrl) ? null : order.TrackingUrl.Trim();
+                                claimsTrackingCorrection = order.Status == (int)EnumOrderStatus.Shipped
+                                    && ((!string.Equals(existentOrder.TrackingCode, trackingAfter, StringComparison.Ordinal) && order.TrackingCode is not null)
+                                        || (!string.Equals(existentOrder.TrackingUrl, trackingUrlAfter, StringComparison.Ordinal) && order.TrackingUrl is not null));
+
+                                if (claimsTrackingCorrection)
+                                    claimsTrackingCorrection = ClaimTrackingCorrection(
+                                        order, existentOrder, trackingAfter, trackingUrlAfter, now);
+                            }
+                            else
+                            {
+                                throw new InsertDatabaseException("Order was concurrently finalized or already refunded.");
+                            }
+                        }
+                    }
+                    else if (_appDbContext != null && claimsTrackingCorrection)
+                    {
+                        claimsTrackingCorrection = ClaimTrackingCorrection(
+                            order, existentOrder, trackingAfter, trackingUrlAfter, now);
+                    }
+                    else if (_appDbContext != null)
                     {
                         var guardedRows = _appDbContext.Database.ExecuteSqlInterpolated(
-                            $"UPDATE [Order] SET UpdatedAt = {now} WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished}");
+                            $"UPDATE [Order] SET UpdatedAt = {now} WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status = {existentOrder.Status} AND Status <> {(int)EnumOrderStatus.Refund} AND Status <> {(int)EnumOrderStatus.Finished}");
 
                         if (guardedRows <= 0)
                             throw new InsertDatabaseException("Order was concurrently finalized or already refunded.");
@@ -454,9 +509,6 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     if (order.PaymentScheduledDate != default)
                         existentOrder.PaymentScheduledDate = order.PaymentScheduledDate;
 
-                    var trackingAfter = order.TrackingCode is null
-                        ? existentOrder.TrackingCode
-                        : string.IsNullOrWhiteSpace(order.TrackingCode) ? null : order.TrackingCode.Trim();
                     if (StorefrontEvents.ForUpdate(existentOrder, order.Status, trackingAfter) is { } shopperEvent)
                         _appDbContext?.StorefrontEvent.Add(StorefrontEvents.Create(shopperEvent, existentOrder, now));
 
@@ -478,7 +530,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     _orderRepository.Commit();
                     ApplyEnterpriseBalanceDelta(updatedOrder.EnterpriseId ?? Guid.Empty, newContribution - oldContribution);
 
-                    return updatedOrder;
+                    return new OrderUpdateResult(updatedOrder, claimsShipmentTransition, claimsTrackingCorrection);
                 });
             }
             catch (NotFoundDatabaseException)
@@ -499,8 +551,25 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             }
         }
 
-        public Order Delete(Guid id)
+        private bool ClaimTrackingCorrection(Order order, Order existentOrder, string? trackingAfter, string? trackingUrlAfter, DateTime now)
         {
+            var claimedRows = _appDbContext!.Database.ExecuteSqlInterpolated(
+                $"UPDATE [Order] SET UpdatedAt = {now}, TrackingCode = {trackingAfter}, TrackingUrl = {trackingUrlAfter} WHERE Id = {order.Id} AND EnterpriseId = {existentOrder.EnterpriseId} AND IsActive = 1 AND RefundedAt IS NULL AND Status = {(int)EnumOrderStatus.Shipped} AND ((TrackingCode = {existentOrder.TrackingCode}) OR (TrackingCode IS NULL AND {existentOrder.TrackingCode} IS NULL)) AND ((TrackingUrl = {existentOrder.TrackingUrl}) OR (TrackingUrl IS NULL AND {existentOrder.TrackingUrl} IS NULL))");
+
+            if (claimedRows > 0)
+                return true;
+
+            _appDbContext.Entry(existentOrder).Reload();
+            if (existentOrder.Status == (int)EnumOrderStatus.Shipped
+                && string.Equals(existentOrder.TrackingCode, trackingAfter, StringComparison.Ordinal)
+                && string.Equals(existentOrder.TrackingUrl, trackingUrlAfter, StringComparison.Ordinal))
+                return false;
+
+            throw new InsertDatabaseException("Order tracking was concurrently updated.");
+        }
+
+        public Order Delete(Guid id)
+{
             return Delete(id, Guid.Empty);
         }
 

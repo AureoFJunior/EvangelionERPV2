@@ -21,7 +21,10 @@ namespace EvangelionERPV2.Web.Security
         /// thing its token can reach.
         /// </summary>
         public static IReadOnlyList<string> PermissionsFor(short accessLevel) =>
-            RbacRolePermissionMap.GetPermissions(accessLevel)
+            PermissionsIn(RbacRolePermissionMap.GetPermissions(accessLevel));
+
+        public static IReadOnlyList<string> PermissionsIn(IEnumerable<string> granted) =>
+            granted
                 .Where(permission => permission.StartsWith(PermissionPrefix, StringComparison.Ordinal))
                 .OrderBy(permission => permission, StringComparer.Ordinal)
                 .ToList();

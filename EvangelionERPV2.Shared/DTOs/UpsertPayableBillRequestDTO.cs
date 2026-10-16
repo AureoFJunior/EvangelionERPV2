@@ -16,5 +16,8 @@ namespace EvangelionERPV2.Shared.DTOs
         public DateTime? RecurrenceUntilUtc { get; set; }
 
         public IEnumerable<PayableBillItemRequestDTO>? Items { get; set; }
+
+        /// <summary>On create only: the goods are already here, so the item lines go into stock with the bill.</summary>
+        public bool ReceiveProducts { get; set; }
     }
 }

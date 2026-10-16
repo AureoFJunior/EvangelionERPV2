@@ -3,6 +3,7 @@ using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Utils;
+using EvangelionERPV2.UserModule.Application.Interface;
 using Microsoft.Extensions.Caching.Distributed;
 using System.Security.Cryptography;
 using System.Text;
@@ -13,7 +14,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
 {
     public sealed record MfaSetup(string Secret, string OtpauthUri);
 
-    public sealed record MfaChallengeResult(User User, int? RecoveryCodesRemaining);
+    public sealed record MfaChallengeResult(User User, int? RecoveryCodesRemaining, string? PendingInitialPasswordHash = null);
 
     /// <summary>
     /// Opt-in TOTP second factor: setup, the login challenge that stands between a proven password
@@ -34,6 +35,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
         private readonly IAuditTrailWriter _audit;
         private readonly IDistributedCache _cache;
         private readonly TimeProvider _time;
+        private readonly IMfaDisableGuard? _iam;
 
         public MfaService(
             IRepository<User> users,
@@ -41,7 +43,8 @@ namespace EvangelionERPV2.UserModule.Application.Services
             IRepository<RefreshToken> refreshTokens,
             IAuditTrailWriter audit,
             IDistributedCache cache,
-            TimeProvider? time = null)
+            TimeProvider? time = null,
+            IMfaDisableGuard? iam = null)
         {
             _users = users;
             _recoveryCodes = recoveryCodes;
@@ -49,6 +52,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
             _audit = audit;
             _cache = cache;
             _time = time ?? TimeProvider.System;
+            _iam = iam;
         }
 
         public static string FailuresKey(Guid userId) => "mfa:failures:" + userId.ToString("N");
@@ -93,16 +97,23 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 return codes;
             });
 
-        public Task<bool> DisableAsync(Guid userId, string? code) =>
-            _users.ExecuteInTransactionAsync(async () =>
+        public async Task<bool> DisableAsync(Guid userId, string? code)
+        {
+            var enterpriseId = await GetEnterpriseIdAsync(userId);
+            return await _users.ExecuteInTransactionAsync(async () =>
             {
+                if (_iam != null && enterpriseId.HasValue)
+                    await _iam.LockEnterpriseForMfaChangeAsync(enterpriseId.Value);
                 var user = await LoadLockedAsync(userId);
-                if (user == null || !user.MfaEnabled || await ProveAsync(user, code) == null)
+                if (user == null || !user.MfaEnabled || (enterpriseId.HasValue && user.EnterpriseId != enterpriseId) || await ProveAsync(user, code) == null)
                     return false;
 
+                if (_iam != null && enterpriseId.HasValue)
+                    await _iam.EnsureMfaCanBeDisabledAsync(enterpriseId.Value, userId);
                 await TurnOffAsync(user, user.Id, "Turned off by the user");
                 return true;
             });
+        }
 
         public Task<IReadOnlyList<string>?> RegenerateRecoveryCodesAsync(Guid userId, string? code) =>
             _users.ExecuteInTransactionAsync<IReadOnlyList<string>?>(async () =>
@@ -118,22 +129,47 @@ namespace EvangelionERPV2.UserModule.Application.Services
             });
 
         /// <summary>Turns MFA off for a locked-out user; <paramref name="actorId"/> is the administrator.</summary>
-        public Task ResetAsync(Guid userId, Guid? actorId) =>
-            _users.ExecuteInTransactionAsync(async () =>
+        public async Task ResetAsync(Guid userId, Guid? actorId)
+        {
+            var enterpriseId = await GetEnterpriseIdAsync(userId);
+            await _users.ExecuteInTransactionAsync(async () =>
             {
+                if (_iam != null && enterpriseId.HasValue)
+                    await _iam.LockEnterpriseForMfaChangeAsync(enterpriseId.Value);
                 var user = await LoadLockedAsync(userId);
-                if (user == null)
+                if (user == null || (enterpriseId.HasValue && user.EnterpriseId != enterpriseId))
                     return false;
 
+                if (_iam != null && enterpriseId.HasValue)
+                    await _iam.EnsureMfaCanBeDisabledAsync(enterpriseId.Value, userId);
                 await TurnOffAsync(user, actorId, "Reset by an administrator");
                 return true;
             });
+        }
 
-        public async Task<string> CreateChallengeAsync(Guid userId)
+        private async Task<Guid?> GetEnterpriseIdAsync(Guid userId)
+        {
+            if (_iam == null)
+                return null;
+            try
+            {
+                return (await _users.GetByIdAsync(userId)).EnterpriseId;
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return null;
+            }
+        }
+
+        public async Task<string> CreateChallengeAsync(
+            Guid userId,
+            string? pendingInitialPasswordHash = null,
+            string? passwordHashAtIssue = null)
         {
             var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
                 .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-            await SaveChallengeAsync(token, new Challenge(userId, 0, _time.GetUtcNow() + ChallengeLifetime));
+            await SaveChallengeAsync(token, new Challenge(
+                userId, 0, _time.GetUtcNow() + ChallengeLifetime, pendingInitialPasswordHash, passwordHashAtIssue));
             return token;
         }
 
@@ -164,6 +200,17 @@ namespace EvangelionERPV2.UserModule.Application.Services
                     return null;
 
                 if (user == null || !user.MfaEnabled)
+                {
+                    await _cache.RemoveAsync(key);
+                    return null;
+                }
+
+                // The initial-password challenge carries authority to replace a temporary
+                // credential. Invalidate it if an administrator reset that credential after
+                // the challenge was issued. Old serialized challenges without this snapshot fail
+                // closed and can be recreated by signing in again.
+                if (current.PendingInitialPasswordHash != null
+                    && !string.Equals(current.PasswordHashAtIssue, user.Password, StringComparison.Ordinal))
                 {
                     await _cache.RemoveAsync(key);
                     return null;
@@ -200,9 +247,32 @@ namespace EvangelionERPV2.UserModule.Application.Services
 
                 await _cache.RemoveAsync(key);
                 await _users.CommitAsync();
-                return new MfaChallengeResult(user, proof.RecoveryCodesRemaining);
+                return new MfaChallengeResult(user, proof.RecoveryCodesRemaining, current.PendingInitialPasswordHash);
             });
         }
+
+        /// <summary>Validates a fresh MFA code for an already-authenticated step-up action.</summary>
+        public Task<bool> VerifyCodeAsync(Guid userId, string? code) =>
+            _users.ExecuteInTransactionAsync(async () =>
+            {
+                var user = await LoadLockedAsync(userId);
+                if (user == null || !user.MfaEnabled) return false;
+                var failures = await ReadFailuresAsync(user.Id);
+                if (failures?.Count >= MaxAccountFailures) return false;
+                if (await ProveAsync(user, code) == null)
+                {
+                    var now = _time.GetUtcNow();
+                    var next = failures is null
+                        ? new Failures(1, now + AccountFailureWindow)
+                        : failures with { Count = failures.Count + 1 };
+                    if (next.Count >= MaxAccountFailures) next = next with { WindowEndsAt = now + AccountFailureWindow };
+                    await SaveFailuresAsync(user.Id, next);
+                    return false;
+                }
+                Audit(user, user.Id, ("StepUp", null, "Verified"));
+                await _users.CommitAsync();
+                return true;
+            });
 
         /// <summary>
         /// True when <paramref name="code"/> has the shape of a TOTP or a recovery code. Lets a caller
@@ -339,7 +409,12 @@ namespace EvangelionERPV2.UserModule.Application.Services
             _cache.SetStringAsync(ChallengeKey(mfaToken), JsonSerializer.Serialize(challenge),
                 new DistributedCacheEntryOptions { AbsoluteExpiration = challenge.ExpiresAt });
 
-        private sealed record Challenge(Guid UserId, int Failures, DateTimeOffset ExpiresAt);
+        private sealed record Challenge(
+            Guid UserId,
+            int Failures,
+            DateTimeOffset ExpiresAt,
+            string? PendingInitialPasswordHash = null,
+            string? PasswordHashAtIssue = null);
 
         /// <summary>Recovery codes carry 50 random bits, so a fast unsalted hash is enough.</summary>
         private static string HashRecoveryCode(string normalized) =>

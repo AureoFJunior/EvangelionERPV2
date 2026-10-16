@@ -30,6 +30,7 @@ namespace EvangelionERPV2.ProductModule.Test
             CreateTable(schema, typeof(ProductVariantGroup));
             CreateTable(schema, typeof(StorefrontCategory));
             CreateTable(schema, typeof(ProductPriceHistory));
+            CreateTable(schema, typeof(ProductImage));
         }
 
         private static void CreateTable(AppDbContext context, Type clrType)

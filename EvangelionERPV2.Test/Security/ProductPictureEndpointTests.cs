@@ -67,7 +67,7 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
-        public async Task ACallerWhoAlreadyHasIt_Gets304_AndNothingIsReadFromStorage()
+        public async Task ACallerWhoAlreadyHasIt_Gets304_AfterCurrentBytesAreChecked()
         {
             var tenant = Guid.NewGuid();
             var product = Photographed(tenant);
@@ -80,7 +80,28 @@ namespace EvangelionERPV2.Test.Security
             var result = await again.Controller.Picture(product.Id);
 
             Assert.Equal(StatusCodes.Status304NotModified, Assert.IsType<StatusCodeResult>(result).StatusCode);
-            again.ProductService.Verify(s => s.GetThumbnailBase64Async(It.IsAny<string?>()), Times.Never);
+            again.ProductService.Verify(s => s.GetThumbnailBase64Async("products/abc.png"), Times.Once);
+        }
+
+        [Fact]
+        public async Task AnInPlaceImageRewrite_GetsANewETag()
+        {
+            var tenant = Guid.NewGuid();
+            var product = Photographed(tenant);
+            var before = new Harness(tenant, product);
+            await before.Controller.Picture(product.Id);
+            var priorEtag = before.Controller.Response.Headers.ETag.ToString();
+
+            var after = new Harness(tenant, product);
+            var updatedBytes = Png.Concat(new byte[] { 4 }).ToArray();
+            after.ProductService.Setup(s => s.GetThumbnailBase64Async("products/abc.png"))
+                .ReturnsAsync((Convert.ToBase64String(updatedBytes), "new-hash"));
+            after.Controller.Request.Headers.IfNoneMatch = priorEtag;
+
+            var response = Assert.IsType<FileContentResult>(await after.Controller.Picture(product.Id));
+
+            Assert.Equal(updatedBytes, response.FileContents);
+            Assert.NotEqual(priorEtag, after.Controller.Response.Headers.ETag.ToString());
         }
 
         [Fact]
@@ -94,8 +115,14 @@ namespace EvangelionERPV2.Test.Security
             var one = new Harness(tenant, before);
             await one.Controller.Picture(before.Id);
             var two = new Harness(tenant, after);
+            var secondThumbnail = Png.Concat(new byte[] { 7 }).ToArray();
+            two.ProductService.Setup(s => s.GetThumbnailBase64Async("products/v2.png"))
+                .ReturnsAsync((Convert.ToBase64String(secondThumbnail), "second-hash"));
             await two.Controller.Picture(after.Id);
             var full = new Harness(tenant, after);
+            var fullBytes = Png.Concat(new byte[] { 8 }).ToArray();
+            full.ProductService.Setup(s => s.GetPictureBase64Async("products/v2.png"))
+                .ReturnsAsync(Convert.ToBase64String(fullBytes));
             await full.Controller.Picture(after.Id, "full");
 
             Assert.NotEqual(one.Controller.Response.Headers.ETag.ToString(), two.Controller.Response.Headers.ETag.ToString());

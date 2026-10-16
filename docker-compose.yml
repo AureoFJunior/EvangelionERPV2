@@ -34,6 +34,12 @@ services:
       ASPNETCORE_URLS: http://+:8080
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      HttpConfig__DefaultApiUrl: ${EVA_DEFAULT_API_URL:-http://evangelionerpv2:8080/api/v1}
+      Frontend__BaseUrl: ${EVA_FRONTEND_BASE_URL:-http://localhost:8080}
+      GoogleSettings__AllowedRedirectUris__0: ${EVA_GOOGLE_REDIRECT_URI:-http://localhost:8080/auth/google/callback}
+      RecaptchaSettings__AllowedHostnames__0: ${EVA_RECAPTCHA_ALLOWED_HOSTNAME:-localhost}
+      Cors__AllowedOrigins__0: ${EVA_CORS_ORIGIN:-http://localhost:8080}
+      AllowedHosts: '${EVA_ALLOWED_HOSTS:-localhost;127.0.0.1};evangelionerpv2'
       ConnectionStrings__DefaultConnection: ${EVA_CONN_STR:-evangelion/prd/database:DefaultConnection}
       RedisSettings__InstanceName: ${EVA_REDIS_INSTANCE:-evangelion/prd/redis-name:instancename}
       RedisSettings__ConnectionString: ${EVA_REDIS_CONNECTION:-evangelion/prd/redis:ConnectionString}
@@ -44,9 +50,9 @@ services:
       EmailSettings__Password: ${EMAIL_SMTP_PASSWORD:-}
       Encryption__TokenKey: ${EVA_TOKEN_KEY:-evangelion/prd/encryptiontokenkey:key}
       AWSSettings__SecretName: "${EVA_AWS_SECRET_NAME:-AWSCredentials}"
-      AWSSettings__BucketProducttName: "${EVA_AWS_PRODUCT_BUCKET:-evangelionerpv2images}"
-      AWSSettings__BucketProductName: "${EVA_AWS_PRODUCT_BUCKET:-evangelionerpv2images}"
-      AWSSettings__BucketUserName: "${EVA_AWS_USER_BUCKET:-evangelionerpv2images}"
+      AWSSettings__BucketProducttName: "${EVA_AWS_PRODUCT_BUCKET:?Set EVA_AWS_PRODUCT_BUCKET}"
+      AWSSettings__BucketProductName: "${EVA_AWS_PRODUCT_BUCKET:?Set EVA_AWS_PRODUCT_BUCKET}"
+      AWSSettings__BucketUserName: "${EVA_AWS_USER_BUCKET:?Set EVA_AWS_USER_BUCKET}"
       AWSSettings__Region: ${AWS_REGION:-us-east-1}
       EmailSettings__EnableInteractiveGoogleOAuthFallback: ${EVA_ENABLE_INTERACTIVE_EMAIL_OAUTH:-false}
       RabbitMQSettings__HostName: ${EVA_RABBITMQ_HOSTNAME:-evangelion/prd/rabbitmq-host:hostname}

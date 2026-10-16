@@ -135,6 +135,13 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!await CanIssueTokensToUserAsync(user))
                     return Unauthorized();
 
+                if (user.MustChangePassword && !isSelfApiMachineLogin)
+                    return StatusCode(StatusCodes.Status403Forbidden, new
+                    {
+                        code = PasswordChangeRequiredCode,
+                        message = "Escolha uma nova senha para continuar."
+                    });
+
                 if (needsRehash)
                     user.Password = SharedFunctions.HashPassword(request.Password);
 
@@ -209,6 +216,9 @@ namespace EvangelionERPV2.Web.Controllers
                         GetLogSafeEmailIdentifier(user?.Email));
                     return Unauthorized();
                 }
+
+                if (user.MustChangePassword)
+                    return PasswordChangeRequired();
 
                 if (user.MfaEnabled)
                     return await ChallengeMfaAsync(user);
@@ -303,6 +313,9 @@ namespace EvangelionERPV2.Web.Controllers
                     return Unauthorized();
                 }
 
+                if (user.MustChangePassword)
+                    return PasswordChangeRequired();
+
                 if (user.MfaEnabled)
                     return await ChallengeMfaAsync(user);
 
@@ -370,6 +383,12 @@ namespace EvangelionERPV2.Web.Controllers
             return (token, refreshToken);
         }
 
+        private IActionResult PasswordChangeRequired() => StatusCode(StatusCodes.Status403Forbidden, new
+        {
+            code = PasswordChangeRequiredCode,
+            message = "Escolha uma nova senha para continuar."
+        });
+
         private static string NormalizeUserName(string? userName)
         {
             return (userName ?? string.Empty).Trim();
@@ -414,12 +433,12 @@ namespace EvangelionERPV2.Web.Controllers
             };
         }
 
-        private async Task<IActionResult> ChallengeMfaAsync(Shared.Entities.User user)
+        private async Task<IActionResult> ChallengeMfaAsync(Shared.Entities.User user, string? pendingInitialPasswordHash = null)
         {
             string mfaToken;
             try
             {
-                mfaToken = await _mfaService.CreateChallengeAsync(user.Id);
+                mfaToken = await _mfaService.CreateChallengeAsync(user.Id, pendingInitialPasswordHash, user.Password);
             }
             catch (Exception ex)
             {
@@ -581,7 +600,8 @@ namespace EvangelionERPV2.Web.Controllers
                     EnterpriseId = enterpriseId,
                     AccessLevel = (short)EnumAccessLevel.Employee,
                     IsLogged = 0,
-                    IsActive = true
+                    IsActive = true,
+                    MustChangePassword = true
                 };
 
                 Shared.Entities.User createdUser = await _userService.CreateAsync(user);
@@ -628,7 +648,34 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!Enum.IsDefined(typeof(EnumAccessLevel), (int)request.AccessLevel))
                     return BadRequest("Invalid access level.");
 
+                var caller = await GetCallerAsync();
+                if (caller == null || caller.IsActive != true || caller.EnterpriseId != enterpriseId)
+                    return Unauthorized();
+
+                var deactivatingAccessManager = !request.IsActive
+                    && await IsAccessManagerAsync(existentUser);
+                if (deactivatingAccessManager && await RequireIamManageAsync() is { } deactivateRefusal)
+                    return deactivateRefusal;
+
+                var accessGuard = await GuardAccessChangeAsync(caller, existentUser, request);
+                if (accessGuard != null)
+                    return accessGuard;
+
+                if (request.AccessLevel != existentUser.AccessLevel && !CanAssignLevel(caller, request.AccessLevel))
+                    return RoleAboveCaller();
+
+                if (deactivatingAccessManager)
+                {
+                    var deactivated = await HttpContext.RequestServices.GetRequiredService<Security.Iam.IamService>()
+                        .DeactivateUserAsync(enterpriseId, existentUser.Id);
+                    return Ok(await ToUserDtoAsync(deactivated));
+                }
+
                 var user = existentUser;
+                var wasServiceAccount = existentUser.IsServiceAccount == true;
+                var remainsServiceAccount = wasServiceAccount && (request.IsServiceAccount ?? true);
+                var convertingServiceAccountToHuman = wasServiceAccount && request.IsServiceAccount == false;
+                var previousAccessLevel = user.AccessLevel;
                 user.FirstName = request.FirstName.Trim();
                 user.LastName = request.LastName.Trim();
                 user.UserName = request.UserName.Trim();
@@ -641,9 +688,20 @@ namespace EvangelionERPV2.Web.Controllers
                 user.IsServiceAccount = request.IsServiceAccount ?? existentUser.IsServiceAccount;
                 user.IsActive = request.IsActive;
                 user.Password = string.IsNullOrWhiteSpace(request.Password) ? existentUser.Password : request.Password;
+                var requiresPasswordRotation = !remainsServiceAccount && (convertingServiceAccountToHuman
+                    || (caller.Id != user.Id && !string.IsNullOrWhiteSpace(request.Password)));
+                var protectsLastManager = requiresPasswordRotation && await IsAccessManagerAsync(existentUser);
+                if (requiresPasswordRotation)
+                    user.MustChangePassword = true;
                 user.ProfilePicture = string.IsNullOrWhiteSpace(request.ProfilePicture) ? existentUser.ProfilePicture : request.ProfilePicture;
 
-                Shared.Entities.User updatedUser = _userService.Update(user);
+                if (previousAccessLevel != request.AccessLevel)
+                    RecordRoleChange(user, previousAccessLevel);
+
+                Shared.Entities.User updatedUser = protectsLastManager
+                    ? await HttpContext.RequestServices.GetRequiredService<Security.Iam.IamService>()
+                        .UpdateUserWithPasswordRotationAsync(enterpriseId, user.Id, () => _userService.Update(user))
+                    : _userService.Update(user);
 
                 if (updatedUser == null)
                     return NoContent();
@@ -660,10 +718,183 @@ namespace EvangelionERPV2.Web.Controllers
             }
         }
 
+        /// <summary>
+        /// <c>users.update</c> edits profiles; who holds what belongs to IAM. A caller may edit only users below
+        /// their current role. Editing a peer, a higher role, or anyone who can manage access needs <c>iam.manage</c>.
+        /// Nobody changes their own role.
+        /// </summary>
+        private async Task<IActionResult?> GuardAccessChangeAsync(Shared.Entities.User caller, Shared.Entities.User target, UpdateUserRequestDTO request)
+        {
+            var roleChanges = request.AccessLevel != target.AccessLevel;
+            if (roleChanges && caller.Id == target.Id)
+                return BadRequest(new { code = "self_role", message = "Você não pode alterar a própria função." });
+
+            if (!roleChanges && caller.Id == target.Id)
+                return null;
+
+            return await GuardTargetMutationAsync(caller, target);
+        }
+
+        private async Task<IActionResult?> GuardTargetMutationAsync(Shared.Entities.User caller, Shared.Entities.User target)
+        {
+            var targetIsPeerOrAbove = caller.Id != target.Id
+                && caller.AccessLevel != (short)EnumAccessLevel.Admin
+                && target.AccessLevel <= caller.AccessLevel;
+            if (targetIsPeerOrAbove || await IsAccessManagerAsync(target))
+                return await RequireIamManageAsync();
+
+            return null;
+        }
+
+        /// <summary>An Admin assigns any role; anyone else only the roles below their own.</summary>
+        private static bool CanAssignLevel(Shared.Entities.User caller, short accessLevel) =>
+            caller.AccessLevel == (short)EnumAccessLevel.Admin || accessLevel > caller.AccessLevel;
+
+        private ObjectResult RoleAboveCaller() =>
+            StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                code = "role_above_you",
+                message = "Você só pode criar ou alterar contas abaixo da sua função."
+            });
+
+        private async Task<Shared.Entities.User?> GetCallerAsync()
+        {
+            if (TryGetUserId() is not { } id)
+                return null;
+            try
+            {
+                return await _userRepository.GetByIdAsync(id);
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>An Admin, or anyone holding iam.manage: editing or deleting them is an access decision.</summary>
+        private async Task<bool> IsAccessManagerAsync(Shared.Entities.User target) =>
+            target.AccessLevel == (short)EnumAccessLevel.Admin
+            || (await HttpContext.RequestServices.GetRequiredService<IPermissionEvaluator>().GrantedAsync([target]))[target.Id].Contains(RbacPermissions.Iam.Manage);
+
+        /// <summary>Null when the caller may manage access right now; otherwise the refusal, step-up contract included.</summary>
+        private async Task<IActionResult?> RequireIamManageAsync()
+        {
+            if (TryGetUserId() is not { } id)
+                return Unauthorized();
+
+            Shared.Entities.User caller;
+            try
+            {
+                caller = await _userRepository.GetByIdAsync(id);
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return Unauthorized();
+            }
+
+            var decision = await HttpContext.RequestServices.GetRequiredService<IPermissionEvaluator>().DecideAsync(User, caller, RbacPermissions.Iam.Manage);
+            return decision switch
+            {
+                PermissionDecision.Allowed => null,
+                PermissionDecision.MfaRequired or PermissionDecision.StepUpRequired => StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    code = decision == PermissionDecision.MfaRequired ? "mfa_required" : "step_up_required",
+                    message = "Confirme com o código do seu aplicativo autenticador para continuar.",
+                    permission = RbacPermissions.Iam.Manage,
+                    windowMinutes = (int)Security.Iam.StepUp.PrivilegedWindow.TotalMinutes
+                }),
+                _ => StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    code = "iam_manage_required",
+                    message = "Só quem gerencia acessos pode alterar a função de alguém ou editar um administrador."
+                })
+            };
+        }
+
+        /// <summary>A role is an access bundle: audit the change and drop the user's cached permissions.</summary>
+        private void RecordRoleChange(Shared.Entities.User user, short previousLevel)
+        {
+            user.IamVersion++;
+            HttpContext.RequestServices.GetRequiredService<Shared.Auditing.IAuditTrailWriter>().Add(new AuditTrail
+            {
+                UserId = TryGetUserId(),
+                EnterpriseId = user.EnterpriseId,
+                ChangedAt = DateTime.UtcNow,
+                Action = "EDIT",
+                EntityName = Shared.Auditing.AuditedEntities.Iam,
+                EntityId = user.Id,
+                ChangesJson = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
+                {
+                    ["AccessLevel"] = new { OldValue = ((EnumAccessLevel)previousLevel).ToString(), NewValue = ((EnumAccessLevel)user.AccessLevel).ToString() }
+                })
+            });
+        }
+
         public sealed class RequestPasswordResetRequest
         {
             public string Email { get; set; } = string.Empty;
             public string RecaptchaToken { get; set; } = string.Empty;
+        }
+
+        public sealed class InitialPasswordRequest
+        {
+            public string UserName { get; set; } = string.Empty;
+            public string CurrentPassword { get; set; } = string.Empty;
+            public string NewPassword { get; set; } = string.Empty;
+            public string RecaptchaToken { get; set; } = string.Empty;
+        }
+
+        private const string PasswordChangeRequiredCode = "password_change_required";
+
+        /// <summary>
+        /// Swaps the password someone else chose for one the user picks, then signs them in exactly as
+        /// <see cref="LogInto"/> would. Only for an account flagged <c>MustChangePassword</c>, and only with
+        /// that password, so it is never a second way to change a password.
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        [RequestSizeLimit(MaxAnonymousLoginRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(UserDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<IActionResult> ChangeInitialPassword([FromBody] InitialPasswordRequest request)
+        {
+            var recaptchaError = await VerifyRecaptchaAsync(request?.RecaptchaToken);
+            if (recaptchaError != null)
+                return recaptchaError;
+
+            if (request == null
+                || string.IsNullOrWhiteSpace(request.UserName)
+                || string.IsNullOrWhiteSpace(request.CurrentPassword)
+                || string.IsNullOrWhiteSpace(request.NewPassword))
+                return BadRequest("userName, currentPassword and newPassword are required.");
+
+            if (request.NewPassword.Length > 128 || !UserService.IsValidResetPassword(request.NewPassword))
+                return BadRequest(UserService.ResetPasswordPolicyMessage);
+
+            if (string.Equals(request.NewPassword, request.CurrentPassword, StringComparison.Ordinal))
+                return BadRequest("Choose a password different from the one you were given.");
+
+            var login = await _passwordLoginService.AuthenticateAsync(NormalizeUserName(request.UserName), request.CurrentPassword);
+            var user = login.User;
+            if (user == null || !user.MustChangePassword || !await CanIssueTokensToUserAsync(user))
+                return Unauthorized();
+
+            if (user.MfaEnabled)
+                return await ChallengeMfaAsync(user, SharedFunctions.HashPassword(request.NewPassword));
+
+            var updatedUser = await _userService.TryChangeInitialPasswordAsync(
+                user.Id, user.Password, SharedFunctions.HashPassword(request.NewPassword));
+            if (updatedUser == null)
+                return Unauthorized();
+            user = updatedUser;
+
+            var (token, refreshToken) = await GenerateTokensAsync(user, false);
+            if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
+                throw new InvalidOperationException("Token generation failed.");
+
+            Log.Logger.Information("Initial password replaced. EmailId={EmailId}", GetLogSafeEmailIdentifier(user.Email ?? user.UserName));
+            return Ok(await BuildUserDtoAsync(user, token, refreshToken));
         }
 
         public sealed class ResetPasswordRequest
@@ -1036,6 +1267,9 @@ namespace EvangelionERPV2.Web.Controllers
                 return Unauthorized();
             }
 
+            if (user.MustChangePassword)
+                return PasswordChangeRequired();
+
             if (user.MfaEnabled)
                 return await ChallengeMfaAsync(user);
 
@@ -1151,6 +1385,12 @@ namespace EvangelionERPV2.Web.Controllers
                 return Unauthorized();
             }
 
+            if (user.MustChangePassword)
+            {
+                await _tokenService.RevokeRefreshTokenAsync(rotation.UserId, rotation.RefreshToken);
+                return PasswordChangeRequired();
+            }
+
             var token = _tokenService.GenerateToken(user);
             Log.Logger.Information(
                 "Refresh token rotated. EmailId={EmailId}",
@@ -1218,8 +1458,24 @@ namespace EvangelionERPV2.Web.Controllers
             if (!await CanIssueTokensToUserAsync(user))
                 return Unauthorized();
 
-            user.IsLogged = 1;
-            _userService.Update(user);
+            if (!string.IsNullOrWhiteSpace(result.PendingInitialPasswordHash))
+            {
+                if (!user.MustChangePassword)
+                    return Unauthorized();
+
+                var updatedUser = await _userService.TryChangeInitialPasswordAsync(
+                    user.Id, user.Password, result.PendingInitialPasswordHash);
+                if (updatedUser == null)
+                    return Unauthorized();
+                user = updatedUser;
+            }
+            else if (user.MustChangePassword)
+                return PasswordChangeRequired();
+            else
+            {
+                user.IsLogged = 1;
+                _userService.Update(user);
+            }
 
             var (token, refreshToken) = await GenerateTokensAsync(user);
             if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
@@ -1285,8 +1541,15 @@ namespace EvangelionERPV2.Web.Controllers
             if (user == null)
                 return error!;
 
-            if (!await _mfaService.DisableAsync(user.Id, request?.Code))
-                return BadRequest("Invalid code.");
+            try
+            {
+                if (!await _mfaService.DisableAsync(user.Id, request?.Code))
+                    return BadRequest("Invalid code.");
+            }
+            catch (Security.Iam.IamException ex)
+            {
+                return StatusCode(ex.Status, new { code = ex.Code, message = ex.Message });
+            }
 
             Log.Logger.Information("MFA disabled. EmailId={EmailId}", GetLogSafeEmailIdentifier(user.Email));
             return NoContent();
@@ -1317,6 +1580,7 @@ namespace EvangelionERPV2.Web.Controllers
         [HttpPost("{id}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> ResetMfa(Guid id)
         {
             if (!TryGetEnterpriseId(out var enterpriseId))
@@ -1335,7 +1599,21 @@ namespace EvangelionERPV2.Web.Controllers
             if (target == null || target.IsActive != true || target.EnterpriseId != enterpriseId)
                 return NotFound();
 
-            await _mfaService.ResetAsync(target.Id, TryGetUserId());
+            var caller = await GetCallerAsync();
+            if (caller == null || caller.IsActive != true || caller.EnterpriseId != enterpriseId)
+                return Unauthorized();
+
+            if (await GuardTargetMutationAsync(caller, target) is { } refused)
+                return refused;
+
+            try
+            {
+                await _mfaService.ResetAsync(target.Id, TryGetUserId());
+            }
+            catch (Security.Iam.IamException ex)
+            {
+                return StatusCode(ex.Status, new { code = ex.Code, message = ex.Message });
+            }
             Log.Logger.Warning(
                 "MFA reset by administrator. EmailId={EmailId}, ActorId={ActorId}",
                 GetLogSafeEmailIdentifier(target.Email),
@@ -1388,7 +1666,26 @@ namespace EvangelionERPV2.Web.Controllers
                 if (userToDelete == null || userToDelete.IsActive != true || userToDelete.EnterpriseId != enterpriseId)
                     return NoContent();
 
-                Shared.Entities.User user = _userService.Delete(id);
+                var caller = await GetCallerAsync();
+                if (caller == null || caller.IsActive != true || caller.EnterpriseId != enterpriseId)
+                    return Unauthorized();
+
+                var isAccessManager = await IsAccessManagerAsync(userToDelete);
+                var targetIsPeerOrAbove = caller.AccessLevel != (short)EnumAccessLevel.Admin
+                    && userToDelete.AccessLevel <= caller.AccessLevel;
+                if ((isAccessManager || targetIsPeerOrAbove) && await RequireIamManageAsync() is { } refused)
+                    return refused;
+
+                Shared.Entities.User user;
+                if (isAccessManager)
+                {
+                    user = await HttpContext.RequestServices.GetRequiredService<Security.Iam.IamService>()
+                        .DeactivateUserAsync(enterpriseId, id);
+                }
+                else
+                {
+                    user = _userService.Delete(id);
+                }
                 if (user == null || user.EnterpriseId != enterpriseId)
                     return NoContent();
 

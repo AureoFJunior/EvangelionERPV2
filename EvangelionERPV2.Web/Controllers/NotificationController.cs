@@ -9,6 +9,7 @@ using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Hubs;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Security;
+using EvangelionERPV2.Web.Security.Iam;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -39,19 +40,22 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IRepository<Enterprise> _enterprises;
         private readonly IHubContext<OrderHub> _hub;
         private readonly IDistributedCache _cache;
+        private readonly IPermissionEvaluator? _permissionEvaluator;
 
         public NotificationController(
             INotificationService notificationService,
             IRepository<User> users,
             IRepository<Enterprise> enterprises,
             IHubContext<OrderHub> hub,
-            IDistributedCache cache)
+            IDistributedCache cache,
+            IPermissionEvaluator? permissionEvaluator = null)
         {
             _notificationService = notificationService;
             _users = users;
             _enterprises = enterprises;
             _hub = hub;
             _cache = cache;
+            _permissionEvaluator = permissionEvaluator;
         }
 
         /// <summary>Live broadcasts plus firing alerts, newest first, filtered to this caller.</summary>
@@ -65,15 +69,19 @@ namespace EvangelionERPV2.Web.Controllers
             if (!TryGetCaller(out var enterpriseId, out var userId))
                 return Unauthorized();
 
-            var accessLevel = await TryGetAccessLevelAsync(userId, enterpriseId);
-            if (accessLevel is null)
+            var user = await TryGetCallerUserAsync(userId, enterpriseId);
+            if (user is null)
                 return Unauthorized();
+
+            var effective = _permissionEvaluator == null
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : await _permissionEvaluator.EffectiveAsync(User, user);
 
             var feed = await _notificationService.GetFeedAsync(enterpriseId, userId, HttpContext.RequestAborted);
 
             feed.Items = feed.Items
                 .Where(item => item.RequiredPermission is null
-                               || StorefrontTokenScope.Grants(User, accessLevel.Value, item.RequiredPermission))
+                               || effective.Contains(item.RequiredPermission))
                 .ToList();
 
             feed.ActiveAlertCount = feed.Items.Count(item => item.Source == NotificationSources.Alert);
@@ -250,7 +258,7 @@ namespace EvangelionERPV2.Web.Controllers
         private static string Hash(string fingerprint) =>
             Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprint)));
 
-        private async Task<short?> TryGetAccessLevelAsync(Guid userId, Guid enterpriseId)
+        private async Task<User?> TryGetCallerUserAsync(Guid userId, Guid enterpriseId)
         {
             try
             {
@@ -258,7 +266,7 @@ namespace EvangelionERPV2.Web.Controllers
 
                 return user is null || user.IsActive != true || user.EnterpriseId != enterpriseId
                     ? null
-                    : user.AccessLevel;
+                    : user;
             }
             catch (NotFoundDatabaseException)
             {

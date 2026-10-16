@@ -22,9 +22,18 @@ on:
 jobs:
   terraform:
     name: 'destroy'
+    # Terraform is production-only. A manual dispatch from develop or release must do nothing.
+    if: github.ref == 'refs/heads/main'
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      TF_VAR_aws_region: ${{ secrets.TF_AWS_REGION }}
+      TF_VAR_s3_bucket_name: ${{ secrets.TF_S3_BUCKET_NAME }}
+      TF_VAR_vpc_id: ${{ secrets.TF_VPC_ID }}
+      TF_VAR_subnets: ${{ secrets.TF_SUBNETS_JSON }}
+      TF_VAR_aws_iam_role_name: ${{ secrets.TF_AWS_IAM_ROLE_NAME }}
+      TF_VAR_aws_ecr_repository_repository_url: ${{ secrets.TF_AWS_ECR_REPOSITORY_URL }}
+      TF_VAR_aws_iam_role_arn: ${{ secrets.TF_AWS_IAM_ROLE_ARN }}
     runs-on: ubuntu-latest
     environment: destroy
 

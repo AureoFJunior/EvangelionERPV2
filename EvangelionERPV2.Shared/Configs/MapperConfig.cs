@@ -48,7 +48,10 @@ namespace EvangelionERPV2.Shared.Configs
                     .ForMember(dest => dest.Status, opt => opt.Ignore());
                 config.CreateMap<PayableBill, PayableBillDTO>().ReverseMap();
                 config.CreateMap<PayableBillProduct, PayableBillProductDTO>()
-                    .ForMember(dest => dest.ProductName, opt => opt.MapFrom(src => src.Product != null ? src.Product.Name : string.Empty))
+                    // A variant reads "Name — Variant", as everywhere else; the family name alone does not say which was bought.
+                    .ForMember(dest => dest.ProductName, opt => opt.MapFrom(src => src.Product == null ? string.Empty
+                        : string.IsNullOrEmpty(src.Product.VariantLabel) ? src.Product.Name
+                        : src.Product.Name + " — " + src.Product.VariantLabel))
                     .ReverseMap();
                 config.CreateMap<NFeDocument, NFeDocumentDTO>()
                     .ForMember(dest => dest.DisplayStatus,

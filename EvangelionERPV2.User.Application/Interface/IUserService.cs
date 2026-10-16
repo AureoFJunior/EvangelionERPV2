@@ -11,6 +11,7 @@ namespace EvangelionERPV2.UserModule.Application.Interface
 
         #region Async
         public Task<TEntity> CreateAsync(User user);
+        Task<User?> TryChangeInitialPasswordAsync(Guid userId, string expectedPasswordHash, string newPasswordHash);
         Task<User> LoginToSSOAsync(string idToken);
         Task<TEntity> UpdateProfilePictureAsync(User user, string? profilePicturePayload);
         Task<string> GetProfilePictureBase64Async(string? profilePictureAddress);

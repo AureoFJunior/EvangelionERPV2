@@ -44,6 +44,14 @@ namespace EvangelionERPV2.ProductModule.Application.Interface
         /// </summary>
         Task<bool> SetFamilyPictureAsync(Guid enterpriseId, Guid variantGroupId, string base64File);
 
+        Task<bool> DeletePictureAsync(Product product);
+        Task<List<ProductImage>> GetImagesAsync(Guid enterpriseId, Guid productId);
+        Task<ProductImage?> GetImageAsync(Guid enterpriseId, Guid imageId);
+        Task<ProductImage> AddImageAsync(Product product, string? base64File);
+        Task<List<ProductImage>?> MoveImageAsync(Guid enterpriseId, Guid imageId, int position);
+        Task<bool> RemoveImageAsync(Guid enterpriseId, Guid imageId);
+        Task<bool> DeleteFamilyPictureAsync(Guid enterpriseId, Guid variantGroupId);
+
         /// <summary>The encrypted S3 key of a family's photo, or null when it has none.</summary>
         Task<string?> GetFamilyPictureAddressAsync(Guid enterpriseId, Guid variantGroupId);
 
@@ -62,6 +70,8 @@ namespace EvangelionERPV2.ProductModule.Application.Interface
         /// A 200 px thumbnail of the product picture, base64-encoded, with a hash of its bytes.
         /// </summary>
         Task<(string Base64, string? Hash)> GetThumbnailBase64Async(string? pictureAddress);
+        Task<string> GetMediumPictureBase64Async(string? pictureAddress);
+        Task<int> BackfillPicturesAsync(CancellationToken cancellationToken);
         #endregion
     }
 }

@@ -8,6 +8,7 @@ using AutoMapper;
 using Serilog;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.ProductModule.Application.Interface;
+using EvangelionERPV2.ProductModule.Application.Services;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Enums;
@@ -177,7 +178,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// A product's photo as an image, so lists can load it lazily instead of carrying base64.
         /// <c>thumb</c> is the long-edge-200 JPEG kept in S3 beside the original. The ETag is derived
-        /// from the stored key: a new upload gets a new key, so it also gets a new ETag.
+        /// from the bytes served, so in-place image rewrites also invalidate cached responses.
         /// </summary>
         [Authorize(Policy = "rbac:" + RbacPermissions.Products.Read)]
         [HttpGet("{id:guid}")]
@@ -237,12 +238,7 @@ namespace EvangelionERPV2.Web.Controllers
             if (string.IsNullOrWhiteSpace(pictureAddress))
                 return NotFound();
 
-            var etag = $"\"{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(pictureAddress + "|" + size)))[..32]}\"";
             Response.Headers.CacheControl = "private, max-age=300";
-            Response.Headers.ETag = etag;
-            if (Request.Headers.IfNoneMatch.Contains(etag))
-                return StatusCode(StatusCodes.Status304NotModified);
-
             var base64 = size == "thumb"
                 ? (await _productService.GetThumbnailBase64Async(pictureAddress)).Base64
                 : await _productService.GetPictureBase64Async(pictureAddress);
@@ -250,6 +246,11 @@ namespace EvangelionERPV2.Web.Controllers
                 return NotFound();
 
             var bytes = Convert.FromBase64String(base64);
+            var etag = "\"" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))[..32] + "\"";
+            Response.Headers.ETag = etag;
+            if (Request.Headers.IfNoneMatch.Contains(etag))
+                return StatusCode(StatusCodes.Status304NotModified);
+
             return File(bytes, ImageContentType(bytes));
         }
 
@@ -311,7 +312,9 @@ namespace EvangelionERPV2.Web.Controllers
                 if (createdProduct == null)
                     return NoContent();
 
-                return Ok(await ToProductDtoAsync(createdProduct));
+                var created = await ToProductDtoAsync(createdProduct);
+                created.PictureError = product.PictureError;
+                return Ok(created);
             }
             catch (Exception)
             {
@@ -444,7 +447,15 @@ namespace EvangelionERPV2.Web.Controllers
                     File = request.File
                 };
 
-                Product updatedProduct = await _productService.UpdatePictureAsync(normalizedPayload);
+                Product updatedProduct;
+                try
+                {
+                    updatedProduct = await _productService.UpdatePictureAsync(normalizedPayload);
+                }
+                catch (ArgumentException ex)
+                {
+                    return BadRequest(new { message = ex.Message });
+                }
 
                 if (updatedProduct == null)
                     return NoContent();
@@ -456,6 +467,127 @@ namespace EvangelionERPV2.Web.Controllers
                 throw;
             }
         }
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Read)]
+        [HttpGet("{productId:guid}")]
+        [ProducesResponseType(typeof(IEnumerable<ProductImageDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public async Task<IActionResult> GetProductImages(Guid productId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var product = await LoadForWriteAsync(productId);
+            if (product == null || product.EnterpriseId != enterpriseId || product.IsActive != true)
+                return NoContent();
+
+            var images = await _productService.GetImagesAsync(enterpriseId, productId);
+            return images.Count == 0
+                ? NoContent()
+                : Ok(images.Select(ToProductImageDto));
+        }
+
+        /// <summary>Returns one tenant-owned gallery image so ERP clients can preview secondary photos.</summary>
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.Read)]
+        [HttpGet("image/{imageId:guid}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetProductImage(Guid imageId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var image = await _productService.GetImageAsync(enterpriseId, imageId);
+            if (image == null)
+                return NotFound();
+
+            var product = await LoadForWriteAsync(image.ProductId);
+            if (product == null || product.EnterpriseId != enterpriseId || product.IsActive != true)
+                return NotFound();
+
+            var base64 = await _productService.GetPictureBase64Async(image.Adress);
+            if (string.IsNullOrWhiteSpace(base64))
+                return NotFound();
+
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(base64);
+            }
+            catch (FormatException)
+            {
+                return NotFound();
+            }
+
+            var contentType = bytes.AsSpan().StartsWith(new byte[] { 0x89, 0x50, 0x4E, 0x47 })
+                ? "image/png"
+                : bytes.AsSpan().StartsWith(new byte[] { 0xFF, 0xD8, 0xFF }) ? "image/jpeg" : "application/octet-stream";
+            return File(bytes, contentType);
+        }
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.UploadPicture)]
+        [HttpPost]
+        [RequestSizeLimit(MaxImageUploadRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(ProductImageDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public async Task<IActionResult> AddProductImage([FromBody] UploadProductPictureRequestDTO request)
+        {
+            if (!ModelState.IsValid || request == null || request.ProductId == Guid.Empty)
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var product = await LoadForWriteAsync(request.ProductId);
+            if (product == null || product.EnterpriseId != enterpriseId || product.IsActive != true)
+                return NoContent();
+
+            try
+            {
+                var image = await _productService.AddImageAsync(product, request.File);
+                return Ok(ToProductImageDto(image));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (ProductGalleryFullException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.UploadPicture)]
+        [HttpPatch("{imageId:guid}")]
+        [ProducesResponseType(typeof(IEnumerable<ProductImageDTO>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public async Task<IActionResult> MoveProductImage(Guid imageId, [FromBody] MoveProductImageRequestDTO request)
+        {
+            if (!ModelState.IsValid || request == null)
+                return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            var images = await _productService.MoveImageAsync(enterpriseId, imageId, request.Position);
+            return images == null
+                ? NoContent()
+                : Ok(images.Select(ToProductImageDto));
+        }
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.DeletePicture)]
+        [HttpDelete("{imageId:guid}")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public async Task<IActionResult> RemoveProductImage(Guid imageId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            await _productService.RemoveImageAsync(enterpriseId, imageId);
+            return NoContent();
+        }
+
+        private static ProductImageDTO ToProductImageDto(ProductImage image) =>
+            new(image.Id, image.Position, image.Width, image.Height);
 
         private Task<Product> LoadForWriteAsync(Guid id) =>
             _repository is IProductRepository<Product> products ? products.GetFreshByIdAsync(id) : _repository.GetByIdAsync(id);

@@ -29,7 +29,7 @@ namespace EvangelionERPV2.Test.Security
                     AccessLevel = (short)EnumAccessLevel.Admin
                 });
 
-            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object);
+            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object, new RolePermissionEvaluator());
             var requirement = new SelfOrPermissionRequirement(
                 RbacPermissions.Users.ReadSelf,
                 RbacPermissions.Users.Read,
@@ -62,7 +62,7 @@ namespace EvangelionERPV2.Test.Security
                     AccessLevel = (short)EnumAccessLevel.Employee
                 });
 
-            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object);
+            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object, new RolePermissionEvaluator());
             var requirement = new SelfOrPermissionRequirement(
                 RbacPermissions.Users.ReadSelf,
                 RbacPermissions.Users.Read,
@@ -96,7 +96,7 @@ namespace EvangelionERPV2.Test.Security
                     AccessLevel = (short)EnumAccessLevel.Employee
                 });
 
-            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object);
+            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object, new RolePermissionEvaluator());
             var requirement = new SelfOrPermissionRequirement(
                 RbacPermissions.Users.ReadSelf,
                 RbacPermissions.Users.Read,
@@ -107,6 +107,36 @@ namespace EvangelionERPV2.Test.Security
             httpContext.Request.RouteValues["id"] = targetUserId.ToString();
 
             var context = new AuthorizationHandlerContext([requirement], user, httpContext);
+            await handler.HandleAsync(context);
+
+            Assert.False(context.HasSucceeded);
+        }
+
+        [Fact]
+        public async Task HandleRequirementAsync_DeniesUserWhoMustChangePassword()
+        {
+            var userId = Guid.NewGuid();
+            var enterpriseId = Guid.NewGuid();
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
+            userRepository.Setup(x => x.GetByIdAsync(userId)).ReturnsAsync(new User
+            {
+                Id = userId,
+                EnterpriseId = enterpriseId,
+                IsActive = true,
+                MustChangePassword = true,
+                AccessLevel = (short)EnumAccessLevel.Admin
+            });
+
+            var handler = new SelfOrPermissionAuthorizationHandler(userRepository.Object, new RolePermissionEvaluator());
+            var requirement = new SelfOrPermissionRequirement(
+                RbacPermissions.Users.ReadSelf,
+                RbacPermissions.Users.Read,
+                "id");
+            var context = new AuthorizationHandlerContext(
+                [requirement],
+                BuildPrincipal(userId, enterpriseId),
+                new DefaultHttpContext());
+
             await handler.HandleAsync(context);
 
             Assert.False(context.HasSucceeded);

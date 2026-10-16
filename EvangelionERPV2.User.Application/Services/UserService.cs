@@ -38,7 +38,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
         private static readonly TimeSpan PasswordResetTokenTtl = TimeSpan.FromMinutes(15);
         private const int PasswordResetCodeLength = 8;
         private const int PasswordResetMaxFailedAttempts = 5;
-        private const string ResetPasswordPolicyMessage =
+        public const string ResetPasswordPolicyMessage =
             "Password must have at least 8 characters, at least 1 number, and at least 1 uppercase letter or special character.";
 
         public UserService(EvangelionERPV2.Shared.Repositories.IRepository<User> userRepository,
@@ -95,6 +95,26 @@ namespace EvangelionERPV2.UserModule.Application.Services
         public User Update(User user)
         {
             return Update(user, clearProfilePicture: false);
+        }
+
+        public async Task<User?> TryChangeInitialPasswordAsync(Guid userId, string expectedPasswordHash, string newPasswordHash)
+        {
+            if (_appDbContext == null)
+                return null;
+
+            var now = DateTime.UtcNow;
+            var updated = await _appDbContext.User.IgnoreQueryFilters()
+                .Where(user => user.Id == userId && user.IsActive == true && user.MustChangePassword
+                    && user.Password == expectedPasswordHash)
+                .ExecuteUpdateAsync(set => set
+                    .SetProperty(user => user.Password, newPasswordHash)
+                    .SetProperty(user => user.MustChangePassword, false)
+                    .SetProperty(user => user.IsLogged, (short?)1)
+                    .SetProperty(user => user.UpdatedAt, now));
+
+            return updated == 1
+                ? await _appDbContext.User.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(user => user.Id == userId)
+                : null;
         }
 
         private User Update(User user, bool clearProfilePicture)
@@ -434,9 +454,13 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 throw new ArgumentException("Invalid password reset request.");
             }
 
+            if (!await ReservePasswordResetAttemptAsync(tokenEntity, now))
+                throw new ArgumentException("Invalid password reset request.");
+
             if (!PasswordResetTokenHashMatches(normalizedToken, tokenEntity.TokenHash))
             {
-                await RegisterPasswordResetFailedAttemptAsync(tokenEntity, now);
+                if (_appDbContext == null)
+                    await RegisterPasswordResetFailedAttemptAsync(tokenEntity, now);
                 throw new ArgumentException("Invalid password reset request.");
             }
 
@@ -459,6 +483,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 }
 
                 user.Password = SharedFunctions.HashPassword(candidatePassword);
+                user.MustChangePassword = false;
                 user.UpdatedAt = now;
                 _userRepository.Update(user);
 
@@ -600,7 +625,7 @@ namespace EvangelionERPV2.UserModule.Application.Services
             return Convert.ToHexString(bytes).ToLowerInvariant()[..12];
         }
 
-        private static bool IsValidResetPassword(string candidatePassword)
+        public static bool IsValidResetPassword(string candidatePassword)
         {
             if (string.IsNullOrWhiteSpace(candidatePassword) || candidatePassword.Length < 8)
                 return false;
@@ -641,6 +666,19 @@ namespace EvangelionERPV2.UserModule.Application.Services
                 return false;
 
             return CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
+        }
+
+        /// <summary>
+        /// Spends one of the code's attempts before it is compared, in a single conditional UPDATE, so
+        /// parallel guesses cannot all read the same count and slip past the limit.
+        /// </summary>
+        private async Task<bool> ReservePasswordResetAttemptAsync(PasswordResetToken tokenEntity, DateTime now)
+        {
+            if (_appDbContext == null)
+                return true;
+
+            return await _appDbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE PasswordResetToken SET FailedAttempts = FailedAttempts + 1, UpdatedAt = {now} WHERE Id = {tokenEntity.Id} AND IsActive = 1 AND UsedAt IS NULL AND FailedAttempts < {PasswordResetMaxFailedAttempts}") > 0;
         }
 
         private async Task RegisterPasswordResetFailedAttemptAsync(PasswordResetToken tokenEntity, DateTime now)

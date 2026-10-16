@@ -24,6 +24,13 @@ namespace EvangelionERPV2.Web.Security
         public static bool IsStorefrontScoped(ClaimsPrincipal? user) =>
             user?.HasClaim(ClaimType, ClaimValue) == true;
 
+        public static bool AllowsThroughToken(ClaimsPrincipal? user, string permission)
+        {
+            if (ServicePermissions.Contains(permission)) return IsStorefrontScoped(user);
+            if (IsStorefrontScoped(user)) return false;
+            return !PdvTokenScope.IsPdvScoped(user) || permission.StartsWith(PdvTokenScope.PermissionPrefix, StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Whether this caller may exercise <paramref name="permission"/>, after both the storefront
         /// and the till scopes have had their say.

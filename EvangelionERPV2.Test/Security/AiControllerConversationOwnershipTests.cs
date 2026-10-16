@@ -177,7 +177,31 @@ namespace EvangelionERPV2.Test.Security
                 permission => !permission.StartsWith(PdvTokenScope.PermissionPrefix, StringComparison.Ordinal));
         }
 
-        private AiController CreateController(Guid enterpriseId, Guid callerUserId, bool pdvScoped = false)
+        [Fact]
+        public async Task Chat_InGrantsModeOffersOnlyPermissionsHeldByTheUser()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var callerUserId = Guid.NewGuid();
+            AiTurnRequest? capturedRequest = null;
+            _agentServiceMock
+                .Setup(x => x.RunTurnAsync(It.IsAny<AiTurnRequest>(), It.IsAny<CancellationToken>()))
+                .Callback<AiTurnRequest, CancellationToken>((request, _) => capturedRequest = request)
+                .ReturnsAsync(new AiTurnResult("ok", Array.Empty<string>(), 1, 1, 1, Array.Empty<AiPendingActionCard>()));
+            _conversationsMock.Setup(x => x.CreateAsync(It.IsAny<AiConversation>())).ReturnsAsync((AiConversation c) => c);
+            var evaluator = new Mock<IPermissionEvaluator>();
+            evaluator.Setup(x => x.EffectiveAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<User>()))
+                .ReturnsAsync((IReadOnlySet<string>)new HashSet<string>([RbacPermissions.Ai.Chat, RbacPermissions.Ai.Act]));
+
+            var controller = CreateController(enterpriseId, callerUserId, evaluator: evaluator.Object);
+
+            await controller.Chat(new AiChatRequestDTO { Message = "crie um pedido" }, CancellationToken.None);
+
+            Assert.NotNull(capturedRequest);
+            Assert.Contains(RbacPermissions.Ai.Chat, capturedRequest!.GrantedPermissions);
+            Assert.DoesNotContain(RbacPermissions.Orders.Create, capturedRequest.GrantedPermissions);
+        }
+
+        private AiController CreateController(Guid enterpriseId, Guid callerUserId, bool pdvScoped = false, IPermissionEvaluator? evaluator = null)
         {
             _usersMock
                 .Setup(x => x.GetByIdAsync(callerUserId))
@@ -199,7 +223,8 @@ namespace EvangelionERPV2.Test.Security
                 _conversationsMock.Object,
                 Mock.Of<IRepository<AiMessage>>(),
                 _usersMock.Object,
-                settings);
+                settings,
+                evaluator ?? ControllerPolicyTestHelper.RolePermissionEvaluator());
 
             var claims = new List<Claim>
             {

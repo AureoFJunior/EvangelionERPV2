@@ -972,14 +972,14 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                 {
                     Fingerprint = fingerprint,
                     Type = TypeSuppressedDemand,
-                    Title = $"Suppressed demand risk: {product.Name}",
+                    Title = $"Suppressed demand risk: {product.DisplayName}",
                     Description = "Demand may be constrained by low stock and open order pressure.",
                     SourceRule = "suppressed_demand_open_orders_stock_gap",
                     SourceModel = "rules-v1",
                     Hypothesis = "Open order pressure and short coverage are a proxy for lost sales due to stockout.",
                     ExplainabilityJson = JsonSerializer.Serialize(new
                     {
-                        product = product.Name,
+                        product = product.DisplayName,
                         pendingUnits,
                         dailyConsumption = Math.Round(demandPerDay, 4),
                         stock = Math.Round(stock, 2),
@@ -991,7 +991,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     EstimatedMarginImpact = estimatedMargin,
                     EstimatedCashImpact = estimatedCash,
                     RecommendationActionTitle = "Replenish and protect availability",
-                    RecommendationActionDescription = $"Prioritize replenishment of {product.Name} and reserve stock for open demand.",
+                    RecommendationActionDescription = $"Prioritize replenishment of {product.DisplayName} and reserve stock for open demand.",
                     WhyRecommended = "Coverage is short and demand pressure indicates potential lost revenue.",
                     RecommendationPayloadJson = JsonSerializer.Serialize(new
                     {
@@ -1090,14 +1090,14 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                 {
                     Fingerprint = fingerprint,
                     Type = TypeLowStock,
-                    Title = $"Low stock risk: {product.Name}",
+                    Title = $"Low stock risk: {product.DisplayName}",
                     Description = "Stock coverage is below expected threshold based on average sales cadence.",
                     SourceRule = "low_stock_average_sales_coverage",
                     SourceModel = "rules-v1",
                     Hypothesis = "When coverage by average daily sales drops below the inferred threshold, replenishment should be prioritized.",
                     ExplainabilityJson = JsonSerializer.Serialize(new
                     {
-                        product = product.Name,
+                        product = product.DisplayName,
                         averageDailySales = Math.Round(averageDailySales, 4),
                         currentStock = Math.Round(currentStock, 2),
                         coverageDays = Math.Round(coverageDays, 2),
@@ -1109,7 +1109,7 @@ namespace EvangelionERPV2.OpportunityRadarModule.Application.Services
                     EstimatedMarginImpact = estimatedMargin,
                     EstimatedCashImpact = estimatedCash,
                     RecommendationActionTitle = "Replenish low-stock SKU",
-                    RecommendationActionDescription = $"Replenish {product.Name} to recover at least {lowStockThresholdDays} days of coverage.",
+                    RecommendationActionDescription = $"Replenish {product.DisplayName} to recover at least {lowStockThresholdDays} days of coverage.",
                     WhyRecommended = "Coverage is below threshold inferred from the product's average sales pace.",
                     RecommendationPayloadJson = JsonSerializer.Serialize(new
                     {

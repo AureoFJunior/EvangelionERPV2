@@ -6,6 +6,7 @@ using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
+using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -24,13 +25,17 @@ namespace EvangelionERPV2.Test.Security
         private readonly Mock<IPayableBillService> _service = new();
         private readonly Mock<IRepository<User>> _userRepository = new();
 
-        private PayableBillsController Controller(bool canReadPayroll = false, string? query = null)
+        private PayableBillsController Controller(bool canReadPayroll = false, string? query = null, bool canReceiveProducts = false)
         {
             var authorization = new Mock<IAuthorizationService>();
             authorization
                 .Setup(a => a.AuthorizeAsync(
                     It.IsAny<System.Security.Claims.ClaimsPrincipal>(), It.IsAny<object?>(), It.IsAny<string>()))
-                .ReturnsAsync(canReadPayroll ? AuthorizationResult.Success() : AuthorizationResult.Failed());
+                .ReturnsAsync((System.Security.Claims.ClaimsPrincipal _, object? _, string policy) =>
+                    policy == RbacPolicies.Payroll.Read && canReadPayroll
+                    || policy == RbacPolicies.PayableBills.MarkProductsReceived && canReceiveProducts
+                        ? AuthorizationResult.Success()
+                        : AuthorizationResult.Failed());
 
             var controller = new PayableBillsController(
                     _service.Object, Mapper(), authorization.Object)
@@ -253,6 +258,41 @@ namespace EvangelionERPV2.Test.Security
             Assert.IsType<OkObjectResult>(result);
             Assert.Equal(_enterpriseId, created!.EnterpriseId);
             Assert.Equal(2500m, created.Amount);
+        }
+
+        [Fact]
+        public async Task AddPayableBill_ReceivingProductsRequiresTheSeparateReceivePermission()
+        {
+            var result = await Controller().AddPayableBill(new UpsertPayableBillRequestDTO
+            {
+                Description = "Compra",
+                BillType = (int)EnumPayableBillType.Accounts,
+                DueDate = new DateTime(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc),
+                Amount = 250m,
+                ReceiveProducts = true
+            });
+
+            Assert.IsType<ForbidResult>(result);
+            _service.Verify(s => s.CreateWithReceiptAsync(It.IsAny<PayableBill>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AddPayableBill_WithReceivePermissionUsesAtomicReceiptPath()
+        {
+            _service.Setup(s => s.CreateWithReceiptAsync(It.IsAny<PayableBill>()))
+                .ReturnsAsync((PayableBill bill) => bill);
+
+            var result = await Controller(canReceiveProducts: true).AddPayableBill(new UpsertPayableBillRequestDTO
+            {
+                Description = "Compra",
+                BillType = (int)EnumPayableBillType.Accounts,
+                DueDate = new DateTime(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc),
+                Amount = 250m,
+                ReceiveProducts = true
+            });
+
+            Assert.IsType<OkObjectResult>(result);
+            _service.Verify(s => s.CreateWithReceiptAsync(It.Is<PayableBill>(bill => bill.EnterpriseId == _enterpriseId)), Times.Once);
         }
 
         [Fact]

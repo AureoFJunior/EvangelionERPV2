@@ -17,6 +17,7 @@ namespace EvangelionERPV2.StorefrontModule.Application.Interface
         Task<StorefrontProductDetailDTO?> GetProductAsync(Guid id);
 
         Task<StorefrontPictureDTO?> GetPictureAsync(Guid productId);
+        Task<StorefrontPictureDTO?> GetProductImageAsync(Guid imageId);
 
         Task<StorefrontPictureDTO?> GetFamilyPictureAsync(Guid variantGroupId);
 

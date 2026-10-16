@@ -74,6 +74,10 @@ namespace EvangelionERPV2.Shared.Entities
 
         public bool MfaEnabled { get; set; }
 
+        /// <summary>Requires the user to choose a personal password at next sign-in.</summary>
+        public bool MustChangePassword { get; set; }
+        public int IamVersion { get; set; }
+
         /// <summary>Encrypted base32 TOTP secret, set only while <see cref="MfaEnabled"/> is true.</summary>
         [MaxLength(256)]
         [JsonIgnore]

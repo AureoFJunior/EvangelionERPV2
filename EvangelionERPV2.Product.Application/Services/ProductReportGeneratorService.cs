@@ -240,7 +240,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         {
             var statusLabel = status == "ok" ? "Available" : "Out";
             var statusClass = status == "ok" ? "status-text-ok" : "status-text-out";
-            var productName = WebUtility.HtmlEncode(product.Name ?? "N/A");
+            var productName = WebUtility.HtmlEncode(product.DisplayName ?? "N/A");
             var productDescription = WebUtility.HtmlEncode(product.Description ?? "N/A");
             var unitOfMeasure = WebUtility.HtmlEncode(product.UnitOfMeasure ?? string.Empty);
 

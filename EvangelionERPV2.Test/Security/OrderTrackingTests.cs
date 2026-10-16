@@ -1,6 +1,8 @@
 using EvangelionERPV2.Shared.Configs;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
+using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Web.FluentValidator;
 
 namespace EvangelionERPV2.Test.Security
@@ -34,6 +36,22 @@ namespace EvangelionERPV2.Test.Security
             Assert.True(Valid(new string('A', 40), null));
             Assert.False(Valid(new string('A', 41), null));
             Assert.False(Valid("BR1", "https://example.com/" + new string('a', 481)));
+        }
+
+        [Fact]
+        public void ShipmentNotice_DetectsTrackingUrlChanges()
+        {
+            var before = new Order
+            {
+                Status = (int)EnumOrderStatus.Shipped,
+                TrackingCode = "BR123",
+                TrackingUrl = "https://old.example/track"
+            };
+
+            Assert.True(OrderShipmentNotice.ShouldNotify(
+                before, (int)EnumOrderStatus.Shipped, "BR123", "https://new.example/track"));
+            Assert.False(OrderShipmentNotice.ShouldNotify(
+                before, (int)EnumOrderStatus.Shipped, "BR123", "https://old.example/track"));
         }
 
         [Fact]

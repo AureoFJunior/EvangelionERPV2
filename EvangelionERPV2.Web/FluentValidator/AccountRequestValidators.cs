@@ -67,6 +67,17 @@ namespace EvangelionERPV2.Web.FluentValidator
         }
     }
 
+    public sealed class InitialPasswordRequestValidator : AbstractValidator<UserController.InitialPasswordRequest>
+    {
+        public InitialPasswordRequestValidator()
+        {
+            RuleFor(x => x.UserName).NotEmpty().MaximumLength(100);
+            RuleFor(x => x.CurrentPassword).NotEmpty().MaximumLength(128);
+            RuleFor(x => x.NewPassword).NotEmpty().MinimumLength(8).MaximumLength(128);
+            RuleFor(x => x.RecaptchaToken).MaximumLength(4096);
+        }
+    }
+
     public sealed class ResetPasswordRequestValidator : AbstractValidator<UserController.ResetPasswordRequest>
     {
         public ResetPasswordRequestValidator()

@@ -8,6 +8,7 @@ using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.Shared.Context;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
@@ -15,7 +16,7 @@ using System.Net;
 
 namespace EvangelionERPV2.ProductModule.Application.Services
 {
-    public class ProductService : IProductService<Product>
+    public partial class ProductService : IProductService<Product>
     {
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Product> _productRepository;
         private IAmazonS3? _s3Client;
@@ -90,8 +91,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
                 try
                 {
-                    var updatedProduct = await UpdatePictureAsync(product);
-                    return updatedProduct;
+                    return await UpdatePictureAsync(product);
                 }
                 catch (Exception ex)
                 {
@@ -104,7 +104,10 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                         rootError.GetType().Name,
                         rootError.Message);
 
-                    throw new InsertDatabaseException("Product image upload failed during creation.", ex);
+                    product.PictureError = ex is ArgumentException
+                        ? ex.Message
+                        : "O produto foi salvo, mas a foto não foi enviada. Tente enviá-la de novo.";
+                    return includedProduct;
                 }
             }
             catch (InsertDatabaseException)
@@ -496,6 +499,9 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 if (string.IsNullOrWhiteSpace(productPicture.File))
                     throw new InsertDatabaseException("Product image file is required.");
 
+                currentStage = "normalize";
+                var picture = ProductPictureNormalizer.FromBase64(productPicture.File);
+
                 currentStage = "resolve-product";
                 Product? existentProduct = await _productRepository.GetByIdAsync(productPicture.Product.Id);
 
@@ -510,28 +516,49 @@ namespace EvangelionERPV2.ProductModule.Application.Services
                 currentStage = "prepare-storage-key";
                 keyName = SharedFunctions.GenerateStorageObjectKey("products", productPicture.Product.Id);
                 encryptedKeyName = SharedFunctions.EnsureEncryptedAddress(keyName);
-                productPicture.Product.UpdatedAt = DateTime.UtcNow;
-                productPicture.Product.PictureAdress = encryptedKeyName;
-                var oldPictureAddress = existentProduct.PictureAdress;
 
                 currentStage = "get-s3-client";
                 var s3Client = await GetS3ClientAsync();
 
-                currentStage = "decode-base64-payload";
-                using var content = SharedFunctions.GetMemoryStreamFromBase64Payload(productPicture.File);
-
                 currentStage = "upload-to-s3";
-                await s3Client.CreateItemAsync(bucketName, keyName, content);
+                using (var stored = new MemoryStream(picture.Bytes))
+                    await s3Client.CreateItemAsync(bucketName, keyName, stored);
 
+                ProductImage? cover = null;
+                string? oldPictureAddress = null;
+                Product? updatedProduct = null;
                 try
                 {
                     currentStage = "persist-db-address";
-                    _productRepository.Update(productPicture.Product);
-                    await _productRepository.CommitAsync();
+                    updatedProduct = await _productRepository.ExecuteInTransactionAsync(async () =>
+                    {
+                        await _productRepository.LockForUpdateAsync(productPicture.Product.Id);
+                        var target = _productRepository is IProductRepository<Product> freshProductRepository
+                            ? await freshProductRepository.GetFreshByIdAsync(productPicture.Product.Id)
+                            : await _appDbContext.Product.AsNoTracking()
+                                .FirstOrDefaultAsync(product => product.Id == productPicture.Product.Id);
+                        if (target == null)
+                            throw new NotFoundDatabaseException($"{nameof(Product)} was not found in database.");
+                        if (target.IsActive != true)
+                            throw new NotFoundDatabaseException($"{nameof(Product)} is inactive.");
+
+                        // Take the deletion snapshot only after locking and reloading, so a
+                        // concurrent gallery move/replacement cannot make us delete its cover.
+                        oldPictureAddress = target.PictureAdress;
+                        target.PictureAdress = encryptedKeyName;
+                        target.PictureWidth = picture.Width;
+                        target.PictureHeight = picture.Height;
+                        target.UpdatedAt = DateTime.UtcNow;
+                        _productRepository.Update(target);
+                        cover = await ReplaceCoverImageAsync(target, encryptedKeyName, picture);
+                        await _productRepository.CommitAsync();
+                        return target;
+                    });
                 }
                 catch
                 {
                     currentStage = "rollback-s3-after-db-failure";
+                    await ForgetCoverChangeAsync(cover);
                     await s3Client.DeleteItemIfExistsAsync(bucketName, keyName);
                     throw;
                 }
@@ -541,17 +568,21 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
                 Log.Logger.Information(
                     "Product image upload succeeded. ProductId={ProductId} Bucket={Bucket} Key={Key} PayloadLength={PayloadLength}",
-                    productPicture.Product.Id,
+                    updatedProduct!.Id,
                     bucketName,
                     keyName,
                     payloadLength);
-                return productPicture.Product;
+                return updatedProduct!;
             }
             catch (NotFoundDatabaseException)
             {
                 throw;
             }
             catch (InsertDatabaseException)
+            {
+                throw;
+            }
+            catch (ArgumentException)
             {
                 throw;
             }
@@ -609,13 +640,15 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             if (await _appDbContext.ProductVariantGroup.IgnoreQueryFilters().AnyAsync(g => g.Id == variantGroupId && g.EnterpriseId != enterpriseId))
                 return false;
 
+            var picture = ProductPictureNormalizer.FromBase64(base64File);
+
             var bucketName = SharedFunctions.GetProductBucketName(_configuration);
             if (string.IsNullOrWhiteSpace(bucketName))
                 throw new InvalidOperationException("AWS bucket name is not configured.");
 
             var keyName = SharedFunctions.GenerateStorageObjectKey("product-families", variantGroupId);
             var s3Client = await GetS3ClientAsync();
-            using (var content = SharedFunctions.GetMemoryStreamFromBase64Payload(base64File))
+            using (var content = new MemoryStream(picture.Bytes))
                 await s3Client.CreateItemAsync(bucketName, keyName, content);
 
             var family = await _appDbContext.ProductVariantGroup.FirstOrDefaultAsync(g => g.Id == variantGroupId && g.EnterpriseId == enterpriseId);
@@ -692,6 +725,11 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             try
             {
                 await s3Client.DeleteItemIfExistsAsync(bucketName, oldPictureAddress);
+                if (!string.IsNullOrWhiteSpace(oldPictureAddress))
+                {
+                    await s3Client.DeleteItemIfExistsAsync(bucketName, ThumbnailKeyFor(oldPictureAddress, ThumbnailLongEdge));
+                    await s3Client.DeleteItemIfExistsAsync(bucketName, ThumbnailKeyFor(oldPictureAddress, MediumLongEdge));
+                }
             }
             catch (Exception ex)
             {
@@ -747,6 +785,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
 
         /// <summary>The long edge of a stored thumbnail, in pixels.</summary>
         public const int ThumbnailLongEdge = 200;
+        public const int MediumLongEdge = 480;
 
         /// <summary>
         /// Shrinks an encoded image so its long edge is at most <paramref name="longEdge"/>.
@@ -810,9 +849,12 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         /// The read-through cache: serves a cached thumbnail if one exists, otherwise fetches the
         /// original, resizes it and writes the result back.
         /// </summary>
-        public static async Task<(string Base64, string? Hash)> BuildThumbnailAsync(IAmazonS3 s3Client, string bucketName, string pictureAddress)
+        public static Task<(string Base64, string? Hash)> BuildThumbnailAsync(IAmazonS3 s3Client, string bucketName, string pictureAddress) =>
+            BuildThumbnailAsync(s3Client, bucketName, pictureAddress, ThumbnailLongEdge);
+
+        public static async Task<(string Base64, string? Hash)> BuildThumbnailAsync(IAmazonS3 s3Client, string bucketName, string pictureAddress, int longEdge)
         {
-            var thumbnailKey = ThumbnailKeyFor(pictureAddress);
+            var thumbnailKey = ThumbnailKeyFor(pictureAddress, longEdge);
 
             var cached = string.Empty;
             try
@@ -840,7 +882,7 @@ namespace EvangelionERPV2.ProductModule.Application.Services
             if (string.IsNullOrWhiteSpace(originalBase64))
                 return (string.Empty, null);
 
-            var thumbnail = ResizeToThumbnail(Convert.FromBase64String(originalBase64), ThumbnailLongEdge);
+            var thumbnail = ResizeToThumbnail(Convert.FromBase64String(originalBase64), longEdge);
             if (thumbnail.Length == 0)
                 return (string.Empty, null);
 
@@ -859,7 +901,9 @@ namespace EvangelionERPV2.ProductModule.Application.Services
         }
 
         /// <summary>Where the thumbnail for an original lives. Same bucket, <c>thumb/</c> prefix.</summary>
-        private static string ThumbnailKeyFor(string pictureAddress) => $"thumb/{pictureAddress}";
+        private static string ThumbnailKeyFor(string pictureAddress) => ThumbnailKeyFor(pictureAddress, ThumbnailLongEdge);
+        private static string ThumbnailKeyFor(string pictureAddress, int longEdge) =>
+            $"thumb{longEdge}/{SharedFunctions.EnsureDecryptedAddress(pictureAddress)}";
 
         /// <summary>
         /// Identifies the bytes a till already holds, so an unchanged image is never sent twice.

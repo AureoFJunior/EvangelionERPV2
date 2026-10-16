@@ -89,6 +89,71 @@ namespace EvangelionERPV2.Test.Security
             harness.FreshProducts.Verify(x => x.GetFreshByIdAsync(stored.Id), Times.Once);
         }
 
+        [Fact]
+        public async Task AddProductImage_LoadsTenantProductAndAddsGalleryImage()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var stored = CreateProduct(enterpriseId, 12m);
+            var image = new ProductImage { Id = Guid.NewGuid(), ProductId = stored.Id, EnterpriseId = enterpriseId, Position = 1 };
+            var harness = new Harness(enterpriseId, stored);
+            harness.ProductService.Setup(x => x.AddImageAsync(stored, "image-data")).ReturnsAsync(image);
+
+            var result = Assert.IsType<OkObjectResult>(await harness.Controller.AddProductImage(
+                new UploadProductPictureRequestDTO { ProductId = stored.Id, File = "image-data" }));
+
+            var dto = Assert.IsType<ProductImageDTO>(result.Value);
+            Assert.Equal(image.Id, dto.Id);
+            harness.ProductService.Verify(x => x.AddImageAsync(stored, "image-data"), Times.Once);
+            harness.FreshProducts.Verify(x => x.GetFreshByIdAsync(stored.Id), Times.Once);
+        }
+
+        [Fact]
+        public async Task GetProductImage_ReturnsTenantScopedImageContent()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var stored = CreateProduct(enterpriseId, 12m);
+            var image = new ProductImage { Id = Guid.NewGuid(), ProductId = stored.Id, EnterpriseId = enterpriseId, Position = 1, Adress = "encrypted-address" };
+            var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x01, 0x02 };
+            var harness = new Harness(enterpriseId, stored);
+            harness.ProductService.Setup(x => x.GetImageAsync(enterpriseId, image.Id)).ReturnsAsync(image);
+            harness.ProductService.Setup(x => x.GetPictureBase64Async(image.Adress)).ReturnsAsync(Convert.ToBase64String(png));
+
+            var result = Assert.IsType<FileContentResult>(await harness.Controller.GetProductImage(image.Id));
+
+            Assert.Equal("image/png", result.ContentType);
+            Assert.Equal(png, result.FileContents);
+            harness.ProductService.Verify(x => x.GetImageAsync(enterpriseId, image.Id), Times.Once);
+            harness.ProductService.Verify(x => x.GetPictureBase64Async(image.Adress), Times.Once);
+        }
+
+        [Fact]
+        public async Task MoveProductImage_UsesTenantScopedGalleryService()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var stored = CreateProduct(enterpriseId, 12m);
+            var image = new ProductImage { Id = Guid.NewGuid(), ProductId = stored.Id, EnterpriseId = enterpriseId, Position = 0 };
+            var harness = new Harness(enterpriseId, stored);
+            harness.ProductService.Setup(x => x.MoveImageAsync(enterpriseId, image.Id, 0)).ReturnsAsync([image]);
+
+            var result = Assert.IsType<OkObjectResult>(await harness.Controller.MoveProductImage(
+                image.Id, new MoveProductImageRequestDTO { Position = 0 }));
+
+            Assert.Single(Assert.IsAssignableFrom<IEnumerable<ProductImageDTO>>(result.Value));
+        }
+
+        [Fact]
+        public async Task RemoveProductImage_UsesTenantScopedGalleryService()
+        {
+            var enterpriseId = Guid.NewGuid();
+            var stored = CreateProduct(enterpriseId, 12m);
+            var imageId = Guid.NewGuid();
+            var harness = new Harness(enterpriseId, stored);
+            harness.ProductService.Setup(x => x.RemoveImageAsync(enterpriseId, imageId)).ReturnsAsync(true);
+
+            Assert.IsType<NoContentResult>(await harness.Controller.RemoveProductImage(imageId));
+            harness.ProductService.Verify(x => x.RemoveImageAsync(enterpriseId, imageId), Times.Once);
+        }
+
         private sealed class Harness
         {
             public Mock<IProductService<Product>> ProductService { get; } = new(MockBehavior.Strict);

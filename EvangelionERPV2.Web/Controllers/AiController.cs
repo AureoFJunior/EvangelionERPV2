@@ -5,6 +5,7 @@ using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Security;
+using EvangelionERPV2.Web.Security.Iam;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -34,6 +35,7 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly IRepository<AiConversation> _conversations;
         private readonly IRepository<AiMessage> _messages;
         private readonly IRepository<User> _users;
+        private readonly IPermissionEvaluator? _permissionEvaluator;
         private readonly AiSettings _settings;
 
         public AiController(
@@ -44,7 +46,8 @@ namespace EvangelionERPV2.Web.Controllers
             IRepository<AiConversation> conversations,
             IRepository<AiMessage> messages,
             IRepository<User> users,
-            IOptions<AiSettings> settings)
+            IOptions<AiSettings> settings,
+            IPermissionEvaluator? permissionEvaluator = null)
         {
             _agentService = agentService;
             _pendingActions = pendingActions;
@@ -53,6 +56,7 @@ namespace EvangelionERPV2.Web.Controllers
             _conversations = conversations;
             _messages = messages;
             _users = users;
+            _permissionEvaluator = permissionEvaluator;
             _settings = settings.Value;
         }
 
@@ -83,7 +87,7 @@ namespace EvangelionERPV2.Web.Controllers
 
             var conversation = await ResolveConversationAsync(request.ConversationId, enterpriseId, userId.Value);
 
-            var granted = GrantedPermissions(user);
+            var granted = await GrantedPermissionsAsync(user);
 
             var result = await _agentService.RunTurnAsync(
                 new AiTurnRequest(
@@ -355,7 +359,7 @@ namespace EvangelionERPV2.Web.Controllers
             if (user is null)
                 return Unauthorized();
 
-            var granted = GrantedPermissions(user);
+            var granted = await GrantedPermissionsAsync(user);
 
             var outcome = await _pendingActions.ConfirmAsync(
                 actionId, granted, new AiToolContext(enterpriseId, userId.Value), cancellation);
@@ -388,10 +392,14 @@ namespace EvangelionERPV2.Web.Controllers
                 : BadRequest(new AiActionOutcomeDTO { Success = false, Message = outcome.Message });
         }
 
-        private HashSet<string> GrantedPermissions(User user) =>
-            RbacPermissions.All
-                .Where(permission => StorefrontTokenScope.Grants(User, user.AccessLevel, permission))
-                .ToHashSet(StringComparer.Ordinal);
+        private async Task<HashSet<string>> GrantedPermissionsAsync(User user)
+        {
+            if (_permissionEvaluator == null)
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var effective = await _permissionEvaluator.EffectiveAsync(User, user);
+            return effective.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
 
         private static AiPendingActionDTO ToDto(AiPendingActionCard card) =>
             new()

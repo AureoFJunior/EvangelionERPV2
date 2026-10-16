@@ -6,6 +6,7 @@ using AutoMapper;
 
 using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
+using EvangelionERPV2.Shared.Auditing;
 using EvangelionERPV2.Shared.Entities;
 using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
@@ -64,6 +65,185 @@ namespace EvangelionERPV2.Test.Security
             Assert.Equal("Invalid access level.", badRequest.Value);
         }
 
+        [Fact]
+        public async Task UpdateUser_ManagerCannotPromoteUserToAdmin()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(target, EnumAccessLevel.Manager);
+
+            var result = await context.Controller.UpdateUser(BuildRequest(target.Id, (short)EnumAccessLevel.Admin));
+
+            Assert.IsType<ObjectResult>(result);
+            Assert.Equal(StatusCodes.Status403Forbidden, ((ObjectResult)result).StatusCode);
+            context.UserService.Verify(x => x.Update(It.IsAny<User>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task UpdateUser_ManagerCannotChangePeerProfileOrPasswordWithoutIamManage()
+        {
+            var target = BuildUser();
+            target.AccessLevel = (short)EnumAccessLevel.Manager;
+            target.Password = "existing-password";
+            var context = new ControllerContextBuilder(target, EnumAccessLevel.Manager, iamDecision: PermissionDecision.Denied);
+            var request = BuildRequest(target.Id, (short)EnumAccessLevel.Manager);
+            request.Password = "take-over-password";
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+            Assert.Equal("existing-password", target.Password);
+            context.UserService.Verify(x => x.Update(It.IsAny<User>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task UpdateUser_OperatorPasswordResetRequiresHumanTargetToChooseANewPassword()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(target);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.Password = "OperatorSelected9!";
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.True(target.MustChangePassword);
+        }
+
+        [Fact]
+        public async Task UpdateUser_OperatorPasswordResetDoesNotForceServiceAccountPasswordChanges()
+        {
+            var target = BuildUser();
+            target.IsServiceAccount = true;
+            var context = new ControllerContextBuilder(target);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.Password = "OperatorSelected9!";
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.False(target.MustChangePassword);
+        }
+
+        [Fact]
+        public async Task UpdateUser_CannotBypassPasswordRotationByConvertingHumanAccountToServiceAccount()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(target);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.Password = "OperatorSelected9!";
+            request.IsServiceAccount = true;
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.True(target.IsServiceAccount);
+            Assert.True(target.MustChangePassword);
+        }
+
+        [Fact]
+        public async Task UpdateUser_RequiresPasswordRotationWhenConvertingServiceAccountToHuman()
+        {
+            var target = BuildUser();
+            target.IsServiceAccount = true;
+            var context = new ControllerContextBuilder(target);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.Password = "OperatorSelected9!";
+            request.IsServiceAccount = false;
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.False(target.IsServiceAccount);
+            Assert.True(target.MustChangePassword);
+        }
+
+        [Fact]
+        public async Task UpdateUser_RequiresPasswordRotationWhenServiceAccountBecomesHumanWithoutReplacingPassword()
+        {
+            var target = BuildUser();
+            target.IsServiceAccount = true;
+            target.MustChangePassword = false;
+            var context = new ControllerContextBuilder(target);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.IsServiceAccount = false;
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.False(target.IsServiceAccount);
+            Assert.True(target.MustChangePassword);
+        }
+
+        [Fact]
+        public async Task UpdateUser_SelfSelectedPasswordDoesNotSetOperatorChangeRequirement()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(target, EnumAccessLevel.Employee, callerIsTarget: true);
+            var request = BuildRequest(target.Id, target.AccessLevel);
+            request.Password = "SelfSelected9!";
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.False(target.MustChangePassword);
+        }
+
+        [Fact]
+        public async Task UpdateUser_SelfDeactivationOfAnAccessManagerRequiresIamAndCannotBypassTheGuard()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(
+                target, EnumAccessLevel.Admin, callerIsTarget: true, iamDecision: PermissionDecision.Denied);
+            var request = BuildRequest(target.Id, (short)EnumAccessLevel.Admin);
+            request.IsActive = false;
+
+            var result = await context.Controller.UpdateUser(request);
+
+            Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+            Assert.True(target.IsActive);
+            context.UserService.Verify(x => x.Update(It.IsAny<User>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task DeleteUser_ManagerCannotDeleteAPeerWithoutIamManage()
+        {
+            var target = BuildUser();
+            target.AccessLevel = (short)EnumAccessLevel.Manager;
+            var context = new ControllerContextBuilder(target, EnumAccessLevel.Manager, iamDecision: PermissionDecision.Denied);
+
+            var result = await context.Controller.DeleteUser(target.Id);
+
+            Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+            context.UserService.Verify(x => x.Delete(It.IsAny<Guid>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task UpdateUser_CallerCannotChangeTheirOwnRole()
+        {
+            var caller = BuildUser();
+            var context = new ControllerContextBuilder(caller, EnumAccessLevel.Manager, callerIsTarget: true);
+
+            var result = await context.Controller.UpdateUser(BuildRequest(caller.Id, (short)EnumAccessLevel.Employee));
+
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Contains("self_role", badRequest.Value!.ToString());
+            context.UserService.Verify(x => x.Update(It.IsAny<User>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task UpdateUser_AdminChangingRole_RecordsAnIamAuditAndInvalidatesPermissions()
+        {
+            var target = BuildUser();
+            var context = new ControllerContextBuilder(target);
+
+            var result = await context.Controller.UpdateUser(BuildRequest(target.Id, (short)EnumAccessLevel.Manager));
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.Equal(1, target.IamVersion);
+            context.Audit.Verify(writer => writer.Add(It.Is<AuditTrail>(entry =>
+                entry.EntityName == AuditedEntities.Iam && entry.EntityId == target.Id && entry.Action == "EDIT")), Times.Once);
+        }
+
         private static User BuildUser() => new()
         {
             Id = Guid.NewGuid(),
@@ -96,15 +276,26 @@ namespace EvangelionERPV2.Test.Security
         private sealed class ControllerContextBuilder
         {
             public UserController Controller { get; }
+            public Mock<IUserService<User>> UserService { get; } = new();
+            public Mock<IAuditTrailWriter> Audit { get; } = new();
 
-            public ControllerContextBuilder(User stored)
+            public ControllerContextBuilder(User stored, EnumAccessLevel callerLevel = EnumAccessLevel.Admin, bool callerIsTarget = false,
+                PermissionDecision iamDecision = PermissionDecision.Allowed)
             {
+                var caller = callerIsTarget ? stored : BuildUser();
+                caller.AccessLevel = (short)callerLevel;
                 var userRepository = new Mock<IRepository<User>>();
                 userRepository.Setup(x => x.GetByIdAsync(stored.Id)).ReturnsAsync(stored);
+                userRepository.Setup(x => x.GetByIdAsync(caller.Id)).ReturnsAsync(caller);
 
-                var userService = new Mock<IUserService<User>>();
-                userService.Setup(x => x.Update(It.IsAny<User>())).Returns((User user) => user);
+                UserService.Setup(x => x.Update(It.IsAny<User>())).Returns((User user) => user);
 
+                var permissions = new Mock<IPermissionEvaluator>();
+                permissions.Setup(x => x.DecideAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<User>(), It.IsAny<string>()))
+                    .ReturnsAsync(iamDecision);
+                permissions.Setup(x => x.GrantedAsync(It.IsAny<IReadOnlyCollection<User>>()))
+                    .ReturnsAsync((IReadOnlyCollection<User> users) => (IReadOnlyDictionary<Guid, IReadOnlySet<string>>)users
+                        .ToDictionary(user => user.Id, _ => (IReadOnlySet<string>)new HashSet<string>()));
                 var mapper = new Mock<IMapper>();
                 mapper.Setup(x => x.Map<UserDTO>(It.IsAny<User>())).Returns(new UserDTO());
 
@@ -112,17 +303,21 @@ namespace EvangelionERPV2.Test.Security
                 var kmsProvider = new AWSKMSKeyProvider(new Mock<IAmazonSecretsManager>().Object, configuration);
                 var tokenService = new TokenService(new Mock<IRepository<RefreshToken>>().Object, configuration);
 
+                var services = new ServiceCollection();
+                services.AddSingleton(permissions.Object);
+                services.AddSingleton(Audit.Object);
                 var httpContext = new DefaultHttpContext
                 {
-                    RequestServices = new ServiceCollection().BuildServiceProvider(),
+                    RequestServices = services.BuildServiceProvider(),
                     User = new ClaimsPrincipal(new ClaimsIdentity(
                     [
-                        new Claim(ClaimTypes.GroupSid, EnterpriseId.ToString())
+                        new Claim(ClaimTypes.GroupSid, EnterpriseId.ToString()),
+                        new Claim(ClaimTypes.Sid, caller.Id.ToString())
                     ], "test"))
                 };
 
                 Controller = new UserController(
-                    userService.Object,
+                    UserService.Object,
                     userRepository.Object,
                     mapper.Object,
                     configuration,

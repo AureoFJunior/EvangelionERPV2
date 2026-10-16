@@ -116,7 +116,8 @@ namespace EvangelionERPV2.StorefrontModule.Application.DTOs
         int? DiscountPercent = null,
         DateTime? PromotionEndsAt = null,
         IReadOnlyList<StorefrontInstallmentDTO>? Installments = null,
-        bool LowStock = false)
+        bool LowStock = false,
+        IReadOnlyList<Guid>? ImageIds = null)
         : StorefrontProductSummaryDTO(Id, Name, Price, HasPicture, Available, EnterpriseName, EnterpriseSlug, CreatedAt, PriceFrom, VariantCount,
             PictureProductId, FamilyPictureId, CompareAtPrice, DiscountPercent, MaxInstallment: Installments is { Count: > 1 } plans ? plans[^1] : null,
             LowStock: LowStock);

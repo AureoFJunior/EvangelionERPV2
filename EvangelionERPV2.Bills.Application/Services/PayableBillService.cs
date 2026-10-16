@@ -41,7 +41,13 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             _appDbContext = appDbContext;
         }
 
-        public async Task<PayableBill> CreateAsync(PayableBill payableBill, bool useAmbientTransaction = false, bool keepProvidedAmount = false)
+        public Task<PayableBill> CreateAsync(PayableBill payableBill, bool useAmbientTransaction = false, bool keepProvidedAmount = false) =>
+            CreateInternalAsync(payableBill, useAmbientTransaction, keepProvidedAmount, receiveProducts: false);
+
+        public Task<PayableBill> CreateWithReceiptAsync(PayableBill payableBill) =>
+            CreateInternalAsync(payableBill, useAmbientTransaction: false, keepProvidedAmount: false, receiveProducts: true);
+
+        private async Task<PayableBill> CreateInternalAsync(PayableBill payableBill, bool useAmbientTransaction, bool keepProvidedAmount, bool receiveProducts)
         {
             if (payableBill == null)
                 throw new InsertDatabaseException($"{nameof(PayableBill)} is null.");
@@ -57,9 +63,9 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             try
             {
                 if (useAmbientTransaction)
-                    await CreateCoreAsync(payableBill, sourceItems, keepProvidedAmount);
+                    await CreateCoreAsync(payableBill, sourceItems, keepProvidedAmount, receiveProducts);
                 else
-                    await ExecuteInTransactionAsync(() => CreateCoreAsync(payableBill, sourceItems, keepProvidedAmount));
+                    await ExecuteInTransactionAsync(() => CreateCoreAsync(payableBill, sourceItems, keepProvidedAmount, receiveProducts));
             }
             catch (DbUpdateException ex)
             {
@@ -70,7 +76,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
             return createdBill ?? payableBill;
         }
 
-        private async Task CreateCoreAsync(PayableBill payableBill, List<PayableBillProduct> sourceItems, bool keepProvidedAmount = false)
+        private async Task CreateCoreAsync(PayableBill payableBill, List<PayableBillProduct> sourceItems, bool keepProvidedAmount, bool receiveProducts)
         {
             payableBill.CreatedAt = DateTime.UtcNow;
             payableBill.UpdatedAt = DateTime.UtcNow;
@@ -93,6 +99,7 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 payableBill.Amount = payableBill.Amount > 0 ? payableBill.Amount : 0;
 
             payableBill.Items = null;
+            payableBill.ProductsReceivedAt = receiveProducts && normalizedItems.Any() ? payableBill.CreatedAt : null;
 
             await _payableBillRepository.CreateAsync(payableBill);
 
@@ -100,6 +107,10 @@ namespace EvangelionERPV2.BillsModule.Application.Services
                 await _payableBillProductRepository.CreateRangeAsync(normalizedItems);
 
             await _payableBillRepository.CommitAsync();
+
+            if (payableBill.ProductsReceivedAt.HasValue)
+                foreach (var item in normalizedItems)
+                    await _productService.ApplyStockMovementAsync(item.ProductId, payableBill.EnterpriseId, item.Quantity, EnumStockMovementType.Receipt, payableBill.Id);
 
             await ApplyEnterpriseBalanceDeltaAsync(
                 payableBill.EnterpriseId,

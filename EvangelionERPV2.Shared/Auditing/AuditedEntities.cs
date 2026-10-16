@@ -24,9 +24,10 @@ namespace EvangelionERPV2.Shared.Auditing
 
         /// <summary>Two-factor sign-in events, written by MfaService rather than by an entity change.</summary>
         public const string Mfa = "UserMfa";
+        public const string Iam = "UserIam";
 
         private static readonly HashSet<string> _entityNames = new(
-            _types.Select(type => type.Name).Append(Mfa),
+            _types.Select(type => type.Name).Append(Mfa).Append(Iam),
             StringComparer.OrdinalIgnoreCase);
 
         /// <summary>

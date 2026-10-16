@@ -4,6 +4,7 @@ using AutoMapper;
 using EvangelionERPV2.EmailModule.Application.Interface;
 using EvangelionERPV2.Shared.DTOs;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Enums;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Shared.Utils;
 using EvangelionERPV2.UserModule.Application.Interface;
@@ -36,6 +37,7 @@ namespace EvangelionERPV2.Test.Security
         private readonly MfaService _mfa;
         private readonly UserController _controller;
         private readonly Mock<IRepository<User>> _users = new();
+        private readonly Mock<IPermissionEvaluator> _permissions = new();
         private readonly IConfiguration _configuration;
         private readonly IServiceProvider _services;
         private readonly Guid _enterpriseId = Guid.NewGuid();
@@ -53,7 +55,8 @@ namespace EvangelionERPV2.Test.Security
                 FirstName = "Mfa",
                 LastName = "User",
                 EnterpriseId = enterpriseId,
-                IsActive = true
+                IsActive = true,
+                AccessLevel = (short)EnumAccessLevel.Employee
             };
 
             var users = _users;
@@ -86,18 +89,25 @@ namespace EvangelionERPV2.Test.Security
 
             var enterprises = new Mock<IRepository<Enterprise>>();
             enterprises.Setup(x => x.GetByIdAsync(enterpriseId)).ReturnsAsync(new Enterprise { Id = enterpriseId, IsActive = true });
-            _services = new ServiceCollection().AddSingleton(enterprises.Object).BuildServiceProvider();
+            _permissions.Setup(x => x.GrantedAsync(It.IsAny<IReadOnlyCollection<User>>()))
+                .ReturnsAsync((IReadOnlyCollection<User> candidates) => (IReadOnlyDictionary<Guid, IReadOnlySet<string>>)candidates
+                    .ToDictionary(user => user.Id, _ => (IReadOnlySet<string>)new HashSet<string>()));
+            _permissions.Setup(x => x.DecideAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<User>(), It.IsAny<string>()))
+                .ReturnsAsync(PermissionDecision.Denied);
+            _services = new ServiceCollection().AddSingleton(enterprises.Object).AddSingleton(_permissions.Object).BuildServiceProvider();
             _controller = BuildController(_mfa);
         }
 
-        private UserController BuildController(MfaService mfa, Guid? callerEnterpriseId = null)
+        private UserController BuildController(MfaService mfa, Guid? callerEnterpriseId = null, User? callerUser = null)
         {
             var configuration = _configuration;
             var users = _users;
+            callerUser ??= _user;
+            users.Setup(x => x.GetByIdAsync(callerUser.Id)).ReturnsAsync(callerUser);
             var kmsProvider = new AWSKMSKeyProvider(new Mock<IAmazonSecretsManager>().Object, configuration);
-            var caller = new ClaimsPrincipal(new ClaimsIdentity(new[]
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
             {
-                new Claim(ClaimTypes.Sid, _user.Id.ToString()),
+                new Claim(ClaimTypes.Sid, callerUser.Id.ToString()),
                 new Claim(ClaimTypes.GroupSid, (callerEnterpriseId ?? _enterpriseId).ToString())
             }, "test"));
             return new UserController(
@@ -112,7 +122,7 @@ namespace EvangelionERPV2.Test.Security
                 new PasswordLoginService(users.Object),
                 mfa, null!)
             {
-                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { RequestServices = _services, User = caller } }
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { RequestServices = _services, User = principal } }
             };
         }
 
@@ -177,6 +187,41 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task VerifyMfa_RejectsInitialPasswordChallengeAfterAnAdministratorReset()
+        {
+            var secret = await EnableMfaAsync();
+            var challenge = await _mfa.CreateChallengeAsync(
+                _user.Id,
+                SharedFunctions.HashPassword("Pending9Password"),
+                _user.Password);
+
+            _user.Password = SharedFunctions.HashPassword("AdminReset9Password");
+
+            Assert.Null(await _mfa.VerifyChallengeAsync(challenge, CurrentCode(secret)));
+        }
+
+        [Fact]
+        public async Task VerifyMfa_DoesNotCommitAnInitialPasswordAfterAConcurrentReset()
+        {
+            var secret = await EnableMfaAsync();
+            _user.MustChangePassword = true;
+            var pendingHash = SharedFunctions.HashPassword("Pending9Password");
+            var challenge = await _mfa.CreateChallengeAsync(_user.Id, pendingHash, _user.Password);
+            _userService.Setup(x => x.TryChangeInitialPasswordAsync(_user.Id, _user.Password, pendingHash))
+                .ReturnsAsync((User?)null);
+
+            var result = await _controller.VerifyMfa(new UserController.VerifyMfaRequest
+            {
+                MfaToken = challenge,
+                Code = CurrentCode(secret)
+            });
+
+            Assert.IsType<UnauthorizedResult>(result);
+            Assert.True(_user.MustChangePassword);
+            _refreshTokens.Verify(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
         public async Task VerifyMfa_WithRecoveryCode_ReportsHowManyAreLeft()
         {
             await _mfa.BeginSetupAsync(_user);
@@ -223,6 +268,31 @@ namespace EvangelionERPV2.Test.Security
 
             var challenge = Assert.IsType<MfaChallengeResponse>(Assert.IsType<OkObjectResult>(result).Value);
             Assert.True(challenge.MfaRequired);
+            _refreshTokens.Verify(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task LoginWithGoogle_WhenInitialPasswordChangeIsRequired_DoesNotIssueAChallengeOrTokens()
+        {
+            _user.MustChangePassword = true;
+            _userService.Setup(x => x.LoginToSSOAsync("google-id-token")).ReturnsAsync(_user);
+            var result = await _controller.LoginWithGoogle(JsonSerializer.SerializeToElement(new { idToken = "google-id-token" }));
+            var response = Assert.IsType<ObjectResult>(result);
+            Assert.Equal(StatusCodes.Status403Forbidden, response.StatusCode);
+            Assert.Equal("password_change_required", JsonSerializer.SerializeToElement(response.Value).GetProperty("code").GetString());
+            _refreshTokens.Verify(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task VerifyMfa_WhenInitialPasswordChangeBecomesRequired_DoesNotIssueTokens()
+        {
+            var secret = await EnableMfaAsync();
+            var mfaToken = await LoginForChallengeAsync();
+            _user.MustChangePassword = true;
+            var result = await _controller.VerifyMfa(new UserController.VerifyMfaRequest { MfaToken = mfaToken, Code = CurrentCode(secret) });
+            var response = Assert.IsType<ObjectResult>(result);
+            Assert.Equal(StatusCodes.Status403Forbidden, response.StatusCode);
+            Assert.Equal("password_change_required", JsonSerializer.SerializeToElement(response.Value).GetProperty("code").GetString());
             _refreshTokens.Verify(x => x.ExecuteInTransactionAsync(It.IsAny<Func<Task>>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
@@ -283,6 +353,44 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.IsType<NotFoundResult>(await outsider.ResetMfa(_user.Id));
             Assert.True(_user.MfaEnabled);
+        }
+
+        [Fact]
+        public async Task ResetMfa_ManagerCannotResetAnAccessManagersMfa()
+        {
+            await EnableMfaAsync();
+            _user.AccessLevel = (short)EnumAccessLevel.Admin;
+            var manager = new User
+            {
+                Id = Guid.NewGuid(), UserName = "manager", AccessLevel = (short)EnumAccessLevel.Manager,
+                EnterpriseId = _enterpriseId, IsActive = true
+            };
+            var controller = BuildController(_mfa, callerUser: manager);
+
+            var result = Assert.IsType<ObjectResult>(await controller.ResetMfa(_user.Id));
+
+            Assert.Equal(StatusCodes.Status403Forbidden, result.StatusCode);
+            Assert.True(_user.MfaEnabled);
+            _permissions.Verify(x => x.DecideAsync(It.IsAny<ClaimsPrincipal>(), manager, RbacPermissions.Iam.Manage), Times.Once);
+        }
+
+        [Fact]
+        public async Task ResetMfa_ManagerCannotResetAPeerManagersMfaWithoutIamManage()
+        {
+            await EnableMfaAsync();
+            _user.AccessLevel = (short)EnumAccessLevel.Manager;
+            var manager = new User
+            {
+                Id = Guid.NewGuid(), UserName = "peer-manager", AccessLevel = (short)EnumAccessLevel.Manager,
+                EnterpriseId = _enterpriseId, IsActive = true
+            };
+            var controller = BuildController(_mfa, callerUser: manager);
+
+            var result = await controller.ResetMfa(_user.Id);
+
+            Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+            Assert.True(_user.MfaEnabled);
+            _permissions.Verify(x => x.DecideAsync(It.IsAny<ClaimsPrincipal>(), manager, RbacPermissions.Iam.Manage), Times.Once);
         }
 
         [Theory]

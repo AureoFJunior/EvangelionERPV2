@@ -8,10 +8,12 @@ namespace EvangelionERPV2.Web.Security
     public sealed class PermissionAuthorizationHandler : AuthorizationHandler<PermissionRequirement>
     {
         private readonly IRepository<User> _userRepository;
+        private readonly IPermissionEvaluator _permissions;
 
-        public PermissionAuthorizationHandler(IRepository<User> userRepository)
+        public PermissionAuthorizationHandler(IRepository<User> userRepository, IPermissionEvaluator permissions)
         {
             _userRepository = userRepository;
+            _permissions = permissions;
         }
 
         protected override async Task HandleRequirementAsync(
@@ -27,11 +29,17 @@ namespace EvangelionERPV2.Web.Security
                 return;
 
             var user = await _userRepository.GetByIdAsync(userId.Value);
-            if (user == null || user.IsActive != true || user.EnterpriseId != enterpriseId.Value)
+            if (user == null || user.IsActive != true || user.MustChangePassword || user.EnterpriseId != enterpriseId.Value)
                 return;
 
-            if (StorefrontTokenScope.Grants(context.User, user.AccessLevel, requirement.Permission))
+            var decision = await _permissions.DecideAsync(context.User, user, requirement.Permission);
+            if (decision == PermissionDecision.Allowed)
                 context.Succeed(requirement);
+            else
+            {
+                Iam.IamMetrics.Denied.WithLabels(Iam.IamMetrics.ReasonOf(decision)).Inc();
+                Iam.StepUpAuthorizationResultHandler.Remember(context, decision, requirement.Permission);
+            }
         }
 
         private static Guid? ResolveUserId(ClaimsPrincipal user)

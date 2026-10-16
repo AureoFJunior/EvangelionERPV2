@@ -126,8 +126,17 @@ namespace EvangelionERPV2.Web.Security
             Users.Update,
             Users.UpdateSelf,
             Users.Delete,
-            Users.Manage
+            Users.Manage,
+
+            Iam.Read,
+            Iam.Manage
         ];
+
+        public static class Iam
+        {
+            public const string Read = "rbac:iam.read";
+            public const string Manage = "rbac:iam.manage";
+        }
 
         public static IReadOnlyDictionary<string, string> PermissionToPolicyName { get; } =
             RbacPermissions.All.ToDictionary(permission => permission, BuildPolicyName, StringComparer.OrdinalIgnoreCase);

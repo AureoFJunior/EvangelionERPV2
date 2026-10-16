@@ -11,6 +11,7 @@ namespace EvangelionERPV2.Test.Security
             ?? throw new InvalidOperationException("IsSensitiveEndpoint method was not found.");
 
         [Theory]
+        [InlineData("/api/v1/User/ChangeInitialPassword")]
         [InlineData("/api/v1/User/LogInto")]
         [InlineData("/api/v1/User/VerifyMfa")]
         [InlineData("/api/v1/User/RefreshToken")]
@@ -36,6 +37,7 @@ namespace EvangelionERPV2.Test.Security
         [InlineData("/api/v1/Order/UpdateOrder")]
         [InlineData("/api/v1/Order/RefundOrder")]
         [InlineData("/api/v1/PayableBills/AddPayableBill")]
+        [InlineData("/api/v1/Product/AddProductImage")]
         [InlineData("/api/v1/PayableBills/UpdatePayableBill")]
         [InlineData("/api/v1/PayableBills/RefundPayableBill")]
         [InlineData("/api/v1/User/RequestPasswordReset")]

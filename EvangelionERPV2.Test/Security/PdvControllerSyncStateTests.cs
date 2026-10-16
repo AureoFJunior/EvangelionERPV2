@@ -85,6 +85,18 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task GetSyncState_RevokesOperatorsWhoMustChangeTheirInitialPassword()
+        {
+            var passwordResetUser = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
+            passwordResetUser.MustChangePassword = true;
+
+            var dto = await Read(CreateController(passwordResetUser));
+
+            Assert.Contains(passwordResetUser.Id, dto.RevokedUserIds);
+            Assert.DoesNotContain(dto.Operators, op => op.UserId == passwordResetUser.Id);
+        }
+
+        [Fact]
         public async Task GetSyncState_IsScopedToTheCallersEnterprise()
         {
             var ours = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
@@ -122,6 +134,37 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.All(dto.Operators, op =>
                 Assert.All(op.Permissions, permission => Assert.StartsWith("pdv.", permission)));
+        }
+
+        [Fact]
+        public async Task GetSyncState_UsesGrantedPermissionsAndWithholdsUnheldSupervisorPin()
+        {
+            var supervisor = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
+            var evaluator = new Mock<IPermissionEvaluator>();
+            evaluator.Setup(x => x.GrantedAsync(It.IsAny<IReadOnlyCollection<User>>()))
+                .ReturnsAsync((IReadOnlyCollection<User> users) => (IReadOnlyDictionary<Guid, IReadOnlySet<string>>)users
+                    .ToDictionary(user => user.Id, _ => (IReadOnlySet<string>)new HashSet<string> { RbacPermissions.Pdv.Operate }));
+
+            var dto = await Read(CreateController(evaluator.Object, supervisor));
+
+            var operatorDto = Assert.Single(dto.Operators);
+            Assert.Equal([RbacPermissions.Pdv.Operate], operatorDto.Permissions);
+            Assert.Null(operatorDto.PinVerifier);
+        }
+
+        [Fact]
+        public async Task GetSyncState_RevokesAnActiveUserWhoseLastPdvGrantWasRemoved()
+        {
+            var user = BuildUser(EnumAccessLevel.Supervisor, pin: "482913");
+            var evaluator = new Mock<IPermissionEvaluator>();
+            evaluator.Setup(x => x.GrantedAsync(It.IsAny<IReadOnlyCollection<User>>()))
+                .ReturnsAsync((IReadOnlyCollection<User> users) => (IReadOnlyDictionary<Guid, IReadOnlySet<string>>)users
+                    .ToDictionary(candidate => candidate.Id, _ => (IReadOnlySet<string>)new HashSet<string>()));
+
+            var dto = await Read(CreateController(evaluator.Object, user));
+
+            Assert.Contains(user.Id, dto.RevokedUserIds);
+            Assert.DoesNotContain(dto.Operators, op => op.UserId == user.Id);
         }
 
         [Fact]
@@ -170,7 +213,8 @@ namespace EvangelionERPV2.Test.Security
             EnumAccessLevel accessLevel,
             string? pin = null,
             bool isActive = true,
-            Guid? enterpriseId = null) =>
+            Guid? enterpriseId = null,
+            bool mustChangePassword = false) =>
             new()
             {
                 Id = Guid.NewGuid(),
@@ -182,6 +226,7 @@ namespace EvangelionERPV2.Test.Security
                 EnterpriseId = enterpriseId ?? _callerEnterpriseId,
                 AccessLevel = (short)accessLevel,
                 IsActive = isActive,
+                MustChangePassword = mustChangePassword,
                 PdvPinVerifier = pin == null ? null : Pbkdf2Verifier.Create(pin)
             };
 
@@ -205,7 +250,10 @@ namespace EvangelionERPV2.Test.Security
             Assert.False(dto.NFCeEnabled);
         }
 
-        private PdvController CreateController(params User[] users)
+        private PdvController CreateController(params User[] users) =>
+            CreateController(ControllerPolicyTestHelper.RolePermissionEvaluator(), users);
+
+        private PdvController CreateController(IPermissionEvaluator evaluator, params User[] users)
         {
             var userRepository = new Mock<IRepository<User>>();
             userRepository
@@ -235,7 +283,8 @@ namespace EvangelionERPV2.Test.Security
                 new Mock<INFeService<NFeDocument>>().Object,
                 FiscalSettings(),
                 new PasswordLoginService(userRepository.Object),
-                new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration))
+                new TokenService(new Mock<IRepository<RefreshToken>>(MockBehavior.Strict).Object, configuration),
+                evaluator)
             {
                 ControllerContext = new ControllerContext
                 {

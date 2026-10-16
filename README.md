@@ -19,7 +19,19 @@
 </p>
 
 Evangelion ERP V2 is the backend for a modular ERP platform focused on small and mid-size business operations.
-It centralizes users, customers, products, orders, billing, payable flows, NFe documents, and email routines in one API with clear module boundaries.
+It centralizes users, customers, products, orders, billing, payable flows, fiscal documents, PDV, storefront
+operations, notifications and email routines in one API with clear module boundaries.
+
+> Documentation status: reviewed against the `feature/storefront-p0` working tree on **2026-10-06**.
+> See the [technical wiki](docs/WIKI.md) and [database schema image](docs/architecture/database-schema.png).
+
+### Database schema
+
+The [logical overview](docs/architecture/database-schema-overview.png) is the quickest starting
+point. The [complete column-level schema](docs/architecture/database-schema.png) contains all 57
+tables with columns, SQL Server types, nullability, PK/FK markers and indexes. New contributors can
+use the smaller [domain sheets](docs/architecture/README.md) when browsing the model or pasting it
+into Azure DevOps Wiki.
 
 ## Overview
 

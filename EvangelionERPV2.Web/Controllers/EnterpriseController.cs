@@ -29,13 +29,16 @@ namespace EvangelionERPV2.Web.Controllers
         private readonly EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> _repository;
         private readonly IMapper _mapper;
         private readonly IAuthorizationService _authorizationService;
+        private readonly IConfiguration _configuration;
 
         public EnterpriseController(IEnterpriseService<Enterprise> enterpriseService,
             EvangelionERPV2.Shared.Repositories.IRepository<Enterprise> repository,
             IEnterpriseRepository<Enterprise> enterpriseRepository,
             IMapper mapper,
-            IAuthorizationService authorizationService)
+            IAuthorizationService authorizationService,
+            IConfiguration? configuration = null)
         {
+            _configuration = configuration ?? new ConfigurationBuilder().Build();
             _enterpriseService = enterpriseService;
             _repository = repository;
             _enterpriseRepository = enterpriseRepository;
@@ -239,6 +242,11 @@ namespace EvangelionERPV2.Web.Controllers
                     ShouldSendDunning = request.ShouldSendDunning,
                     IsActive = true
                 };
+                if (_configuration.GetValue("Iam:NewEnterprisesStartInGrantsMode", true))
+                {
+                    enterprise.IamMode = EnumIamMode.Grants;
+                    enterprise.IamSwitchedAt = DateTime.UtcNow;
+                }
 
                 Enterprise createdEnterprise = await _enterpriseService.CreateAsync(enterprise);
                 return Ok(_mapper.Map<EnterpriseDTO>(createdEnterprise));

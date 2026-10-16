@@ -12,6 +12,7 @@ using EvangelionERPV2.Web.Controllers;
 using EvangelionERPV2.Web.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 
 namespace EvangelionERPV2.Test.Security
@@ -28,7 +29,17 @@ namespace EvangelionERPV2.Test.Security
         private readonly Mock<IUserService<User>> _service = new();
         private readonly Mock<IRepository<User>> _repository = new();
 
-        private UserController Controller() => Build().WithTenant(_enterpriseId, _userId);
+        private UserController Controller()
+        {
+            var controller = Build().WithTenant(_enterpriseId, _userId);
+            var permissions = new Mock<IPermissionEvaluator>();
+            permissions.Setup(evaluator => evaluator.GrantedAsync(It.IsAny<IReadOnlyCollection<User>>()))
+                .ReturnsAsync((IReadOnlyCollection<User> users) => (IReadOnlyDictionary<Guid, IReadOnlySet<string>>)users
+                    .ToDictionary(user => user.Id, _ => (IReadOnlySet<string>)new HashSet<string>()));
+            var services = new ServiceCollection().AddSingleton(permissions.Object).BuildServiceProvider();
+            controller.ControllerContext.HttpContext.RequestServices = services;
+            return controller;
+        }
 
         private UserController Anonymous() => Build().WithoutTenant();
 
@@ -176,6 +187,7 @@ namespace EvangelionERPV2.Test.Security
             Assert.Equal(_enterpriseId, created!.EnterpriseId);
             Assert.Equal((short)EnumAccessLevel.Employee, created.AccessLevel);
             Assert.True(created.IsActive);
+            Assert.True(created.MustChangePassword);
             Assert.Equal((short)0, created.IsLogged);
         }
 

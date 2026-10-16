@@ -1,0 +1,9 @@
+# Copy this file to terraform.tfvars locally. Do not commit the copied file.
+
+aws_region                        = "us-east-1"
+s3_bucket_name                    = "REPLACE_ME-private-application-bucket"
+vpc_id                            = "vpc-REPLACE_ME"
+subnets                           = ["subnet-REPLACE_ME_A", "subnet-REPLACE_ME_B"]
+aws_iam_role_name                 = "REPLACE_ME_ecs_task_execution_role"
+aws_ecr_repository_repository_url = "REPLACE_ME.dkr.ecr.us-east-1.amazonaws.com/evangelionerpv2-repository"
+aws_iam_role_arn                  = "arn:aws:iam::REPLACE_ME:role/REPLACE_ME_ecs_task_execution_role"
