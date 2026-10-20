@@ -564,9 +564,10 @@ namespace EvangelionERPV2.Shared.Utils
         /// </para>
         /// <para>
         /// Deliberately operator-triggered and bounded rather than automatic. A redrive is a bulk
-        /// retry, and whether re-processing a message is safe depends on whether the handler is
-        /// idempotent - which is an open question for this pipeline. Putting a person and a batch
-        /// size in front of it keeps that decision where it belongs until the question is answered.
+        /// retry. Redrive preserves an existing MessageId and assigns one to legacy messages that
+        /// lack it. Consumers reject messages without an ID before processing, so order handling
+        /// always receives a stable deduplication key.
+        /// Redrive remains operator-triggered and bounded to avoid unexpectedly replaying a batch.
         /// </para>
         /// <para>
         /// A message is acknowledged on the dead-letter queue only after it has been accepted onto
