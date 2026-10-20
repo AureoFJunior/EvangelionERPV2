@@ -15,6 +15,7 @@ using System.Reflection;
 
 namespace EvangelionERPV2.Test.Security
 {
+    [Collection("Reset password rate limit state")]
     public class UserControllerResetPasswordRateLimitCleanupTests
     {
         [Fact]

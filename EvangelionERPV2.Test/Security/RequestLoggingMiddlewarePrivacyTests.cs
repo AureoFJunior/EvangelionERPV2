@@ -172,6 +172,7 @@ namespace EvangelionERPV2.Test.Security
 
                 context.Request.Method = HttpMethods.Post;
                 context.Request.Path = "/api/v1/Reports/Generate";
+                context.Request.QueryString = new QueryString("?access_token=jwt-secret-value");
                 context.Request.ContentType = "application/json";
                 context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(payload));
                 context.User = new ClaimsPrincipal(new ClaimsIdentity(
@@ -187,6 +188,7 @@ namespace EvangelionERPV2.Test.Security
 
                 Assert.Equal("[redacted: authenticated request]", requestBody);
                 Assert.DoesNotContain("customer@example.com", requestLogEvent.RenderMessage(), StringComparison.Ordinal);
+                Assert.DoesNotContain("jwt-secret-value", requestLogEvent.RenderMessage(), StringComparison.Ordinal);
             }
             finally
             {
