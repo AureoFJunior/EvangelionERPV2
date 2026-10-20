@@ -1,4 +1,5 @@
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Utils;
 using Microsoft.EntityFrameworkCore;
 
 namespace EvangelionERPV2.ProductModule.Application.Services;
@@ -41,7 +42,22 @@ public partial class ProductService
 
     public async Task<string> GetMediumPictureBase64Async(string? pictureAddress)
     {
-        var (base64, _) = await GetThumbnailBase64Async(pictureAddress);
-        return base64;
+        if (string.IsNullOrWhiteSpace(pictureAddress)) return string.Empty;
+
+        try
+        {
+            var bucketName = SharedFunctions.GetProductBucketName(_configuration);
+            var objectKey = SharedFunctions.EnsureDecryptedAddress(pictureAddress);
+            if (string.IsNullOrWhiteSpace(bucketName) || string.IsNullOrWhiteSpace(objectKey))
+                return string.Empty;
+
+            var s3Client = await GetS3ClientAsync();
+            return (await BuildThumbnailAsync(s3Client, bucketName, objectKey, MediumLongEdge)).Base64;
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Logger.Warning("Unable to build medium product image. ErrorType={ErrorType}", ex.GetType().Name);
+            return string.Empty;
+        }
     }
 }

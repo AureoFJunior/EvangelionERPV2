@@ -67,6 +67,49 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public async Task MediumSize_IsAcceptedForAProductAndUsesTheMediumService()
+        {
+            var tenant = Guid.NewGuid();
+            var product = Photographed(tenant);
+            var harness = new Harness(tenant, product);
+            harness.ProductService.Setup(s => s.GetMediumPictureBase64Async("products/abc.png"))
+                .ReturnsAsync(Convert.ToBase64String(Png));
+
+            var file = Assert.IsType<FileContentResult>(await harness.Controller.Picture(product.Id, "medium"));
+
+            Assert.Equal(Png, file.FileContents);
+            harness.ProductService.Verify(s => s.GetMediumPictureBase64Async("products/abc.png"), Times.Once);
+        }
+
+        [Fact]
+        public async Task DeletePicture_IsTenantScopedAndRemovesTheProductPhoto()
+        {
+            var tenant = Guid.NewGuid();
+            var product = Photographed(tenant);
+            var harness = new Harness(tenant, product);
+            harness.ProductService.Setup(s => s.DeletePictureAsync(product)).ReturnsAsync(true);
+
+            var result = await harness.Controller.DeleteProductPicture(product.Id);
+
+            Assert.IsType<NoContentResult>(result);
+            harness.ProductService.Verify(s => s.DeletePictureAsync(product), Times.Once);
+        }
+
+        [Fact]
+        public async Task DeleteFamilyPicture_UsesTheCallerTenant()
+        {
+            var tenant = Guid.NewGuid();
+            var group = Guid.NewGuid();
+            var harness = new Harness(tenant);
+            harness.ProductService.Setup(s => s.DeleteFamilyPictureAsync(tenant, group)).ReturnsAsync(true);
+
+            var result = await harness.Controller.DeleteFamilyPicture(group);
+
+            Assert.IsType<NoContentResult>(result);
+            harness.ProductService.Verify(s => s.DeleteFamilyPictureAsync(tenant, group), Times.Once);
+        }
+
+        [Fact]
         public async Task ACallerWhoAlreadyHasIt_Gets304_AfterCurrentBytesAreChecked()
         {
             var tenant = Guid.NewGuid();
