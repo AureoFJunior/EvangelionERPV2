@@ -825,6 +825,28 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         }
 
         [Fact]
+        public async Task GetByFilter_AppliesSearchAndRequestedSortBeforePaging()
+        {
+            var enterpriseId = Guid.NewGuid();
+            System.Linq.Expressions.Expression<Func<Order, bool>>? predicate = null;
+            System.Linq.Expressions.Expression<Func<Order, object>>? sort = null;
+            _mockIOrderRepository
+                .Setup(r => r.GetAllAsyncByFilter(It.IsAny<bool>(), It.IsAny<int?>(), It.IsAny<int?>(),
+                    It.IsAny<System.Linq.Expressions.Expression<Func<Order, bool>>>(), It.IsAny<System.Linq.Expressions.Expression<Func<Order, object>>>()))
+                .Callback((bool _, int? _, int? _, System.Linq.Expressions.Expression<Func<Order, bool>>? p, System.Linq.Expressions.Expression<Func<Order, object>>? s) =>
+                {
+                    predicate = p;
+                    sort = s;
+                })
+                .ReturnsAsync([]);
+
+            await _orderService.GetByFilterAsync(enterpriseId, new OrderFilterRequestDTO { Search = "Ada", SortBy = "total" }, false, 1, 20);
+
+            Assert.Contains("Like", predicate!.ToString());
+            Assert.Equal(25m, sort!.Compile()(new Order { TotalValue = 25m }));
+        }
+
+        [Fact]
         public void ALimenOrder_MapsItsDeliveryAddressShippingAndNumber_AndOtherOrdersCarryNone()
         {
             var mapper = MapperConfig.RegisterMaps().CreateMapper();
