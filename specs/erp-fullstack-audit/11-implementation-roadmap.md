@@ -3,7 +3,7 @@
 ## Fase 0 — Evidência e segurança imediata
 
 1. Rotacionar o segredo local e executar secret scan.
-2. Capturar build completo e inventário `dotnet list package --vulnerable`.
+2. Concluído localmente (2026-10-20): `dotnet list EvangelionERPV2.sln package --vulnerable --include-transitive` não encontrou pacotes vulneráveis nas fontes atuais; `dotnet build EvangelionERPV2.sln --no-restore --verbosity quiet` terminou com 0 erros e 368 warnings. Tratar warnings fora de correções comprovadas em itens separados; revalidar após mudanças de dependências.
 3. Triar/atualizar dependências sem alterar arquitetura.
 
 ## Fase 1 — Contrato de autorização
