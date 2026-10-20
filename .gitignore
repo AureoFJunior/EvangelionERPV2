@@ -404,3 +404,6 @@ TestResults/
 
 # Working docs and specs stay local: only the root README.md is committed.
 docs/**/*.md
+
+# Generated database diagrams are large artifacts; keep only their source generator/model.
+docs/architecture/database-schema*
