@@ -209,6 +209,10 @@ static void SetupJWT(WebApplicationBuilder builder)
 {
     var issuer = builder.Configuration.GetSection("JwtSettings")["Issuer"] ?? string.Empty;
     var audience = builder.Configuration.GetSection("JwtSettings")["Audience"] ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(issuer))
+        throw new InvalidOperationException("JwtSettings:Issuer is not configured.");
+    if (string.IsNullOrWhiteSpace(audience))
+        throw new InvalidOperationException("JwtSettings:Audience is not configured.");
     var isDevelopment = builder.Environment.IsDevelopment();
     builder.Services.AddAuthentication(x =>
     {
