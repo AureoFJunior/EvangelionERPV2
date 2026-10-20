@@ -36,7 +36,7 @@
 - Evidência: `.env.local` contém credencial local e é ignorado por `.gitignore:367`; não está rastreado (`git ls-files --error-unmatch .env.local` falhou).
 - Impacto: exposição em máquina/backup local, não prova vazamento no Git.
 - Ação mínima: revogar/rotacionar o valor local e garantir que exemplos usem placeholders; não imprimir o segredo em logs ou specs.
-- Status: `REVIEW`. `.env.local` está ignorado e não aparece como arquivo no histórico local; seu conteúdo não foi lido, e não foi feito scan de segredos completo nem rotação.
+- Status: `REVIEW ops`. `.env.local` está ignorado e não aparece como caminho no histórico local; seu conteúdo não foi lido. Scanners dedicados não estão instalados, então não foi feito scan completo nem rotação. A lista de nomes do histórico é apenas uma verificação superficial, não evidência de ausência de segredos.
 
 ## Não classificados como bug
 
