@@ -503,13 +503,30 @@ namespace EvangelionERPV2.Shared.Utils
         /// </summary>
         private async Task HandleDeliveryAsync<T>(BasicDeliverEventArgs ea, Func<T, string, Task> processMessageAsync)
         {
+            var messageId = ea.BasicProperties?.MessageId;
+            if (string.IsNullOrWhiteSpace(messageId))
+            {
+                MessagesProcessed.WithLabels(_channelSettings.QueueName, "failed").Inc();
+                Log.Logger.Warning("Message without a broker MessageId was sent to the dead-letter queue.");
+                try
+                {
+                    await NackAsync(ea.DeliveryTag);
+                }
+                catch (Exception nackException)
+                {
+                    Log.Logger.Error(
+                        "Error nacking message without a broker MessageId. ErrorType={ErrorType}",
+                        GetSafeExceptionType(nackException));
+                }
+
+                return;
+            }
+
             try
             {
                 var message = Encoding.UTF8.GetString(ea.Body.ToArray());
                 var resultObject = JsonSerializer.Deserialize<T>(message, _jsonOptions)
                     ?? throw new InvalidOperationException("Failed to deserialize message payload.");
-
-                var messageId = ea.BasicProperties?.MessageId ?? string.Empty;
 
                 using (MessageDuration.WithLabels(_channelSettings.QueueName).NewTimer())
                     await processMessageAsync(resultObject, messageId);
