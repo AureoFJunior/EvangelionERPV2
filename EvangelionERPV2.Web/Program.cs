@@ -138,6 +138,7 @@ try
     app.UseCors(DefaultCorsPolicyName);
 
     app.UseAuthentication();
+    app.UseMiddleware<SelfApiEndpointEnforcementMiddleware>();
     app.UseMiddleware<RequestLoggingMiddleware>();
     app.UseMiddleware<ActiveTenantEnforcementMiddleware>();
     app.UseAuthorization();

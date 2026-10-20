@@ -175,15 +175,16 @@ namespace EvangelionERPV2.Test.Security
         [Theory]
         [InlineData(typeof(EmailController), nameof(EmailController.SendMonthlyBillingBroadcast))]
         [InlineData(typeof(EmailController), nameof(EmailController.SendWeeklyStockBroadcast))]
+        [InlineData(typeof(EmailController), nameof(EmailController.SendQueuedEmail))]
         [InlineData(typeof(OrderController), nameof(OrderController.InsertQueuedOrder))]
         [InlineData(typeof(NotificationController), nameof(NotificationController.SweepAlerts))]
-        public void BroadcastEndpoints_DeclareSelfApiMachinePolicy(Type controllerType, string actionName)
+        public void WorkerEndpoints_DeclareSelfApiMachinePolicy(Type controllerType, string actionName)
         {
             var method = controllerType.GetMethods().Single(x => x.Name == actionName);
             var policy = method
                 .GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), inherit: true)
                 .Cast<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>()
-                .SingleOrDefault(x => x.Policy == RbacPolicies.Machine.SelfApiBroadcast);
+                .SingleOrDefault(x => x.Policy == RbacPolicies.Machine.SelfApiWorker);
 
             Assert.NotNull(policy);
         }

@@ -115,11 +115,22 @@ namespace EvangelionERPV2.Test.Security.Iam
         }
 
         [Fact]
-        public async Task TheMachineClient_IsExempt()
+        public async Task TheMachineClient_CannotUseRolePermissions()
         {
             _admin.MfaEnabled = false;
 
-            Assert.Equal(PermissionDecision.Allowed, await Decide(_admin, RbacPermissions.Bills.Settle, machine: true));
+            Assert.Equal(PermissionDecision.Denied, await Decide(_admin, RbacPermissions.Bills.Settle, machine: true));
+            Assert.Empty(await Evaluator().HoldsAsync(Token(_admin, machine: true), _admin));
+        }
+
+        [Fact]
+        public async Task TheMachineClient_CannotUseStorefrontTokenScope()
+        {
+            var principal = Token(_admin, machine: true);
+            ((ClaimsIdentity)principal.Identity!).AddClaim(new Claim(MachineClaims.TokenScope, MachineClaims.StorefrontScopeValue));
+
+            Assert.Equal(PermissionDecision.Denied,
+                await Evaluator().DecideAsync(principal, _admin, RbacPermissions.Storefront.CatalogRead));
         }
 
         [Fact]
@@ -129,7 +140,7 @@ namespace EvangelionERPV2.Test.Security.Iam
             Assert.Equal(PermissionDecision.Denied, await Decide(_admin, RbacPermissions.Iam.Read, machine: true));
             var holds = await Evaluator().HoldsAsync(Token(_admin, machine: true), _admin);
             Assert.DoesNotContain(holds, p => p.StartsWith("iam.", StringComparison.Ordinal));
-            Assert.Contains(RbacPermissions.Orders.Read, holds);
+            Assert.Empty(holds);
         }
 
         [Fact]

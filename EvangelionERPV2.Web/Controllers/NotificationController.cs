@@ -179,7 +179,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// ponytail: sequential per-tenant loop on a 15-minute floor. At ~50 tenants that is
         /// seconds; parallelise or shard the lease if the sweep ever outruns its slot.
         /// </remarks>
-        [Authorize(Policy = RbacPolicies.Machine.SelfApiBroadcast)]
+        [Authorize(Policy = RbacPolicies.Machine.SelfApiWorker)]
         [HttpPost]
         [ProducesResponseType(typeof(NotificationSweepResultDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]

@@ -155,7 +155,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <summary>
         /// Sends a signed queued email payload while preserving the tenant captured when it was enqueued.
         /// </summary>
-        [Authorize(Policy = "rbac:" + RbacPermissions.Email.Send)]
+        [Authorize(Policy = RbacPolicies.Machine.SelfApiWorker)]
         [HttpPost]
         [RequestSizeLimit(MaxQueuedEmailRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -210,7 +210,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// enqueue billing emails for every enterprise.
         /// </summary>
         /// <returns></returns>
-        [Authorize(Policy = RbacPolicies.Machine.SelfApiBroadcast)]
+        [Authorize(Policy = RbacPolicies.Machine.SelfApiWorker)]
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -311,7 +311,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// enqueue stock emails for every enterprise.
         /// </summary>
         /// <returns></returns>
-        [Authorize(Policy = RbacPolicies.Machine.SelfApiBroadcast)]
+        [Authorize(Policy = RbacPolicies.Machine.SelfApiWorker)]
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
