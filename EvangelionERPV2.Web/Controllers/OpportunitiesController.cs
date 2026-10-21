@@ -29,6 +29,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Read)]
         [HttpGet]
+        [ProducesResponseType(typeof(PaginatedResultDTO<OpportunityDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetOpportunities([FromQuery] OpportunityFilterDTO filter)
         {
             try
