@@ -183,7 +183,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.Orders.Create)]
         [HttpPost]
         [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
