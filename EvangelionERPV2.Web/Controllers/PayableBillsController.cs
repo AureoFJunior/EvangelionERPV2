@@ -249,6 +249,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Refund)]
         [HttpPost("{id}")]
         [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> RefundPayableBill(Guid id, [FromBody] RefundRequestDTO request)
         {
             try
