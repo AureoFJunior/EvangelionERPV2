@@ -216,6 +216,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.MarkProductsReceived)]
         [HttpPost("{id}")]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> MarkProductsReceived(Guid id)
         {
             try
