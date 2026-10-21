@@ -209,7 +209,7 @@ namespace EvangelionERPV2.Test.Security
 
             var result = Assert.IsType<OkObjectResult>(await Controller().MarkAllRead());
 
-            Assert.Contains("7", result.Value?.ToString());
+            Assert.Equal(7, Assert.IsType<MarkAllReadResponseDTO>(result.Value).Marked);
         }
 
         [Fact]
