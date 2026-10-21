@@ -202,6 +202,8 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Products.DeletePicture)]
         [HttpDelete]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> DeleteProductPicture(Guid id)
         {
             if (!TryGetEnterpriseId(out var enterpriseId))
