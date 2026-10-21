@@ -82,6 +82,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.CashFlowForecast.Simulate)]
         [HttpPost]
         [RequestSizeLimit(MaxSimulationRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(IEnumerable<SimulationResultDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> RunSimulation([FromBody] RunSimulationRequestDTO request)
         {
             try
