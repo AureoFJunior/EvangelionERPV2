@@ -52,6 +52,8 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Read)]
         [HttpGet("{id:guid}")]
+        [ProducesResponseType(typeof(OpportunityDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
         public async Task<IActionResult> GetOpportunity(Guid id)
         {
             try
