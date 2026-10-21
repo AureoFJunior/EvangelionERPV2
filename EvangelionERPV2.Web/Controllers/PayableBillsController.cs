@@ -41,6 +41,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Read)]
         [HttpGet("{pageNumber?}/{pageSize?}")]
+        [ProducesResponseType(typeof(IEnumerable<PayableBillDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetPayableBills(
             int? pageNumber = null,
             int? pageSize = null,
