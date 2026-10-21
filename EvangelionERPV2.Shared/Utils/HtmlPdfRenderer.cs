@@ -90,14 +90,17 @@ namespace EvangelionERPV2.Shared.Utils
                 var executablePath = Environment.GetEnvironmentVariable("PUPPETEER_EXECUTABLE_PATH");
                 if (string.IsNullOrWhiteSpace(executablePath))
                 {
-                    var fetcher = new BrowserFetcher();
-                    await fetcher.DownloadAsync();
+                    var fetcher = new BrowserFetcher(new BrowserFetcherOptions
+                    {
+                        Path = Path.Combine(Path.GetTempPath(), "puppeteer-sharp")
+                    });
+                    executablePath = (await fetcher.DownloadAsync()).GetExecutablePath();
                 }
 
                 sharedBrowser = await Puppeteer.LaunchAsync(new LaunchOptions
                 {
                     Headless = true,
-                    ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
+                    ExecutablePath = executablePath,
                     Args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
                 });
             }
