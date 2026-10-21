@@ -107,6 +107,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Read)]
         [HttpGet("{id}")]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetPayableBill(Guid id)
         {
             try
