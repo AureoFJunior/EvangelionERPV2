@@ -55,6 +55,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.UpdateSettings)]
         [HttpPut]
         [RequestSizeLimit(MaxPayrollWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(EnterprisePayrollSettingsDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> UpdatePayrollSettings([FromBody] EnterprisePayrollSettingsDTO request)
         {
             try
