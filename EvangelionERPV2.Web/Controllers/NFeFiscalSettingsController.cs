@@ -126,7 +126,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = RbacPolicies.NFe.CertificateManage)]
         [HttpPost]
         [RequestSizeLimit(MaxCertificateUploadSizeInBytes)]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(NFeCertificateStatusDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
