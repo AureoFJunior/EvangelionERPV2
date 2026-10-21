@@ -171,6 +171,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Update)]
         [HttpPut]
         [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> UpdatePayableBill([FromBody] UpsertPayableBillRequestDTO request)
         {
             try
