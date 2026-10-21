@@ -247,7 +247,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.Products.Update)]
         [HttpPatch]
         [RequestSizeLimit(MaxImageUploadRequestBodySizeInBytes)]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ProductFamilyPictureDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> UploadFamilyPicture([FromBody] UploadFamilyPictureRequestDTO request)
         {
@@ -255,7 +255,7 @@ namespace EvangelionERPV2.Web.Controllers
                 return Unauthorized();
 
             return await _productService.SetFamilyPictureAsync(enterpriseId, request.VariantGroupId, request.File)
-                ? Ok(new { variantGroupId = request.VariantGroupId, hasPicture = true })
+                ? Ok(new ProductFamilyPictureDTO { VariantGroupId = request.VariantGroupId, HasPicture = true })
                 : NotFound();
         }
 
