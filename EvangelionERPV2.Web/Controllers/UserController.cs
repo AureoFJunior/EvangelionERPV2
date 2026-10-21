@@ -949,7 +949,7 @@ namespace EvangelionERPV2.Web.Controllers
         [HttpPost]
         [AllowAnonymous]
         [RequestSizeLimit(MaxPasswordResetRequestBodySizeInBytes)]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(PasswordResetMessageResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -978,7 +978,7 @@ namespace EvangelionERPV2.Web.Controllers
                 Log.Logger.Information(
                     "Password reset completed. EmailId={EmailId}",
                     GetLogSafeEmailIdentifier(request.Email));
-                return Ok(new { message = "Password updated successfully." });
+                return Ok(new PasswordResetMessageResponse { Message = "Password updated successfully." });
             }
             catch (ArgumentException)
             {
