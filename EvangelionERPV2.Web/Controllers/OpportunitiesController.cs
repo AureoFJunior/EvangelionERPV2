@@ -117,6 +117,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Recompute)]
         [HttpPost("recompute")]
         [RequestSizeLimit(MaxOpportunityWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(OpportunityRunLogDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> Recompute([FromBody] OpportunityRecomputeRequestDTO request)
         {
             try
