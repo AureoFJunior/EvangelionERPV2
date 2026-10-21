@@ -116,6 +116,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Read)]
         [HttpGet]
+        [ProducesResponseType(typeof(IEnumerable<PayrollEmployeeBreakdownDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetPayroll([FromQuery] int? year = null, [FromQuery] int? month = null)
         {
             try
