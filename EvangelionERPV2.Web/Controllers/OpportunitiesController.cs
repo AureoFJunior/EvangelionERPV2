@@ -145,6 +145,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Read)]
         [HttpGet("summary")]
+        [ProducesResponseType(typeof(OpportunitySummaryDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetSummary()
         {
             try
