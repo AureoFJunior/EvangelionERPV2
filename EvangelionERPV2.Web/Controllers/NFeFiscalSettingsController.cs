@@ -168,7 +168,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = RbacPolicies.NFe.CertificateRead)]
         [HttpGet]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(NFeCertificateStatusDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         public async Task<IActionResult> GetCertificateStatus()
