@@ -35,6 +35,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Read)]
         [HttpGet]
+        [ProducesResponseType(typeof(EnterprisePayrollSettingsDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetPayrollSettings()
         {
             try
