@@ -836,6 +836,11 @@ namespace EvangelionERPV2.Web.Controllers
             public string RecaptchaToken { get; set; } = string.Empty;
         }
 
+        public sealed class PasswordResetMessageResponse
+        {
+            public string Message { get; set; } = string.Empty;
+        }
+
         public sealed class InitialPasswordRequest
         {
             public string UserName { get; set; } = string.Empty;
@@ -907,7 +912,7 @@ namespace EvangelionERPV2.Web.Controllers
         [HttpPost]
         [AllowAnonymous]
         [RequestSizeLimit(MaxPasswordResetRequestBodySizeInBytes)]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(PasswordResetMessageResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> RequestPasswordReset([FromBody] RequestPasswordResetRequest request)
@@ -933,7 +938,7 @@ namespace EvangelionERPV2.Web.Controllers
                     }
                 }
 
-                return Ok(new { message = "If the email exists, reset instructions were sent." });
+                return Ok(new PasswordResetMessageResponse { Message = "If the email exists, reset instructions were sent." });
             }
             catch (Exception)
             {
