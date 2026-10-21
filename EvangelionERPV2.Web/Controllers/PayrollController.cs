@@ -83,6 +83,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Generate)]
         [HttpPost]
+        [ProducesResponseType(typeof(IEnumerable<PayrollEmployeeBreakdownDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GeneratePayroll(
             [FromQuery] int? year = null,
             [FromQuery] int? month = null,
