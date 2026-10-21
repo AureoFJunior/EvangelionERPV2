@@ -311,6 +311,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Delete)]
         [HttpDelete("{id}")]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> DeletePayableBill(Guid id)
         {
             try
