@@ -141,6 +141,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Generate)]
         [HttpPost]
+        [ProducesResponseType(typeof(IEnumerable<VacationPayDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GenerateVacationPay([FromQuery] Guid accrualId)
         {
             try
@@ -164,6 +165,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Read)]
         [HttpGet]
+        [ProducesResponseType(typeof(IEnumerable<VacationPayDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetVacationPay([FromQuery] Guid accrualId)
         {
             try
