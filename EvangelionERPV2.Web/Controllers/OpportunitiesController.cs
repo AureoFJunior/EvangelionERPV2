@@ -78,6 +78,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Feedback)]
         [HttpPost("{id:guid}/feedback")]
         [RequestSizeLimit(MaxOpportunityWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(OpportunityFeedbackDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> AddFeedback(Guid id, [FromBody] OpportunityFeedbackRequestDTO request)
         {
             try
