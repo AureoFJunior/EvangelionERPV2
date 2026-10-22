@@ -47,6 +47,13 @@ using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Net.Http.Headers;
 
 var builder = WebApplication.CreateBuilder(args);
+if (builder.Environment.IsEnvironment("E2E"))
+{
+    builder.Configuration
+        .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false)
+        .AddJsonFile("appsettings.E2E.json", optional: true, reloadOnChange: false)
+        .AddEnvironmentVariables();
+}
 const string DefaultCorsPolicyName = "DefaultCorsPolicy";
 
 Metrics.ConfigureMeterAdapter(options =>
