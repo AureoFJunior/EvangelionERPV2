@@ -202,7 +202,7 @@ static void BuildValidators(WebApplicationBuilder builder)
 
 static void SetupSwagger(WebApplication app, IWebHostEnvironment env)
 {
-    if (!env.IsDevelopment())
+    if (!env.IsDevelopment() && !env.IsEnvironment("E2E"))
         return;
 
     app.UseSwagger();
