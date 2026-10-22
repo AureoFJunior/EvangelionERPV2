@@ -22,7 +22,7 @@ namespace EvangelionERPV2.NFeModule.Application.DI
 {
     public class NFeIoC
     {
-        public static void Configure(IServiceCollection services, IConfiguration configuration)
+        public static void Configure(IServiceCollection services, IConfiguration configuration, bool useStubProvider = false)
         {
             try
             {
@@ -63,7 +63,10 @@ namespace EvangelionERPV2.NFeModule.Application.DI
                 #endregion
 
                 #region Providers
-                services.AddScoped<INFeProvider, SefazNFeProvider>();
+                if (useStubProvider)
+                    services.AddScoped<INFeProvider, StubNFeProvider>();
+                else
+                    services.AddScoped<INFeProvider, SefazNFeProvider>();
 
                 services.AddMemoryCache();
 

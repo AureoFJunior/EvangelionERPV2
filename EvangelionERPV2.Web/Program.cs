@@ -436,7 +436,11 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     OrderIoC.Configure(builder.Services, builder.Configuration);
     BillsIoC.Configure(builder.Services, builder.Configuration);
     NotificationIoC.Configure(builder.Services, builder.Configuration);
-    NFeIoC.Configure(builder.Services, builder.Configuration);
+    NFeIoC.Configure(
+        builder.Services,
+        builder.Configuration,
+        builder.Environment.IsEnvironment("E2E") &&
+        builder.Configuration.GetValue<bool>("NFeSettings:UseStubProvider"));
     CustomerIoC.Configure(builder.Services, builder.Configuration);
     EmployeeIoC.Configure(builder.Services, builder.Configuration);
     SupplierIoC.Configure(builder.Services, builder.Configuration);
