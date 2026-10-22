@@ -120,6 +120,7 @@ def main():
         "CYPRESS_E2E_ISOLATED=true",
         "CYPRESS_BASE_URL=http://localhost:8081",
         "CYPRESS_API_BASE_URL=http://localhost:8083/api/v1",
+        "EXPO_PUBLIC_API_BASE_URL=http://localhost:8083/api/v1",
         f"CYPRESS_ADMIN_USERNAME={FIXTURES[0][1]}",
         f"CYPRESS_ADMIN_PASSWORD={credentials[FIXTURES[0][1]]}",
         f"CYPRESS_TENANT_B_USERNAME={FIXTURES[1][1]}",
@@ -128,7 +129,7 @@ def main():
     ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
     ENV_FILE.chmod(0o600)
     print(f"Created the two E2E fixture tenants; credentials saved to {ENV_FILE} (mode 0600).")
-    print(f"Source it before Cypress: set -a; . '{ENV_FILE}'; set +a")
+    print(f"Source it before starting the frontend and Cypress: set -a; . '{ENV_FILE}'; set +a")
 
 
 if __name__ == "__main__":
