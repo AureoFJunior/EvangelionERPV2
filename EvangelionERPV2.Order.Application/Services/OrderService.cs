@@ -178,6 +178,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             var startDate = filter.StartDate?.Date;
             var endDateExclusive = filter.EndDate?.Date.AddDays(1);
             var search = SharedFunctions.EscapeLikePattern(filter.Search?.Trim() ?? string.Empty);
+            var orderNumberSearch = StorefrontOrderNumber.ToSearchableIdFragment(search);
             var sortKey = filter.SortBy?.Trim().ToLowerInvariant() switch
             {
                 "id" => (Expression<Func<Order, object>>)(o => o.Id),
@@ -199,7 +200,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     (!channel.HasValue || x.Channel == channel.Value) &&
                     (search == string.Empty ||
                      (x.Customer != null && EF.Functions.Like(x.Customer.Name, $"%{search}%", "\\")) ||
-                     EF.Functions.Like(x.Id.ToString(), $"%{search}%", "\\")) &&
+                     EF.Functions.Like(x.Id.ToString(), $"%{orderNumberSearch}%", "\\")) &&
                     (!startDate.HasValue || x.CreatedAt >= startDate.Value) &&
                     (!endDateExclusive.HasValue || x.CreatedAt < endDateExclusive.Value),
                 sortKey);

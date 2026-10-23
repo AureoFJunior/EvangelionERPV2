@@ -43,6 +43,12 @@ namespace EvangelionERPV2.Test.Security
             RabbitMQManagerBase<TestChannelSettings>.EnsureTransportIsSecure(false, environment);
         }
 
+        [Fact]
+        public void EnsureTransportIsSecure_NoTlsInIsolatedE2E_IsAllowed()
+        {
+            RabbitMQManagerBase<TestChannelSettings>.EnsureTransportIsSecure(false, "E2E");
+        }
+
         [Theory]
         [InlineData("Production")]
         [InlineData("Development")]

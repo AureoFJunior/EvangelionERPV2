@@ -14,6 +14,57 @@ namespace EvangelionERPV2.Test.Workers;
 public sealed class RabbitMQRetryRedeliveryTests
 {
     [RequiresE2EBrokerFact]
+    public async Task Redrive_replaces_blank_message_id_before_republishing()
+    {
+        var brokerUri = Environment.GetEnvironmentVariable("ERP_E2E_RABBITMQ_URI");
+        Assert.False(string.IsNullOrWhiteSpace(brokerUri));
+
+        var queue = $"e2e.redrive.{Guid.NewGuid():N}";
+        var exchange = $"{queue}.exchange.topic";
+        var routingKey = $"{queue}.#";
+        var deadLetterQueue = $"{queue}.dlq";
+        var deadLetterExchange = $"{exchange}.dlq";
+        var factory = new ConnectionFactory { Uri = new Uri(brokerUri!), AutomaticRecoveryEnabled = false };
+        IConnection? connection = null;
+        TestManager? manager = null;
+
+        try
+        {
+            manager = new TestManager(queue, brokerUri!);
+            connection = await factory.CreateConnectionAsync();
+            await using (var publisher = await connection.CreateChannelAsync())
+            {
+                await publisher.BasicPublishAsync(
+                    deadLetterExchange,
+                    $"{queue}.redrive.dlq",
+                    mandatory: true,
+                    new BasicProperties { Persistent = true, MessageId = " " },
+                    Encoding.UTF8.GetBytes("{\"value\":\"legacy message\"}"));
+            }
+
+            Assert.Equal(1, await manager.RedriveDeadLetteredAsync(1));
+
+            await using var probe = await connection.CreateChannelAsync();
+            var redriven = await probe.BasicGetAsync(queue, autoAck: false);
+            Assert.NotNull(redriven);
+            Assert.False(string.IsNullOrWhiteSpace(redriven.BasicProperties.MessageId));
+        }
+        finally
+        {
+            manager?.Dispose();
+            if (connection is not null)
+            {
+                await using var cleanup = await connection.CreateChannelAsync();
+                await cleanup.QueueDeleteAsync(queue);
+                await cleanup.QueueDeleteAsync(deadLetterQueue);
+                await cleanup.ExchangeDeleteAsync(exchange);
+                await cleanup.ExchangeDeleteAsync(deadLetterExchange);
+                await connection.DisposeAsync();
+            }
+        }
+    }
+
+    [RequiresE2EBrokerFact]
     public async Task Broker_redelivery_and_retry_preserve_message_id_after_handler_side_effect()
     {
         var brokerUri = Environment.GetEnvironmentVariable("ERP_E2E_RABBITMQ_URI");

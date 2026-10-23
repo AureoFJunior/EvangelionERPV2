@@ -32,6 +32,7 @@ def main():
         raise SystemExit("The isolated E2E broker is missing its address or credentials.")
 
     environment = os.environ.copy()
+    environment["ASPNETCORE_ENVIRONMENT"] = "E2E"
     environment["ERP_E2E_RABBITMQ_URI"] = (
         f"amqp://{quote(username, safe='')}:{quote(password, safe='')}@{host}:5672/%2F"
     )

@@ -843,6 +843,8 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
             await _orderService.GetByFilterAsync(enterpriseId, new OrderFilterRequestDTO { Search = "Ada", SortBy = "total" }, false, 1, 20);
 
             Assert.Contains("Like", predicate!.ToString());
+            Assert.Equal("DA7C68CD", StorefrontOrderNumber.ToSearchableIdFragment("LM-DA7C68CD"));
+            Assert.Equal("da7c68cd", StorefrontOrderNumber.ToSearchableIdFragment("lm-da7c68cd"));
             Assert.Equal(25m, sort!.Compile()(new Order { TotalValue = 25m }));
         }
 

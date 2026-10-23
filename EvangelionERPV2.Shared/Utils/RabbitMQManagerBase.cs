@@ -201,7 +201,7 @@ namespace EvangelionERPV2.Shared.Utils
         }
 
         /// <summary>
-        /// Refuses a cleartext broker connection outside Development.
+        /// Refuses a cleartext broker connection outside Development or the isolated local E2E environment.
         /// <para>
         /// Checks the factory's resolved TLS state rather than the URI scheme, because the scheme is
         /// only one of two ways in. An earlier version of this guard inspected the scheme string and
@@ -227,6 +227,13 @@ namespace EvangelionERPV2.Shared.Utils
             {
                 Log.Logger.Warning(
                     "RabbitMQ is connecting without TLS. Allowed only because the environment is Development.");
+                return;
+            }
+
+            if (string.Equals(environmentName, "E2E", StringComparison.OrdinalIgnoreCase))
+            {
+                Log.Logger.Warning(
+                    "RabbitMQ is connecting without TLS on the isolated E2E network, which has no published ports.");
                 return;
             }
 
@@ -606,7 +613,9 @@ namespace EvangelionERPV2.Shared.Utils
                         basicProperties: new BasicProperties
                         {
                             Persistent = true,
-                            MessageId = delivery.BasicProperties?.MessageId ?? Guid.NewGuid().ToString("N"),
+                            MessageId = string.IsNullOrWhiteSpace(delivery.BasicProperties?.MessageId)
+                                ? Guid.NewGuid().ToString("N")
+                                : delivery.BasicProperties.MessageId,
                             Headers = headers
                         },
                         body: delivery.Body,
