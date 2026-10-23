@@ -74,7 +74,7 @@ jobs:
           /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml" \
           /d:sonar.cs.vstest.reportsPaths="TestResults/**/*.trx" \
           /d:sonar.exclusions="**/Migrations/**,**/obj/**,**/bin/**,docker/grafana/dashboards/**,perf/**" \
-          /d:sonar.coverage.exclusions="**/Program.cs,**/DI/*IoC.cs,**/DTOs/**,**/Entities/**,**/Migrations/**,**/Repositories/**,**/*Worker.cs,**/Workers/**,**/Hubs/**,**/HealthChecks/**,**/Utils/RabbitMQManagerBase.cs" \
+          /d:sonar.coverage.exclusions="**/Program.cs,**/DI/*IoC.cs,**/DTOs/**,**/Entities/**,**/Migrations/**,**/Repositories/**,**/*Worker.cs,**/Workers/**,**/Hubs/**,**/HealthChecks/**,**/Utils/RabbitMQManagerBase.cs,**/Utils/HtmlPdfRenderer.cs,scripts/e2e-seed-accounts.py,scripts/test-e2e-broker-redelivery.py" \
           /d:sonar.qualitygate.wait=true
 
     - name: Build
@@ -107,6 +107,9 @@ jobs:
 #     Migrations/**                    EF-generated; scoring it measures the tool, not this code.
 #     docker/grafana/dashboards/**     Panel definitions, which Sonar reads as duplicated code.
 #     perf/**                          k6/seed tooling has its own threshold checks and no .NET coverage.
+#     scripts/e2e-seed-accounts.py and scripts/test-e2e-broker-redelivery.py
+#                                      Docker-driven integration harnesses; no Python coverage report is collected.
+#     Utils/HtmlPdfRenderer.cs          Chromium process boundary; browser-dependent behavior is exercised by E2E.
 #
 #   sonar.coverage.exclusions - still linted, but out of the coverage denominator. Program.cs, the
 #   DI registrations, DTOs, entities, thin repositories and process-boundary adapters (workers,

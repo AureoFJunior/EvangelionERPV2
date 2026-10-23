@@ -55,16 +55,13 @@ namespace EvangelionERPV2.ProductModule.Test
             return Convert.ToBase64String(data.ToArray());
         }
 
-        private ProductService Service(AppDbContext? context = null)
+        private ProductService Service(AppDbContext? context = null, bool includeProductBucket = true)
         {
             context ??= _database.CreateContext();
-            var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["AWSSettings:SecretName"] = "test-secret",
-                    ["AWSSettings:BucketProducttName"] = "test-product-bucket"
-                })
-                .Build();
+            var settings = new Dictionary<string, string?> { ["AWSSettings:SecretName"] = "test-secret" };
+            if (includeProductBucket)
+                settings["AWSSettings:BucketProducttName"] = "test-product-bucket";
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
             var secrets = new Mock<IAmazonSecretsManager>();
             secrets.Setup(s => s.GetSecretValueAsync(It.IsAny<GetSecretValueRequest>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new GetSecretValueResponse { SecretString = "{\"access-key-id\":\"test\",\"secret-access-key\":\"test\"}" });
@@ -73,6 +70,13 @@ namespace EvangelionERPV2.ProductModule.Test
                 new AWSKMSKeyProvider(secrets.Object, configuration), new Mock<IProductReportGeneratorService>().Object, context);
             typeof(ProductService).GetField("_s3Client", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(service, _s3.Object);
             return service;
+        }
+
+        [Fact]
+        public async Task GetMediumPictureBase64Async_ReturnsEmptyWhenAddressOrBucketIsMissing()
+        {
+            Assert.Empty(await Service().GetMediumPictureBase64Async(" "));
+            Assert.Empty(await Service(includeProductBucket: false).GetMediumPictureBase64Async("products/photo.jpg"));
         }
 
         private Product StoredProduct()
