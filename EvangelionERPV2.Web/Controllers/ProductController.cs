@@ -423,6 +423,7 @@ namespace EvangelionERPV2.Web.Controllers
         [HttpDelete]
         [ProducesResponseType(typeof(ProductDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DeleteProduct(Guid id)
         {
@@ -431,9 +432,18 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var existentProduct = await LoadForWriteAsync(id);
+                Product existentProduct;
+                try
+                {
+                    existentProduct = await LoadForWriteAsync(id);
+                }
+                catch (NotFoundDatabaseException)
+                {
+                    return NotFound();
+                }
+
                 if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
-                    return NoContent();
+                    return NotFound();
 
                 Product product = _productService.Delete(id);
                 if (product == null)

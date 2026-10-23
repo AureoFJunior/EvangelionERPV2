@@ -6,7 +6,7 @@ services:
     container_name: evangelionerpv2_sqlserver
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD:?SQLSERVER_SA_PASSWORD must be set}
+      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD:-EvangelionERP_Local!2026}
       MSSQL_PID: ${SQLSERVER_EDITION:-Developer}
     ports:
       - "${SQLSERVER_HOST_PORT:-14333}:1433"

@@ -1,6 +1,7 @@
 using AutoMapper;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using Microsoft.AspNetCore.Authorization;
@@ -107,6 +108,34 @@ namespace EvangelionERPV2.Test.Security
 
             Assert.IsType<NoContentResult>(result);
             harness.ProductService.Verify(s => s.DeleteFamilyPictureAsync(tenant, group), Times.Once);
+        }
+
+        [Fact]
+        public async Task DeleteProduct_ReturnsNotFoundWhenFreshLookupDoesNotFindProduct()
+        {
+            var tenant = Guid.NewGuid();
+            var missingId = Guid.NewGuid();
+            var repository = new Mock<IRepository<Product>>();
+            repository.Setup(r => r.GetByIdAsync(missingId))
+                .ThrowsAsync(new NotFoundDatabaseException("Product was not found."));
+            var service = new Mock<IProductService<Product>>();
+            var controller = new ProductController(service.Object, repository.Object, Mock.Of<IRepository<User>>(),
+                Mock.Of<IMapper>(), Mock.Of<IAuthorizationService>())
+            {
+                ControllerContext = new ControllerContext
+                {
+                    HttpContext = new DefaultHttpContext
+                    {
+                        User = new ClaimsPrincipal(new ClaimsIdentity(
+                            [new Claim(ClaimTypes.GroupSid, tenant.ToString())], "TestAuth"))
+                    }
+                }
+            };
+
+            var result = await controller.DeleteProduct(missingId);
+
+            Assert.IsType<NotFoundResult>(result);
+            service.Verify(s => s.Delete(It.IsAny<Guid>()), Times.Never);
         }
 
         [Fact]
