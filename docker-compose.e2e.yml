@@ -1,0 +1,43 @@
+services:
+  e2e-sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: evangelionerpv2_e2e_sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${E2E_SQLSERVER_SA_PASSWORD:?Set E2E_SQLSERVER_SA_PASSWORD for the disposable E2E database}
+      MSSQL_PID: Developer
+    ports:
+      - "127.0.0.1:${E2E_SQLSERVER_HOST_PORT:-14334}:1433"
+    volumes:
+      - e2e_sql_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks:
+      - e2e_internal
+
+  e2e-rabbitmq:
+    image: rabbitmq:3-management
+    container_name: evangelionerpv2_e2e_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${E2E_RABBITMQ_USER:-e2e-user}
+      RABBITMQ_DEFAULT_PASS: ${E2E_RABBITMQ_PASSWORD:-e2e-local-only-password}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - e2e_internal
+
+networks:
+  e2e_internal:
+    name: evangelionerpv2_e2e_net
+    external: true
+
+volumes:
+  e2e_sql_data:
+    name: evangelionerpv2_e2e_sql_data

@@ -209,7 +209,16 @@ namespace EvangelionERPV2.Web.Controllers
             if (!TryGetEnterpriseId(out var enterpriseId))
                 return Unauthorized();
 
-            var product = await LoadForWriteAsync(id);
+            Product product;
+            try
+            {
+                product = await LoadForWriteAsync(id);
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return NotFound();
+            }
+
             if (product == null || product.EnterpriseId != enterpriseId || product.IsActive != true)
                 return NotFound();
 

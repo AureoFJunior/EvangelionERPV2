@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Provision two disposable browser-test tenants in the dedicated local E2E database.
 
-Dry-run by default. Apply with `python3 scripts/e2e-seed-accounts.py --apply`.
+Start the isolated database first with `./scripts/e2e-stack-up.sh`. Dry-run by default; apply with
+`python3 scripts/e2e-seed-accounts.py --apply`.
 Credentials are written to the ignored .env.e2e file with mode 0600; source it before Cypress.
 """
 import argparse
