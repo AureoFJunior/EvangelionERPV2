@@ -59,8 +59,8 @@ services:
       RabbitMQSettings__Password: "plain:${E2E_RABBITMQ_PASSWORD:-e2e-local-only-password}"
       RabbitMQSettings__VirtualHost: plain:/
       RabbitMQSettings__Port: plain:5672
-      RedisSettings__InstanceName: "E2E:"
-      RedisSettings__ConnectionString: e2e-redis:6379,abortConnect=false
+      RedisSettings__InstanceName: "plain:E2E:"
+      RedisSettings__ConnectionString: "plain:e2e-redis:6379,abortConnect=false"
       AWS_EC2_METADATA_DISABLED: "true"
     ports:
       - "127.0.0.1:${E2E_API_HOST_PORT:-8083}:8080"
