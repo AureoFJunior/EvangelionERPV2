@@ -11,7 +11,10 @@ trap 'rm -f "$MIGRATIONS"' EXIT
 COMPOSE=(docker compose -p evangelionerpv2-e2e -f "$ROOT/docker-compose.e2e.yml")
 
 if [[ ! -f "$STACK_ENV" ]]; then
-  (umask 077; printf 'E2E_SQLSERVER_SA_PASSWORD=E2e!%s\n' "$(openssl rand -hex 32)") > "$STACK_ENV"
+  password="$(openssl rand -base64 48 | tr -d '\n')"
+  [[ "$password" =~ [A-Z] && "$password" =~ [a-z] && "$password" =~ [0-9] ]] ||
+    { echo "Unable to generate a SQL-compliant E2E password." >&2; exit 1; }
+  (umask 077; printf 'E2E_SQLSERVER_SA_PASSWORD=%s\n' "$password") > "$STACK_ENV"
 fi
 chmod 600 "$STACK_ENV"
 # This generated local file contains only the stack's SQL password.
