@@ -522,6 +522,7 @@ namespace EvangelionERPV2.Shared.Utils
                 catch (Exception nackException)
                 {
                     Log.Logger.Error(
+                        nackException,
                         "Error nacking message without a broker MessageId. ErrorType={ErrorType}",
                         GetSafeExceptionType(nackException));
                 }

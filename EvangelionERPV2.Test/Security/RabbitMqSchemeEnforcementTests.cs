@@ -40,7 +40,10 @@ namespace EvangelionERPV2.Test.Security
         [InlineData("development")]
         public void EnsureTransportIsSecure_NoTlsInDevelopment_IsAllowed(string environment)
         {
-            RabbitMQManagerBase<TestChannelSettings>.EnsureTransportIsSecure(false, environment);
+            var exception = Record.Exception(
+                () => RabbitMQManagerBase<TestChannelSettings>.EnsureTransportIsSecure(false, environment));
+
+            Assert.Null(exception);
         }
 
         [Fact]

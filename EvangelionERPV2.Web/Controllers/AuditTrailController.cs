@@ -128,7 +128,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Audit.CleanupRetention)]
         [HttpDelete("{retentionDays}")]
-        [ProducesResponseType(typeof(AuditRetentionCleanupResultDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(AuditRetentionCleanupResultDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -160,7 +160,7 @@ namespace EvangelionERPV2.Web.Controllers
                     cutoffDateUtc,
                     deletedCount);
 
-                return Ok(new AuditRetentionCleanupResultDTO(retentionDays, cutoffDateUtc, deletedCount));
+                return Ok(new AuditRetentionCleanupResultDto(retentionDays, cutoffDateUtc, deletedCount));
             }
             catch (Exception)
             {

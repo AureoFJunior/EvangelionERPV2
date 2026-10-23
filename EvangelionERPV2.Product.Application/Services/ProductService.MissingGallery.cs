@@ -56,7 +56,7 @@ public partial class ProductService
         }
         catch (Exception ex)
         {
-            Serilog.Log.Logger.Warning("Unable to build medium product image. ErrorType={ErrorType}", ex.GetType().Name);
+            Serilog.Log.Logger.Warning(ex, "Unable to build medium product image.");
             return string.Empty;
         }
     }

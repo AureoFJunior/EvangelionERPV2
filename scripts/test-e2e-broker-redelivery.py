@@ -24,7 +24,11 @@ def main():
     ):
         raise SystemExit("Refusing a RabbitMQ container outside the dedicated E2E network.")
 
-    settings = dict(value.split("=", 1) for value in info["Config"]["Env"] if "=" in value)
+    settings = {
+        entry.partition("=")[0]: entry.partition("=")[2]
+        for entry in info["Config"]["Env"]
+        if "=" in entry
+    }
     username = settings.get("RABBITMQ_DEFAULT_USER")
     password = settings.get("RABBITMQ_DEFAULT_PASS")
     host = info["NetworkSettings"]["Networks"][NETWORK]["IPAddress"]
