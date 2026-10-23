@@ -203,10 +203,19 @@ static void ValidateE2EConnectionString(string? connectionString)
     try
     {
         var sql = new SqlConnectionStringBuilder(resolvedConnectionString);
-        if (!sql.DataSource.Equals("e2e-sqlserver", StringComparison.OrdinalIgnoreCase) ||
+        var server = sql.DataSource.StartsWith("tcp:", StringComparison.OrdinalIgnoreCase)
+            ? sql.DataSource[4..]
+            : sql.DataSource;
+        var separator = server.LastIndexOf(',');
+        if (separator >= 0)
+            server = server[..separator];
+        var isLoopback = server.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+            (System.Net.IPAddress.TryParse(server, out var address) && System.Net.IPAddress.IsLoopback(address));
+
+        if ((!server.Equals("e2e-sqlserver", StringComparison.OrdinalIgnoreCase) && !isLoopback) ||
             !sql.InitialCatalog.Equals("ERP_E2E", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(
-                "E2E ConnectionStrings:DefaultConnection must target the isolated e2e-sqlserver/ERP_E2E database.");
+                "E2E ConnectionStrings:DefaultConnection must target e2e-sqlserver or loopback and the ERP_E2E database.");
     }
     catch (ArgumentException exception)
     {

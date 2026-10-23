@@ -22,9 +22,10 @@ if docker inspect "$CONTAINER" >/dev/null 2>&1; then
   image="$(docker inspect "$CONTAINER" --format '{{.Config.Image}}')"
   volume="$(docker inspect "$CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/var/opt/mssql"}}{{.Name}}{{end}}{{end}}')"
   ports="$(docker inspect "$CONTAINER" --format '{{json .HostConfig.PortBindings}}')"
+  expected_ports="{\"1433/tcp\":[{\"HostIp\":\"127.0.0.1\",\"HostPort\":\"${E2E_SQLSERVER_HOST_PORT:-14334}\"}]}"
   if [[ "$image" != mcr.microsoft.com/mssql/server:2022-latest ||
         "$volume" != evangelionerpv2_e2e_sql_data ||
-        "$ports" != '{"1433/tcp":[{"HostIp":"127.0.0.1","HostPort":"14334"}]}' ]]; then
+        "$ports" != "$expected_ports" ]]; then
     echo "Refusing unexpected existing E2E SQL container or data volume." >&2
     exit 1
   fi

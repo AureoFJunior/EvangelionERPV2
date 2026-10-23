@@ -14,8 +14,11 @@ public sealed class E2EDatabaseConfigurationTests
     public void AcceptsOnlyTheDedicatedE2ESqlHostAndDatabase()
     {
         Validate.Invoke(null, ["plain:Server=e2e-sqlserver;Initial Catalog=ERP_E2E;User ID=test;Password=dummy"]);
+        Validate.Invoke(null, ["plain:Server=localhost,14334;Initial Catalog=ERP_E2E;User ID=test;Password=dummy"]);
+        Validate.Invoke(null, ["Server=127.0.0.1,14444;Initial Catalog=ERP_E2E;User ID=test;Password=dummy"]);
 
         AssertInvalid("Server=production-sql;Initial Catalog=ERP_E2E;User ID=test;Password=dummy");
+        AssertInvalid("Server=192.0.2.10,14334;Initial Catalog=ERP_E2E;User ID=test;Password=dummy");
         AssertInvalid("Server=e2e-sqlserver;Initial Catalog=ERP;User ID=test;Password=dummy");
         AssertInvalid(null);
     }
