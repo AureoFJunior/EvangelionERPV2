@@ -8,6 +8,7 @@ Credentials are written to the ignored .env.e2e file with mode 0600; source it b
 import argparse
 import base64
 import hashlib
+import json
 import os
 import secrets
 import subprocess
@@ -45,6 +46,14 @@ def verify_target():
     expected = f"/{CONTAINER}|{VOLUME}"
     if result != expected:
         raise SystemExit(f"Refusing unexpected SQL target ({result!r}); expected the isolated E2E container/volume.")
+    ports = subprocess.run(
+        ["docker", "inspect", "--format", "{{json .HostConfig.PortBindings}}", "evangelionerpv2_e2e_api"],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    binding = json.loads(ports).get("8080/tcp", [{}])[0]
+    if binding.get("HostIp") != "127.0.0.1" or not binding.get("HostPort", "").isdigit():
+        raise SystemExit("Refusing an E2E API that is not published on a loopback host port.")
+    return binding["HostPort"]
 
 
 def run_sql(query):
@@ -107,7 +116,7 @@ def main():
     parser.add_argument("--apply", action="store_true", help="write the two test tenants and users")
     args = parser.parse_args()
 
-    verify_target()
+    api_port = verify_target()
     run_sql("IF DB_NAME() <> 'ERP_E2E' THROW 51000, 'Wrong database; refusing E2E seed.', 1; SELECT 'database verified';")
     if not args.apply:
         print(f"Target verified: {CONTAINER}/{DATABASE} on {VOLUME}; no database changes made.")
@@ -120,8 +129,8 @@ def main():
     lines = [
         "CYPRESS_E2E_ISOLATED=true",
         "CYPRESS_BASE_URL=http://localhost:8081",
-        "CYPRESS_API_BASE_URL=http://localhost:8083/api/v1",
-        "EXPO_PUBLIC_API_BASE_URL=http://localhost:8083/api/v1",
+        f"CYPRESS_API_BASE_URL=http://localhost:{api_port}/api/v1",
+        f"EXPO_PUBLIC_API_BASE_URL=http://localhost:{api_port}/api/v1",
         f"CYPRESS_ADMIN_USERNAME={FIXTURES[0][1]}",
         f"CYPRESS_ADMIN_PASSWORD={credentials[FIXTURES[0][1]]}",
         f"CYPRESS_TENANT_B_USERNAME={FIXTURES[1][1]}",

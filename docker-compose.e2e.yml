@@ -53,7 +53,7 @@ services:
       ASPNETCORE_URLS: http://+:8080
       ASPNETCORE_ENVIRONMENT: E2E
       DOTNET_ENVIRONMENT: E2E
-      ConnectionStrings__DefaultConnection: "plain:Server=e2e-sqlserver,1433;Initial Catalog=ERP_E2E;User ID=sa;Password=${E2E_SQLSERVER_SA_PASSWORD:?Set E2E_SQLSERVER_SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
+      ConnectionStrings__DefaultConnection: "plain:Server=e2e-sqlserver;Initial Catalog=ERP_E2E;User ID=sa;Password=${E2E_SQLSERVER_SA_PASSWORD:?Set E2E_SQLSERVER_SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
       RabbitMQSettings__HostName: plain:e2e-rabbitmq
       RabbitMQSettings__UserName: "plain:${E2E_RABBITMQ_USER:-e2e-user}"
       RabbitMQSettings__Password: "plain:${E2E_RABBITMQ_PASSWORD:-e2e-local-only-password}"
