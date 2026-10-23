@@ -105,11 +105,11 @@ public sealed class TenantAuthorizationHttpTests
                     services.AddSingleton<IRepository<Enterprise>>(enterpriseRepository.Object);
                     services.AddSingleton<IPermissionEvaluator, RolePermissionEvaluator>();
                     services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
-                    services.AddAuthorization(options => options.AddPolicy("test:orders.update", policy =>
+                    services.AddAuthorizationBuilder().AddPolicy("test:orders.update", policy =>
                     {
                         policy.RequireAuthenticatedUser();
                         policy.AddRequirements(new PermissionRequirement(RbacPermissions.Orders.Update));
-                    }));
+                    });
                 })
                 .Configure(application =>
                 {

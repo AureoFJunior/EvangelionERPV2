@@ -3,7 +3,7 @@ using EvangelionERPV2.Shared.Enums;
 
 namespace EvangelionERPV2.Shared.DTOs
 {
-    public sealed class MarkAllReadResponseDTO
+    public sealed class MarkAllReadResponseDto
     {
         public int Marked { get; set; }
     }

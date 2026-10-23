@@ -77,25 +77,21 @@ def build_sql(credentials):
     ]
     for index, (tenant_name, username, email) in enumerate(FIXTURES):
         label = f"E2E Cypress {tenant_name}"
-        statements.append(
+        statements.extend([
             f"DECLARE @enterprise_{index} uniqueidentifier = "
-            f"(SELECT TOP 1 Id FROM dbo.Enterprise WHERE Name = {sql_quote(label)});"
-        )
-        statements.append(
+            f"(SELECT TOP 1 Id FROM dbo.Enterprise WHERE Name = {sql_quote(label)});",
             f"IF @enterprise_{index} IS NULL BEGIN "
             f"SET @enterprise_{index} = NEWID(); "
             f"INSERT INTO dbo.Enterprise (Id, Name, PhoneNumber, Email, Adress, ShouldSendMonthlyBilling, "
             f"CreatedAt, IsActive, IamMode) VALUES (@enterprise_{index}, {sql_quote(label)}, '', "
-            f"{sql_quote('e2e.' + username + '@example.com')}, '', 0, SYSUTCDATETIME(), 1, 0); END;"
-        )
-        statements.append(
+            f"{sql_quote('e2e.' + username + '@example.com')}, '', 0, SYSUTCDATETIME(), 1, 0); END;",
             f"UPDATE dbo.Enterprise SET Name = {sql_quote(label)}, PhoneNumber = '11999990000', "
             f"Email = {sql_quote('e2e.' + username + '@example.com')}, Adress = 'E2E Test Street', "
             f"ShouldSendMonthlyBilling = 0, IsActive = 1, IamMode = 0, UpdatedAt = SYSUTCDATETIME() "
-            f"WHERE Id = @enterprise_{index};"
-        )
+            f"WHERE Id = @enterprise_{index};",
+        ])
         user_password = sql_quote(password_hash(credentials[username]))
-        statements.append(
+        statements.extend([
             f"IF EXISTS (SELECT 1 FROM dbo.[User] WHERE UserName = {sql_quote(username)}) "
             f"UPDATE dbo.[User] SET EnterpriseId = @enterprise_{index}, Password = {user_password}, "
             f"AccessLevel = 0, IsActive = 1, IsLogged = 0, IsServiceAccount = 0, MustChangePassword = 0, "
@@ -106,7 +102,7 @@ def build_sql(credentials):
             f"(NEWID(), 'E2E', {sql_quote(tenant_name)}, {sql_quote(username)}, {user_password}, "
             f"{sql_quote(email)}, '2000-01-01', 0, 0, '', @enterprise_{index}, 0, 0, SYSUTCDATETIME(), "
             f"1, 0, '', 0, 0, 0);"
-        )
+        ])
     statements.append("COMMIT TRANSACTION;")
     return "\n".join(statements)
 

@@ -5,6 +5,7 @@ using Serilog;
 using Serilog.Core;
 using Serilog.Events;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Security.Claims;
 using System.Text;
 
@@ -45,7 +46,7 @@ namespace EvangelionERPV2.Test.Security
                 await middleware.InvokeAsync(context);
 
                 var requestLogEvent = sink.Events
-                    .Single(logEvent => logEvent.RenderMessage().Contains("Request: Endpoint="));
+                    .Single(logEvent => logEvent.RenderMessage(CultureInfo.InvariantCulture).Contains("Request: Endpoint="));
                 var requestBody = (requestLogEvent.Properties["RequestBody"] as ScalarValue)?.Value?.ToString();
 
                 Assert.NotNull(requestBody);
@@ -187,8 +188,8 @@ namespace EvangelionERPV2.Test.Security
                 var requestBody = (requestLogEvent.Properties["RequestBody"] as ScalarValue)?.Value?.ToString();
 
                 Assert.Equal("[redacted: authenticated request]", requestBody);
-                Assert.DoesNotContain("customer@example.com", requestLogEvent.RenderMessage(), StringComparison.Ordinal);
-                Assert.DoesNotContain("jwt-secret-value", requestLogEvent.RenderMessage(), StringComparison.Ordinal);
+                Assert.DoesNotContain("customer@example.com", requestLogEvent.RenderMessage(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+                Assert.DoesNotContain("jwt-secret-value", requestLogEvent.RenderMessage(CultureInfo.InvariantCulture), StringComparison.Ordinal);
             }
             finally
             {

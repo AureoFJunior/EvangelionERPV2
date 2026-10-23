@@ -186,7 +186,7 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                 "items" => o => o.OrderedProduct!.Count(),
                 "total" => o => o.TotalValue,
                 "status" => o => o.Status,
-                _ => o => o.CreatedAt!
+                _ => o => o.CreatedAt
             };
 
             return await _orderRepository.GetAllAsyncByFilter(
