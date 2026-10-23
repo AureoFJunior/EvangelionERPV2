@@ -39,7 +39,10 @@ if docker inspect "$CONTAINER" >/dev/null 2>&1 &&
   exit 1
 fi
 
-"${COMPOSE[@]}" up -d --wait
+if ! "${COMPOSE[@]}" up -d --wait; then
+  echo "The E2E stack did not become healthy. If .env.e2e.stack was changed after this SQL volume was initialized, restore its original password or use a new isolated volume." >&2
+  exit 1
+fi
 
 for attempt in {1..60}; do
   if docker exec "$CONTAINER" sh -lc \
