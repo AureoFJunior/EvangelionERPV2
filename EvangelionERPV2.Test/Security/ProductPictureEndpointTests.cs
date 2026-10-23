@@ -1,6 +1,7 @@
 using AutoMapper;
 using EvangelionERPV2.ProductModule.Application.Interface;
 using EvangelionERPV2.Shared.Entities;
+using EvangelionERPV2.Shared.Exceptions;
 using EvangelionERPV2.Shared.Repositories;
 using EvangelionERPV2.Web.Controllers;
 using Microsoft.AspNetCore.Authorization;
@@ -22,19 +23,19 @@ namespace EvangelionERPV2.Test.Security
         private sealed class Harness
         {
             public Mock<IProductService<Product>> ProductService { get; } = new();
+            public Mock<IRepository<Product>> ProductRepository { get; } = new();
             public ProductController Controller { get; }
 
             public Harness(Guid callerEnterprise, params Product[] stored)
             {
-                var products = new Mock<IRepository<Product>>();
                 foreach (var product in stored)
-                    products.Setup(r => r.GetByIdAsync(product.Id)).ReturnsAsync(product);
+                    ProductRepository.Setup(r => r.GetByIdAsync(product.Id)).ReturnsAsync(product);
 
                 ProductService.Setup(s => s.GetThumbnailBase64Async(It.IsAny<string?>())).ReturnsAsync((Convert.ToBase64String(Png), "h"));
                 ProductService.Setup(s => s.GetPictureBase64Async(It.IsAny<string?>())).ReturnsAsync(Convert.ToBase64String(Png));
 
                 Controller = new ProductController(
-                    ProductService.Object, products.Object, Mock.Of<IRepository<User>>(), Mock.Of<IMapper>(),
+                    ProductService.Object, ProductRepository.Object, Mock.Of<IRepository<User>>(), Mock.Of<IMapper>(),
                     Mock.Of<IAuthorizationService>());
                 Controller.ControllerContext = new ControllerContext
                 {
@@ -64,6 +65,92 @@ namespace EvangelionERPV2.Test.Security
             Assert.StartsWith("\"", harness.Controller.Response.Headers.ETag.ToString());
             harness.ProductService.Verify(s => s.GetThumbnailBase64Async("products/abc.png"), Times.Once);
             harness.ProductService.Verify(s => s.GetPictureBase64Async(It.IsAny<string?>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task MediumSize_IsAcceptedForAProductAndUsesTheMediumService()
+        {
+            var tenant = Guid.NewGuid();
+            var product = Photographed(tenant);
+            var harness = new Harness(tenant, product);
+            harness.ProductService.Setup(s => s.GetMediumPictureBase64Async("products/abc.png"))
+                .ReturnsAsync(Convert.ToBase64String(Png));
+
+            var file = Assert.IsType<FileContentResult>(await harness.Controller.Picture(product.Id, "medium"));
+
+            Assert.Equal(Png, file.FileContents);
+            harness.ProductService.Verify(s => s.GetMediumPictureBase64Async("products/abc.png"), Times.Once);
+        }
+
+        [Fact]
+        public async Task DeletePicture_IsTenantScopedAndRemovesTheProductPhoto()
+        {
+            var tenant = Guid.NewGuid();
+            var product = Photographed(tenant);
+            var harness = new Harness(tenant, product);
+            harness.ProductService.Setup(s => s.DeletePictureAsync(product)).ReturnsAsync(true);
+
+            var result = await harness.Controller.DeleteProductPicture(product.Id);
+
+            Assert.IsType<NoContentResult>(result);
+            harness.ProductService.Verify(s => s.DeletePictureAsync(product), Times.Once);
+        }
+
+        [Fact]
+        public async Task DeletePicture_ReturnsNotFoundWhenFreshLookupDoesNotFindProduct()
+        {
+            var tenant = Guid.NewGuid();
+            var missingId = Guid.NewGuid();
+            var harness = new Harness(tenant);
+            harness.ProductRepository.Setup(r => r.GetByIdAsync(missingId))
+                .ThrowsAsync(new NotFoundDatabaseException("Product was not found."));
+
+            var result = await harness.Controller.DeleteProductPicture(missingId);
+
+            Assert.IsType<NotFoundResult>(result);
+            harness.ProductService.Verify(s => s.DeletePictureAsync(It.IsAny<Product>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task DeleteFamilyPicture_UsesTheCallerTenant()
+        {
+            var tenant = Guid.NewGuid();
+            var group = Guid.NewGuid();
+            var harness = new Harness(tenant);
+            harness.ProductService.Setup(s => s.DeleteFamilyPictureAsync(tenant, group)).ReturnsAsync(true);
+
+            var result = await harness.Controller.DeleteFamilyPicture(group);
+
+            Assert.IsType<NoContentResult>(result);
+            harness.ProductService.Verify(s => s.DeleteFamilyPictureAsync(tenant, group), Times.Once);
+        }
+
+        [Fact]
+        public async Task DeleteProduct_ReturnsNotFoundWhenFreshLookupDoesNotFindProduct()
+        {
+            var tenant = Guid.NewGuid();
+            var missingId = Guid.NewGuid();
+            var repository = new Mock<IRepository<Product>>();
+            repository.Setup(r => r.GetByIdAsync(missingId))
+                .ThrowsAsync(new NotFoundDatabaseException("Product was not found."));
+            var service = new Mock<IProductService<Product>>();
+            var controller = new ProductController(service.Object, repository.Object, Mock.Of<IRepository<User>>(),
+                Mock.Of<IMapper>(), Mock.Of<IAuthorizationService>())
+            {
+                ControllerContext = new ControllerContext
+                {
+                    HttpContext = new DefaultHttpContext
+                    {
+                        User = new ClaimsPrincipal(new ClaimsIdentity(
+                            [new Claim(ClaimTypes.GroupSid, tenant.ToString())], "TestAuth"))
+                    }
+                }
+            };
+
+            var result = await controller.DeleteProduct(missingId);
+
+            Assert.IsType<NotFoundResult>(result);
+            service.Verify(s => s.Delete(It.IsAny<Guid>()), Times.Never);
         }
 
         [Fact]

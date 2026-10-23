@@ -66,6 +66,46 @@ namespace EvangelionERPV2.Test.Security
         }
 
         [Fact]
+        public void GetKMSKey_WithPlainPrefix_AllowsIsolatedE2EEnvironment()
+        {
+            var previousAspNetEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+            var previousDotnetEnvironment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
+            try
+            {
+                Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "E2E");
+                Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", null);
+                var provider = new AWSKMSKeyProvider(new Mock<IAmazonSecretsManager>(MockBehavior.Strict).Object, CreateConfiguration());
+
+                Assert.Equal("test-secret", provider.GetKMSKey("plain:test-secret"));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousAspNetEnvironment);
+                Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", previousDotnetEnvironment);
+            }
+        }
+
+        [Fact]
+        public void GetKMSKey_WithPlainPrefix_RejectsProductionEnvironment()
+        {
+            var previousAspNetEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+            var previousDotnetEnvironment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
+            try
+            {
+                Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Production");
+                Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", null);
+                var provider = new AWSKMSKeyProvider(new Mock<IAmazonSecretsManager>(MockBehavior.Strict).Object, CreateConfiguration());
+
+                Assert.Throws<InvalidOperationException>(() => provider.GetKMSKey("plain:test-secret"));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousAspNetEnvironment);
+                Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", previousDotnetEnvironment);
+            }
+        }
+
+        [Fact]
         public void GetKMSKey_WithPlainKeyPrefixedSecret_ReturnsValueAfterRequestedKey()
         {
             var secretsManager = CreateSecretsManager(

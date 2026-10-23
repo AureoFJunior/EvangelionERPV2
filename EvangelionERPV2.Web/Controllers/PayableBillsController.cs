@@ -41,6 +41,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Read)]
         [HttpGet("{pageNumber?}/{pageSize?}")]
+        [ProducesResponseType(typeof(IEnumerable<PayableBillDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetPayableBills(
             int? pageNumber = null,
             int? pageSize = null,
@@ -106,6 +107,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Read)]
         [HttpGet("{id}")]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetPayableBill(Guid id)
         {
             try
@@ -130,6 +132,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Create)]
         [HttpPost]
         [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> AddPayableBill([FromBody] UpsertPayableBillRequestDTO request)
         {
             try
@@ -168,6 +171,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Update)]
         [HttpPut]
         [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> UpdatePayableBill([FromBody] UpsertPayableBillRequestDTO request)
         {
             try
@@ -212,6 +216,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.MarkProductsReceived)]
         [HttpPost("{id}")]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> MarkProductsReceived(Guid id)
         {
             try
@@ -244,6 +249,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Refund)]
         [HttpPost("{id}")]
         [RequestSizeLimit(MaxPayableBillWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> RefundPayableBill(Guid id, [FromBody] RefundRequestDTO request)
         {
             try
@@ -305,6 +311,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.PayableBills.Delete)]
         [HttpDelete("{id}")]
+        [ProducesResponseType(typeof(PayableBillDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> DeletePayableBill(Guid id)
         {
             try

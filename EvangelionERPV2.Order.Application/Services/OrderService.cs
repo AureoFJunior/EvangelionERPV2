@@ -176,8 +176,18 @@ namespace EvangelionERPV2.OrderModule.Application.Services
             var isActive = filter.IsActive;
             var channel = filter.Channel;
             var startDate = filter.StartDate?.Date;
-
             var endDateExclusive = filter.EndDate?.Date.AddDays(1);
+            var search = SharedFunctions.EscapeLikePattern(filter.Search?.Trim() ?? string.Empty);
+            var orderNumberSearch = StorefrontOrderNumber.ToSearchableIdFragment(search);
+            var sortKey = filter.SortBy?.Trim().ToLowerInvariant() switch
+            {
+                "id" => (Expression<Func<Order, object>>)(o => o.Id),
+                "customer" => o => o.Customer!.Name,
+                "items" => o => o.OrderedProduct!.Count(),
+                "total" => o => o.TotalValue,
+                "status" => o => o.Status,
+                _ => o => o.CreatedAt!
+            };
 
             return await _orderRepository.GetAllAsyncByFilter(
                 descending,
@@ -188,9 +198,12 @@ namespace EvangelionERPV2.OrderModule.Application.Services
                     (!status.HasValue || x.Status == status.Value) &&
                     (!customerId.HasValue || x.CustomerId == customerId.Value) &&
                     (!channel.HasValue || x.Channel == channel.Value) &&
+                    (search == string.Empty ||
+                     (x.Customer != null && EF.Functions.Like(x.Customer.Name, $"%{search}%", "\\")) ||
+                     EF.Functions.Like(x.Id.ToString(), $"%{orderNumberSearch}%", "\\")) &&
                     (!startDate.HasValue || x.CreatedAt >= startDate.Value) &&
                     (!endDateExclusive.HasValue || x.CreatedAt < endDateExclusive.Value),
-                x => x.CreatedAt!);
+                sortKey);
         }
 
         public async Task<Order?> GetByIdAsync(Guid id, Guid enterpriseId)

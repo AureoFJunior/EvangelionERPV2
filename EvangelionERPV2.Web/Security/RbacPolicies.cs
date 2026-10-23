@@ -184,7 +184,7 @@ namespace EvangelionERPV2.Web.Security
                 policy.AddRequirements(new PermissionRequirement(RbacPermissions.Metrics.Read));
             });
 
-            options.AddPolicy(Machine.SelfApiBroadcast, policy =>
+            options.AddPolicy(Machine.SelfApiWorker, policy =>
             {
                 policy.RequireAuthenticatedUser();
                 policy.RequireClaim(MachineClaims.ClientType, MachineClaims.SelfApiValue);
@@ -198,7 +198,7 @@ namespace EvangelionERPV2.Web.Security
 
         public static class Machine
         {
-            public const string SelfApiBroadcast = "machine:self-api-broadcast";
+            public const string SelfApiWorker = "machine:self-api-worker";
         }
 
         public static class Metrics

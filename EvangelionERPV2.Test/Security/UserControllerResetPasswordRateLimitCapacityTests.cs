@@ -14,6 +14,10 @@ using System.Reflection;
 
 namespace EvangelionERPV2.Test.Security
 {
+    [CollectionDefinition("Reset password rate limit state", DisableParallelization = true)]
+    public sealed class ResetPasswordRateLimitStateCollection { }
+
+    [Collection("Reset password rate limit state")]
     public class UserControllerResetPasswordRateLimitCapacityTests
     {
         [Fact]

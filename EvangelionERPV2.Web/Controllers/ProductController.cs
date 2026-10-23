@@ -190,7 +190,7 @@ namespace EvangelionERPV2.Web.Controllers
             if (!TryGetEnterpriseId(out var enterpriseId))
                 return Unauthorized();
 
-            if (size is not ("thumb" or "full"))
+            if (size is not ("thumb" or "medium" or "full"))
                 return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
             var product = await _repository.GetByIdAsync(id);
@@ -198,6 +198,31 @@ namespace EvangelionERPV2.Web.Controllers
                 return NotFound();
 
             return await ServePictureAsync(product.PictureAdress, size);
+        }
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.DeletePicture)]
+        [HttpDelete]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> DeleteProductPicture(Guid id)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            Product product;
+            try
+            {
+                product = await LoadForWriteAsync(id);
+            }
+            catch (NotFoundDatabaseException)
+            {
+                return NotFound();
+            }
+
+            if (product == null || product.EnterpriseId != enterpriseId || product.IsActive != true)
+                return NotFound();
+
+            return await _productService.DeletePictureAsync(product) ? NoContent() : NotFound();
         }
 
         /// <summary>A variant family's own photo (the one showing the whole family), same caching as <see cref="Picture"/>.</summary>
@@ -211,17 +236,31 @@ namespace EvangelionERPV2.Web.Controllers
             if (!TryGetEnterpriseId(out var enterpriseId))
                 return Unauthorized();
 
-            if (size is not ("thumb" or "full"))
+            if (size is not ("thumb" or "medium" or "full"))
                 return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
 
             return await ServePictureAsync(await _productService.GetFamilyPictureAddressAsync(enterpriseId, variantGroupId), size);
+        }
+
+        [Authorize(Policy = "rbac:" + RbacPermissions.Products.DeletePicture)]
+        [HttpDelete]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> DeleteFamilyPicture(Guid variantGroupId)
+        {
+            if (!TryGetEnterpriseId(out var enterpriseId))
+                return Unauthorized();
+
+            return await _productService.DeleteFamilyPictureAsync(enterpriseId, variantGroupId)
+                ? NoContent()
+                : NotFound();
         }
 
         /// <summary>Sets the photo of a whole variant family; each variant keeps its own.</summary>
         [Authorize(Policy = "rbac:" + RbacPermissions.Products.Update)]
         [HttpPatch]
         [RequestSizeLimit(MaxImageUploadRequestBodySizeInBytes)]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ProductFamilyPictureDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> UploadFamilyPicture([FromBody] UploadFamilyPictureRequestDTO request)
         {
@@ -229,7 +268,7 @@ namespace EvangelionERPV2.Web.Controllers
                 return Unauthorized();
 
             return await _productService.SetFamilyPictureAsync(enterpriseId, request.VariantGroupId, request.File)
-                ? Ok(new { variantGroupId = request.VariantGroupId, hasPicture = true })
+                ? Ok(new ProductFamilyPictureDTO { VariantGroupId = request.VariantGroupId, HasPicture = true })
                 : NotFound();
         }
 
@@ -239,9 +278,12 @@ namespace EvangelionERPV2.Web.Controllers
                 return NotFound();
 
             Response.Headers.CacheControl = "private, max-age=300";
-            var base64 = size == "thumb"
-                ? (await _productService.GetThumbnailBase64Async(pictureAddress)).Base64
-                : await _productService.GetPictureBase64Async(pictureAddress);
+            var base64 = size switch
+            {
+                "thumb" => (await _productService.GetThumbnailBase64Async(pictureAddress)).Base64,
+                "medium" => await _productService.GetMediumPictureBase64Async(pictureAddress),
+                _ => await _productService.GetPictureBase64Async(pictureAddress)
+            };
             if (string.IsNullOrWhiteSpace(base64))
                 return NotFound();
 
@@ -390,6 +432,7 @@ namespace EvangelionERPV2.Web.Controllers
         [HttpDelete]
         [ProducesResponseType(typeof(ProductDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> DeleteProduct(Guid id)
         {
@@ -398,9 +441,18 @@ namespace EvangelionERPV2.Web.Controllers
                 if (!ModelState.IsValid) return BadRequest(ControllerResponseSanitizer.InvalidRequestPayloadMessage);
                 if (!TryGetEnterpriseId(out var enterpriseId))
                     return Unauthorized();
-                var existentProduct = await LoadForWriteAsync(id);
+                Product existentProduct;
+                try
+                {
+                    existentProduct = await LoadForWriteAsync(id);
+                }
+                catch (NotFoundDatabaseException)
+                {
+                    return NotFound();
+                }
+
                 if (existentProduct == null || existentProduct.EnterpriseId != enterpriseId || existentProduct.IsActive != true)
-                    return NoContent();
+                    return NotFound();
 
                 Product product = _productService.Delete(id);
                 if (product == null)

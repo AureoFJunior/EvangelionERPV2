@@ -52,6 +52,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// <param name="pageSize">Size of the desired page</param>
         /// <param name="employeeId">Optional employee filter.</param>
         [Authorize(Policy = "rbac:" + RbacPermissions.EmployeeVacations.Read)]
+        [HttpGet]
         [HttpGet("{pageNumber?}/{pageSize?}")]
         [ProducesResponseType(typeof(IEnumerable<EmployeeVacationAccrualDTO>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]

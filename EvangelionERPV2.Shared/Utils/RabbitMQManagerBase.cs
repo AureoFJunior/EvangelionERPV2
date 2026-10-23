@@ -201,7 +201,7 @@ namespace EvangelionERPV2.Shared.Utils
         }
 
         /// <summary>
-        /// Refuses a cleartext broker connection outside Development.
+        /// Refuses a cleartext broker connection outside Development or the isolated local E2E environment.
         /// <para>
         /// Checks the factory's resolved TLS state rather than the URI scheme, because the scheme is
         /// only one of two ways in. An earlier version of this guard inspected the scheme string and
@@ -227,6 +227,13 @@ namespace EvangelionERPV2.Shared.Utils
             {
                 Log.Logger.Warning(
                     "RabbitMQ is connecting without TLS. Allowed only because the environment is Development.");
+                return;
+            }
+
+            if (string.Equals(environmentName, "E2E", StringComparison.OrdinalIgnoreCase))
+            {
+                Log.Logger.Warning(
+                    "RabbitMQ is connecting without TLS on the isolated E2E network, which has no published ports.");
                 return;
             }
 
@@ -503,13 +510,30 @@ namespace EvangelionERPV2.Shared.Utils
         /// </summary>
         private async Task HandleDeliveryAsync<T>(BasicDeliverEventArgs ea, Func<T, string, Task> processMessageAsync)
         {
+            var messageId = ea.BasicProperties?.MessageId;
+            if (string.IsNullOrWhiteSpace(messageId))
+            {
+                MessagesProcessed.WithLabels(_channelSettings.QueueName, "failed").Inc();
+                Log.Logger.Warning("Message without a broker MessageId was sent to the dead-letter queue.");
+                try
+                {
+                    await NackAsync(ea.DeliveryTag);
+                }
+                catch (Exception nackException)
+                {
+                    Log.Logger.Error(
+                        "Error nacking message without a broker MessageId. ErrorType={ErrorType}",
+                        GetSafeExceptionType(nackException));
+                }
+
+                return;
+            }
+
             try
             {
                 var message = Encoding.UTF8.GetString(ea.Body.ToArray());
                 var resultObject = JsonSerializer.Deserialize<T>(message, _jsonOptions)
                     ?? throw new InvalidOperationException("Failed to deserialize message payload.");
-
-                var messageId = ea.BasicProperties?.MessageId ?? string.Empty;
 
                 using (MessageDuration.WithLabels(_channelSettings.QueueName).NewTimer())
                     await processMessageAsync(resultObject, messageId);
@@ -547,9 +571,10 @@ namespace EvangelionERPV2.Shared.Utils
         /// </para>
         /// <para>
         /// Deliberately operator-triggered and bounded rather than automatic. A redrive is a bulk
-        /// retry, and whether re-processing a message is safe depends on whether the handler is
-        /// idempotent - which is an open question for this pipeline. Putting a person and a batch
-        /// size in front of it keeps that decision where it belongs until the question is answered.
+        /// retry. Redrive preserves an existing MessageId and assigns one to legacy messages that
+        /// lack it. Consumers reject messages without an ID before processing, so order handling
+        /// always receives a stable deduplication key.
+        /// Redrive remains operator-triggered and bounded to avoid unexpectedly replaying a batch.
         /// </para>
         /// <para>
         /// A message is acknowledged on the dead-letter queue only after it has been accepted onto
@@ -588,7 +613,9 @@ namespace EvangelionERPV2.Shared.Utils
                         basicProperties: new BasicProperties
                         {
                             Persistent = true,
-                            MessageId = delivery.BasicProperties?.MessageId ?? Guid.NewGuid().ToString("N"),
+                            MessageId = string.IsNullOrWhiteSpace(delivery.BasicProperties?.MessageId)
+                                ? Guid.NewGuid().ToString("N")
+                                : delivery.BasicProperties.MessageId,
                             Headers = headers
                         },
                         body: delivery.Body,

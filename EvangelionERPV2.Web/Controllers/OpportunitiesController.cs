@@ -29,6 +29,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Read)]
         [HttpGet]
+        [ProducesResponseType(typeof(PaginatedResultDTO<OpportunityDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetOpportunities([FromQuery] OpportunityFilterDTO filter)
         {
             try
@@ -51,6 +52,8 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Read)]
         [HttpGet("{id:guid}")]
+        [ProducesResponseType(typeof(OpportunityDTO), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
         public async Task<IActionResult> GetOpportunity(Guid id)
         {
             try
@@ -77,6 +80,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Feedback)]
         [HttpPost("{id:guid}/feedback")]
         [RequestSizeLimit(MaxOpportunityWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(OpportunityFeedbackDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> AddFeedback(Guid id, [FromBody] OpportunityFeedbackRequestDTO request)
         {
             try
@@ -115,6 +119,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Recompute)]
         [HttpPost("recompute")]
         [RequestSizeLimit(MaxOpportunityWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(OpportunityRunLogDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> Recompute([FromBody] OpportunityRecomputeRequestDTO request)
         {
             try
@@ -144,6 +149,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Opportunities.Read)]
         [HttpGet("summary")]
+        [ProducesResponseType(typeof(OpportunitySummaryDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetSummary()
         {
             try

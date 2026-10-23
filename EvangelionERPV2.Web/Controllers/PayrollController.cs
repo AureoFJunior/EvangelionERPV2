@@ -35,6 +35,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Read)]
         [HttpGet]
+        [ProducesResponseType(typeof(EnterprisePayrollSettingsDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetPayrollSettings()
         {
             try
@@ -54,6 +55,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.UpdateSettings)]
         [HttpPut]
         [RequestSizeLimit(MaxPayrollWriteRequestBodySizeInBytes)]
+        [ProducesResponseType(typeof(EnterprisePayrollSettingsDTO), StatusCodes.Status200OK)]
         public async Task<IActionResult> UpdatePayrollSettings([FromBody] EnterprisePayrollSettingsDTO request)
         {
             try
@@ -81,6 +83,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Generate)]
         [HttpPost]
+        [ProducesResponseType(typeof(IEnumerable<PayrollEmployeeBreakdownDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GeneratePayroll(
             [FromQuery] int? year = null,
             [FromQuery] int? month = null,
@@ -113,6 +116,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Read)]
         [HttpGet]
+        [ProducesResponseType(typeof(IEnumerable<PayrollEmployeeBreakdownDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetPayroll([FromQuery] int? year = null, [FromQuery] int? month = null)
         {
             try
@@ -141,6 +145,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Generate)]
         [HttpPost]
+        [ProducesResponseType(typeof(IEnumerable<VacationPayDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GenerateVacationPay([FromQuery] Guid accrualId)
         {
             try
@@ -164,6 +169,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = "rbac:" + RbacPermissions.Payroll.Read)]
         [HttpGet]
+        [ProducesResponseType(typeof(IEnumerable<VacationPayDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetVacationPay([FromQuery] Guid accrualId)
         {
             try

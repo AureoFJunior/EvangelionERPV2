@@ -183,7 +183,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = "rbac:" + RbacPermissions.Orders.Create)]
         [HttpPost]
         [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
@@ -260,7 +260,7 @@ namespace EvangelionERPV2.Web.Controllers
         /// </summary>
         /// <param name="request">Queued order with its original tenant context</param>
         /// <returns>Confirmation the order was created</returns>
-        [Authorize(Policy = RbacPolicies.Machine.SelfApiBroadcast)]
+        [Authorize(Policy = RbacPolicies.Machine.SelfApiWorker)]
         [HttpPost]
         [RequestSizeLimit(MaxOrderRequestBodySizeInBytes)]
         [ProducesResponseType(StatusCodes.Status200OK)]

@@ -4,5 +4,8 @@ namespace EvangelionERPV2.Shared.Utils
     public static class StorefrontOrderNumber
     {
         public static string For(Guid orderId) => "LM-" + orderId.ToString("N")[..8].ToUpperInvariant();
+
+        public static string ToSearchableIdFragment(string search) =>
+            search.StartsWith("LM-", StringComparison.OrdinalIgnoreCase) ? search[3..] : search;
     }
 }

@@ -86,6 +86,43 @@ namespace EvangelionERPV2.Test.Security
             Assert.True(nextCalled);
         }
 
+        [Fact]
+        public async Task InvokeAsync_WhenUserBelongsToDifferentEnterprise_ReturnsUnauthorizedAndStopsPipeline()
+        {
+            var userId = Guid.NewGuid();
+            var claimEnterpriseId = Guid.NewGuid();
+            var actualEnterpriseId = Guid.NewGuid();
+            var context = BuildAuthenticatedContext(userId, claimEnterpriseId);
+
+            var userRepository = new Mock<IRepository<User>>(MockBehavior.Strict);
+            userRepository
+                .Setup(x => x.GetByIdAsync(userId))
+                .ReturnsAsync(new User
+                {
+                    Id = userId,
+                    EnterpriseId = actualEnterpriseId,
+                    IsActive = true
+                });
+
+            var enterpriseRepository = new Mock<IRepository<Enterprise>>(MockBehavior.Strict);
+            enterpriseRepository
+                .Setup(x => x.GetByIdAsync(claimEnterpriseId))
+                .ReturnsAsync(new Enterprise { Id = claimEnterpriseId, IsActive = true });
+
+            var nextCalled = false;
+            var middleware = new ActiveTenantEnforcementMiddleware(_ =>
+            {
+                nextCalled = true;
+                return Task.CompletedTask;
+            });
+
+            await middleware.InvokeAsync(context, userRepository.Object, enterpriseRepository.Object);
+
+            Assert.Equal(StatusCodes.Status401Unauthorized, context.Response.StatusCode);
+            Assert.False(nextCalled);
+            enterpriseRepository.Verify(x => x.GetByIdAsync(claimEnterpriseId), Times.Once);
+        }
+
         private static DefaultHttpContext BuildAuthenticatedContext(Guid userId, Guid enterpriseId)
         {
             var context = new DefaultHttpContext();

@@ -3,6 +3,11 @@ using EvangelionERPV2.Shared.Enums;
 
 namespace EvangelionERPV2.Shared.DTOs
 {
+    public sealed class MarkAllReadResponseDTO
+    {
+        public int Marked { get; set; }
+    }
+
     /// <summary>
     /// Everything the bell renders, in one call: the broadcasts an admin wrote and the alerts the
     /// daily panel is currently firing.

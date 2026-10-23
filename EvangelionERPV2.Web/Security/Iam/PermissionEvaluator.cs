@@ -55,13 +55,6 @@ namespace EvangelionERPV2.Web.Security.Iam
             _enforceStepUp = configuration?.GetValue("Iam:EnforceStepUp", true) ?? true;
         }
 
-        /// <summary>
-        /// The machine client skips MFA step-up (it holds a secret, not a phone), so it must never reach IAM itself:
-        /// a leaked service secret would otherwise rewrite everyone's access without a code.
-        /// </summary>
-        private static bool MachineIamLock(ClaimsPrincipal principal, string permission) =>
-            StepUp.IsMachineClient(principal) && permission.StartsWith("iam.", StringComparison.OrdinalIgnoreCase);
-
         private bool Fresh(DateTimeOffset? verifiedAt, PermissionTier tier) =>
             verifiedAt is { } at && at >= _time.GetUtcNow() - StepUp.Window(tier) && at <= _time.GetUtcNow() + TimeSpan.FromMinutes(1);
 
@@ -86,10 +79,13 @@ namespace EvangelionERPV2.Web.Security.Iam
 
         public async Task<PermissionDecision> DecideAsync(ClaimsPrincipal principal, User user, string permission)
         {
+            if (StepUp.IsMachineClient(principal))
+                return PermissionDecision.Denied;
+
             if (StorefrontTokenScope.ServicePermissions.Contains(permission))
                 return StorefrontTokenScope.IsStorefrontScoped(principal) ? PermissionDecision.Allowed : PermissionDecision.Denied;
 
-            var holds = StorefrontTokenScope.AllowsThroughToken(principal, permission) && !MachineIamLock(principal, permission)
+            var holds = StorefrontTokenScope.AllowsThroughToken(principal, permission)
                         && (await HeldAsync(user)).Contains(permission);
             if (!holds)
                 return PermissionDecision.Denied;
@@ -148,8 +144,11 @@ namespace EvangelionERPV2.Web.Security.Iam
 
         public async Task<IReadOnlySet<string>> HoldsAsync(ClaimsPrincipal principal, User user)
         {
+            if (StepUp.IsMachineClient(principal))
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             var effective = (await HeldAsync(user))
-                .Where(permission => StorefrontTokenScope.AllowsThroughToken(principal, permission) && !MachineIamLock(principal, permission))
+                .Where(permission => StorefrontTokenScope.AllowsThroughToken(principal, permission))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (StorefrontTokenScope.IsStorefrontScoped(principal))
                 effective.UnionWith(StorefrontTokenScope.ServicePermissions);

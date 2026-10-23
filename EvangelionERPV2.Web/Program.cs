@@ -45,8 +45,11 @@ using Serilog;
 using Microsoft.OpenApi;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Net.Http.Headers;
+using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
+if (builder.Environment.IsEnvironment("E2E"))
+    ValidateE2EConnectionString(builder.Configuration.GetConnectionString("DefaultConnection"));
 const string DefaultCorsPolicyName = "DefaultCorsPolicy";
 
 Metrics.ConfigureMeterAdapter(options =>
@@ -138,6 +141,7 @@ try
     app.UseCors(DefaultCorsPolicyName);
 
     app.UseAuthentication();
+    app.UseMiddleware<SelfApiEndpointEnforcementMiddleware>();
     app.UseMiddleware<RequestLoggingMiddleware>();
     app.UseMiddleware<ActiveTenantEnforcementMiddleware>();
     app.UseAuthorization();
@@ -187,6 +191,30 @@ catch (Exception ex)
     throw;
 }
 
+static void ValidateE2EConnectionString(string? connectionString)
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException(
+            "E2E requires ConnectionStrings:DefaultConnection to target the isolated e2e-sqlserver/ERP_E2E database.");
+
+    var resolvedConnectionString = connectionString.StartsWith("plain:", StringComparison.OrdinalIgnoreCase)
+        ? connectionString["plain:".Length..]
+        : connectionString;
+    try
+    {
+        var sql = new SqlConnectionStringBuilder(resolvedConnectionString);
+        if (!sql.DataSource.Equals("e2e-sqlserver", StringComparison.OrdinalIgnoreCase) ||
+            !sql.InitialCatalog.Equals("ERP_E2E", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "E2E ConnectionStrings:DefaultConnection must target the isolated e2e-sqlserver/ERP_E2E database.");
+    }
+    catch (ArgumentException exception)
+    {
+        throw new InvalidOperationException(
+            "E2E requires a valid isolated e2e-sqlserver/ERP_E2E SQL connection string.", exception);
+    }
+}
+
 static void BuildValidators(WebApplicationBuilder builder)
 {
     builder.Services.AddValidatorsFromAssemblyContaining<UserValidator>(ServiceLifetime.Transient);
@@ -194,7 +222,7 @@ static void BuildValidators(WebApplicationBuilder builder)
 
 static void SetupSwagger(WebApplication app, IWebHostEnvironment env)
 {
-    if (!env.IsDevelopment())
+    if (!env.IsDevelopment() && !env.IsEnvironment("E2E"))
         return;
 
     app.UseSwagger();
@@ -209,6 +237,10 @@ static void SetupJWT(WebApplicationBuilder builder)
 {
     var issuer = builder.Configuration.GetSection("JwtSettings")["Issuer"] ?? string.Empty;
     var audience = builder.Configuration.GetSection("JwtSettings")["Audience"] ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(issuer))
+        throw new InvalidOperationException("JwtSettings:Issuer is not configured.");
+    if (string.IsNullOrWhiteSpace(audience))
+        throw new InvalidOperationException("JwtSettings:Audience is not configured.");
     var isDevelopment = builder.Environment.IsDevelopment();
     builder.Services.AddAuthentication(x =>
     {
@@ -431,7 +463,11 @@ static void ConfigureIoC(WebApplicationBuilder builder)
     OrderIoC.Configure(builder.Services, builder.Configuration);
     BillsIoC.Configure(builder.Services, builder.Configuration);
     NotificationIoC.Configure(builder.Services, builder.Configuration);
-    NFeIoC.Configure(builder.Services, builder.Configuration);
+    NFeIoC.Configure(
+        builder.Services,
+        builder.Configuration,
+        builder.Environment.IsEnvironment("E2E") &&
+        builder.Configuration.GetValue<bool>("NFeSettings:UseStubProvider"));
     CustomerIoC.Configure(builder.Services, builder.Configuration);
     EmployeeIoC.Configure(builder.Services, builder.Configuration);
     SupplierIoC.Configure(builder.Services, builder.Configuration);

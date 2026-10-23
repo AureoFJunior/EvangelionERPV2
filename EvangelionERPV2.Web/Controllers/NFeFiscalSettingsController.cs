@@ -83,7 +83,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = RbacPolicies.NFe.SettingsRead)]
         [HttpGet]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(EnterpriseFiscalSettingsDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         public async Task<IActionResult> GetFiscalSettings()
@@ -98,7 +98,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = RbacPolicies.NFe.SettingsUpdate)]
         [HttpPut]
         [RequestSizeLimit(MaxFiscalSettingsRequestBodySizeInBytes)]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(EnterpriseFiscalSettingsDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -126,7 +126,7 @@ namespace EvangelionERPV2.Web.Controllers
         [Authorize(Policy = RbacPolicies.NFe.CertificateManage)]
         [HttpPost]
         [RequestSizeLimit(MaxCertificateUploadSizeInBytes)]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(NFeCertificateStatusDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -168,7 +168,7 @@ namespace EvangelionERPV2.Web.Controllers
 
         [Authorize(Policy = RbacPolicies.NFe.CertificateRead)]
         [HttpGet]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(NFeCertificateStatusDTO), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         public async Task<IActionResult> GetCertificateStatus()

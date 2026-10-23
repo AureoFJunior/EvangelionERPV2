@@ -293,7 +293,7 @@ namespace EvangelionERPV2.Test.Security.Iam
             using (var db = _database.CreateContext())
                 await db.UserPermissionGrant.Where(g => g.UserId == _clerk.Id && g.Permission == permission)
                     .ExecuteUpdateAsync(set => set.SetProperty(g => g.LastUsedAt, _time.GetUtcNow().UtcDateTime.AddMinutes(20)));
-            var oldCreatedAt = DateTime.UtcNow.AddDays(-10);
+            var oldCreatedAt = _time.GetUtcNow().UtcDateTime.AddDays(-10);
             using (var db = _database.CreateContext())
                 await db.UserPermissionGrant.Where(g => g.UserId == _clerk.Id && g.Permission == permission)
                     .ExecuteUpdateAsync(set => set.SetProperty(g => g.CreatedAt, oldCreatedAt));
@@ -319,8 +319,8 @@ namespace EvangelionERPV2.Test.Security.Iam
             var permission = RbacPermissions.Orders.Read;
             await Service().ApplyAsync(Fresh(_admin), _clerk.Id,
                 [new GrantChange(permission, null, GrantState.Allow, null, "original grant")]);
-            var oldCreatedAt = DateTime.UtcNow.AddDays(-10);
-            var lastUsedAt = DateTime.UtcNow.AddDays(-1);
+            var oldCreatedAt = _time.GetUtcNow().UtcDateTime.AddDays(-10);
+            var lastUsedAt = _time.GetUtcNow().UtcDateTime.AddDays(-1);
             using (var db = _database.CreateContext())
                 await db.UserPermissionGrant.Where(g => g.UserId == _clerk.Id && g.Permission == permission)
                     .ExecuteUpdateAsync(set => set
