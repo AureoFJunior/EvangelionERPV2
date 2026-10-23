@@ -45,14 +45,31 @@ using Serilog;
 using Microsoft.OpenApi;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Net.Http.Headers;
+using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
 if (builder.Environment.IsEnvironment("E2E"))
 {
-    builder.Configuration
-        .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false)
-        .AddJsonFile("appsettings.E2E.json", optional: true, reloadOnChange: false)
-        .AddEnvironmentVariables();
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException(
+            "E2E requires ConnectionStrings:DefaultConnection to target the isolated E2E database.");
+
+    // Do not let E2E silently inherit a production secret reference or point at another database.
+    var resolvedConnectionString = connectionString.StartsWith("plain:", StringComparison.OrdinalIgnoreCase)
+        ? connectionString["plain:".Length..]
+        : connectionString;
+    try
+    {
+        var databaseName = new SqlConnectionStringBuilder(resolvedConnectionString).InitialCatalog;
+        if (!databaseName.Equals("ERP_E2E", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "E2E ConnectionStrings:DefaultConnection must target the ERP_E2E database.");
+    }
+    catch (ArgumentException exception)
+    {
+        throw new InvalidOperationException("E2E requires a valid isolated ERP_E2E SQL connection string.", exception);
+    }
 }
 const string DefaultCorsPolicyName = "DefaultCorsPolicy";
 

@@ -19,9 +19,6 @@ public sealed class RabbitMQRetryRedeliveryTests
         var brokerUri = Environment.GetEnvironmentVariable("ERP_E2E_RABBITMQ_URI");
         Assert.False(string.IsNullOrWhiteSpace(brokerUri));
 
-        var previousAspNetEnvironment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
-        Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
-
         var queue = $"e2e.redelivery.{Guid.NewGuid():N}";
         var exchange = $"{queue}.exchange.topic";
         var routingKey = $"{queue}.#";
@@ -109,8 +106,6 @@ public sealed class RabbitMQRetryRedeliveryTests
                 await cleanup.ExchangeDeleteAsync(deadLetterExchange);
                 await connection.DisposeAsync();
             }
-
-            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", previousAspNetEnvironment);
         }
     }
 

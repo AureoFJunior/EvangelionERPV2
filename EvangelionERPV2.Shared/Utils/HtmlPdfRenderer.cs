@@ -90,9 +90,17 @@ namespace EvangelionERPV2.Shared.Utils
                 var executablePath = Environment.GetEnvironmentVariable("PUPPETEER_EXECUTABLE_PATH");
                 if (string.IsNullOrWhiteSpace(executablePath))
                 {
+                    var browserCachePath = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "EvangelionERPV2",
+                        "puppeteer-sharp");
+                    Directory.CreateDirectory(browserCachePath);
+                    if (!OperatingSystem.IsWindows())
+                        File.SetUnixFileMode(browserCachePath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
                     var fetcher = new BrowserFetcher(new BrowserFetcherOptions
                     {
-                        Path = Path.Combine(Path.GetTempPath(), "puppeteer-sharp")
+                        Path = browserCachePath
                     });
                     executablePath = (await fetcher.DownloadAsync()).GetExecutablePath();
                 }

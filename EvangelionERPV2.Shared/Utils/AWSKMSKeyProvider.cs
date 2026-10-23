@@ -295,10 +295,10 @@ namespace EvangelionERPV2.Shared.Utils
 
         private static void EnsurePlainSecretUsageIsAllowed()
         {
-            if (IsDevelopmentEnvironment())
+            if (IsDevelopmentEnvironment() || IsE2EEnvironment())
                 return;
 
-            throw new InvalidOperationException("The plain secret prefix is only allowed in development environments.");
+            throw new InvalidOperationException("The plain secret prefix is only allowed in development and isolated E2E environments.");
         }
 
         private static bool IsDevelopmentEnvironment()
@@ -309,6 +309,16 @@ namespace EvangelionERPV2.Shared.Utils
                 ?? string.Empty;
 
             return environmentName.Equals("Development", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsE2EEnvironment()
+        {
+            var environmentName =
+                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? string.Empty;
+
+            return environmentName.Equals("E2E", StringComparison.OrdinalIgnoreCase);
         }
     }
 }
