@@ -405,5 +405,8 @@ TestResults/
 # Working docs and specs stay local: only the root README.md is committed.
 docs/**/*.md
 
+# Audit specifications are working documents and stay out of feature branches.
+specs/erp-fullstack-audit/*.md
+
 # Generated database diagrams are large artifacts; keep only their source generator/model.
 docs/architecture/database-schema*
