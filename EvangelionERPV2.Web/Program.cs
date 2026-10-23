@@ -49,28 +49,7 @@ using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
 if (builder.Environment.IsEnvironment("E2E"))
-{
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    if (string.IsNullOrWhiteSpace(connectionString))
-        throw new InvalidOperationException(
-            "E2E requires ConnectionStrings:DefaultConnection to target the isolated E2E database.");
-
-    // Do not let E2E silently inherit a production secret reference or point at another database.
-    var resolvedConnectionString = connectionString.StartsWith("plain:", StringComparison.OrdinalIgnoreCase)
-        ? connectionString["plain:".Length..]
-        : connectionString;
-    try
-    {
-        var databaseName = new SqlConnectionStringBuilder(resolvedConnectionString).InitialCatalog;
-        if (!databaseName.Equals("ERP_E2E", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException(
-                "E2E ConnectionStrings:DefaultConnection must target the ERP_E2E database.");
-    }
-    catch (ArgumentException exception)
-    {
-        throw new InvalidOperationException("E2E requires a valid isolated ERP_E2E SQL connection string.", exception);
-    }
-}
+    ValidateE2EConnectionString(builder.Configuration.GetConnectionString("DefaultConnection"));
 const string DefaultCorsPolicyName = "DefaultCorsPolicy";
 
 Metrics.ConfigureMeterAdapter(options =>
@@ -210,6 +189,30 @@ catch (Exception ex)
 {
     Log.Logger.Error("Application startup failed. ErrorType={ErrorType}", ex.GetType().Name);
     throw;
+}
+
+static void ValidateE2EConnectionString(string? connectionString)
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException(
+            "E2E requires ConnectionStrings:DefaultConnection to target the isolated e2e-sqlserver/ERP_E2E database.");
+
+    var resolvedConnectionString = connectionString.StartsWith("plain:", StringComparison.OrdinalIgnoreCase)
+        ? connectionString["plain:".Length..]
+        : connectionString;
+    try
+    {
+        var sql = new SqlConnectionStringBuilder(resolvedConnectionString);
+        if (!sql.DataSource.Equals("e2e-sqlserver", StringComparison.OrdinalIgnoreCase) ||
+            !sql.InitialCatalog.Equals("ERP_E2E", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "E2E ConnectionStrings:DefaultConnection must target the isolated e2e-sqlserver/ERP_E2E database.");
+    }
+    catch (ArgumentException exception)
+    {
+        throw new InvalidOperationException(
+            "E2E requires a valid isolated e2e-sqlserver/ERP_E2E SQL connection string.", exception);
+    }
 }
 
 static void BuildValidators(WebApplicationBuilder builder)
