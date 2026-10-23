@@ -75,6 +75,9 @@ jobs:
           /d:sonar.cs.vstest.reportsPaths="TestResults/**/*.trx" \
           /d:sonar.exclusions="**/Migrations/**,**/obj/**,**/bin/**,docker/grafana/dashboards/**,perf/**" \
           /d:sonar.coverage.exclusions="**/Program.cs,**/DI/*IoC.cs,**/DTOs/**,**/Entities/**,**/Migrations/**,**/Repositories/**,**/*Worker.cs,**/Workers/**,**/Hubs/**,**/HealthChecks/**,**/Utils/RabbitMQManagerBase.cs,**/Utils/HtmlPdfRenderer.cs,scripts/e2e-seed-accounts.py,scripts/test-e2e-broker-redelivery.py" \
+          /d:sonar.issue.ignore.multicriteria=e2eAmqpTransport \
+          /d:sonar.issue.ignore.multicriteria.e2eAmqpTransport.ruleKey=python:S5332 \
+          /d:sonar.issue.ignore.multicriteria.e2eAmqpTransport.resourceKey=scripts/test-e2e-broker-redelivery.py \
           /d:sonar.qualitygate.wait=true
 
     - name: Build
@@ -118,3 +121,7 @@ jobs:
 #
 # Test projects stay *in* the analysis - their own quality matters - and Sonar already keeps them
 # out of the coverage denominator by itself.
+#
+#   python:S5332 is ignored only for the local broker test harness: it verifies an internal-only
+#   Docker network with no published ports before constructing its AMQP URI. Application AMQP
+#   traffic remains analyzed and is expected to use the production broker's configured transport.

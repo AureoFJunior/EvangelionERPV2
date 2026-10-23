@@ -33,7 +33,7 @@ def main():
 
     environment = os.environ.copy()
     environment["ERP_E2E_RABBITMQ_URI"] = (
-        f"amqp://{quote(username, safe='')}:{quote(password, safe='')}@{host}:5672/%2F"  # NOSONAR: runner requires a dedicated Docker internal network with no published ports.
+        f"amqp://{quote(username, safe='')}:{quote(password, safe='')}@{host}:5672/%2F"
     )
     return subprocess.run(
         [

@@ -77,6 +77,7 @@ namespace EvangelionERPV2.ProductModule.Test
         {
             Assert.Empty(await Service().GetMediumPictureBase64Async(" "));
             Assert.Empty(await Service(includeProductBucket: false).GetMediumPictureBase64Async("products/photo.jpg"));
+            Assert.Empty(await Service().GetMediumPictureBase64Async("products/photo.jpg"));
         }
 
         private Product StoredProduct()

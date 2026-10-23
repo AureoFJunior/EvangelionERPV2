@@ -847,6 +847,37 @@ namespace EvangelionERPV2.OrderModule.Test.Bills
         }
 
         [Fact]
+        public async Task GetByFilter_SupportsEverySortKeyAndFallsBackToCreatedAt()
+        {
+            var enterpriseId = Guid.NewGuid();
+            System.Linq.Expressions.Expression<Func<Order, object>>? sort = null;
+            _mockIOrderRepository
+                .Setup(r => r.GetAllAsyncByFilter(It.IsAny<bool>(), It.IsAny<int?>(), It.IsAny<int?>(),
+                    It.IsAny<System.Linq.Expressions.Expression<Func<Order, bool>>>(), It.IsAny<System.Linq.Expressions.Expression<Func<Order, object>>>() ))
+                .Callback((bool _, int? _, int? _, System.Linq.Expressions.Expression<Func<Order, bool>>? _, System.Linq.Expressions.Expression<Func<Order, object>>? requestedSort) => sort = requestedSort)
+                .ReturnsAsync([]);
+            var createdAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+            var order = new Order
+            {
+                Id = Guid.NewGuid(),
+                Customer = new Customer { Name = "Ada" },
+                OrderedProduct = [new OrderedProduct()],
+                TotalValue = 25m,
+                Status = 3,
+                CreatedAt = createdAt
+            };
+
+            foreach (var (sortBy, expected) in new (string, object)[]
+            {
+                ("id", order.Id), ("customer", "Ada"), ("items", 1), ("total", 25m), ("status", 3), ("other", createdAt)
+            })
+            {
+                await _orderService.GetByFilterAsync(enterpriseId, new OrderFilterRequestDTO { SortBy = sortBy }, false, 1, 20);
+                Assert.Equal(expected, sort!.Compile()(order));
+            }
+        }
+
+        [Fact]
         public void ALimenOrder_MapsItsDeliveryAddressShippingAndNumber_AndOtherOrdersCarryNone()
         {
             var mapper = MapperConfig.RegisterMaps().CreateMapper();
