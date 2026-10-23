@@ -6,8 +6,6 @@ services:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: ${E2E_SQLSERVER_SA_PASSWORD:?Set E2E_SQLSERVER_SA_PASSWORD for the disposable E2E database}
       MSSQL_PID: Developer
-    ports:
-      - "127.0.0.1:${E2E_SQLSERVER_HOST_PORT:-14334}:1433"
     volumes:
       - e2e_sql_data:/var/opt/mssql
     healthcheck:
@@ -33,11 +31,57 @@ services:
     networks:
       - e2e_internal
 
+  e2e-redis:
+    image: redis:7-alpine
+    container_name: evangelionerpv2_e2e_redis_stack
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - e2e_internal
+
+  e2e-api:
+    build:
+      context: .
+      dockerfile: EvangelionERPV2.Web/Dockerfile
+      args:
+        APP_UID: "0"
+    container_name: evangelionerpv2_e2e_api
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: E2E
+      DOTNET_ENVIRONMENT: E2E
+      ConnectionStrings__DefaultConnection: "plain:Server=e2e-sqlserver,1433;Initial Catalog=ERP_E2E;User ID=sa;Password=${E2E_SQLSERVER_SA_PASSWORD:?Set E2E_SQLSERVER_SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
+      RabbitMQSettings__HostName: plain:e2e-rabbitmq
+      RabbitMQSettings__UserName: "plain:${E2E_RABBITMQ_USER:-e2e-user}"
+      RabbitMQSettings__Password: "plain:${E2E_RABBITMQ_PASSWORD:-e2e-local-only-password}"
+      RabbitMQSettings__VirtualHost: plain:/
+      RabbitMQSettings__Port: plain:5672
+      RedisSettings__InstanceName: "E2E:"
+      RedisSettings__ConnectionString: e2e-redis:6379,abortConnect=false
+      AWS_EC2_METADATA_DISABLED: "true"
+    ports:
+      - "127.0.0.1:${E2E_API_HOST_PORT:-8083}:8080"
+    depends_on:
+      e2e-sqlserver:
+        condition: service_healthy
+      e2e-rabbitmq:
+        condition: service_healthy
+      e2e-redis:
+        condition: service_healthy
+    networks:
+      - e2e_internal
+      - e2e_host
+
 networks:
   e2e_internal:
     name: evangelionerpv2_e2e_net
     external: true
+  e2e_host:
+    name: evangelionerpv2_e2e_host_net
 
 volumes:
   e2e_sql_data:
-    name: evangelionerpv2_e2e_sql_data
+    name: evangelionerpv2_e2e_sql_data_v2

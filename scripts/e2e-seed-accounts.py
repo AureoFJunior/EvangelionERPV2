@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTAINER = "evangelionerpv2_e2e_sql"
-VOLUME = "evangelionerpv2_e2e_sql_data"
+VOLUME = "evangelionerpv2_e2e_sql_data_v2"
 DATABASE = "ERP_E2E"
 ENV_FILE = ROOT / ".env.e2e"
 PBKDF2_ITERATIONS = 100_000

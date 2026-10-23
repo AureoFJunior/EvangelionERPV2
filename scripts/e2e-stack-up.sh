@@ -5,11 +5,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTAINER="evangelionerpv2_e2e_sql"
 DATABASE="ERP_E2E"
+STACK_ENV="$ROOT/.env.e2e.stack"
 MIGRATIONS="$(mktemp -t evangelion-e2e-migrations-XXXXXX.sql)"
 trap 'rm -f "$MIGRATIONS"' EXIT
 COMPOSE=(docker compose -p evangelionerpv2-e2e -f "$ROOT/docker-compose.e2e.yml")
 
-: "${E2E_SQLSERVER_SA_PASSWORD:?Set E2E_SQLSERVER_SA_PASSWORD to a strong local-only password}"
+if [[ ! -f "$STACK_ENV" ]]; then
+  (umask 077; printf 'E2E_SQLSERVER_SA_PASSWORD=E2e!%s\n' "$(openssl rand -hex 32)") > "$STACK_ENV"
+fi
+chmod 600 "$STACK_ENV"
+# This generated local file contains only the stack's SQL password.
+source "$STACK_ENV"
+: "${E2E_SQLSERVER_SA_PASSWORD:?Invalid E2E stack credentials in $STACK_ENV}"
+export E2E_SQLSERVER_SA_PASSWORD
 
 if docker network inspect evangelionerpv2_e2e_net >/dev/null 2>&1; then
   [[ "$(docker network inspect evangelionerpv2_e2e_net --format '{{.Internal}}')" == true ]] ||
@@ -18,25 +26,20 @@ else
   docker network create --internal evangelionerpv2_e2e_net >/dev/null
 fi
 
-if docker inspect "$CONTAINER" >/dev/null 2>&1; then
+if docker inspect "$CONTAINER" >/dev/null 2>&1 &&
+   [[ "$(docker inspect "$CONTAINER" --format '{{index .Config.Labels "com.docker.compose.project"}}')" != "evangelionerpv2-e2e" ]]; then
   image="$(docker inspect "$CONTAINER" --format '{{.Config.Image}}')"
   volume="$(docker inspect "$CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/var/opt/mssql"}}{{.Name}}{{end}}{{end}}')"
-  ports="$(docker inspect "$CONTAINER" --format '{{json .HostConfig.PortBindings}}')"
-  expected_ports="{\"1433/tcp\":[{\"HostIp\":\"127.0.0.1\",\"HostPort\":\"${E2E_SQLSERVER_HOST_PORT:-14334}\"}]}"
   if [[ "$image" != mcr.microsoft.com/mssql/server:2022-latest ||
-        "$volume" != evangelionerpv2_e2e_sql_data ||
-        "$ports" != "$expected_ports" ]]; then
+        "$volume" != evangelionerpv2_e2e_sql_data_v2 ]]; then
     echo "Refusing unexpected existing E2E SQL container or data volume." >&2
     exit 1
   fi
-  "${COMPOSE[@]}" up -d --wait e2e-rabbitmq
-  if ! docker inspect "$CONTAINER" --format '{{json .NetworkSettings.Networks}}' | grep -q evangelionerpv2_e2e_net; then
-    docker network connect evangelionerpv2_e2e_net "$CONTAINER"
-  fi
-  [[ "$(docker inspect "$CONTAINER" --format '{{.State.Running}}')" == true ]] || docker start "$CONTAINER" >/dev/null
-else
-  "${COMPOSE[@]}" up -d --wait
+  echo "The E2E SQL container is not Compose-managed. Remove only that container (the named data volume is preserved), then rerun this script." >&2
+  exit 1
 fi
+
+"${COMPOSE[@]}" up -d --wait
 
 for attempt in {1..60}; do
   if docker exec "$CONTAINER" sh -lc \
