@@ -44,6 +44,11 @@ if [[ -n "$BACKUP_S3_URI" ]]; then
   DEST="${BACKUP_S3_URI%/}/$(date -u +%Y/%m)/$NAME.gz"
   echo "==> Uploading to $DEST"
   aws s3 cp --only-show-errors "$HOST_DIR/$NAME.gz" "$DEST"
+  # The bucket expires daily backups after 14 days; the first of each month is copied under a
+  # -monthly prefix that it keeps for a year (terraform/vps-aws).
+  if [[ "$LABEL" == "nightly" && "$(date -u +%d)" == "01" ]]; then
+    aws s3 cp --only-show-errors "$HOST_DIR/$NAME.gz" "${BACKUP_S3_URI%/}-monthly/$(date -u +%Y/%m)/$NAME.gz"
+  fi
 else
   echo "BACKUP_S3_URI is not set: this backup exists only on this disk." >&2
   [[ "$LABEL" == "nightly" ]] && exit 1
