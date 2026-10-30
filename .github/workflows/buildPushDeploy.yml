@@ -64,6 +64,8 @@ jobs:
           aws ecr describe-repositories --repository-names "${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}" --region "${{ secrets.AWS_REGION }}" \
             || aws ecr create-repository --repository-name "${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}" --region "${{ secrets.AWS_REGION }}"
 
+      # Every image also gets a sha- tag. The floating tags are what EC2 pulls; the VPS deploy pins
+      # the sha- tags in its .env, so a reboot restarts the same build and a rollback is the previous sha.
       - name: Build and push web image
         uses: docker/build-push-action@v6
         with:
@@ -72,6 +74,7 @@ jobs:
           push: true
           tags: |
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:latest
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:sha-${{ github.sha }}
             aureofjunior/evangelionerpv2-repository:latest
           platforms: linux/amd64,linux/arm64
 
@@ -83,6 +86,7 @@ jobs:
           push: true
           tags: |
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:worker-email-latest
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:worker-email-sha-${{ github.sha }}
             aureofjunior/evangelionerpv2-worker-email:latest
           platforms: linux/amd64,linux/arm64
 
@@ -94,6 +98,7 @@ jobs:
           push: true
           tags: |
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:worker-order-latest
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:worker-order-sha-${{ github.sha }}
             aureofjunior/evangelionerpv2-worker-order:latest
           platforms: linux/amd64,linux/arm64
 
@@ -105,8 +110,51 @@ jobs:
           push: true
           tags: |
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:worker-notification-latest
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}:worker-notification-sha-${{ github.sha }}
             aureofjunior/evangelionerpv2-worker-notification:latest
           platforms: linux/amd64,linux/arm64
+
+  # The idempotent migration script for the VPS deploy, generated here so the VPS needs neither the
+  # source nor a .NET SDK image. Generating it opens no database connection, but dotnet-ef still
+  # builds the API's host, which resolves its startup secrets; the Development environment with
+  # plain: placeholders satisfies that without AWS access. None of these values reach the script.
+  migrations_script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Generate migrations.sql
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          DOTNET_ENVIRONMENT: Development
+          AWS_EC2_METADATA_DISABLED: "true"
+          ConnectionStrings__DefaultConnection: "plain:Server=localhost;Database=EvangelionERPV2;User Id=unused;Password=unused;TrustServerCertificate=True"
+          Encryption__Key: "plain:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+          Encryption__TokenKey: "plain:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+          RedisSettings__InstanceName: "plain:unused"
+          RedisSettings__ConnectionString: "plain:localhost:6379"
+        run: |
+          dotnet tool restore
+          dotnet tool run dotnet-ef migrations script --idempotent \
+            --project EvangelionERPV2.Shared/EvangelionERPV2.Shared.csproj \
+            --startup-project EvangelionERPV2.Web/EvangelionERPV2.Web.csproj \
+            -o migrations.sql
+          grep -q "__EFMigrationsHistory" migrations.sql
+
+      - name: Upload migrations.sql
+        uses: actions/upload-artifact@v4
+        with:
+          name: migrations
+          path: migrations.sql
+          retention-days: 30
 
   # Phase 1 deploys to one EC2 instance running docker-compose.yml, not to ECS. The ECS path is
   # Phase 2: the task definitions still exist in terraform behind var.enable_ecs, and the
@@ -114,7 +162,11 @@ jobs:
   #
   # SSM rather than SSH: no inbound port 22, no deploy key in GitHub secrets, and the instance
   # role already carries AmazonSSMManagedInstanceCore.
+  #
+  # Skipped when the repository variable DEPLOY_TARGET is "hostgator": deploy_hostgator below runs
+  # instead. Unset, the pipeline behaves exactly as before.
   deploy_to_instance:
+    if: ${{ vars.DEPLOY_TARGET != 'hostgator' }}
     needs: build_and_push
     runs-on: ubuntu-latest
     env:
@@ -225,4 +277,124 @@ jobs:
           done
 
           echo "::error::${HEALTH_URL} did not report Healthy within five minutes (last: ${body:-no response})."
+          exit 1
+
+  # The HostGator VPS: docker-compose.hostgator.yml, images from ECR, secrets from Secrets Manager.
+  # Runs instead of deploy_to_instance when the repository variable DEPLOY_TARGET is "hostgator", so
+  # moving between hosts is a settings change and not a code change.
+  #
+  # SSH rather than SSM: SSM can manage a server outside AWS (hybrid activation), but Run Command on
+  # hybrid nodes is moving to per-use pricing, and SSH needs nothing from AWS. Host setup, the key
+  # and every variable are in scripts/vps-bootstrap.sh and .env.hostgator.example.
+  #
+  # Settings (Settings > Secrets and variables > Actions):
+  #   secret   HOSTGATOR_SSH_KEY        private key whose public half vps-bootstrap.sh installed
+  #   variable HOSTGATOR_HOST           the VPS address
+  #   variable HOSTGATOR_KNOWN_HOSTS    `ssh-keyscan -t ed25519 <host>` output, checked out of band
+  #   variable HOSTGATOR_PUBLIC_HOST    CADDY_DOMAIN, for the external health check
+  #   variable HOSTGATOR_USER           optional, default deploy
+  #   variable HOSTGATOR_PORT           optional, default 22
+  #   variable HOSTGATOR_APP_DIR        optional, default /opt/evangelion
+  deploy_hostgator:
+    if: ${{ vars.DEPLOY_TARGET == 'hostgator' }}
+    needs: [build_and_push, migrations_script]
+    runs-on: ubuntu-latest
+    # Put a required reviewer on this environment to gate production deploys by hand.
+    environment: production
+    concurrency:
+      group: deploy-hostgator
+      cancel-in-progress: false
+    env:
+      SHA: ${{ github.sha }}
+      APP_DIR: ${{ vars.HOSTGATOR_APP_DIR || '/opt/evangelion' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download migrations.sql
+        uses: actions/download-artifact@v4
+        with:
+          name: migrations
+          path: migrations
+
+      # Only what the VPS runs: compose files, the Caddyfile, the scripts and this build's migrations.
+      - name: Assemble the release bundle
+        run: |
+          set -euo pipefail
+          mkdir -p bundle/docker/caddy
+          cp docker-compose.yml docker-compose.prod.yml docker-compose.hostgator.yml bundle/
+          cp docker/caddy/Caddyfile bundle/docker/caddy/
+          cp -r scripts bundle/
+          cp migrations/migrations.sql bundle/
+          chmod +x bundle/scripts/*.sh
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.HOSTGATOR_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.HOSTGATOR_KNOWN_HOSTS }}
+          HOST: ${{ vars.HOSTGATOR_HOST }}
+          USER_NAME: ${{ vars.HOSTGATOR_USER || 'deploy' }}
+          PORT: ${{ vars.HOSTGATOR_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          for name in SSH_KEY KNOWN_HOSTS HOST; do
+            if [ -z "${!name}" ]; then
+              echo "Required setting for ${name} is missing (see the comment above deploy_hostgator)."
+              exit 1
+            fi
+          done
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/hostgator
+          chmod 600 ~/.ssh/hostgator
+          # Pinned, not learned: accepting whatever key answers would hand the deploy to anyone who
+          # can intercept the connection.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host vps
+            HostName ${HOST}
+            User ${USER_NAME}
+            Port ${PORT}
+            IdentityFile ~/.ssh/hostgator
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+          EOF
+
+      - name: Upload the release
+        run: |
+          set -euo pipefail
+          # Unpacked beside its final name and moved into place, so a dropped connection never
+          # leaves a half-copied release that a later deploy or rollback would trust.
+          tar -C bundle -czf - . | ssh vps "set -e; rm -rf '${APP_DIR}/releases/${SHA}.partial'; \
+            mkdir -p '${APP_DIR}/releases/${SHA}.partial'; \
+            tar -xzf - -C '${APP_DIR}/releases/${SHA}.partial'; \
+            rm -rf '${APP_DIR}/releases/${SHA}'; \
+            mv '${APP_DIR}/releases/${SHA}.partial' '${APP_DIR}/releases/${SHA}'"
+
+      - name: Deploy
+        env:
+          REPOSITORY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_EVANGELIONERPV2_REPOSITORY }}
+        run: ssh vps "APP_DIR='${APP_DIR}' '${APP_DIR}/releases/${SHA}/scripts/vps-deploy.sh' '${SHA}' '${REPOSITORY}'"
+
+      # From outside, through DNS, Caddy and the certificate. vps-deploy.sh already accepted Degraded
+      # from inside the network; here only Healthy passes, so pending migrations fail the run.
+      - name: Check /health from the internet
+        env:
+          PUBLIC_HOST: ${{ vars.HOSTGATOR_PUBLIC_HOST }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PUBLIC_HOST}" ]; then
+            echo "HOSTGATOR_PUBLIC_HOST is not set; skipping the external check."
+            exit 0
+          fi
+          status=""
+          for attempt in $(seq 1 24); do
+            status="$(curl -fsS -m 10 "https://${PUBLIC_HOST}/health" || true)"
+            [ "${status}" = "Healthy" ] && { echo "/health: Healthy"; exit 0; }
+            sleep 5
+          done
+          echo "https://${PUBLIC_HOST}/health answered '${status:-nothing}' instead of Healthy."
           exit 1
