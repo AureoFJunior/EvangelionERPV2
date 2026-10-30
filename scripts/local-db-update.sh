@@ -20,6 +20,8 @@ set -euo pipefail
 CONTAINER="${1:-evangelionerpv2_sqlserver}"
 DATABASE="${2:-EvangelionERPV2}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/abort-on-error.sh
+source "$ROOT/scripts/lib/abort-on-error.sh"
 SCRIPT_PATH="$(mktemp -t evangelion-migrations-XXXXXX.sql)"
 
 if [[ ! -f "$ROOT/.env.local" ]]; then
@@ -38,6 +40,7 @@ dotnet ef migrations script --idempotent \
   --project "$ROOT/EvangelionERPV2.Shared/EvangelionERPV2.Shared.csproj" \
   --startup-project "$ROOT/EvangelionERPV2.Web/EvangelionERPV2.Web.csproj" \
   -o "$SCRIPT_PATH"
+prepend_xact_abort "$SCRIPT_PATH"
 
 echo "==> Backing up $DATABASE"
 docker exec "$CONTAINER" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C \
@@ -49,7 +52,8 @@ echo "==> Applying"
 chmod 644 "$SCRIPT_PATH"
 docker cp "$SCRIPT_PATH" "$CONTAINER:/tmp/migrations.sql"
 # -I: quoted identifiers on, or every filtered index in the schema fails with Msg 1934.
-# -b: stop on the first error instead of continuing and recording the migration as applied.
+# -b: exit after a failed batch. On its own it does not stop the migration being recorded; the
+#     SET XACT_ABORT ON prepended above is what rolls the failed migration back.
 docker exec "$CONTAINER" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -I -b \
   -d "$DATABASE" -i /tmp/migrations.sql
 

@@ -3,6 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/abort-on-error.sh
+source "$ROOT/scripts/lib/abort-on-error.sh"
 CONTAINER="evangelionerpv2_e2e_sql"
 DATABASE="ERP_E2E"
 STACK_ENV="$ROOT/.env.e2e.stack"
@@ -68,6 +70,7 @@ dotnet ef migrations script --idempotent \
   --project "$ROOT/EvangelionERPV2.Shared/EvangelionERPV2.Shared.csproj" \
   --startup-project "$ROOT/EvangelionERPV2.Web/EvangelionERPV2.Web.csproj" \
   -o "$MIGRATIONS"
+prepend_xact_abort "$MIGRATIONS"
 
 chmod 644 "$MIGRATIONS"
 docker cp "$MIGRATIONS" "$CONTAINER:/tmp/e2e-migrations.sql"

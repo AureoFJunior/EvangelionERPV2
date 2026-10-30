@@ -39,6 +39,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/abort-on-error.sh
+source "$ROOT/scripts/lib/abort-on-error.sh"
 REGION="${AWS_REGION:-us-east-1}"
 DB_IDENTIFIER="${DB_IDENTIFIER:-evangelionerpv2}"
 DATABASE="${DATABASE:-EvangelionERPV2}"
@@ -126,6 +128,7 @@ docker run --rm \
   -w /src \
   "$DOTNET_SDK_IMAGE" \
   bash -lc 'dotnet tool restore && dotnet tool run dotnet-ef migrations script --idempotent --project EvangelionERPV2.Shared/EvangelionERPV2.Shared.csproj --startup-project EvangelionERPV2.Web/EvangelionERPV2.Web.csproj -o /tmp/migrations.sql'
+prepend_xact_abort "$SCRIPT_PATH"
 
 # --- Apply ------------------------------------------------------------------------------------
 
@@ -135,7 +138,8 @@ chmod 644 "$SCRIPT_PATH"
 # The password goes in through the environment, not the command line, so it does not appear in
 # `docker inspect` or in this machine's process listing while the migration runs.
 # -I: quoted identifiers on, or every filtered index fails with Msg 1934.
-# -b: stop on the first error rather than continuing and recording the migration as applied.
+# -b: exit after a failed batch. On its own it does not stop the migration being recorded; the
+#     SET XACT_ABORT ON prepended above is what rolls the failed migration back.
 docker run --rm -i \
   -e SQLCMDPASSWORD="$DB_PASSWORD" \
   -v "$SCRIPT_PATH:/tmp/migrations.sql:ro" \

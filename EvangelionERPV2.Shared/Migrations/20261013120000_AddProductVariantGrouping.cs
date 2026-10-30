@@ -10,27 +10,36 @@ namespace EvangelionERPV2.Shared.Migrations
     [Migration("20261013120000_AddProductVariantGrouping")]
     public partial class AddProductVariantGrouping : Migration
     {
+        // Guarded, unlike a generated migration: on 2026-10-28 a local database already had both
+        // columns and the index without this row in __EFMigrationsHistory, and the plain AddColumn
+        // failed with Msg 2705. Each step now checks for itself, so a database in either state ends
+        // up the same.
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<Guid>(
-                name: "VariantGroupId",
-                table: "Product",
-                type: "uniqueidentifier",
-                nullable: true);
+            migrationBuilder.Sql("""
+                IF COL_LENGTH(N'[dbo].[Product]', N'VariantGroupId') IS NULL
+                    ALTER TABLE [dbo].[Product] ADD [VariantGroupId] uniqueidentifier NULL;
+                """);
 
-            migrationBuilder.AddColumn<string>(
-                name: "VariantLabel",
-                table: "Product",
-                type: "nvarchar(60)",
-                maxLength: 60,
-                nullable: true);
+            migrationBuilder.Sql("""
+                IF COL_LENGTH(N'[dbo].[Product]', N'VariantLabel') IS NULL
+                    ALTER TABLE [dbo].[Product] ADD [VariantLabel] nvarchar(60) NULL;
+                """);
 
-            migrationBuilder.CreateIndex(
-                name: "IX_Product_VariantGroupId_VariantLabel",
-                table: "Product",
-                columns: new[] { "VariantGroupId", "VariantLabel" },
-                unique: true,
-                filter: "[IsActive] = 1 AND [VariantGroupId] IS NOT NULL");
+            // EXEC: the index names columns the batch above may have just added, and SQL Server
+            // compiles a batch before running it.
+            migrationBuilder.Sql("""
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM sys.indexes
+                    WHERE name = N'IX_Product_VariantGroupId_VariantLabel'
+                      AND object_id = OBJECT_ID(N'[dbo].[Product]'))
+                BEGIN
+                    EXEC(N'CREATE UNIQUE INDEX [IX_Product_VariantGroupId_VariantLabel]
+                        ON [dbo].[Product] ([VariantGroupId], [VariantLabel])
+                        WHERE [IsActive] = 1 AND [VariantGroupId] IS NOT NULL');
+                END
+                """);
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)
