@@ -7,7 +7,7 @@
 #   /opt/evangelion/releases/<sha>/{docker-compose*.yml, docker/caddy/Caddyfile, scripts/, migrations.sql}
 #
 # Order, and why:
-#   1. pull the release's images first, so a missing image fails the deploy before anything changes;
+#   1. pull the release's app images first, so a missing one fails the deploy before anything changes;
 #   2. start SQL Server alone, back it up and migrate; a failed migration stops here, with the
 #      previous release still serving and still named in .env;
 #   3. sync the app login from the connection string it will use;
@@ -66,7 +66,10 @@ declare -A IMAGES=(
 for key in "${!IMAGES[@]}"; do export "$key=${IMAGES[$key]}"; done
 
 echo "==> Pulling images"
-compose pull --quiet
+# Only the four that change per release, from ECR. SQL Server, Redis, RabbitMQ, Caddy and busybox
+# are pinned tags that `up` fetches once when missing; re-checking them on every deploy spends
+# Docker Hub's anonymous pull limit, which is counted per IP.
+compose pull --quiet evangelionerpv2 worker_order worker_email worker_notification
 
 echo "==> Starting SQL Server"
 compose up -d --wait sqlserver
