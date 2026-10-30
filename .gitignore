@@ -414,3 +414,6 @@ docs/architecture/database-schema*
 
 # VPS backups written by SQL Server when the stack runs from a checkout.
 /backups/
+
+# Filled in per account; the .example is the committed template.
+EvangelionERPV2.Web/terraform/vps-aws/terraform.tfvars

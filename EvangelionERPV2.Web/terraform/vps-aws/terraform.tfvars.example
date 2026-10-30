@@ -1,0 +1,2 @@
+ecr_repository_name = "REPLACE_WITH_ECR_EVANGELIONERPV2_REPOSITORY"
+backup_bucket_name  = "REPLACE_WITH_A_GLOBALLY_UNIQUE_NAME"
