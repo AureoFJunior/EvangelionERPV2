@@ -2,7 +2,7 @@
 # Turns a fresh Ubuntu 24.04 VPS (HostGator VPS NVMe 8, or any x86_64/arm64 box) into a host
 # buildPushDeploy.yml can deploy to. Run once, as root, from a copy of this repository:
 #
-#   scp -r scripts docker/systemd .env.hostgator.example root@<vps>:/root/evangelion-bootstrap/
+#   scp -r scripts docker .env.hostgator.example root@<vps>:/root/evangelion-bootstrap/
 #   ssh root@<vps> /root/evangelion-bootstrap/scripts/vps-bootstrap.sh \
 #     --deploy-key "ssh-ed25519 AAAA... github-actions-deploy" \
 #     --ecr-registry 123456789012.dkr.ecr.us-east-1.amazonaws.com

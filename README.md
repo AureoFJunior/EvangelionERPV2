@@ -693,6 +693,75 @@ Run `./scripts/rds-db-update.sh` first whenever the release contains a migration
 `destroy` environment. It will still refuse to delete the database until `prevent_destroy` is
 removed by hand, and a forced destroy leaves a final snapshot.
 
+### On a HostGator VPS instead of EC2
+
+The cheaper target for 10–20 users: one VPS (HostGator VPS NVMe 8, 4 vCPU and 8 GB; 4 GB is too
+small) running the whole stack, SQL Server Express included. AWS keeps three jobs: ECR for images,
+Secrets Manager for secrets and S3 for photos and backups. No EC2, no RDS.
+
+| Piece | File |
+|---|---|
+| Compose overlay: SQL Server Express, Redis, RabbitMQ, restart policies, no host ports but Caddy's | `docker-compose.hostgator.yml` |
+| Every variable the VPS needs | `.env.hostgator.example` |
+| One-time host setup: Docker, ufw, swap, log limits, deploy user, ECR credential helper, backup timer | `scripts/vps-bootstrap.sh` |
+| The `evangelion/vps/*` secrets (database, Redis, RabbitMQ) | `scripts/vps-secrets.sh` |
+| IAM user for the box, backup bucket, ECR lifecycle | `EvangelionERPV2.Web/terraform/vps-aws/` |
+| Deploy: pull, back up, migrate, sync the app login, switch, wait for `/health` | `scripts/vps-deploy.sh`, job `deploy_hostgator` |
+| Nightly backup to S3, and the restore drill | `scripts/vps-db-backup.sh`, `scripts/vps-db-restore-drill.sh` |
+
+**First deployment, in order**
+
+1. **AWS.** In `EvangelionERPV2.Web/terraform/vps-aws`, copy `terraform.tfvars.example` to
+   `terraform.tfvars`, fill it in, then `terraform init && terraform apply`. Create the key by hand,
+   so it never sits in terraform state:
+   `aws iam create-access-key --user-name evangelion-vps`.
+2. **The VPS.** Ubuntu 24.04, plain image, no cPanel. Make a deploy key pair for GitHub Actions
+   (`ssh-keygen -t ed25519 -f hostgator-deploy -N ''`), then:
+
+   ```bash
+   scp -r scripts docker .env.hostgator.example root@<vps>:/root/evangelion-bootstrap/
+   ssh root@<vps> /root/evangelion-bootstrap/scripts/vps-bootstrap.sh \
+     --deploy-key "$(cat hostgator-deploy.pub)" \
+     --ecr-registry <account>.dkr.ecr.us-east-1.amazonaws.com
+   ```
+3. **On the VPS.** Put the IAM key in `/opt/evangelion/.docker/aws/credentials` under
+   `[evangelion]`, and fill every `REPLACE` value in `/opt/evangelion/.env`. `BACKUP_S3_URI` is the
+   `backup_s3_uri` terraform output. Check with `sudo -iu deploy aws sts get-caller-identity`.
+4. **Secrets.** From a machine with admin AWS access, with a copy of that `.env`:
+   `scripts/vps-secrets.sh ./vps.env`. Delete the copy afterwards.
+5. **DNS.** Point `CADDY_DOMAIN` at the VPS. Caddy gets the certificate on the first request.
+6. **GitHub.** Add the secret `HOSTGATOR_SSH_KEY` (the private key from step 2) and the variables
+   `HOSTGATOR_HOST`, `HOSTGATOR_KNOWN_HOSTS` (`ssh-keyscan -t ed25519 <vps>`, compared against
+   the VPS console), `HOSTGATOR_PUBLIC_HOST`, and `DEPLOY_TARGET=hostgator`. That last one switches
+   `buildPushDeploy.yml` from the EC2 job to the VPS job. Put a required reviewer on the
+   `production` environment if deploys should wait for a person.
+7. **Deploy.** Push to `release`. The run builds the images, generates `migrations.sql`, uploads
+   the release, creates the database and the `evangelion_app` login, and fails unless
+   `https://<HOSTGATOR_PUBLIC_HOST>/health` answers `Healthy`.
+8. **Restore drill**, before relying on it and then monthly:
+   `sudo -iu deploy /opt/evangelion/current/scripts/vps-db-restore-drill.sh s3://<bucket>/sql/<yyyy>/<mm>/<file>.bak.gz`.
+
+**Routine operations**
+
+| Task | Command (on the VPS, as `deploy`) |
+|---|---|
+| Roll back | `/opt/evangelion/releases/<old-sha>/scripts/vps-deploy.sh <old-sha> <ecr-repository-uri>` — the last 5 releases stay on disk; a rollback past a schema change means restoring the `premigration` backup that deploy took |
+| Back up now | `/opt/evangelion/current/scripts/vps-db-backup.sh manual` |
+| Last nightly backup | `systemctl status evangelion-db-backup` / `journalctl -u evangelion-db-backup` |
+| Logs | `docker logs --tail 200 evangelionerpv2_web` |
+| RabbitMQ UI | On the VPS: `docker run -d --rm --name rabbit-ui --network evangelionerpv2_custom_network -p 127.0.0.1:15672:15672 alpine/socat tcp-listen:15672,fork tcp:rabbitmq:15672`. From your machine: `ssh -L 15672:localhost:15672 deploy@<vps>`, open `http://localhost:15672`, then `docker stop rabbit-ui` |
+| Rotate the IAM key | Create a second key, replace it in `.docker/aws/credentials`, re-run the last deploy so every container restarts with it, then delete the old key |
+| Rotate the database password | `scripts/vps-secrets.sh ./vps.env --rotate-db-password`, then redeploy, which re-syncs the login |
+
+**Things that will bite**
+
+| Symptom | Cause |
+|---|---|
+| `/health` says `Degraded` | Pending migrations: the deploy job fails on it on purpose. Re-run the deploy, or check `vps-db-update.sh` output |
+| Every deploy starts from empty RabbitMQ queues | The project name changed. The scripts pin `-p evangelionerpv2`; never run plain `docker compose up` from a release directory |
+| `BACKUP ... WITH COMPRESSION` fails | SQL Server Express does not support it. The scripts gzip instead |
+| S3 uploads use the wrong key | `AWS_ACCESS_KEY_ID` was set in a container. The app then prefers it over the `AWSCredentials` secret |
+
 ## Frontend base URLs
 
 Use one of the following according to your runtime mode:
