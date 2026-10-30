@@ -35,3 +35,17 @@ jobs:
     - name: Test solution (Release)
       run: |
         dotnet test EvangelionERPV2.sln -c Release --no-build
+
+  # Static checks on the HostGator compose stack: only Caddy publishes ports, SQL Server is Express,
+  # everything restarts, and no password falls back to a default. Starts nothing.
+  vps-compose-config:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        persist-credentials: false
+
+    - name: Check the VPS compose configuration
+      run: scripts/check-vps-compose.sh
