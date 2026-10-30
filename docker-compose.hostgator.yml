@@ -1,0 +1,139 @@
+# Production on one VPS (HostGator NVMe 8: 4 vCPU, 8 GB). Layered on top of the other two:
+#
+#   docker compose --env-file .env \
+#     -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.hostgator.yml \
+#     --profile workers up -d
+#
+# scripts/vps-deploy.sh runs exactly that; .env.hostgator.example lists every variable it needs.
+#
+# What changes from the EC2 layout (docker-compose.prod.yml alone):
+#   * SQL Server, Redis and RabbitMQ run here instead of RDS and external hosts.
+#   * Nothing publishes a host port except Caddy. Docker writes its own iptables rules, so a
+#     published port is reachable from the internet whatever ufw says.
+#   * Everything restarts on its own after a crash or a reboot.
+#   * No `voice` profile: Whisper and Piper need more memory than this box has to spare.
+#
+# AWS stays for three things only, through the credentials file mounted at /home/app/.aws: images
+# from ECR (pulled by the host, not the containers), secrets from Secrets Manager, and S3.
+#
+# Requires Docker Compose 2.24 or later for `!reset`.
+
+services:
+  # Express, not the Developer default: Developer is not licensed for production. Express caps a
+  # database at 10 GB and the buffer pool at 1,410 MB, both far above what 20 users produce.
+  sqlserver:
+    profiles: !reset []
+    image: ${SQLSERVER_IMAGE:-mcr.microsoft.com/mssql/server:2022-CU27-GDR1-ubuntu-22.04}
+    restart: unless-stopped
+    environment:
+      MSSQL_PID: Express
+      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD:?Set SQLSERVER_SA_PASSWORD in .env}
+      MSSQL_MEMORY_LIMIT_MB: ${SQLSERVER_MEMORY_LIMIT_MB:-2048}
+    mem_limit: ${SQLSERVER_MEM_LIMIT:-3g}
+    ports: !reset []
+    volumes:
+      # A host directory rather than a named volume: scripts/vps-db-backup.sh gzips and uploads
+      # what SQL Server writes here. It must be owned by uid 10001 (mssql); vps-bootstrap.sh does it.
+      - ${SQLSERVER_BACKUP_DIR:-./backups}:/var/opt/mssql/backup
+
+  # Leases, cache and rate-limit counters: all safe to lose, so no persistence at all.
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.4-alpine}
+    container_name: evangelionerpv2_redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    command:
+      - sh
+      - -c
+      - exec redis-server --save '' --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass "$$REDIS_PASSWORD"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - custom_network
+
+  rabbitmq:
+    image: ${RABBITMQ_IMAGE:-rabbitmq:4.1-management-alpine}
+    container_name: evangelionerpv2_rabbitmq
+    # RabbitMQ keeps its data under a node name derived from the hostname. Without a fixed one a
+    # recreated container gets a new name, starts empty, and every queued order and e-mail is gone.
+    hostname: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-evangelion}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 10
+    networks:
+      - custom_network
+
+  # PuppeteerSharp downloads Chromium (~150 MB) into the container on the first PDF. A volume keeps
+  # it across redeploys. Docker creates a new named volume owned by root and the API runs as 1654,
+  # so this one-shot container hands it over before the API starts.
+  volume_init:
+    image: ${BUSYBOX_IMAGE:-busybox:1.37}
+    container_name: evangelionerpv2_volume_init
+    command: ["chown", "-R", "${CONTAINER_USER:-1654:1654}", "/chromium"]
+    volumes:
+      - chromium_cache:/chromium
+    restart: "no"
+    networks:
+      - custom_network
+
+  evangelionerpv2:
+    restart: unless-stopped
+    environment:
+      # Never AWS_ACCESS_KEY_ID here: AWSKMSKeyProvider.GetAWSCredentialsAsync prefers those over
+      # the AWSCredentials secret, which would quietly move S3 onto the VPS key.
+      AWS_EC2_METADATA_DISABLED: "true"
+    volumes:
+      # Where HtmlPdfRenderer puts Chromium: LocalApplicationData under HOME=/home/app.
+      - chromium_cache:/home/app/.local/share/EvangelionERPV2
+    depends_on:
+      volume_init:
+        condition: service_completed_successfully
+      sqlserver:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  worker_order:
+    restart: unless-stopped
+    environment:
+      AWS_EC2_METADATA_DISABLED: "true"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  worker_email:
+    restart: unless-stopped
+    environment:
+      AWS_EC2_METADATA_DISABLED: "true"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker_notification:
+    restart: unless-stopped
+    environment:
+      AWS_EC2_METADATA_DISABLED: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  rabbitmq_data:
+  chromium_cache:

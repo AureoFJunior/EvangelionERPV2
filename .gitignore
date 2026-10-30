@@ -411,3 +411,6 @@ specs/erp-fullstack-audit/*.md
 
 # Generated database diagrams are large artifacts; keep only their source generator/model.
 docs/architecture/database-schema*
+
+# VPS backups written by SQL Server when the stack runs from a checkout.
+/backups/
