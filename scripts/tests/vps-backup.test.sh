@@ -51,8 +51,9 @@ write_env() {
 
 reset() { : > "$STUB_LOG"; : > "$STUB_STDIN"; rm -f "$T/app/backup-public.asc"; write_env; }
 
-check() { # name, condition result
-  if [[ "$2" == ok ]]; then echo "PASS $1"; else echo "FAIL $1"; FAILED=1; fi
+check() {
+  local name="$1" result="$2"
+  if [[ "$result" == ok ]]; then echo "PASS $name"; else echo "FAIL $name"; FAILED=1; fi
 }
 
 reset

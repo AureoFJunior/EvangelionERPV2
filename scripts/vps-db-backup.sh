@@ -50,9 +50,10 @@ docker exec "$SQL_CONTAINER" gzip -f "$CONTAINER_DIR/$NAME"
 
 # No plaintext temp file on the host: the gzip is read out of the container straight into gpg.
 upload_encrypted() {
+  local destination="$1"
   docker exec "$SQL_CONTAINER" cat "$CONTAINER_DIR/$NAME.gz" |
     gpg --batch --yes --trust-model always --encrypt --recipient-file "$BACKUP_GPG_PUBLIC_KEY" |
-    aws s3 cp --only-show-errors - "$1"
+    aws s3 cp --only-show-errors - "$destination"
 }
 
 if [[ -n "$BACKUP_S3_URI" ]]; then
