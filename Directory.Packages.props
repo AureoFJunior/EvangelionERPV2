@@ -84,7 +84,7 @@
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="$(SkiaSharpVersion)" />
   </ItemGroup>
   <ItemGroup Label="Application libraries">
-    <PackageVersion Include="AutoMapper" Version="16.1.1" />
+    <PackageVersion Include="AutoMapper" Version="16.3.0" />
     <PackageVersion Include="FluentValidation" Version="12.1.1" />
     <PackageVersion Include="Google.Apis.Auth" Version="1.75.0" />
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
