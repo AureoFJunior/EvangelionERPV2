@@ -9,6 +9,7 @@ using System.Reflection;
 
 namespace EvangelionERPV2.EmployeeModule.Test
 {
+    [Collection(EmployeeServiceTests.EncryptionKeyCollection)]
     public class EmployeeAbsenceServiceTests
     {
         private const string PlainCid = "M54.5";

@@ -1,0 +1,12 @@
+# 05:30 UTC is 02:30 in São Paulo: nobody is working, and it is done well before the morning.
+[Unit]
+Description=Run the Evangelion ERP database backup nightly
+
+[Timer]
+OnCalendar=*-*-* 05:30:00 UTC
+# A box that was off at 05:30 backs up as soon as it is back.
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

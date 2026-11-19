@@ -1,0 +1,18 @@
+# Nightly SQL Server backup to S3. Installed by scripts/vps-bootstrap.sh; see the timer for when.
+# `systemctl status evangelion-db-backup` / `journalctl -u evangelion-db-backup` show the last run.
+[Unit]
+Description=Evangelion ERP nightly database backup
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+# Before the first deploy there is no release, and so nothing to back up.
+ConditionPathExists=/opt/evangelion/current/scripts/vps-db-backup.sh
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+Environment=APP_DIR=/opt/evangelion
+ExecStart=/opt/evangelion/current/scripts/vps-db-backup.sh nightly
+# A backup that hangs on a dead network should fail loudly, not hold the unit for a day.
+TimeoutStartSec=1h
