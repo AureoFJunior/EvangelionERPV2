@@ -25,6 +25,15 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
+# A placeholder password would start the stack with a guessable one. The *_IMAGE lines are exempt:
+# vps-deploy.sh rewrites them itself on the first deploy.
+PLACEHOLDER_KEYS="$({ grep -E '^[A-Za-z_][A-Za-z0-9_]*=REPLACE' "$ENV_FILE" || true; } |
+  cut -d= -f1 | { grep -vE '_IMAGE$' || true; } | paste -sd, -)"
+if [[ -n "$PLACEHOLDER_KEYS" ]]; then
+  echo "$ENV_FILE still has placeholder values (REPLACE...) for: $PLACEHOLDER_KEYS" >&2
+  exit 1
+fi
+
 # Reads one KEY=value line without sourcing the file, so a value with spaces or $ is taken as is.
 # A missing key is an empty value, not a failure: under pipefail grep's "no match" would end the
 # caller.
