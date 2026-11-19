@@ -37,3 +37,8 @@ variable "images_to_keep" {
   description = "sha- builds kept per image in ECR. Each one is a release vps-deploy.sh can roll back to."
   default     = 15
 }
+
+variable "noncurrent_retention_days" {
+  description = "Days an overwritten or deleted backup version is kept. Bounds how long a stolen key's overwrite can be undone."
+  default     = 30
+}

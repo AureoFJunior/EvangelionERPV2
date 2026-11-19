@@ -153,7 +153,12 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
 }
 
 # Versioning is what stops a stolen key from destroying history: it can PutObject over a backup,
-# but the version underneath survives until the noncurrent rule below expires it.
+# but the version underneath survives until the noncurrent rule below expires it
+# (noncurrent_retention_days, 30 by default).
+#
+# ponytail: no Object Lock. Turning it on for an existing bucket replaces the bucket, which
+# prevent_destroy forbids; once the bucket is recreated (or enabled out of band), add
+# object_lock_configuration with governance-mode default retention.
 resource "aws_s3_bucket_versioning" "backups" {
   bucket = aws_s3_bucket.backups.id
   versioning_configuration {
@@ -176,7 +181,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
       days = var.nightly_retention_days
     }
     noncurrent_version_expiration {
-      noncurrent_days = 7
+      noncurrent_days = var.noncurrent_retention_days
     }
   }
 
@@ -190,7 +195,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
       days = var.monthly_retention_days
     }
     noncurrent_version_expiration {
-      noncurrent_days = 7
+      noncurrent_days = var.noncurrent_retention_days
     }
   }
 
