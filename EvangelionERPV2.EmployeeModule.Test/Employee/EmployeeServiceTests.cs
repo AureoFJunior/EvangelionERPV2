@@ -15,8 +15,12 @@ using Xunit;
 
 namespace EvangelionERPV2.EmployeeModule.Test
 {
+    [Collection(EncryptionKeyCollection)]
     public class EmployeeServiceTests
     {
+        /// <summary>Both classes write the static encryption key in SharedFunctions, so they must not run in parallel.</summary>
+        public const string EncryptionKeyCollection = "SharedFunctions encryption key";
+
         private readonly Mock<IRepository<Employee>> _employeeRepository;
         private readonly EmployeeService _service;
 
