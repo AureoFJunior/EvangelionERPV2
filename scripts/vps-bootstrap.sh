@@ -117,9 +117,21 @@ id "$DEPLOY_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$D
 usermod -aG docker,evangelion-app "$DEPLOY_USER"
 DEPLOY_HOME="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"
 install -d -m 700 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$DEPLOY_HOME/.ssh"
+# `restrict` turns off port, agent and X11 forwarding and the pty; commands still run, which is all
+# the pipeline needs (tar | ssh and the deploy call). A line without it for the same key, from an
+# earlier run, is replaced rather than duplicated.
+install_authorized_key() {
+  local file="$1" key="$2" tmp
+  tmp="$(mktemp)"
+  { grep -vxF -e "$key" -e "restrict $key" "$file" || true; } > "$tmp"
+  echo "restrict $key" >> "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+}
+
 if [[ -n "$DEPLOY_KEY" ]]; then
   touch "$DEPLOY_HOME/.ssh/authorized_keys"
-  grep -qxF "$DEPLOY_KEY" "$DEPLOY_HOME/.ssh/authorized_keys" || echo "$DEPLOY_KEY" >> "$DEPLOY_HOME/.ssh/authorized_keys"
+  install_authorized_key "$DEPLOY_HOME/.ssh/authorized_keys" "$DEPLOY_KEY"
   chown "$DEPLOY_USER:$DEPLOY_USER" "$DEPLOY_HOME/.ssh/authorized_keys"
   chmod 600 "$DEPLOY_HOME/.ssh/authorized_keys"
 fi

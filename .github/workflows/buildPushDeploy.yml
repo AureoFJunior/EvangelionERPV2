@@ -287,7 +287,10 @@ jobs:
   # hybrid nodes is moving to per-use pricing, and SSH needs nothing from AWS. Host setup, the key
   # and every variable are in scripts/vps-bootstrap.sh and .env.hostgator.example.
   #
-  # Settings (Settings > Secrets and variables > Actions):
+  # Settings: HOSTGATOR_SSH_KEY is an environment secret of `production` (Settings > Environments),
+  # not a repository secret, so only this job can read it. Give that environment required reviewers
+  # and a deployment-branch rule limited to `release`. The variables below can stay repository
+  # variables (Settings > Secrets and variables > Actions):
   #   secret   HOSTGATOR_SSH_KEY        private key whose public half vps-bootstrap.sh installed
   #   variable HOSTGATOR_HOST           the VPS address
   #   variable HOSTGATOR_KNOWN_HOSTS    `ssh-keyscan -t ed25519 <host>` output, checked out of band
