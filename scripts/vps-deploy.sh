@@ -81,6 +81,11 @@ echo "==> Starting release"
 for key in "${!IMAGES[@]}"; do set_env "$key" "${IMAGES[$key]}"; done
 ln -sfn "$RELEASE_DIR" "$APP_DIR/current"
 compose up -d --remove-orphans
+# Redeploying the running SHA (the documented way to apply a rotated password) changes neither image
+# nor config, so Compose keeps the apps running on the secrets they cached at startup.
+if [[ "$PREVIOUS" == "$RELEASE_DIR" ]]; then
+  compose up -d --force-recreate --no-deps evangelionerpv2 worker_order worker_email worker_notification
+fi
 
 # From inside the network, through the same name Caddy uses, so this does not depend on DNS or the
 # certificate yet. Degraded still means "serving"; the pipeline's external check insists on Healthy.

@@ -44,10 +44,25 @@ for name in REDIS_PASSWORD RABBITMQ_PASSWORD; do
   [[ -n "$value" && "$value" != REPLACE* ]] || { echo "$name is not set in $ENV_FILE." >&2; exit 1; }
 done
 
+# Empty only when the secret does not exist; any other failure (permissions, network) ends the
+# script, so an unreadable secret is never mistaken for a missing one and overwritten.
 read_secret() {
-  local secret_id="$1"
-  aws secretsmanager get-secret-value --region "$REGION" --secret-id "$secret_id" \
-    --query SecretString --output text 2>/dev/null || true
+  local secret_id="$1" errors value
+  errors="$(mktemp)"
+  if value="$(aws secretsmanager get-secret-value --region "$REGION" --secret-id "$secret_id" \
+      --query SecretString --output text 2>"$errors")"; then
+    rm -f "$errors"
+    printf '%s' "$value"
+    return 0
+  fi
+  if grep -q ResourceNotFoundException "$errors"; then
+    rm -f "$errors"
+    return 0
+  fi
+  echo "Could not read $secret_id:" >&2
+  cat "$errors" >&2
+  rm -f "$errors"
+  exit 1
 }
 
 write_secret() {
@@ -68,15 +83,19 @@ echo "==> Writing $PREFIX/* in $REGION as $(aws sts get-caller-identity --query 
 # vps-db-init.sh syncs the login.
 DB_PASSWORD=""
 if [[ "$ROTATE" == "0" ]]; then
-  DB_PASSWORD="$(read_secret "$PREFIX/database" | python3 -c '
+  EXISTING_DATABASE_SECRET="$(read_secret "$PREFIX/database")"
+  DB_PASSWORD="$(printf '%s' "$EXISTING_DATABASE_SECRET" | python3 -c '
 import json, sys
 raw = sys.stdin.read().strip()
 if raw:
     for part in json.loads(raw).get("DefaultConnection", "").split(";"):
         key, _, value = part.partition("=")
-        if key.strip().lower() in ("password", "pwd"):
+        if key.strip().lower() in ("password", "pwd") and value.strip():
             print(value.strip())
-' || true)"
+            break
+    else:
+        sys.exit("The existing database secret has no password; fix it or pass --rotate-db-password.")
+')"
 fi
 if [[ -z "$DB_PASSWORD" ]]; then
   # SQL Server's policy wants three of upper, lower, digit, symbol; the suffix guarantees them, and
