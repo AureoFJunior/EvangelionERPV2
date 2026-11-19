@@ -411,3 +411,7 @@ specs/erp-fullstack-audit/*.md
 
 # Generated database diagrams are large artifacts; keep only their source generator/model.
 docs/architecture/database-schema*
+
+# Local tool state: spec-kit and graphify.
+.specify/
+graphify-out/
