@@ -30,15 +30,15 @@ CONNECTION_STRING="$(aws secretsmanager get-secret-value --secret-id "$SECRET_ID
 # Pulls one keyword out of an ADO.NET connection string, case- and space-insensitively.
 connection_value() {
   local keywords="$1"
-  python3 -c '
-import sys
-wanted = {k.strip().lower() for k in sys.argv[2].split("|")}
-for part in sys.argv[1].split(";"):
+  CONNECTION_STRING="$CONNECTION_STRING" python3 -c '
+import os, sys
+wanted = {k.strip().lower() for k in sys.argv[1].split("|")}
+for part in os.environ["CONNECTION_STRING"].split(";"):
     key, _, value = part.partition("=")
     if key.strip().lower() in wanted:
         print(value.strip())
         break
-' "$CONNECTION_STRING" "$keywords"
+' "$keywords"
 }
 
 APP_USER="$(connection_value 'user id|uid|user')"

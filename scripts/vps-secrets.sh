@@ -67,11 +67,12 @@ read_secret() {
 
 write_secret() {
   local id="$1" value="$2"
+  printf '%s' "$value" > "$SECRET_VALUE_FILE"
   if aws secretsmanager describe-secret --region "$REGION" --secret-id "$id" >/dev/null 2>&1; then
-    aws secretsmanager put-secret-value --region "$REGION" --secret-id "$id" --secret-string "$value" >/dev/null
+    aws secretsmanager put-secret-value --region "$REGION" --secret-id "$id" --secret-string "file://$SECRET_VALUE_FILE" >/dev/null
     echo "    updated $id"
   else
-    aws secretsmanager create-secret --region "$REGION" --name "$id" --secret-string "$value" \
+    aws secretsmanager create-secret --region "$REGION" --name "$id" --secret-string "file://$SECRET_VALUE_FILE" \
       --description "Evangelion ERP on the VPS; written by scripts/vps-secrets.sh" >/dev/null
     echo "    created $id"
   fi
@@ -105,10 +106,13 @@ fi
 
 # mktemp: 0600, because this file holds every password until the trap removes it.
 SECRETS_JSON="$(mktemp -t evangelion-vps-secrets-XXXXXX.json)"
-trap 'rm -f "$SECRETS_JSON"' EXIT
-python3 - "$DATABASE" "$APP_USER" "$DB_PASSWORD" "$REDIS_PASSWORD" "$RABBITMQ_USER" "$RABBITMQ_PASSWORD" > "$SECRETS_JSON" <<'PY'
-import json, sys, urllib.parse
-database, app_user, db_password, redis_password, rabbit_user, rabbit_password = sys.argv[1:]
+SECRET_VALUE_FILE="$(mktemp -t evangelion-vps-secret-XXXXXX)"
+trap 'rm -f "$SECRETS_JSON" "$SECRET_VALUE_FILE"' EXIT
+DATABASE="$DATABASE" APP_USER="$APP_USER" DB_PASSWORD="$DB_PASSWORD" REDIS_PASSWORD="$REDIS_PASSWORD" \
+  RABBITMQ_USER="$RABBITMQ_USER" RABBITMQ_PASSWORD="$RABBITMQ_PASSWORD" python3 - > "$SECRETS_JSON" <<'PY'
+import json, os, urllib.parse
+database, app_user, db_password, redis_password, rabbit_user, rabbit_password = (
+    os.environ[k] for k in ("DATABASE", "APP_USER", "DB_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_USER", "RABBITMQ_PASSWORD"))
 quote = lambda s: urllib.parse.quote(s, safe="")
 print(json.dumps({
     "database": {"DefaultConnection":
