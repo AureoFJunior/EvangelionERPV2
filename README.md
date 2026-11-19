@@ -727,19 +727,35 @@ Secrets Manager for secrets and S3 for photos and backups. No EC2, no RDS.
 3. **On the VPS.** Put the IAM key in `/opt/evangelion/.docker/aws/credentials` under
    `[evangelion]`, and fill every `REPLACE` value in `/opt/evangelion/.env`. `BACKUP_S3_URI` is the
    `backup_s3_uri` terraform output. Check with `sudo -iu deploy aws sts get-caller-identity`.
+
+   Backups are encrypted with GPG before they leave the box, so the VPS holds only a public key.
+   On your own machine, not the VPS:
+
+   ```bash
+   gpg --quick-generate-key "evangelion-backup" rsa4096 encrypt never
+   gpg --armor --export evangelion-backup > backup-public.asc
+   scp backup-public.asc root@<vps>:/opt/evangelion/backup-public.asc
+   ```
+
+   Keep the private key offline (`gpg --export-secret-keys`, stored somewhere that is not the VPS or
+   the AWS account). Also set `BACKUP_PING_URL` in `.env` to a healthchecks.io-style URL: it is how a
+   stopped backup timer gets noticed. To read a backup, import the private key and run
+   `gpg --decrypt file.bak.gz.gpg | gunzip > file.bak`.
 4. **Secrets.** From a machine with admin AWS access, with a copy of that `.env`:
    `scripts/vps-secrets.sh ./vps.env`. Delete the copy afterwards.
 5. **DNS.** Point `CADDY_DOMAIN` at the VPS. Caddy gets the certificate on the first request.
-6. **GitHub.** Add the secret `HOSTGATOR_SSH_KEY` (the private key from step 2) and the variables
+6. **GitHub.** Add `HOSTGATOR_SSH_KEY` (the private key from step 2) as an **environment secret of
+   `production`**, not a repository secret, so only the deploy job can read it. On that environment
+   add required reviewers and a deployment branch rule limited to `release`. The variables
    `HOSTGATOR_HOST`, `HOSTGATOR_KNOWN_HOSTS` (`ssh-keyscan -t ed25519 <vps>`, compared against
-   the VPS console), `HOSTGATOR_PUBLIC_HOST`, and `DEPLOY_TARGET=hostgator`. That last one switches
-   `buildPushDeploy.yml` from the EC2 job to the VPS job. Put a required reviewer on the
-   `production` environment if deploys should wait for a person.
+   the VPS console), `HOSTGATOR_PUBLIC_HOST`, and `DEPLOY_TARGET=hostgator` stay repository
+   variables. That last one switches `buildPushDeploy.yml` from the EC2 job to the VPS job.
 7. **Deploy.** Push to `release`. The run builds the images, generates `migrations.sql`, uploads
    the release, creates the database and the `evangelion_app` login, and fails unless
    `https://<HOSTGATOR_PUBLIC_HOST>/health` answers `Healthy`.
 8. **Restore drill**, before relying on it and then monthly:
-   `sudo -iu deploy /opt/evangelion/current/scripts/vps-db-restore-drill.sh s3://<bucket>/sql/<yyyy>/<mm>/<file>.bak.gz`.
+   `sudo -iu deploy /opt/evangelion/current/scripts/vps-db-restore-drill.sh s3://<bucket>/sql/<yyyy>/<mm>/<file>.bak.gz.gpg`,
+   run on a machine that has the private key imported (the VPS does not).
 
 **Routine operations**
 

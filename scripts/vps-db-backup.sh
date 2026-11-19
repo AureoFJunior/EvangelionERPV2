@@ -10,7 +10,9 @@
 #     the file is gzipped afterwards instead, inside the container, by the user that owns it.
 #   * CHECKSUM plus RESTORE VERIFYONLY: a backup that cannot be read back is worse than none,
 #     because it looks like one.
-#   * The upload is the backup. A .bak that only exists on this disk dies with the disk.
+#   * The upload is the backup. A .bak that only exists on this disk dies with the disk. It is
+#     encrypted on the way out with GPG to the public key in BACKUP_GPG_PUBLIC_KEY; the private
+#     key never lives on this host, so the bucket only ever holds ciphertext.
 #
 # Usage: vps-db-backup.sh [label]      label defaults to "nightly"
 set -euo pipefail
@@ -26,10 +28,16 @@ HOST_DIR="$(env_value SQLSERVER_BACKUP_DIR)"
 HOST_DIR="${HOST_DIR:-$APP_DIR/backups}"
 BACKUP_S3_URI="$(env_value BACKUP_S3_URI)"
 BACKUP_PING_URL="$(env_value BACKUP_PING_URL)"
+BACKUP_GPG_PUBLIC_KEY="$(env_value BACKUP_GPG_PUBLIC_KEY)"
 
 if ! database_exists; then
   echo "No database $DATABASE yet; nothing to back up."
   exit 0
+fi
+
+if [[ -n "$BACKUP_S3_URI" && ! -r "$BACKUP_GPG_PUBLIC_KEY" ]]; then
+  echo "BACKUP_GPG_PUBLIC_KEY (${BACKUP_GPG_PUBLIC_KEY:-unset}) is missing or unreadable; refusing to upload an unencrypted backup." >&2
+  exit 1
 fi
 
 NAME="${DATABASE}-${LABEL}-$(date -u +%Y%m%dT%H%M%SZ).bak"
@@ -40,20 +48,29 @@ sa_sqlcmd -Q "RESTORE VERIFYONLY FROM DISK = N'$CONTAINER_DIR/$NAME' WITH CHECKS
 
 docker exec "$SQL_CONTAINER" gzip -f "$CONTAINER_DIR/$NAME"
 
+# No plaintext temp file on the host: the gzip is read out of the container straight into gpg.
+upload_encrypted() {
+  docker exec "$SQL_CONTAINER" cat "$CONTAINER_DIR/$NAME.gz" |
+    gpg --batch --yes --trust-model always --encrypt --recipient-file "$BACKUP_GPG_PUBLIC_KEY" |
+    aws s3 cp --only-show-errors - "$1"
+}
+
 if [[ -n "$BACKUP_S3_URI" ]]; then
-  DEST="${BACKUP_S3_URI%/}/$(date -u +%Y/%m)/$NAME.gz"
+  DEST="${BACKUP_S3_URI%/}/$(date -u +%Y/%m)/$NAME.gz.gpg"
   echo "==> Uploading to $DEST"
-  aws s3 cp --only-show-errors "$HOST_DIR/$NAME.gz" "$DEST"
+  upload_encrypted "$DEST"
   # The bucket expires daily backups after 14 days; the first of each month is copied under a
   # -monthly prefix that it keeps for a year (terraform/vps-aws).
   if [[ "$LABEL" == "nightly" && "$(date -u +%d)" == "01" ]]; then
-    aws s3 cp --only-show-errors "$HOST_DIR/$NAME.gz" "${BACKUP_S3_URI%/}-monthly/$(date -u +%Y/%m)/$NAME.gz"
+    upload_encrypted "${BACKUP_S3_URI%/}-monthly/$(date -u +%Y/%m)/$NAME.gz.gpg"
   fi
 else
   echo "BACKUP_S3_URI is not set: this backup exists only on this disk." >&2
   [[ "$LABEL" == "nightly" ]] && exit 1
 fi
 
+# ponytail: local copies stay plain .bak.gz; the 2750 backup dir is readable only by root and deploy,
+# the same audience as .env. Encrypt them too if that dir ever gets a wider audience.
 # Oldest first out, newest $KEEP_LOCAL stay for a quick restore without a download.
 docker exec "$SQL_CONTAINER" sh -c \
   "ls -1t '$CONTAINER_DIR'/*.bak.gz 2>/dev/null | tail -n +$((KEEP_LOCAL + 1)) | xargs -r rm -f"
