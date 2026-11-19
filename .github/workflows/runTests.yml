@@ -49,3 +49,6 @@ jobs:
 
     - name: Check the VPS compose configuration
       run: scripts/check-vps-compose.sh
+
+    - name: Test the VPS scripts
+      run: for test in scripts/tests/*.test.sh; do bash "$test"; done
