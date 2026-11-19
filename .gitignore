@@ -417,3 +417,7 @@ docs/architecture/database-schema*
 
 # Filled in per account; the .example is the committed template.
 EvangelionERPV2.Web/terraform/vps-aws/terraform.tfvars
+
+# Local tool state: spec-kit and graphify.
+.specify/
+graphify-out/
