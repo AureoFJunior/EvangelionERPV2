@@ -19,7 +19,8 @@ sed -e 's/=REPLACE$/=Placeholder1/' -e 's/REPLACE_[A-Z_]*/placeholder/g' \
   "$ROOT/.env.hostgator.example" > "$WORK/.env"
 
 merged() {
-  docker compose --project-directory "$ROOT" --env-file "$1" \
+  local env_file="$1"
+  docker compose --project-directory "$ROOT" --env-file "$env_file" \
     -f "$ROOT/docker-compose.yml" -f "$ROOT/docker-compose.prod.yml" -f "$ROOT/docker-compose.hostgator.yml" \
     --profile workers config --format json
 }

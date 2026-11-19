@@ -31,7 +31,8 @@ DATABASE="${DATABASE:-EvangelionERPV2}"
 APP_USER="${APP_USER:-evangelion_app}"
 
 env_value() {
-  { grep -E "^$1=" "$ENV_FILE" || true; } | tail -n 1 | cut -d= -f2-
+  local key="$1"
+  { grep -E "^$key=" "$ENV_FILE" || true; } | tail -n 1 | cut -d= -f2-
 }
 
 REDIS_PASSWORD="$(env_value REDIS_PASSWORD)"
@@ -44,7 +45,8 @@ for name in REDIS_PASSWORD RABBITMQ_PASSWORD; do
 done
 
 read_secret() {
-  aws secretsmanager get-secret-value --region "$REGION" --secret-id "$1" \
+  local secret_id="$1"
+  aws secretsmanager get-secret-value --region "$REGION" --secret-id "$secret_id" \
     --query SecretString --output text 2>/dev/null || true
 }
 

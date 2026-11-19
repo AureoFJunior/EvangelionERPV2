@@ -136,7 +136,7 @@ jobs:
           ASPNETCORE_ENVIRONMENT: Development
           DOTNET_ENVIRONMENT: Development
           AWS_EC2_METADATA_DISABLED: "true"
-          ConnectionStrings__DefaultConnection: "plain:Server=localhost;Database=EvangelionERPV2;User Id=unused;Password=unused;TrustServerCertificate=True"
+          ConnectionStrings__DefaultConnection: "plain:Server=localhost;Database=EvangelionERPV2;TrustServerCertificate=True"
           Encryption__Key: "plain:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
           Encryption__TokenKey: "plain:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
           RedisSettings__InstanceName: "plain:unused"

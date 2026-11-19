@@ -29,7 +29,8 @@ fi
 # A missing key is an empty value, not a failure: under pipefail grep's "no match" would end the
 # caller.
 env_value() {
-  { grep -E "^$1=" "$ENV_FILE" || true; } | tail -n 1 | cut -d= -f2-
+  local key="$1"
+  { grep -E "^$key=" "$ENV_FILE" || true; } | tail -n 1 | cut -d= -f2-
 }
 
 # The host's own aws CLI uses the same key as the containers.

@@ -57,7 +57,7 @@ apt-get install -y -q ca-certificates curl gnupg ufw fail2ban unattended-upgrade
 if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
   echo "==> Docker Engine and Compose from download.docker.com"
   install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  curl --proto =https --tlsv1.2 -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
   chmod a+r /etc/apt/keyrings/docker.asc
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
     > /etc/apt/sources.list.d/docker.list
@@ -80,7 +80,7 @@ systemctl enable --now docker
 if ! command -v aws >/dev/null; then
   echo "==> AWS CLI v2"
   tmp="$(mktemp -d)"
-  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "$tmp/awscli.zip"
+  curl --proto =https --tlsv1.2 -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "$tmp/awscli.zip"
   unzip -q "$tmp/awscli.zip" -d "$tmp"
   "$tmp/aws/install" --update
   rm -rf "$tmp"
