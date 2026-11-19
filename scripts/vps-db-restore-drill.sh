@@ -6,7 +6,10 @@
 # guess. With no argument it uses the newest local backup; pass an s3:// URI to test what is off
 # the box, which is the copy that matters when the disk is gone.
 #
-# Usage: vps-db-restore-drill.sh [backup.bak.gz | s3://.../backup.bak.gz]
+# Off-box copies are GPG-encrypted (.bak.gz.gpg). Run the drill where the private key is imported
+# (gpg --import); the VPS does not have it, so decrypt there only for a real disaster restore.
+#
+# Usage: vps-db-restore-drill.sh [backup.bak.gz | backup.bak.gz.gpg | s3://.../backup.bak.gz.gpg]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,14 +30,18 @@ fi
 WORK="drill-$(date -u +%Y%m%dT%H%M%SZ).bak"
 if [[ "$SOURCE" == s3://* ]]; then
   echo "==> Downloading $SOURCE"
-  TMP="$(mktemp -t evangelion-drill-XXXXXX.bak.gz)"
+  TMP="$(mktemp -t evangelion-drill-XXXXXX.bak.gz.gpg)"
   trap 'rm -f "$TMP"' EXIT
   aws s3 cp --only-show-errors "$SOURCE" "$TMP"
   SOURCE="$TMP"
 fi
 
 echo "==> Restoring $(basename "$SOURCE") as $SCRATCH_DB"
-gunzip -c "$SOURCE" | docker exec -i "$SQL_CONTAINER" sh -c "cat > '$CONTAINER_DIR/$WORK'"
+if [[ "$SOURCE" == *.gpg ]]; then
+  gpg --batch --decrypt "$SOURCE" | gunzip -c
+else
+  gunzip -c "$SOURCE"
+fi | docker exec -i "$SQL_CONTAINER" sh -c "cat > '$CONTAINER_DIR/$WORK'"
 
 cleanup_container() {
   sa_sqlcmd -Q "IF DB_ID(N'$SCRATCH_DB') IS NOT NULL BEGIN ALTER DATABASE [$SCRATCH_DB] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$SCRATCH_DB]; END" >/dev/null || true
@@ -48,6 +55,10 @@ FILES="$(sa_sqlcmd -h -1 -W -s '|' -Q "SET NOCOUNT ON; RESTORE FILELISTONLY FROM
 MOVES=""
 while IFS='|' read -r logical type; do
   [[ -n "$logical" ]] || continue
+  if [[ ! "$logical" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    echo "Refusing to restore: unexpected logical file name '$logical' in the backup." >&2
+    exit 1
+  fi
   extension="mdf"; [[ "$type" == "L" ]] && extension="ldf"
   MOVES+=", MOVE N'$logical' TO N'/var/opt/mssql/data/${SCRATCH_DB}_${logical}.$extension'"
 done <<< "$FILES"
